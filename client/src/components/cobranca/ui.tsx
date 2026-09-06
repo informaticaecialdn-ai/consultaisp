@@ -205,8 +205,9 @@ export function PilulaAtraso({ dias, testId }: { dias: number; testId?: string }
  * da base, independente dos filtros. Cada fatia tem `title` e a legenda repete
  * rótulo, contagem e %, então a cor é redundante, não portadora.
  */
-export function BarraComposicao({ composicao, carregando, testId }: {
+export function BarraComposicao({ composicao, carregando, testId, carteira }: {
   composicao: ComposicaoDaCarteira | null | undefined;
+  carteira?: "ativo" | "ex_cliente";
   carregando?: boolean;
   testId?: string;
 }) {
@@ -215,7 +216,7 @@ export function BarraComposicao({ composicao, carregando, testId }: {
         { id: "emDia", rotulo: "Ativos em dia", cor: "var(--ok)", n: composicao.emDia },
         { id: "emCobranca", rotulo: "Em cobrança", cor: "var(--gated)", n: composicao.emCobranca },
         { id: "exComDivida", rotulo: "Ex-clientes com dívida", cor: "var(--past)", n: composicao.exComDivida },
-      ]
+      ].filter(f => !carteira || (carteira === "ativo" ? f.id !== "exComDivida" : f.id === "exComDivida"))
     : null;
   const universo = fatias ? fatias.reduce((s, f) => s + f.n, 0) : 0;
 
@@ -223,7 +224,7 @@ export function BarraComposicao({ composicao, carregando, testId }: {
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-[14px] py-3" data-testid={testId}>
       <div className="flex flex-wrap items-baseline gap-2">
         <Kicker>composição da carteira</Kicker>
-        <span className="text-[11px] text-[var(--text-faint)]">a base inteira — independe dos filtros</span>
+        <span className="text-[11px] text-[var(--text-faint)]">{carteira ? "toda a carteira selecionada" : "a base inteira"} · independe dos filtros</span>
       </div>
       <div className="mt-2 flex h-3 overflow-hidden rounded bg-[var(--surface-3)]" aria-hidden>
         {!carregando && fatias && universo > 0 && fatias.map(f => f.n > 0 && (

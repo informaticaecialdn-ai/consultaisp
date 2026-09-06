@@ -13,9 +13,10 @@ import path from "path";
  * Drizzle compila o SQL de verdade e entrega texto + parametros a um callback.
  */
 const banco = vi.hoisted(() => ({
-  consultas: [] as { sql: string; params: unknown[]; method: string }[],
+  consultas: [] as { sql: string; params: unknown[]; method: string; dentroDaTransacao: boolean }[],
   linhas: new Map<string, Record<string, unknown>[]>(),
   vazias: [] as RegExp[],
+  dentro: false,
   db: null as any,
 }));
 
@@ -89,9 +90,17 @@ beforeEach(() => {
   banco.consultas.length = 0;
   banco.vazias.length = 0;
   banco.linhas.clear();
-  banco.db = drizzle(async (sqlTexto, params, method) => {
-    banco.consultas.push({ sql: sqlTexto, params, method });
+  banco.dentro = false;
+  const proxy = drizzle(async (sqlTexto, params, method) => {
+    banco.consultas.push({ sql: sqlTexto, params, method, dentroDaTransacao: banco.dentro });
     return { rows: responder(sqlTexto) };
+  });
+  // O pg-proxy nao suporta transacao; o shim marca "dentro" e chama o callback com o mesmo db (molde: cobranca.storage.test.ts).
+  banco.db = Object.assign(proxy, {
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      banco.dentro = true;
+      try { return await fn(proxy); } finally { banco.dentro = false; }
+    },
   });
   storage = new ChatBullqStorage();
 });
@@ -100,6 +109,13 @@ const integracao = { id: 1, providerId: PROVEDOR, organizationId: "org_abc", slu
 const conversa = { id: 50, providerId: PROVEDOR, customerId: 42, casoId: 10, recuperacaoId: null, origem: "cobranca", conversationId: "conv_1", canalId: "ch_1", abertaPorUserId: 3, status: "BOT", abertaEm: "2026-09-05 10:00:00", ultimoEventoEm: null };
 
 describe("toda consulta carrega o provider_id", () => {
+  it("cadastro, faturas, pagamentos, contrato e ordens do chat pertencem ao mesmo provedor", async () => {
+    await storage.clienteDoAtendimento(PROVEDOR, 42);
+    await storage.contextoFinanceiroDoChat(PROVEDOR, 42);
+    expect(banco.consultas).toHaveLength(5);
+    for (const q of banco.consultas) provaProviderId(q, PROVEDOR);
+    expect(banco.consultas.every(q => q.params.includes(42))).toBe(true);
+  });
   it("integracao: ler, criar, atualizar, marcar estado", async () => {
     banco.vazias.push(/^select .* from "chat_bullq_integracoes"/);
     await storage.getIntegracaoDoChat(PROVEDOR);
@@ -129,6 +145,22 @@ describe("toda consulta carrega o provider_id", () => {
 });
 
 describe("comportamento", () => {
+  it("fila filtra os vínculos, inclusive quando a conversa pertence aos dois módulos", async () => {
+    await storage.listarAtendimentosDoChat(PROVEDOR, { origem: "cobranca", carteira: "ex_cliente", pagina: 1 });
+    const cobranca = banco.consultas.at(-1)!;
+    provaProviderId(cobranca, PROVEDOR);
+    expect(cobranca.sql).toContain('"caso_id" is not null');
+    expect(cobranca.params).toContain("ex_cliente");
+    await storage.listarAtendimentosDoChat(PROVEDOR, { origem: "equipamentos", pagina: 1 });
+    const equipamentos = banco.consultas.at(-1)!;
+    provaProviderId(equipamentos, PROVEDOR);
+    expect(equipamentos.sql).toContain('"recuperacao_id" is not null');
+  });
+  it("não transfere conversa entre cadastros que compartilham telefone", async () => {
+    banco.linhas.set("chat_bullq_conversas", [conversa]);
+    await expect(storage.registrarConversaDoChat(PROVEDOR, { customerId: 99, origem: "cobranca", casoId: 11, conversationId: "conv_1", canalId: "ch_1" })).rejects.toThrow("outro cliente");
+    expect(banco.consultas.some(c => c.sql.startsWith("update "))).toBe(false);
+  });
   it("upsert da integracao: sem linha insere; com linha atualiza (nunca duas por provedor)", async () => {
     banco.vazias.push(/^select .* from "chat_bullq_integracoes"/);
     await storage.upsertIntegracaoDoChat(PROVEDOR, { organizationId: "org_abc", slug: "isp-6", ownerEmail: "dono@isp.com" });
@@ -159,6 +191,89 @@ describe("comportamento", () => {
     expect(mapa.get(10)?.conversationId).toBe("conv_1");
     const sel = banco.consultas[0];
     expect(sel.sql).toContain('"caso_id" is not null');
+  });
+});
+
+/* ── O evento do chat na linha do tempo do caso, com o follow-up ─────── */
+
+/** O metadata jsonb vai ao driver como texto; e o unico parametro que fala em chat_integrado. */
+function metadataDo(c: { params: unknown[] }): Record<string, unknown> {
+  const bruto = c.params.find(p => typeof p === "string" && p.includes("chat_integrado"));
+  expect(bruto, "metadata do evento").toBeTypeOf("string");
+  return JSON.parse(bruto as string);
+}
+
+/* ── A fila do primeiro contato automático: contato que SAIU ─────────── */
+
+describe("primeiro contato automático", () => {
+  it("a cota do dia conta contato enviado (evento), nunca conversa aberta", async () => {
+    await storage.contatosIniciadosNoDia(PROVEDOR, new Date("2026-09-08T03:00:00.000Z"));
+    expect(banco.consultas).toHaveLength(2);
+    for (const c of banco.consultas) provaProviderId(c, PROVEDOR);
+    // Uma linha em chat_bullq_conversas nasce também quando a ponte só vinculou
+    // a conversa que já existia — e nada foi enviado. Ela não conta.
+    expect(banco.consultas.some(c => c.sql.includes('"chat_bullq_conversas"'))).toBe(false);
+    const cobranca = banco.consultas.find(c => c.sql.includes('"cobranca_eventos"'))!;
+    expect(cobranca.params).toContain("contato");
+    expect(cobranca.params).toContain("whatsapp");
+    const equipamentos = banco.consultas.find(c => c.sql.includes('"equipment_recovery_events"'))!;
+    expect(equipamentos.sql).toContain(`->>'enviado' = 'true'`);
+  });
+
+  it("candidatos: exclui só a conversa ABERTA e quem já recebeu contato de verdade", async () => {
+    await storage.candidatosAoPrimeiroContato(PROVEDOR);
+    expect(banco.consultas).toHaveLength(2);
+    for (const c of banco.consultas) provaProviderId(c, PROVEDOR);
+    const [cobranca, equipamentos] = banco.consultas;
+    // Conversa encerrada não pode aposentar o caso para sempre: a exclusão olha
+    // status <> 'CLOSED'.
+    for (const c of [cobranca, equipamentos]) {
+      expect(c.sql).toContain('"chat_bullq_conversas"');
+      expect(c.sql).toContain('"status" <> $');
+      expect(c.params).toContain("CLOSED");
+    }
+    // Na cobrança o rastro do envio é ultimo_contato_em (só o evento `contato` a
+    // grava); na recuperação, o evento marcado `enviado`.
+    expect(cobranca.sql).toContain('"ultimo_contato_em" is null');
+    expect(equipamentos.sql).toContain('"equipment_recovery_events"');
+    expect(equipamentos.sql).toContain(`->>'enviado' = 'true'`);
+  });
+});
+
+describe("registrarEventoDoChat", () => {
+  const vinculo = { ...conversa, recuperacaoId: 7 } as any;
+  const quando = new Date("2026-09-08T12:00:00.000Z");
+
+  it("um evento por modulo, os dois com provider_id, na mesma transacao; o follow-up so no evento de cobranca", async () => {
+    await storage.registrarEventoDoChat(PROVEDOR, vinculo, 3, "Conversa encerrada; situação do caso preservada", { proximaAcao: "Cobrar a promessa", proximoContatoEm: quando });
+    expect(banco.consultas).toHaveLength(2);
+    for (const c of banco.consultas) {
+      expect(c.sql.startsWith("insert into")).toBe(true);
+      expect(c.dentroDaTransacao, c.sql).toBe(true);
+      provaProviderId(c, PROVEDOR);
+    }
+    const cobranca = banco.consultas.find(c => c.sql.startsWith('insert into "cobranca_eventos"'))!;
+    const recuperacao = banco.consultas.find(c => c.sql.startsWith('insert into "equipment_recovery_events"'))!;
+    expect(cobranca.params).toEqual(expect.arrayContaining([10, 42, 3, "nota", "whatsapp"]));
+    expect(metadataDo(cobranca)).toEqual({ origem: "chat_integrado", conversationId: "conv_1", proximaAcao: "Cobrar a promessa", proximoContatoEm: "2026-09-08T12:00:00.000Z" });
+    expect(recuperacao.params).toEqual(expect.arrayContaining([7, 3, "nota", "whatsapp"]));
+    expect(metadataDo(recuperacao)).toEqual({ origem: "chat_integrado", conversationId: "conv_1" });
+  });
+  it("sem follow-up o metadata continua so com a origem — nada inventado na linha do tempo", async () => {
+    await storage.registrarEventoDoChat(PROVEDOR, conversa as any, null, "Atendente assumiu a conversa; resposta automática pausada");
+    expect(banco.consultas).toHaveLength(1);
+    provaProviderId(banco.consultas[0], PROVEDOR);
+    expect(metadataDo(banco.consultas[0])).toEqual({ origem: "chat_integrado", conversationId: "conv_1" });
+    // O caso nao e tocado por aqui: as colunas proxima_acao/proximo_contato_em sao de atualizarCasoDeCobranca.
+    expect(banco.consultas.some(c => c.sql.startsWith('update "cobranca_casos"'))).toBe(false);
+  });
+  it("o primeiro contato que saiu de verdade fica marcado `enviado` no metadata", async () => {
+    await storage.registrarEventoDoChat(PROVEDOR, { ...conversa, casoId: null, recuperacaoId: 7 } as any, 3, "Primeiro contato sobre devolução enviado pelo chat", undefined, true);
+    expect(metadataDo(banco.consultas[0])).toEqual({ origem: "chat_integrado", conversationId: "conv_1", enviado: true });
+  });
+  it("conversa sem caso e sem recuperacao nao grava nada", async () => {
+    await storage.registrarEventoDoChat(PROVEDOR, { ...conversa, casoId: null, recuperacaoId: null } as any, 3, "x");
+    expect(banco.consultas).toHaveLength(0);
   });
 });
 

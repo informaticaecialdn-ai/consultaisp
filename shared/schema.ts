@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb, index, uniqueIndex, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, bigserial, jsonb, index, uniqueIndex, unique, primaryKey, foreignKey, check, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1577,6 +1577,55 @@ export type ChatBullqIntegracao = typeof chatBullqIntegracoes.$inferSelect;
 export type InsertChatBullqIntegracao = typeof chatBullqIntegracoes.$inferInsert;
 export type ChatBullqConversa = typeof chatBullqConversas.$inferSelect;
 export type InsertChatBullqConversa = typeof chatBullqConversas.$inferInsert;
+
+/* A autonomia do chat (migracao 0028): o motor CONTROLADO do Consulta ISP que
+ * responde ao cliente sozinho, dentro do que o provedor permitiu. O LLM so
+ * escolhe a intencao; texto, valor e data sao do servidor. Tres tabelas:
+ * a configuracao por provedor, o estado por conversa (rodadas, proposta em
+ * aberto, se um humano assumiu) e a fila duravel de mensagens a responder.
+ * Declaradas identicas a migrations/0028_chat_autonomia.sql. */
+
+export const chatAutonomiaConfig = pgTable("chat_autonomia_config", {
+  providerId: integer("provider_id").primaryKey().references(() => providers.id),
+  config: jsonb("config").$type<Record<string, unknown>>().notNull().default(sql`'{"ativa":false}'::jsonb`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const chatAutonomiaEstado = pgTable("chat_autonomia_estado", {
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  conversationId: text("conversation_id").notNull(),
+  turnos: integer("turnos").notNull().default(0),
+  humano: boolean("humano").notNull().default(false),
+  proposta: jsonb("proposta").$type<Record<string, unknown>>(),
+  motivo: text("motivo"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.providerId, t.conversationId] }),
+  foreignKey({ columns: [t.providerId, t.conversationId], foreignColumns: [chatBullqConversas.providerId, chatBullqConversas.conversationId] }),
+  check("chat_autonomia_estado_turnos_check", sql`${t.turnos} >= 0`),
+]);
+
+
+export const chatAutonomiaFila = pgTable("chat_autonomia_fila", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  conversationId: text("conversation_id").notNull(),
+  messageId: text("message_id").notNull(),
+  /** pendente · processando · enviando · concluido · humano · cancelado */
+  status: text("status").notNull().default("pendente"),
+  motivo: text("motivo"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("chat_autonomia_fila_provider_id_message_id_key").on(t.providerId, t.messageId),
+  foreignKey({ columns: [t.providerId, t.conversationId], foreignColumns: [chatBullqConversas.providerId, chatBullqConversas.conversationId] }),
+  check("chat_autonomia_fila_status_check", sql`${t.status} in ('pendente','processando','enviando','concluido','humano','cancelado')`),
+  index("chat_autonomia_pendente").on(t.status, t.id),
+]);
+
+export type ChatAutonomiaConfigLinha = typeof chatAutonomiaConfig.$inferSelect;
+export type ChatAutonomiaEstadoLinha = typeof chatAutonomiaEstado.$inferSelect;
+export type ChatAutonomiaFilaLinha = typeof chatAutonomiaFila.$inferSelect;
 
 export type LoginData = z.infer<typeof loginSchema>;
 export type RegisterData = z.infer<typeof registerSchema>;

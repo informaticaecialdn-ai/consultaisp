@@ -199,12 +199,10 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
         <SeloQuadrante quadrante={quadrante} />
         <SeloTom tom={tom} />
         {item.chat && (
-          acoes.inboxUrl ? (
-            <a href={acoes.inboxUrl} target="_blank" rel="noreferrer noopener" onClick={e => e.stopPropagation()} className="inline-flex" title={`Conversa no chat · ${item.chat.status}`} data-testid={`card-chat-${item.id}`}>
+          (
+            <a href={`/cobranca/chat?conversa=${encodeURIComponent(item.chat.conversationId)}&carteira=${item.carteira}`} onClick={e => e.stopPropagation()} className="inline-flex" title={`Conversa no chat · ${item.chat.status}`} data-testid={`card-chat-${item.id}`}>
               <SeloCobranca tom="info" className="normal-case tracking-normal"><MessageSquareShare className="h-3 w-3" aria-hidden /> chat · {item.chat.status.toLowerCase()}</SeloCobranca>
             </a>
-          ) : (
-            <SeloCobranca tom="info" className="normal-case tracking-normal" titulo={`Conversa no chat · ${item.chat.status}`} testId={`card-chat-${item.id}`}><MessageSquareShare className="h-3 w-3" aria-hidden /> chat · {item.chat.status.toLowerCase()}</SeloCobranca>
           )
         )}
       </div>
@@ -268,7 +266,7 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
               <MessageSquareShare className="h-3 w-3" aria-hidden /> {acoes.enviandoParaChat === item.id ? "Enviando…" : "Enviar p/ cobrança"}
             </button>
           )}
-          <Link href={rotaDoCliente(cliente.id)} className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} data-testid={`card-360-${item.id}`}>360</Link>
+          <Link href={rotaDoCliente(cliente.id, item.carteira)} className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} data-testid={`card-360-${item.id}`}>360</Link>
         </div>
       )}
     </div>

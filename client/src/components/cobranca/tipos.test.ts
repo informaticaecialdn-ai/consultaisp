@@ -48,11 +48,17 @@ describe("economia da política na tela", () => {
 });
 
 describe("lerRespostaDaFila", () => {
+  it("preserva críticos e valores do servidor quando só parte da carteira foi carregada", () => {
+    const fila = lerRespostaDaFila({ itens: [{ id: 1 }], total: 145, kpis: { casos: 145, criticos: 12, valor: 45200, paraHoje: 130 } });
+    expect(fila.itens).toHaveLength(1);
+    expect(fila.total).toBe(145);
+    expect(fila.kpis).toMatchObject({ casosVivos: 145, criticos: 12, emAberto: 45200, paraHoje: 130 });
+  });
   it("itens, total e KPIs contados pela rota", () => {
     const r = lerRespostaDaFila({ itens: [{ id: 1 }], total: 7200, kpis: { casosVivos: 7200, paraHoje: 40, vencidos: "12", agendados: 5, emAberto: "4590000.50" }, pausada: true, pausadaMotivo: "auditoria" });
     expect(r.itens).toHaveLength(1);
     expect(r.total).toBe(7200);
-    expect(r.kpis).toEqual({ casosVivos: 7200, paraHoje: 40, vencidos: 12, agendados: 5, emAberto: 4590000.5 });
+    expect(r.kpis).toEqual({ criticos: null, casosVivos: 7200, paraHoje: 40, vencidos: 12, agendados: 5, emAberto: 4590000.5 });
     expect(r.pausada).toBe(true);
     expect(r.pausadaMotivo).toBe("auditoria");
   });
@@ -60,7 +66,7 @@ describe("lerRespostaDaFila", () => {
     const r = lerRespostaDaFila({ itens: [{ id: 1 }, { id: 2 }] });
     expect(r.total).toBeNull();
     expect(r.kpis).toBeNull();
-    expect(lerRespostaDaFila({ itens: [], kpis: { casosVivos: 3 } }).kpis).toEqual({ casosVivos: 3, paraHoje: null, vencidos: null, agendados: null, emAberto: null });
+    expect(lerRespostaDaFila({ itens: [], kpis: { casosVivos: 3 } }).kpis).toEqual({ criticos: null, casosVivos: 3, paraHoje: null, vencidos: null, agendados: null, emAberto: null });
   });
   it("lista crua ainda é aceita", () => {
     expect(lerRespostaDaFila([{ id: 1 }]).itens).toHaveLength(1);

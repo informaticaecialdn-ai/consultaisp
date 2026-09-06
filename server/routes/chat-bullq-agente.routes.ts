@@ -18,6 +18,10 @@ import { z } from "zod";
 import { logger } from "../logger";
 import { storage } from "../storage";
 import { casoParaAgente, provedorDaChave, registrarPromessaDoAgente, registrarTransferenciaDoAgente } from "../services/chat/chat-agente.service";
+import { receberRespostaDoCliente } from "../services/chat/chat-atendimento.service";
+import { receberMensagemAutonoma } from "../services/chat/chat-autonomia.service";
+import { autonomiaStorage } from "../storage/chat-autonomia.storage";
+import { comTravaDoChat } from "../services/chat/chat-trava";
 
 interface ReqDoAgente extends Request { agente?: { providerId: number; organizationId: string } }
 
@@ -54,6 +58,44 @@ const WebhookSchema = z.object({
   sentAt: z.string().optional().nullable(),
 });
 
+/**
+ * Quem vai responder a mensagem que o cliente acabou de mandar.
+ *
+ * `receberMensagemAutonoma` devolve `false` SO quando a autonomia esta
+ * desligada — devolve `true` tambem em tres casos em que nao enfileira nada:
+ * conversa sem vinculo, conversa em OPEN/PENDING/CLOSED e estado ja entregue
+ * ao humano. Confiar nesse `true` fazia a mensagem do cliente SUMIR: numa
+ * conversa CLOSED ninguem enfileirava, e o caminho humano — que reabre em
+ * PENDING, grava o evento na linha do tempo e devolve o caso a fila — nao
+ * rodava. O cliente respondia e ninguem atendia.
+ *
+ * Enquanto o contrato do servico for booleano, a decisao e lida AQUI, antes
+ * de chamar: a fila autonoma recebe so o que ela vai mesmo responder, e todo
+ * o resto vai para o atendimento humano. O lugar certo desta leitura e o
+ * proprio `receberMensagemAutonoma`, devolvendo `{ assumida }`.
+ *
+ * Falha de leitura da autonomia nao decide nada sozinha: sem saber se o
+ * assistente responde, a mensagem vai para o humano — a fila autonoma so
+ * recebe o que foi lido, nunca o que foi suposto.
+ */
+async function quemRespondeAMensagem(providerId: number, conversationId: string): Promise<"autonomia" | "humano" | "ninguem"> {
+  // Conversa que este modulo nao acompanha: nao ha caso, fila nem historico a
+  // reabrir. O caminho humano recusaria com CASO_NAO_ENCONTRADO, e um >= 400
+  // aqui viraria alerta para a organizacao inteira no Chat BullQ.
+  const vinculo = await storage.getConversaDoChat(providerId, conversationId);
+  if (!vinculo) return "ninguem";
+  try {
+    if (!(await autonomiaStorage.config(providerId)).ativa) return "humano";
+    // Em atendimento humano, na fila dele, ou encerrada: a IA nao responde.
+    if (["OPEN", "PENDING", "CLOSED"].includes(vinculo.status)) return "humano";
+    if ((await autonomiaStorage.estado(providerId, conversationId)).humano) return "humano";
+    return "autonomia";
+  } catch (e) {
+    logger.warn({ err: e, providerId }, "Webhook do chat: estado da autonomia nao lido; a mensagem segue para o atendimento humano");
+    return "humano";
+  }
+}
+
 export function registerChatBullqAgenteRoutes(): Router {
   const router = Router();
 
@@ -74,6 +116,10 @@ export function registerChatBullqAgenteRoutes(): Router {
     const d = parsed.data;
     const valor = d.valor === undefined || d.valor === null ? null : typeof d.valor === "number" ? d.valor : Number(String(d.valor).replace(",", "."));
     try {
+      const integracao = await storage.getIntegracaoDoChatPorOrganizacao(req.agente!.organizationId);
+      if ((integracao?.agenteConfig as Record<string, unknown> | null)?.modoAtendimento === "primeira_resposta_humana") {
+        return res.json({ ok: false, encontrado: false, mensagem: "Neste modo, o atendente confirma e registra a negociação. Transfira a conversa ao humano." });
+      }
       res.json(await registrarPromessaDoAgente(req.agente!.providerId, { telefone: d.telefone, dataPrometida: d.dataPrometida, valor, observacao: d.observacao ?? null, conversaId: d.conversaId ?? null }));
     } catch (e) {
       logger.error({ err: e, providerId: req.agente?.providerId }, "Agente do chat: falha ao registrar promessa");
@@ -119,12 +165,39 @@ export function registerChatBullqAgenteRoutes(): Router {
 
     const trigger = (corpo.trigger ?? {}) as Record<string, unknown>;
     const toStatus = typeof trigger.toStatus === "string" ? trigger.toStatus : null;
-    const assignedToId = typeof trigger.assignedToId === "string" ? trigger.assignedToId : null;
+    const assignedToId = typeof trigger.toAssigneeId === "string" ? trigger.toAssigneeId : typeof trigger.assignedToId === "string" ? trigger.assignedToId : null;
     if (!corpo.conversationId) return res.json({ ok: true, ignorado: "sem conversa" });
 
     try {
+      if (trigger.isFromCustomer === true && typeof trigger.messageId === "string") {
+        if (!trigger.messageId.trim() || trigger.messageId.length > 160) return res.status(400).json({ message: "Mensagem inválida" });
+        const quem = await quemRespondeAMensagem(intg.providerId, corpo.conversationId);
+        if (quem === "ninguem") {
+          logger.warn({ providerId: intg.providerId, conversationId: corpo.conversationId }, "Webhook do chat: mensagem de cliente em conversa sem vinculo neste provedor");
+          return res.json({ ok: true, ignorado: "conversa sem vinculo" });
+        }
+        // Se a autonomia foi desligada entre a leitura e a chamada, o `false`
+        // devolve a mensagem ao caminho humano em vez de deixa-la sem ninguem.
+        if (quem === "autonomia" && await receberMensagemAutonoma(intg.providerId, corpo.conversationId, trigger.messageId))
+          return res.json({ ok: true });
+        await receberRespostaDoCliente(intg.providerId, corpo.conversationId);
+        return res.json({ ok: true });
+      }
+      if (toStatus === "OPEN" || toStatus === "CLOSED" || toStatus === "PENDING") {
+        const bloqueado = await comTravaDoChat(`autonomia:${intg.providerId}:${corpo.conversationId}`, async () => {
+          if (await storage.getConversaDoChat(intg.providerId, corpo.conversationId!))
+            await autonomiaStorage.cancelar(intg.providerId, corpo.conversationId!, "Conversa transferida, assumida ou encerrada no chat");
+          return true;
+        });
+        if (!bloqueado) return res.status(503).json({ message: "Rodada em andamento; repetir evento de status" });
+      }
+      // Todas as mensagens da ponte usam a conta técnica do owner no BullQ.
+      // Atribuição a essa conta não prova que um operador assumiu o caso.
+      const modo = (intg.agenteConfig as Record<string, unknown> | null)?.modoAtendimento;
+      if (modo === "primeira_resposta_humana" && (assignedToId || toStatus === "OPEN" || toStatus === "BOT" || toStatus === "PENDING")) return res.json({ ok: true, ignorado: "atendimento sincronizado pelo Consulta ISP" });
+      if (toStatus && !["BOT", "PENDING", "OPEN", "WAITING", "CLOSED"].includes(toStatus)) return res.status(400).json({ message: "Status inválido" });
       const vinculo = await storage.atualizarConversaDoChat(intg.providerId, corpo.conversationId, { status: toStatus ?? (assignedToId ? "OPEN" : undefined) });
-      if (vinculo?.casoId) {
+      if (vinculo) {
         const texto = toStatus === "PENDING"
           ? "Chat: a IA transferiu a conversa ao atendente"
           : assignedToId
@@ -134,15 +207,7 @@ export function registerChatBullqAgenteRoutes(): Router {
               : toStatus
                 ? `Chat: conversa em ${toStatus.toLowerCase()}`
                 : "Chat: conversa atualizada";
-        await storage.registrarEventoDeCobranca(intg.providerId, {
-          casoId: vinculo.casoId,
-          userId: null,
-          tipo: "nota",
-          canal: "whatsapp",
-          resultado: null,
-          notas: texto,
-          metadata: { origem: "chat_bullq_webhook", conversaId: corpo.conversationId, toStatus, assignedToId: assignedToId ? "sim" : null },
-        });
+        await storage.registrarEventoDoChat(intg.providerId, vinculo, null, texto);
       }
       res.json({ ok: true });
     } catch (e) {

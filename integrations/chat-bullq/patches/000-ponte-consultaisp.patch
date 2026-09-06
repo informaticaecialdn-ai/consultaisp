@@ -1,0 +1,703 @@
+diff --git a/src/app.module.ts b/src/app.module.ts
+index 6461bab..99a461a 100644
+--- a/src/app.module.ts
++++ b/src/app.module.ts
+@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
+ import { BullModule } from '@nestjs/bullmq';
+ import { PrismaModule } from './database/prisma.module';
+ import { AuthModule } from './modules/auth/auth.module';
++import { PlatformModule } from './modules/platform/platform.module';
+ import { UsersModule } from './modules/users/users.module';
+ import { OrganizationsModule } from './modules/organizations/organizations.module';
+ import { ChannelHubModule } from './modules/channel-hub/channel-hub.module';
+@@ -49,6 +50,7 @@ import redisConfig from './config/redis.config';
+     AutomationsModule,
+     ChannelAccessModule,
+     AuthModule,
++    PlatformModule,
+     UsersModule,
+     OrganizationsModule,
+     RealtimeModule,
+diff --git a/src/modules/auth/auth.service.ts b/src/modules/auth/auth.service.ts
+index fced1d4..f23dff4 100644
+--- a/src/modules/auth/auth.service.ts
++++ b/src/modules/auth/auth.service.ts
+@@ -309,6 +309,13 @@ export class AuthService {
+     };
+   }
+ 
++  /** Internal bridge entry point; the platform guard and ownership checks run first. */
++  async issueTokensForUser(userId: string) {
++    const user = await this.prisma.user.findUnique({ where: { id: userId } });
++    if (!user?.isActive) throw new UnauthorizedException('User is not active');
++    return this.generateTokens(user.id, user.email);
++  }
++
+   private async generateTokens(userId: string, email: string) {
+     const payload = { sub: userId, email };
+ 
+diff --git a/src/modules/automations/actions/action-registry.service.ts b/src/modules/automations/actions/action-registry.service.ts
+index 5d5899a..d4b2d07 100644
+--- a/src/modules/automations/actions/action-registry.service.ts
++++ b/src/modules/automations/actions/action-registry.service.ts
+@@ -6,6 +6,7 @@ import { AddToPipelineHandler } from './handlers/add-to-pipeline.handler';
+ import { MovePipelineStageHandler } from './handlers/move-pipeline-stage.handler';
+ import { AssignUserHandler } from './handlers/assign-user.handler';
+ import { SendMessageHandler } from './handlers/send-message.handler';
++import { CallWebhookHandler } from './handlers/call-webhook.handler';
+ 
+ // Centralized lookup so the executor doesn't need to know about specific
+ // handler classes — it just asks the registry for "the handler for type X".
+@@ -21,6 +22,7 @@ export class ActionRegistryService implements OnModuleInit {
+     private readonly movePipelineStage: MovePipelineStageHandler,
+     private readonly assignUser: AssignUserHandler,
+     private readonly sendMessage: SendMessageHandler,
++    private readonly callWebhook: CallWebhookHandler,
+   ) {}
+ 
+   onModuleInit() {
+@@ -31,6 +33,7 @@ export class ActionRegistryService implements OnModuleInit {
+       this.movePipelineStage,
+       this.assignUser,
+       this.sendMessage,
++      this.callWebhook,
+     ]) {
+       this.handlers.set(handler.type, handler);
+     }
+diff --git a/src/modules/automations/actions/action.types.ts b/src/modules/automations/actions/action.types.ts
+index 14a67bb..e9547db 100644
+--- a/src/modules/automations/actions/action.types.ts
++++ b/src/modules/automations/actions/action.types.ts
+@@ -12,6 +12,7 @@ export const ACTION_TYPES = [
+   'move_pipeline_stage',
+   'assign_user',
+   'send_message',
++  'call_webhook',
+ ] as const;
+ 
+ export type ActionType = (typeof ACTION_TYPES)[number];
+diff --git a/src/modules/automations/automations.controller.ts b/src/modules/automations/automations.controller.ts
+index 9d918a0..a39157a 100644
+--- a/src/modules/automations/automations.controller.ts
++++ b/src/modules/automations/automations.controller.ts
+@@ -36,12 +36,14 @@ export class AutomationsController {
+   }
+ 
+   @Get()
++  @Roles(OrgRole.OWNER, OrgRole.ADMIN)
+   @ApiOperation({ summary: 'List automations' })
+   list(@CurrentOrg('id') orgId: string) {
+     return this.service.list(orgId);
+   }
+ 
+   @Get(':id')
++  @Roles(OrgRole.OWNER, OrgRole.ADMIN)
+   @ApiOperation({ summary: 'Get one automation' })
+   findOne(@Param('id') id: string, @CurrentOrg('id') orgId: string) {
+     return this.service.findOne(id, orgId);
+@@ -88,6 +90,7 @@ export class AutomationsController {
+   }
+ 
+   @Post(':id/dry-run')
++  @Roles(OrgRole.OWNER, OrgRole.ADMIN)
+   @ApiOperation({
+     summary: 'Test conditions against a mock payload (no execution)',
+   })
+diff --git a/src/modules/automations/automations.module.ts b/src/modules/automations/automations.module.ts
+index 4afb821..a7b807c 100644
+--- a/src/modules/automations/automations.module.ts
++++ b/src/modules/automations/automations.module.ts
+@@ -16,6 +16,7 @@ import { AddToPipelineHandler } from './actions/handlers/add-to-pipeline.handler
+ import { MovePipelineStageHandler } from './actions/handlers/move-pipeline-stage.handler';
+ import { AssignUserHandler } from './actions/handlers/assign-user.handler';
+ import { SendMessageHandler } from './actions/handlers/send-message.handler';
++import { CallWebhookHandler } from './actions/handlers/call-webhook.handler';
+ import { AutomationsService } from './automations.service';
+ import { AutomationsController } from './automations.controller';
+ import { AutomationsRunsController } from './automations-runs.controller';
+@@ -52,6 +53,7 @@ import { AUTOMATION_QUEUE } from './automations.constants';
+     MovePipelineStageHandler,
+     AssignUserHandler,
+     SendMessageHandler,
++    CallWebhookHandler,
+     ActionRegistryService,
+   ],
+   exports: [OutboxService, KillSwitchService],
+diff --git a/src/modules/messaging/conversations/conversation-fsm.service.ts b/src/modules/messaging/conversations/conversation-fsm.service.ts
+index 8e73408..f898482 100644
+--- a/src/modules/messaging/conversations/conversation-fsm.service.ts
++++ b/src/modules/messaging/conversations/conversation-fsm.service.ts
+@@ -13,6 +13,8 @@ const VALID_TRANSITIONS: Transition[] = [
+   { from: ConversationStatus.PENDING, to: ConversationStatus.OPEN },
+   { from: ConversationStatus.PENDING, to: ConversationStatus.BOT },
+   { from: ConversationStatus.BOT, to: ConversationStatus.PENDING },
++  { from: ConversationStatus.OPEN, to: ConversationStatus.PENDING },
++  { from: ConversationStatus.WAITING, to: ConversationStatus.PENDING },
+   { from: ConversationStatus.OPEN, to: ConversationStatus.WAITING },
+   { from: ConversationStatus.OPEN, to: ConversationStatus.CLOSED },
+   { from: ConversationStatus.WAITING, to: ConversationStatus.OPEN },
+@@ -54,6 +56,7 @@ export class ConversationFsmService {
+     }
+ 
+     const updateData: Record<string, any> = { status: to };
++    if (to === ConversationStatus.PENDING) updateData.assignedToId = null;
+ 
+     if (to === ConversationStatus.CLOSED) {
+       updateData.closedAt = new Date();
+diff --git a/src/modules/messaging/conversations/dto/start-conversation.dto.ts b/src/modules/messaging/conversations/dto/start-conversation.dto.ts
+index 465f3f0..ca5ec3d 100644
+--- a/src/modules/messaging/conversations/dto/start-conversation.dto.ts
++++ b/src/modules/messaging/conversations/dto/start-conversation.dto.ts
+@@ -4,6 +4,7 @@ import {
+   IsObject,
+   IsEnum,
+   ValidateNested,
++  Equals,
+ } from 'class-validator';
+ import { Type } from 'class-transformer';
+ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+@@ -36,6 +37,12 @@ export class StartConversationMessageDto {
+ }
+ 
+ export class StartConversationDto {
++  /** Bridge outreach may explicitly pause AI; this endpoint never enables it. */
++  @ApiPropertyOptional({ enum: [false] })
++  @IsOptional()
++  @Equals(false)
++  aiEnabled?: false;
++
+   @ApiProperty({ example: 'channel-id-here' })
+   @IsString()
+   channelId: string;
+diff --git a/src/modules/messaging/messages/messages.service.ts b/src/modules/messaging/messages/messages.service.ts
+index 2845405..388c784 100644
+--- a/src/modules/messaging/messages/messages.service.ts
++++ b/src/modules/messaging/messages/messages.service.ts
+@@ -98,6 +98,16 @@ export class MessagesService {
+       dto.subject,
+     );
+ 
++    // resolveForOperator can reuse an existing conversation with AI enabled.
++    // Persist the pause before send() can enqueue outreach or trigger effects.
++    if (dto.aiEnabled === false) {
++      const paused = await this.prisma.conversation.updateMany({
++        where: { id: resolvedConversation.conversationId, organizationId },
++        data: { aiEnabled: false, activeAgentId: null, aiDisabledBy: senderId, aiDisabledAt: new Date() },
++      });
++      if (paused.count !== 1) throw new NotFoundException('Conversation not found');
++    }
++
+     return this.send(
+       {
+         conversationId: resolvedConversation.conversationId,
+diff --git a/src/modules/platform/platform-key.guard.ts b/src/modules/platform/platform-key.guard.ts
+new file mode 100644
+index 0000000..af7b768
+--- /dev/null
++++ b/src/modules/platform/platform-key.guard.ts
+@@ -0,0 +1,19 @@
++import { CanActivate, ExecutionContext, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
++import { ConfigService } from '@nestjs/config';
++import { createHash, timingSafeEqual } from 'node:crypto';
++
++@Injectable()
++export class PlatformKeyGuard implements CanActivate {
++  constructor(private readonly config: ConfigService) {}
++
++  canActivate(context: ExecutionContext): boolean {
++    const expected = this.config.get<string>('PLATFORM_API_KEY');
++    if (!expected || expected.length < 32) throw new ServiceUnavailableException('Platform provisioning is not configured');
++    const supplied: unknown = context.switchToHttp().getRequest<{ headers: Record<string, unknown> }>().headers['x-platform-key'];
++    if (typeof supplied !== 'string' || !timingSafeEqual(
++      createHash('sha256').update(supplied).digest(),
++      createHash('sha256').update(expected).digest(),
++    )) throw new UnauthorizedException('Invalid platform credential');
++    return true;
++  }
++}
+diff --git a/src/modules/platform/platform.dto.ts b/src/modules/platform/platform.dto.ts
+new file mode 100644
+index 0000000..bc60a97
+--- /dev/null
++++ b/src/modules/platform/platform.dto.ts
+@@ -0,0 +1,14 @@
++import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
++
++export class ProvisionOrganizationDto {
++  @IsString() @MinLength(2) @MaxLength(120) name!: string;
++  @IsString() @MinLength(2) @MaxLength(120) ownerName!: string;
++  @IsEmail() @MaxLength(254) ownerEmail!: string;
++  @IsOptional() @IsString() @MinLength(12) @MaxLength(128) ownerPassword?: string;
++  @IsOptional() @IsString() @Matches(/^[a-z0-9][a-z0-9-]{1,79}$/) slug?: string;
++  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) externalId?: string;
++}
++
++export class OwnerPasswordDto {
++  @IsString() @MinLength(12) @MaxLength(128) password!: string;
++}
+diff --git a/src/modules/platform/platform.service.ts b/src/modules/platform/platform.service.ts
+new file mode 100644
+index 0000000..2b70d36
+--- /dev/null
++++ b/src/modules/platform/platform.service.ts
+@@ -0,0 +1,89 @@
++import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
++import { Prisma } from '@prisma/client';
++import { createHash, randomBytes } from 'node:crypto';
++import * as bcrypt from 'bcrypt';
++import { PrismaService } from '../../database/prisma.service';
++import { AuthService } from '../auth/auth.service';
++import { ProvisionOrganizationDto } from './platform.dto';
++
++@Injectable()
++export class PlatformService {
++  constructor(private readonly prisma: PrismaService, private readonly auth: AuthService) {}
++
++  async provision(dto: ProvisionOrganizationDto) {
++    const externalId = dto.externalId?.trim() || (dto.slug ? `slug:${dto.slug}` : '');
++    if (!externalId) throw new BadRequestException('externalId or slug is required');
++    // The existing primary key serializes competing provisions without a migration.
++    // Prefixing the identity avoids taking over an existing workspace by slug/email.
++    const digest = createHash('sha256').update(`consulta-isp:${externalId}`).digest('hex');
++    const id = `cisp_${digest}`;
++    const slug = dto.slug || `isp-${digest.slice(0, 24)}`;
++    const ownerEmail = dto.ownerEmail.trim().toLowerCase();
++    const existing = await this.prisma.organization.findUnique({ where: { id } });
++    if (existing) return this.existingProvision(id, ownerEmail);
++
++    const password = await bcrypt.hash(dto.ownerPassword ?? randomBytes(32).toString('base64url'), 12);
++    try {
++      await this.prisma.$transaction(async (tx) => {
++        if (await tx.user.findUnique({ where: { email: ownerEmail } })) {
++          throw new ConflictException('Owner email already belongs to an account; use a dedicated address');
++        }
++        const user = await tx.user.create({ data: { name: dto.ownerName, email: ownerEmail, password } });
++        await tx.organization.create({ data: {
++          id, name: dto.name, slug,
++          settings: { consultaIsp: { externalId, ownerUserId: user.id } },
++          members: { create: { userId: user.id, role: 'OWNER' } },
++        } });
++        const membership = await tx.userOrganization.findUniqueOrThrow({ where: { userId_organizationId: { userId: user.id, organizationId: id } } });
++        await tx.department.create({ data: {
++          organizationId: id, name: 'Geral', isDefault: true,
++          agents: { create: { userOrganizationId: membership.id } },
++        } });
++      });
++    } catch (error) {
++      // Only a concurrent provision of the same identity can turn into success.
++      // Slug/email collisions with unrelated workspaces remain conflicts.
++      if ((error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') || error instanceof ConflictException) {
++        const concurrent = await this.prisma.organization.findUnique({ where: { id } });
++        if (concurrent) return this.existingProvision(id, ownerEmail);
++        throw new ConflictException('Organization slug or owner email is already in use');
++      }
++      throw error;
++    }
++    return { ...(await this.existingProvision(id, ownerEmail)), created: true };
++  }
++
++  private async existingProvision(id: string, expectedEmail: string) {
++    const { organization, owner } = await this.managedOwner(id);
++    if (owner.email.toLowerCase() !== expectedEmail) throw new ConflictException('Organization identity belongs to another owner');
++    return { organizationId: id, slug: organization.slug, ownerUserId: owner.id, ownerEmail: owner.email, created: false };
++  }
++
++  private async managedOwner(id: string) {
++    const organization = await this.prisma.organization.findUnique({ where: { id } });
++    if (!organization || organization.deletedAt) throw new NotFoundException('Managed organization not found');
++    const settings = organization.settings;
++    const metadata = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings.consultaIsp : null;
++    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) || typeof metadata.ownerUserId !== 'string' || typeof metadata.externalId !== 'string') {
++      throw new ForbiddenException('Organization is not managed by this bridge');
++    }
++    const membership = await this.prisma.userOrganization.findFirst({
++      where: { organizationId: id, userId: metadata.ownerUserId, role: 'OWNER' }, include: { user: true },
++    });
++    if (!membership?.user.isActive || await this.prisma.userOrganization.count({ where: { userId: metadata.ownerUserId } }) !== 1) {
++      throw new ForbiddenException('Bridge owner must be active and exclusive to this organization');
++    }
++    return { organization, owner: membership.user };
++  }
++
++  async tokens(id: string) {
++    const { owner } = await this.managedOwner(id);
++    return this.auth.issueTokensForUser(owner.id);
++  }
++
++  async ownerPassword(id: string, password: string) {
++    const { owner } = await this.managedOwner(id);
++    await this.prisma.user.update({ where: { id: owner.id }, data: { password: await bcrypt.hash(password, 12) } });
++    return { ownerUserId: owner.id, ownerEmail: owner.email };
++  }
++}
+diff --git a/src/modules/platform/platform.controller.ts b/src/modules/platform/platform.controller.ts
+new file mode 100644
+index 0000000..3cab830
+--- /dev/null
++++ b/src/modules/platform/platform.controller.ts
+@@ -0,0 +1,13 @@
++import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
++import { PlatformKeyGuard } from './platform-key.guard';
++import { PlatformService } from './platform.service';
++import { OwnerPasswordDto, ProvisionOrganizationDto } from './platform.dto';
++
++@Controller('platform/organizations')
++@UseGuards(PlatformKeyGuard)
++export class PlatformController {
++  constructor(private readonly service: PlatformService) {}
++  @Post() provision(@Body() dto: ProvisionOrganizationDto) { return this.service.provision(dto); }
++  @Post(':id/token') tokens(@Param('id') id: string) { return this.service.tokens(id); }
++  @Post(':id/owner-password') password(@Param('id') id: string, @Body() dto: OwnerPasswordDto) { return this.service.ownerPassword(id, dto.password); }
++}
+diff --git a/src/modules/platform/platform.module.ts b/src/modules/platform/platform.module.ts
+new file mode 100644
+index 0000000..ebe1df8
+--- /dev/null
++++ b/src/modules/platform/platform.module.ts
+@@ -0,0 +1,8 @@
++import { Module } from '@nestjs/common';
++import { AuthModule } from '../auth/auth.module';
++import { PlatformController } from './platform.controller';
++import { PlatformKeyGuard } from './platform-key.guard';
++import { PlatformService } from './platform.service';
++
++@Module({ imports: [AuthModule], controllers: [PlatformController], providers: [PlatformKeyGuard, PlatformService] })
++export class PlatformModule {}
+diff --git a/src/modules/platform/platform.spec.ts b/src/modules/platform/platform.spec.ts
+new file mode 100644
+index 0000000..a3575da
+--- /dev/null
++++ b/src/modules/platform/platform.spec.ts
+@@ -0,0 +1,91 @@
++import { ConfigService } from '@nestjs/config';
++import { ExecutionContext } from '@nestjs/common';
++import { PlatformKeyGuard } from './platform-key.guard';
++import { PlatformService } from './platform.service';
++import { PrismaService } from '../../database/prisma.service';
++import { AuthService } from '../auth/auth.service';
++
++const key = 'test-platform-key-with-at-least-32-characters';
++const context = (header: unknown) => ({
++  switchToHttp: () => ({ getRequest: () => ({ headers: { 'x-platform-key': header } }) }),
++}) as ExecutionContext;
++
++describe('PlatformKeyGuard', () => {
++  it('fails closed with no key and rejects missing, wrong or duplicate credentials', () => {
++    expect(() => new PlatformKeyGuard(new ConfigService({})).canActivate(context(key))).toThrow();
++    const guard = new PlatformKeyGuard(new ConfigService({ PLATFORM_API_KEY: key }));
++    for (const bad of [undefined, 'wrong', [key, key]]) expect(() => guard.canActivate(context(bad))).toThrow();
++    expect(guard.canActivate(context(key))).toBe(true);
++  });
++});
++
++describe('PlatformService ownership boundary', () => {
++  function setup(settings: object = { consultaIsp: { externalId: '42', ownerUserId: 'owner' } }) {
++    const prisma = {
++      organization: { findUnique: jest.fn().mockResolvedValue({ id: 'org', slug: 'isp-42', settings, deletedAt: null }) },
++      userOrganization: {
++        findFirst: jest.fn().mockResolvedValue({ userId: 'owner', user: { id: 'owner', email: 'owner@example.com', isActive: true } }),
++        count: jest.fn().mockResolvedValue(1),
++      },
++      user: { update: jest.fn().mockResolvedValue({}) },
++    };
++    const auth = { issueTokensForUser: jest.fn().mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' }) };
++    return { prisma, auth, service: new PlatformService(prisma as unknown as PrismaService, auth as unknown as AuthService) };
++  }
++
++  it('only issues existing AuthService tokens after checking active dedicated OWNER membership', async () => {
++    const { prisma, auth, service } = setup();
++    expect(await service.tokens('org')).toEqual({ accessToken: 'access', refreshToken: 'refresh' });
++    expect(prisma.userOrganization.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: 'org', userId: 'owner', role: 'OWNER' } }));
++    expect(auth.issueTokensForUser).toHaveBeenCalledWith('owner');
++  });
++
++  it('does not issue tokens for unmanaged, deleted, inactive or cross-workspace owners', async () => {
++    const unmanaged = setup({});
++    await expect(unmanaged.service.tokens('org')).rejects.toThrow();
++    expect(unmanaged.auth.issueTokensForUser).not.toHaveBeenCalled();
++    for (const failure of ['deleted', 'inactive', 'multiple', 'missing']) {
++      const { prisma, auth, service } = setup();
++      if (failure === 'deleted') prisma.organization.findUnique.mockResolvedValueOnce({ deletedAt: new Date() });
++      if (failure === 'inactive') prisma.userOrganization.findFirst.mockResolvedValueOnce({ user: { isActive: false } });
++      if (failure === 'multiple') prisma.userOrganization.count.mockResolvedValueOnce(2);
++      if (failure === 'missing') prisma.userOrganization.findFirst.mockResolvedValueOnce(null);
++      await expect(service.tokens('org')).rejects.toThrow();
++      expect(auth.issueTokensForUser).not.toHaveBeenCalled();
++    }
++  });
++
++  it('reuses the same external identity without creating another owner or resetting its password', async () => {
++    const { prisma, service } = setup();
++    let saved: { id: string; slug: string; settings: object; deletedAt: null } | null = null;
++    prisma.organization.findUnique.mockImplementation(async () => saved);
++    const transaction = {
++      user: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'owner' }) },
++      organization: { create: jest.fn().mockImplementation(async ({ data }: { data: { id: string; slug: string; settings: object } }) => { saved = { ...data, deletedAt: null }; return saved; }) },
++      userOrganization: { findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'membership' }) },
++      department: { create: jest.fn().mockResolvedValue({ id: 'department' }) },
++    };
++    const transact = jest.fn().mockImplementation(async (fn: (tx: typeof transaction) => Promise<void>) => fn(transaction));
++    Object.assign(prisma, { $transaction: transact });
++    const dto = { name: 'Provedor', ownerName: 'Dono', ownerEmail: 'OWNER@example.com', slug: 'isp-42', externalId: '42' };
++    const first = await service.provision(dto);
++    const again = await service.provision({ ...dto, slug: 'changed-slug', ownerPassword: 'this-must-not-reset-password' });
++    expect(first.created).toBe(true);
++    expect(again).toEqual({ ...first, created: false });
++    expect(again.slug).toBe('isp-42');
++    expect(transact).toHaveBeenCalledTimes(1);
++    expect(transaction.user.create).toHaveBeenCalledTimes(1);
++    expect(prisma.user.update).not.toHaveBeenCalled();
++  });
++
++  it('rejects a provision that would claim another owner email or an existing unrelated account', async () => {
++    const existing = setup();
++    await expect(existing.service.provision({ name: 'Provedor', ownerName: 'Dono', ownerEmail: 'other@example.com', externalId: '42' })).rejects.toThrow();
++    const missing = setup();
++    missing.prisma.organization.findUnique.mockResolvedValue(null);
++    const create = jest.fn();
++    Object.assign(missing.prisma, { $transaction: async (fn: (tx: object) => Promise<void>) => fn({ user: { findUnique: jest.fn().mockResolvedValue({ id: 'unrelated' }), create } }) });
++    await expect(missing.service.provision({ name: 'Provedor', ownerName: 'Dono', ownerEmail: 'other@example.com', externalId: '42' })).rejects.toThrow();
++    expect(create).not.toHaveBeenCalled();
++  });
++});
+diff --git a/src/modules/automations/actions/handlers/call-webhook.handler.ts b/src/modules/automations/actions/handlers/call-webhook.handler.ts
+new file mode 100644
+index 0000000..fe85845
+--- /dev/null
++++ b/src/modules/automations/actions/handlers/call-webhook.handler.ts
+@@ -0,0 +1,64 @@
++import { Injectable } from '@nestjs/common';
++import { ConfigService } from '@nestjs/config';
++import { createHmac } from 'node:crypto';
++import { setTimeout as delay } from 'node:timers/promises';
++import { ActionContext, ActionExecutionResult, ActionHandler } from '../action.types';
++
++@Injectable()
++export class CallWebhookHandler implements ActionHandler {
++  readonly type = 'call_webhook' as const;
++  readonly continueOnErrorDefault = false;
++  constructor(private readonly config: ConfigService) {}
++
++  validateParams(params: Record<string, unknown>): void {
++    const allowed = this.config.get<string>('CONSULTA_ISP_WEBHOOK_URL') || 'https://consultaisp.com.br/api/webhooks/chat-bullq';
++    let target: URL;
++    try { target = new URL(String(params.url)); } catch { throw new Error('call_webhook: invalid destination'); }
++    const localDevelopment = this.config.get<string>('NODE_ENV') === 'development'
++      && target.href === 'http://127.0.0.1:5000/api/webhooks/chat-bullq';
++    if ((target.protocol !== 'https:' && !localDevelopment) || target.username || target.password || target.hash || target.search || target.href !== allowed) {
++      throw new Error('call_webhook: destination must match the server-configured Consulta ISP HTTPS endpoint or the exact development loopback callback');
++    }
++    if (typeof params.secret !== 'string' || params.secret.length < 16 || params.secret.length > 200) {
++      throw new Error('call_webhook: secret must contain 16 to 200 characters');
++    }
++  }
++
++  async execute(params: Record<string, unknown>, ctx: ActionContext): Promise<ActionExecutionResult> {
++    try { this.validateParams(params); } catch {
++      return { ok: false, errorCode: 'invalid_params', errorMessage: 'Webhook destination or secret is invalid' };
++    }
++    const { payload, organizationId, prisma } = ctx;
++    if (payload.organizationId !== organizationId || !payload.conversationId) {
++      return { ok: false, errorCode: 'invalid_ref', errorMessage: 'Webhook requires a conversation in this organization' };
++    }
++    const conversation = await prisma.conversation.findFirst({ where: {
++      id: payload.conversationId, organizationId, contactId: payload.contactId, deletedAt: null,
++    }, select: { id: true } });
++    if (!conversation) return { ok: false, errorCode: 'invalid_ref', errorMessage: 'Conversation not found in this organization' };
++    if ('messageId' in payload) {
++      const message = await prisma.message.findFirst({ where: {
++        id: payload.messageId, conversationId: conversation.id, direction: 'INBOUND',
++      }, select: { id: true } });
++      if (!message || payload.isFromCustomer !== true) return { ok: false, errorCode: 'invalid_ref', errorMessage: 'Inbound message not found' };
++    }
++    const trigger = 'messageId' in payload ? {
++      messageId: payload.messageId, isFromCustomer: true, type: payload.type, hasAttachment: payload.hasAttachment,
++    } : payload;
++    const body = JSON.stringify({ organizationId, conversationId: conversation.id, contactId: payload.contactId, trigger, sentAt: new Date().toISOString() });
++    const signature = createHmac('sha256', String(params.secret)).update(body, 'utf8').digest('hex');
++    for (let attempt = 0; attempt < 3; attempt++) {
++      try {
++        const response = await fetch(String(params.url), {
++          method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000),
++          headers: { 'content-type': 'application/json', 'x-signature-256': signature }, body,
++        });
++        await response.body?.cancel();
++        if (response.ok) return { ok: true, output: { conversationId: conversation.id } };
++        if (response.status < 500 && response.status !== 429) break;
++      } catch { /* Retry only the signed, idempotent callback; never log credentials or payloads. */ }
++      if (attempt < 2) await delay(250 * (attempt + 1));
++    }
++    return { ok: false, errorCode: 'external_error', errorMessage: 'Consulta ISP did not acknowledge the webhook' };
++  }
++}
+diff --git a/src/modules/automations/actions/handlers/call-webhook.handler.spec.ts b/src/modules/automations/actions/handlers/call-webhook.handler.spec.ts
+new file mode 100644
+index 0000000..e4a26e6
+--- /dev/null
++++ b/src/modules/automations/actions/handlers/call-webhook.handler.spec.ts
+@@ -0,0 +1,98 @@
++import { ConfigService } from '@nestjs/config';
++import { createHmac } from 'node:crypto';
++import { CallWebhookHandler } from './call-webhook.handler';
++import { ActionContext } from '../action.types';
++
++const url = 'https://consultaisp.com.br/api/webhooks/chat-bullq';
++const secret = 'test-webhook-secret-at-least-16';
++const payload = { organizationId: 'org', conversationId: 'conv', contactId: 'contact', channelId: 'channel', messageId: 'msg', isFromCustomer: true, type: 'AUDIO', hasAttachment: true, body: null };
++function setup() {
++  const request = jest.fn().mockResolvedValue(new Response('{}', { status: 200 }));
++  const handler = new CallWebhookHandler(new ConfigService({ CONSULTA_ISP_WEBHOOK_URL: url }));
++  const ctx = {
++    organizationId: 'org', payload,
++    prisma: { conversation: { findFirst: jest.fn().mockResolvedValue({ id: 'conv' }) }, message: { findFirst: jest.fn().mockResolvedValue({ id: 'msg' }) } },
++  } as unknown as ActionContext;
++  return { handler, request, ctx };
++}
++
++afterEach(() => jest.restoreAllMocks());
++
++const localUrl = 'http://127.0.0.1:5000/api/webhooks/chat-bullq';
++
++it('allows the configured exact loopback callback only in development', async () => {
++  const { request, ctx } = setup();
++  const handler = new CallWebhookHandler(new ConfigService({ NODE_ENV: 'development', CONSULTA_ISP_WEBHOOK_URL: localUrl }));
++  jest.spyOn(globalThis, 'fetch').mockImplementation(request);
++  expect((await handler.execute({ url: localUrl, secret }, ctx)).ok).toBe(true);
++  expect(request).toHaveBeenCalledWith(localUrl, expect.objectContaining({ method: 'POST', redirect: 'error' }));
++});
++
++it.each(['production', 'test', undefined])('rejects the configured loopback callback in %s', (environment) => {
++  const handler = new CallWebhookHandler(new ConfigService({ NODE_ENV: environment, CONSULTA_ISP_WEBHOOK_URL: localUrl }));
++  expect(() => handler.validateParams({ url: localUrl, secret })).toThrow();
++});
++
++it.each([
++  'http://localhost:5000/api/webhooks/chat-bullq',
++  'http://127.0.0.1:5001/api/webhooks/chat-bullq',
++  'http://127.0.0.1:5000/other',
++  'http://example.test/api/webhooks/chat-bullq',
++  `${localUrl}?next=1`,
++  `${localUrl}#fragment`,
++  'http://user:password@127.0.0.1:5000/api/webhooks/chat-bullq',
++])('rejects every other configured HTTP destination in development: %s', (destination) => {
++  const handler = new CallWebhookHandler(new ConfigService({ NODE_ENV: 'development', CONSULTA_ISP_WEBHOOK_URL: destination }));
++  expect(() => handler.validateParams({ url: destination, secret })).toThrow();
++});
++
++it('still requires the development loopback callback to match the server configuration', () => {
++  const handler = new CallWebhookHandler(new ConfigService({ NODE_ENV: 'development', CONSULTA_ISP_WEBHOOK_URL: url }));
++  expect(() => handler.validateParams({ url: localUrl, secret })).toThrow();
++});
++
++it.each(['development', 'production'])('allows the configured HTTPS callback in %s', (environment) => {
++  const handler = new CallWebhookHandler(new ConfigService({ NODE_ENV: environment, CONSULTA_ISP_WEBHOOK_URL: url }));
++  expect(() => handler.validateParams({ url, secret })).not.toThrow();
++});
++
++it('signs the exact webhook body, including inbound attachment identity, without exposing the secret', async () => {
++  const { handler, request, ctx } = setup();
++  jest.spyOn(globalThis, 'fetch').mockImplementation(request);
++  const result = await handler.execute({ url, secret }, ctx);
++  expect(result.ok).toBe(true);
++  const [, init] = request.mock.calls[0] as [string, RequestInit];
++  const body = String(init.body);
++  expect(JSON.parse(body)).toMatchObject({ organizationId: 'org', conversationId: 'conv', trigger: { messageId: 'msg', isFromCustomer: true } });
++  expect(init.headers).toMatchObject({ 'x-signature-256': createHmac('sha256', secret).update(body).digest('hex') });
++  expect(init.redirect).toBe('error');
++  expect(JSON.stringify(result)).not.toContain(secret);
++});
++
++it('rejects arbitrary destinations and cross-tenant events before making a request', async () => {
++  const { handler, request, ctx } = setup();
++  jest.spyOn(globalThis, 'fetch').mockImplementation(request);
++  for (const unsafe of ['http://127.0.0.1', 'https://attacker.test', `${url}?next=1`]) {
++    expect(() => handler.validateParams({ url: unsafe, secret })).toThrow();
++  }
++  expect((await handler.execute({ url, secret }, { ...ctx, organizationId: 'other' })).ok).toBe(false);
++  expect(request).not.toHaveBeenCalled();
++});
++
++it('rejects an event whose conversation does not belong to its organization', async () => {
++  const { handler, request, ctx } = setup();
++  jest.spyOn(globalThis, 'fetch').mockImplementation(request);
++  jest.mocked(ctx.prisma.conversation.findFirst).mockResolvedValueOnce(null);
++  expect((await handler.execute({ url, secret }, ctx)).ok).toBe(false);
++  expect(request).not.toHaveBeenCalled();
++});
++
++it('bounds failures to three delivery attempts and never persists a remote error body', async () => {
++  const { handler, request, ctx } = setup();
++  request.mockImplementation(async () => new Response('sensitive upstream response', { status: 503 }));
++  jest.spyOn(globalThis, 'fetch').mockImplementation(request);
++  const result = await handler.execute({ url, secret }, ctx);
++  expect(result.ok).toBe(false);
++  expect(request).toHaveBeenCalledTimes(3);
++  expect(JSON.stringify(result)).not.toContain('sensitive');
++});
+diff --git a/src/modules/messaging/conversations/consulta-isp-bridge.spec.ts b/src/modules/messaging/conversations/consulta-isp-bridge.spec.ts
+new file mode 100644
+index 0000000..b794b6d
+--- /dev/null
++++ b/src/modules/messaging/conversations/consulta-isp-bridge.spec.ts
+@@ -0,0 +1,48 @@
++import { ConversationStatus } from '@prisma/client';
++import { validate } from 'class-validator';
++import { plainToInstance } from 'class-transformer';
++import { MessagesService } from '../messages/messages.service';
++import { StartConversationDto } from './dto/start-conversation.dto';
++import { ConversationFsmService } from './conversation-fsm.service';
++import { PrismaService } from '../../../database/prisma.service';
++import { RatingsService } from '../../ratings/ratings.service';
++import { OutboxService } from '../../automations/outbox/outbox.service';
++
++it('accepts an explicitly paused first contact, rejecting attempts to start automatic replies', async () => {
++  const input = { channelId: 'ch', contact: { phone: '5511999999999' }, message: { type: 'TEXT', content: { text: 'Olá' } } };
++  expect(await validate(plainToInstance(StartConversationDto, { ...input, aiEnabled: false }), { whitelist: true, forbidNonWhitelisted: true })).toEqual([]);
++  expect((await validate(plainToInstance(StartConversationDto, { ...input, aiEnabled: true }), { whitelist: true, forbidNonWhitelisted: true })).length).toBeGreaterThan(0);
++});
++
++it('pauses a reused conversation in its organization before enqueuing the first contact', async () => {
++  let paused = false;
++  const prisma = {
++    channel: { findUnique: jest.fn().mockResolvedValue({ id: 'ch', organizationId: 'org', type: 'WHATSAPP_ZAPPFY' }) },
++    conversation: { updateMany: jest.fn().mockImplementation(async () => { paused = true; return { count: 1 }; }) },
++  };
++  const send = jest.fn().mockImplementation(async () => { expect(paused).toBe(true); return { id: 'msg', conversationId: 'conv' }; });
++  const service = {
++    prisma, send,
++    channelAccess: { assertChannelAccess: jest.fn() },
++    contactResolver: { resolveManual: jest.fn().mockResolvedValue({ contactId: 'contact' }) },
++    conversationResolver: { resolveForOperator: jest.fn().mockResolvedValue({ conversationId: 'conv' }) },
++  } as unknown as MessagesService;
++  const dto = plainToInstance(StartConversationDto, { channelId: 'ch', contact: { phone: '5511999999999' }, message: { type: 'TEXT', content: { text: 'Olá' } }, aiEnabled: false });
++  await MessagesService.prototype.startConversation.call(service, dto, 'owner', 'org');
++  expect(prisma.conversation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
++    where: { id: 'conv', organizationId: 'org' }, data: expect.objectContaining({ aiEnabled: false, activeAgentId: null, aiDisabledBy: 'owner' }),
++  }));
++  expect(send).toHaveBeenCalledTimes(1);
++});
++
++it('returns outbound outreach to PENDING and releases the technical owner', async () => {
++  const tx = { conversation: { update: jest.fn() }, conversationAuditLog: { create: jest.fn() } };
++  const prisma = {
++    conversation: { findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'conv', status: 'OPEN', organizationId: 'org', contactId: 'contact', channelId: 'ch' }) },
++    $transaction: jest.fn().mockImplementation(async (fn: (transaction: typeof tx) => Promise<void>) => fn(tx)),
++  };
++  const service = new ConversationFsmService(prisma as unknown as PrismaService, {} as RatingsService, { enqueue: jest.fn() } as unknown as OutboxService);
++  expect(service.canTransition(ConversationStatus.OPEN, ConversationStatus.PENDING)).toBe(true);
++  await service.transition('conv', ConversationStatus.PENDING, 'owner');
++  expect(tx.conversation.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING', assignedToId: null }) }));
++});
+diff --git a/src/main.ts b/src/main.ts
+index 83e4006..ec6b9ce 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -60,7 +60,7 @@ async function bootstrap() {
+   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swagger));
+ 
+   const port = config.get<number>('PORT', 3001);
+-  await app.listen(port);
++  await app.listen(port, config.get<string>('HOST', '0.0.0.0'));
+   logger.log(`API running on http://localhost:${port}`);
+   logger.log(`Swagger docs at http://localhost:${port}/docs`);
+ }

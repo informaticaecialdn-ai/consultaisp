@@ -20,7 +20,7 @@ import type {
   ProactiveAlert, InsertProactiveAlert,
   Marca, InsertMarca,
   AcessoDeSuporte,
-  CobrancaPolitica, CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela,
+  CarteiraDeCobranca, CobrancaPolitica, CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela,
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
 import type { FaturaAbertaDoErp } from "../erp/types";
@@ -282,6 +282,15 @@ export interface IStorage {
 
   // Chat BullQ — a ponte com o atendimento. Ver server/storage/chat-bullq.storage.ts.
   getIntegracaoDoChat(providerId: number): Promise<ChatBullqIntegracao | undefined>;
+  getConversaDoChat: ChatBullqStorage["getConversaDoChat"];
+  clienteDoAtendimento: ChatBullqStorage["clienteDoAtendimento"];
+  contextoFinanceiroDoChat: ChatBullqStorage["contextoFinanceiroDoChat"];
+  moverConversaDoChat: ChatBullqStorage["moverConversaDoChat"];
+  integracoesComContatoAutomatico: ChatBullqStorage["integracoesComContatoAutomatico"];
+  contatosIniciadosNoDia: ChatBullqStorage["contatosIniciadosNoDia"];
+  candidatosAoPrimeiroContato: ChatBullqStorage["candidatosAoPrimeiroContato"];
+  listarAtendimentosDoChat: ChatBullqStorage["listarAtendimentosDoChat"];
+  registrarEventoDoChat: ChatBullqStorage["registrarEventoDoChat"];
   getIntegracaoDoChatPorChave(chaveAgenteHash: string): Promise<ChatBullqIntegracao | undefined>;
   getIntegracaoDoChatPorOrganizacao(organizationId: string): Promise<ChatBullqIntegracao | undefined>;
   guardarAgenteDoChat(providerId: number, dados: { chaveAgenteHash?: string | null; agenteId?: string | null; agenteConfig?: Record<string, unknown> | null; webhookSecret?: string | null }): Promise<ChatBullqIntegracao | undefined>;
@@ -317,10 +326,10 @@ export interface IStorage {
   listarParcelasDaNegociacao(providerId: number, negociacaoId: number): Promise<CobrancaParcela[]>;
   marcarParcelaPaga(providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null): Promise<{ parcela: CobrancaParcela; negociacao: CobrancaNegociacao; acordoCumprido: boolean } | undefined>;
   marcarParcelasAtrasadas(providerId: number, hoje: Date): Promise<{ marcadas: number; negociacoes: number[] }>;
-  kpisDaCobranca(providerId: number, hoje?: Date): Promise<KpisDaCobranca>;
-  composicaoDaCarteira(providerId: number): Promise<ComposicaoDaCarteira>;
-  bairrosDaCarteira(providerId: number): Promise<Array<{ bairro: string; total: number }>>;
-  filaDeCobranca(providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number }): Promise<LinhaDaCarteira[]>;
+  kpisDaCobranca(providerId: number, hoje?: Date, carteira?: CarteiraDeCobranca): Promise<KpisDaCobranca>;
+  composicaoDaCarteira(providerId: number, carteira?: CarteiraDeCobranca): Promise<ComposicaoDaCarteira>;
+  bairrosDaCarteira(providerId: number, carteira?: CarteiraDeCobranca): Promise<Array<{ bairro: string; total: number }>>;
+  filaDeCobranca(providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number; carteira?: CarteiraDeCobranca }): Promise<LinhaDaCarteira[]>;
   clientesParaAbrirCaso(providerId: number, minimoValor: number, limite?: number): Promise<CandidatoACaso[]>;
   clientesAtivosEmDia(providerId: number, filtros: { busca?: string; bairro?: string; ids?: number[] }, pagina: { offset: number; limite: number }): Promise<{ linhas: ClienteEmDia[]; total: number }>;
 
@@ -357,6 +366,15 @@ class DatabaseStorage implements IStorage {
   private _suporte = new SuporteStorage();
   private _cobranca = new CobrancaStorage();
   private _chatBullq = new ChatBullqStorage();
+  getConversaDoChat: ChatBullqStorage["getConversaDoChat"] = (...args) => this._chatBullq.getConversaDoChat(...args);
+  clienteDoAtendimento: ChatBullqStorage["clienteDoAtendimento"] = (...args) => this._chatBullq.clienteDoAtendimento(...args);
+  contextoFinanceiroDoChat: ChatBullqStorage["contextoFinanceiroDoChat"] = (...args) => this._chatBullq.contextoFinanceiroDoChat(...args);
+  moverConversaDoChat: ChatBullqStorage["moverConversaDoChat"] = (...args) => this._chatBullq.moverConversaDoChat(...args);
+  integracoesComContatoAutomatico: ChatBullqStorage["integracoesComContatoAutomatico"] = (...args) => this._chatBullq.integracoesComContatoAutomatico(...args);
+  contatosIniciadosNoDia: ChatBullqStorage["contatosIniciadosNoDia"] = (...args) => this._chatBullq.contatosIniciadosNoDia(...args);
+  candidatosAoPrimeiroContato: ChatBullqStorage["candidatosAoPrimeiroContato"] = (...args) => this._chatBullq.candidatosAoPrimeiroContato(...args);
+  listarAtendimentosDoChat: ChatBullqStorage["listarAtendimentosDoChat"] = (...args) => this._chatBullq.listarAtendimentosDoChat(...args);
+  registrarEventoDoChat: ChatBullqStorage["registrarEventoDoChat"] = (...args) => this._chatBullq.registrarEventoDoChat(...args);
 
   // Users
   getUser = (id: number) => this._users.getUser(id);
@@ -604,10 +622,10 @@ class DatabaseStorage implements IStorage {
   listarParcelasDaNegociacao = (providerId: number, negociacaoId: number) => this._cobranca.listarParcelasDaNegociacao(providerId, negociacaoId);
   marcarParcelaPaga = (providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null) => this._cobranca.marcarParcelaPaga(providerId, parcelaId, valorPago, pagoEm, userId);
   marcarParcelasAtrasadas = (providerId: number, hoje: Date) => this._cobranca.marcarParcelasAtrasadas(providerId, hoje);
-  kpisDaCobranca = (providerId: number, hoje?: Date) => this._cobranca.kpisDaCobranca(providerId, hoje);
-  composicaoDaCarteira = (providerId: number) => this._cobranca.composicaoDaCarteira(providerId);
-  bairrosDaCarteira = (providerId: number) => this._cobranca.bairrosDaCarteira(providerId);
-  filaDeCobranca = (providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number }) => this._cobranca.filaDeCobranca(providerId, opcoes);
+  kpisDaCobranca = (providerId: number, hoje?: Date, carteira?: CarteiraDeCobranca) => this._cobranca.kpisDaCobranca(providerId, hoje, carteira);
+  composicaoDaCarteira = (providerId: number, carteira?: CarteiraDeCobranca) => this._cobranca.composicaoDaCarteira(providerId, carteira);
+  bairrosDaCarteira = (providerId: number, carteira?: CarteiraDeCobranca) => this._cobranca.bairrosDaCarteira(providerId, carteira);
+  filaDeCobranca = (providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number; carteira?: CarteiraDeCobranca }) => this._cobranca.filaDeCobranca(providerId, opcoes);
   clientesParaAbrirCaso = (providerId: number, minimoValor: number, limite?: number) => this._cobranca.clientesParaAbrirCaso(providerId, minimoValor, limite);
   clientesAtivosEmDia = (providerId: number, filtros: { busca?: string; bairro?: string; ids?: number[] }, pagina: { offset: number; limite: number }) => this._cobranca.clientesAtivosEmDia(providerId, filtros, pagina);
 

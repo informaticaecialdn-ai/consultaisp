@@ -17,3 +17,7 @@ vite.config.ts.*
 Consulta-ISP.zip
 *.zip
 dist-assets-anteriores/
+
+# Area de trabalho local: clones de referencia do fork, builds e baselines de
+# comparacao (494 arquivos, ~563 MB em 06/09/2026). Nada daqui e do produto.
+work/

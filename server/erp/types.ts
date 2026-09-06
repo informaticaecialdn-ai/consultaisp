@@ -102,6 +102,7 @@ export interface ErpTestResult {
  * sem faturamento.
  */
 export interface FaturaAbertaDoErp {
+  pagamento?: import("@shared/cobranca/pagamento-chat").PagamentoDoChat;
   /**
    * Id da fatura no ERP — a chave de (provedor, fonte). E o que faz a
    * varredura seguinte reconhecer a MESMA fatura em vez de duplica-la, e o
@@ -116,6 +117,7 @@ export interface FaturaAbertaDoErp {
 
 /** Normalized customer record — common shape across all ERPs */
 export interface NormalizedErpCustomer {
+  autenticacoes?: import("@shared/equipamentos/identificacao").AutenticacaoCliente[];
   cpfCnpj: string;
   name: string;
   email?: string;
@@ -278,6 +280,8 @@ export interface ErpFetchResult {
  * Connectors register themselves in the registry on import.
  */
 export interface ErpConnector {
+  /** Consulta segunda via existente; chamada apenas após conferir a fatura do cliente. */
+  fetchSegundaVia?(config: ErpConnectionConfig, documento: string, referencia: string): Promise<import("@shared/cobranca/pagamento-chat").PagamentoDoChat | null>;
   readonly name: string;
   readonly label: string;
   readonly configFields: ErpConfigField[];

@@ -21,6 +21,8 @@
 import { buildConnectorConfig, getConnector } from "../../erp";
 import { logger } from "../../logger";
 import { storage } from "../../storage";
+import { normalizarMac, type AutenticacaoCliente } from "@shared/equipamentos/identificacao";
+import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
 
 export const TTL_SNAPSHOT_OK_MS = 10 * 60_000;
 export const TTL_SNAPSHOT_FALHA_MS = 60_000;
@@ -37,6 +39,8 @@ export interface EquipamentoAoVivo {
 }
 
 export interface ClienteAoVivo {
+  faturas?: import("../../erp/types").FaturaAbertaDoErp[];
+  autenticacoes?: AutenticacaoCliente[];
   nome: string | null;
   plano: string | null;
   statusContrato: "active" | "cancelled" | "suspended" | null;
@@ -52,6 +56,7 @@ export interface ClienteAoVivo {
 }
 
 export interface SnapshotAoVivo {
+  leituraParcial?: boolean;
   ok: boolean;
   /** Qual ERP respondeu (ou tentou). `null` = o provedor não tem integração que sirva. */
   erpSource: string | null;
@@ -167,6 +172,8 @@ export async function snapshotAoVivoDoCliente(
               faturasAbertas: numero(achado.overdueInvoicesCount),
               telefone: texto(achado.phone),
               email: texto(achado.email),
+              autenticacoes: (achado.autenticacoes ?? []).map(a => ({ login: texto(a.login), mac: normalizarMac(a.mac), ip: texto(a.ip), contrato: texto(a.contrato), serial: texto(a.serial), online: typeof a.online === "boolean" ? a.online : null, fonte: texto(a.fonte) ?? util.erpSource })),
+              faturas: achado.faturasAbertas?.map(f => ({ ref: f.ref, valor: f.valor, vencimento: f.vencimento, descricao: texto(f.descricao), ...(f.pagamento ? { pagamento: normalizarPagamento(f.pagamento) } : {}) })),
               equipamentos: (achado.equipmentDetails ?? []).map(e => ({
                 tipo: texto(e.type),
                 marca: texto(e.brand),
@@ -178,6 +185,7 @@ export async function snapshotAoVivoDoCliente(
               })),
             }
           : null,
+        ...(resultado.leituraParcial ? { leituraParcial: true } : {}),
         erro: null,
         latenciaMs: agora() - inicio,
         lidoEm: new Date(agora()).toISOString(),

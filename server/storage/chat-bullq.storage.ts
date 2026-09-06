@@ -8,14 +8,22 @@
  * outro. Nenhum segredo mora aqui: token de canal fica no Chat BullQ, e o
  * acesso do Consulta ISP e pela chave de plataforma (env).
  */
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, ilike, ne, notExists, gt, count, gte, sql, inArray, or } from "drizzle-orm";
 import { db } from "../db";
 import {
-  chatBullqConversas, chatBullqIntegracoes,
+  chatBullqConversas, chatBullqIntegracoes, customers, cobrancaCasos, equipmentRecoveryCases, equipmentRecoveryEvents, cobrancaEventos, invoices, contracts,
   type ChatBullqConversa, type ChatBullqIntegracao,
 } from "@shared/schema";
 
-export const STATUS_DE_INTEGRACAO_DO_CHAT = ["provisionado", "ativo", "erro"] as const;
+/**
+ * provisionado (organizacao criada, sem canal) · aguardando_conexao (o canal
+ * existe e o token vale, mas o numero ainda nao foi pareado — o QR nao foi
+ * lido) · ativo (numero conectado E logado) · erro (a consulta ao chat falhou
+ * ou o servico recusou). `aguardando_conexao` e a mesma situacao fisica que a
+ * ponte grava ao salvar o canal: sem ele, "Verificar conexao" a rebatizava de
+ * erro.
+ */
+export const STATUS_DE_INTEGRACAO_DO_CHAT = ["provisionado", "aguardando_conexao", "ativo", "erro"] as const;
 export type StatusDeIntegracaoDoChat = (typeof STATUS_DE_INTEGRACAO_DO_CHAT)[number];
 
 export const ORIGENS_DE_CONVERSA = ["cobranca", "equipamentos"] as const;
@@ -31,6 +39,12 @@ export interface DadosDaIntegracaoDoChat {
   ultimoErro?: string | null;
 }
 
+/** O follow-up que fechou o contato pelo chat — vai no metadata do evento de cobrança. */
+export interface FollowUpDoEventoDoChat {
+  proximaAcao: string;
+  proximoContatoEm: Date;
+}
+
 export interface NovaConversaDoChat {
   customerId: number;
   origem: OrigemDeConversa;
@@ -43,6 +57,67 @@ export interface NovaConversaDoChat {
 }
 
 export class ChatBullqStorage {
+  /**
+   * A varredura do worker: por desenho ela e CROSS-TENANT — o worker roda uma
+   * vez para a instalacao inteira e precisa da lista de todos os provedores com
+   * o primeiro contato ligado. Nao ha `provider_id` na sessao aqui (nao ha
+   * sessao). Cada linha devolvida carrega o seu `providerId`, e TUDO o que vem
+   * depois (candidatos, cota do dia, envio) filtra por ele — nunca use esta
+   * lista para responder a um pedido de um provedor.
+   */
+  async integracoesComContatoAutomatico() {
+    return db.select().from(chatBullqIntegracoes).where(and(eq(chatBullqIntegracoes.status, "ativo"), sql`${chatBullqIntegracoes.agenteConfig}->'primeiroContato'->>'ligada' = 'true'`));
+  }
+
+  /**
+   * A cota do dia conta contato QUE SAIU, nao conversa aberta: quando a ponte
+   * reaproveita a conversa que ja existia no Chat BullQ, nenhuma mensagem e
+   * enviada e o vinculo e gravado do mesmo jeito — contar essa linha gastava a
+   * cota de um contato que nunca aconteceu. O que prova o envio e o evento:
+   * `contato` na cobranca (o mesmo que grava `ultimo_contato_em` no caso) e o
+   * evento marcado `enviado` na recuperacao de equipamento.
+   */
+  async contatosIniciadosNoDia(providerId: number, inicio: Date) {
+    const [cobranca, equipamentos] = await Promise.all([
+      db.select({ total: count() }).from(cobrancaEventos).where(and(
+        eq(cobrancaEventos.providerId, providerId), eq(cobrancaEventos.tipo, "contato"), eq(cobrancaEventos.canal, "whatsapp"), gte(cobrancaEventos.ocorridoEm, inicio),
+      )),
+      db.select({ total: count() }).from(equipmentRecoveryEvents).where(and(
+        eq(equipmentRecoveryEvents.providerId, providerId), eq(equipmentRecoveryEvents.channel, "whatsapp"), gte(equipmentRecoveryEvents.occurredAt, inicio),
+        sql`${equipmentRecoveryEvents.metadata}->>'enviado' = 'true'`,
+      )),
+    ]);
+    return (cobranca[0]?.total ?? 0) + (equipamentos[0]?.total ?? 0);
+  }
+
+  async candidatosAoPrimeiroContato(providerId: number) {
+    // Conversa ABERTA no chat: a ponte reaproveita a conversa do telefone e nada
+    // sai. Enquanto ela viver o caso nao e candidato; encerrada, volta a ser —
+    // antes a exclusao olhava QUALQUER linha e o caso ficava sem primeiro
+    // contato para sempre, mesmo depois que a conversa terminou.
+    const semConversaAberta = (customerId: typeof cobrancaCasos.customerId | typeof equipmentRecoveryCases.customerId) => notExists(
+      db.select({ id: chatBullqConversas.id }).from(chatBullqConversas).where(and(
+        eq(chatBullqConversas.providerId, providerId), eq(chatBullqConversas.customerId, customerId), ne(chatBullqConversas.status, "CLOSED"),
+      )),
+    );
+    // Quem ja foi contatado de verdade sai pelo rastro do envio: na cobranca,
+    // `ultimo_contato_em` (so o evento tipo `contato` a grava); na recuperacao,
+    // o evento marcado `enviado`.
+    const semContatoEnviado = notExists(
+      db.select({ id: equipmentRecoveryEvents.id }).from(equipmentRecoveryEvents).where(and(
+        eq(equipmentRecoveryEvents.providerId, providerId), eq(equipmentRecoveryEvents.caseId, equipmentRecoveryCases.id),
+        sql`${equipmentRecoveryEvents.metadata}->>'enviado' = 'true'`,
+      )),
+    );
+    const cobranca = await db.select({ id: cobrancaCasos.id, diasAtraso: customers.maxDaysOverdue, carteira: cobrancaCasos.carteira, tom: cobrancaCasos.tom, quadrante: cobrancaCasos.quadranteDna })
+      .from(cobrancaCasos).innerJoin(customers, and(eq(customers.id, cobrancaCasos.customerId), eq(customers.providerId, providerId)))
+      .where(and(eq(cobrancaCasos.providerId, providerId), eq(cobrancaCasos.status, "aberto"), isNull(cobrancaCasos.ultimoContatoEm), gt(customers.totalOverdueAmount, "0"), isNotNull(customers.phone), semConversaAberta(cobrancaCasos.customerId)))
+      .orderBy(asc(cobrancaCasos.abertoEm), asc(cobrancaCasos.id)).limit(100);
+    const equipamentos = await db.select({ id: equipmentRecoveryCases.id }).from(equipmentRecoveryCases)
+      .where(and(eq(equipmentRecoveryCases.providerId, providerId), isNull(equipmentRecoveryCases.closedAt), isNull(equipmentRecoveryCases.disputedAt), eq(equipmentRecoveryCases.status, "pre_recuperacao"), semConversaAberta(equipmentRecoveryCases.customerId), semContatoEnviado))
+      .orderBy(asc(equipmentRecoveryCases.createdAt), asc(equipmentRecoveryCases.id)).limit(100);
+    return { cobranca, equipamentos };
+  }
   async getIntegracaoDoChat(providerId: number): Promise<ChatBullqIntegracao | undefined> {
     const [linha] = await db.select().from(chatBullqIntegracoes).where(eq(chatBullqIntegracoes.providerId, providerId)).limit(1);
     return linha;
@@ -104,14 +179,15 @@ export class ChatBullqStorage {
       .where(and(eq(chatBullqConversas.providerId, providerId), eq(chatBullqConversas.conversationId, dados.conversationId)))
       .limit(1);
     if (existente) {
+      if (existente.customerId !== dados.customerId) throw new Error("Conversa já vinculada a outro cliente");
       const [atualizada] = await db.update(chatBullqConversas)
         .set({
           customerId: dados.customerId,
           origem: dados.origem,
-          casoId: dados.casoId ?? existente.casoId,
-          recuperacaoId: dados.recuperacaoId ?? existente.recuperacaoId,
+          casoId: dados.casoId ?? sql`${chatBullqConversas.casoId}`,
+          recuperacaoId: dados.recuperacaoId ?? sql`${chatBullqConversas.recuperacaoId}`,
           canalId: dados.canalId,
-          status: dados.status ?? existente.status,
+          status: sql`case when ${chatBullqConversas.status} = 'CLOSED' then ${dados.status ?? "PENDING"} else ${chatBullqConversas.status} end`,
           ultimoEventoEm: new Date(),
         })
         .where(and(eq(chatBullqConversas.id, existente.id), eq(chatBullqConversas.providerId, providerId)))
@@ -198,5 +274,74 @@ export class ChatBullqStorage {
       .where(and(eq(chatBullqConversas.providerId, providerId), eq(chatBullqConversas.conversationId, conversationId)))
       .returning();
     return linha;
+  }
+
+  async getConversaDoChat(providerId: number, conversationId: string): Promise<ChatBullqConversa | undefined> {
+    const [linha] = await db.select().from(chatBullqConversas).where(and(
+      eq(chatBullqConversas.providerId, providerId), eq(chatBullqConversas.conversationId, conversationId),
+    )).limit(1);
+    return linha;
+  }
+
+  async clienteDoAtendimento(providerId: number, customerId: number) {
+    const [cliente] = await db.select({ id: customers.id, nome: customers.name, documento: customers.cpfCnpj, telefone: customers.phone, email: customers.email, endereco: customers.address, numero: customers.addressNumber, complemento: customers.complement, bairro: customers.neighborhood, cidade: customers.city, uf: customers.state, cep: customers.cep, statusContrato: customers.status, clienteDesde: customers.contractStartDate, credito: customers.ispScore, risco: customers.riskTier, divida: customers.totalOverdueAmount, diasAtraso: customers.maxDaysOverdue, sincronizadoEm: customers.lastSyncAt })
+      .from(customers).where(and(eq(customers.id, customerId), eq(customers.providerId, providerId))).limit(1);
+    return cliente;
+  }
+
+  async contextoFinanceiroDoChat(providerId: number, customerId: number) {
+    const escopo = and(eq(invoices.providerId, providerId), eq(invoices.customerId, customerId));
+    const [faturas, pagamentos, contrato, ordens] = await Promise.all([
+      db.select({ ref: invoices.erpRef, id: invoices.id, fonte: invoices.erpSource, valor: invoices.value, vencimento: invoices.dueDate, descricao: invoices.descricao }).from(invoices).where(and(escopo, inArray(invoices.status, ["aberta", "pending", "overdue"]))).orderBy(asc(invoices.dueDate)).limit(51),
+      db.select({ pagas: count(), comData: sql<number>`count(*) filter (where ${invoices.paidDate} is not null)`.mapWith(Number), pontuais: sql<number>`count(*) filter (where ${invoices.paidDate}::date <= ${invoices.dueDate}::date)`.mapWith(Number) }).from(invoices).where(and(escopo, eq(invoices.status, "paid"))),
+      db.select({ plano: contracts.plan, mensalidade: contracts.value }).from(contracts).where(and(eq(contracts.providerId, providerId), eq(contracts.customerId, customerId), eq(contracts.status, "active"))).orderBy(desc(contracts.id)).limit(2),
+      db.select({ id: equipmentRecoveryCases.id, status: equipmentRecoveryCases.status, agendadoEm: equipmentRecoveryCases.scheduledAt }).from(equipmentRecoveryCases).where(and(eq(equipmentRecoveryCases.providerId, providerId), eq(equipmentRecoveryCases.customerId, customerId), isNull(equipmentRecoveryCases.closedAt))).orderBy(desc(equipmentRecoveryCases.createdAt)).limit(20),
+    ]);
+    return { faturas: faturas.slice(0, 50), temMaisFaturas: faturas.length > 50, pagamentos: pagamentos[0] ?? { pagas: 0, comData: 0, pontuais: 0 }, contrato: contrato.length === 1 ? contrato[0] : null, ordens };
+  }
+
+  /** Compare-and-set: webhooks concorrentes não transferem duas vezes nem desfazem um humano que acabou de assumir. */
+  async moverConversaDoChat(providerId: number, conversationId: string, de: string, para: string): Promise<ChatBullqConversa | undefined> {
+    const [linha] = await db.update(chatBullqConversas).set({ status: para, ultimoEventoEm: new Date() })
+      .where(and(eq(chatBullqConversas.providerId, providerId), eq(chatBullqConversas.conversationId, conversationId), eq(chatBullqConversas.status, de))).returning();
+    return linha;
+  }
+
+  async listarAtendimentosDoChat(providerId: number, filtro: { origem: OrigemDeConversa; carteira?: string; status?: string; busca?: string; pagina: number }) {
+    const c = chatBullqConversas;
+    const linhas = await db.select({ conversa: c, nome: customers.name, telefone: customers.phone, carteira: cobrancaCasos.carteira })
+      .from(c)
+      .innerJoin(customers, and(eq(customers.id, c.customerId), eq(customers.providerId, providerId)))
+      .leftJoin(cobrancaCasos, and(eq(cobrancaCasos.id, c.casoId), eq(cobrancaCasos.providerId, providerId)))
+      .where(and(eq(c.providerId, providerId),
+        filtro.origem === "cobranca" ? isNotNull(c.casoId) : isNotNull(c.recuperacaoId),
+        filtro.origem === "cobranca" && filtro.carteira ? eq(cobrancaCasos.carteira, filtro.carteira) : undefined,
+        filtro.status ? eq(c.status, filtro.status) : undefined,
+        filtro.busca ? or(ilike(customers.name, `%${filtro.busca.replace(/[%_\\]/g, "\\$&")}%`), filtro.busca.replace(/\D/g, "").length >= 3 ? sql`regexp_replace(${customers.phone}, '[^0-9]', '', 'g') like ${`%${filtro.busca.replace(/\D/g, "")}%`}` : undefined) : undefined,
+      )).orderBy(desc(c.ultimoEventoEm), desc(c.id)).limit(31).offset((filtro.pagina - 1) * 30);
+    return { itens: linhas.slice(0, 30).map(l => ({ ...l.conversa, nome: l.nome, telefone: l.telefone, carteira: l.carteira })), temMais: linhas.length > 30, pagina: filtro.pagina };
+  }
+
+  /**
+   * Uma ação no chat também pertence à linha do tempo do caso, sem alterar seu
+   * desfecho. Quando a ação fechou o follow-up (regra do dono: todo contato
+   * termina com a próxima ação e o quando), ele vai no metadata do evento de
+   * cobrança — a ficha 360 lê dali o que foi combinado naquele contato. As
+   * colunas do caso (`proxima_acao`, `proximo_contato_em`) são gravadas por
+   * `atualizarCasoDeCobranca`, que é quem sabe deixar o evento de responsável.
+   *
+   * `contatoEnviado` marca no metadata que uma mensagem REALMENTE saiu (o
+   * primeiro contato da recuperação de equipamento). É esse rastro que a cota
+   * do dia e a lista de candidatos leem — conversa reaproveitada não o ganha.
+   */
+  async registrarEventoDoChat(providerId: number, conversa: ChatBullqConversa, userId: number | null, notas: string, followUp?: FollowUpDoEventoDoChat, contatoEnviado = false): Promise<void> {
+    const metadata: Record<string, unknown> = { origem: "chat_integrado", conversationId: conversa.conversationId, ...(contatoEnviado ? { enviado: true } : {}) };
+    const metadataDaCobranca = followUp
+      ? { ...metadata, proximaAcao: followUp.proximaAcao, proximoContatoEm: followUp.proximoContatoEm.toISOString() }
+      : metadata;
+    await db.transaction(async tx => {
+      if (conversa.casoId) await tx.insert(cobrancaEventos).values({ providerId, customerId: conversa.customerId, casoId: conversa.casoId, userId, tipo: "nota", canal: "whatsapp", notas, metadata: metadataDaCobranca });
+      if (conversa.recuperacaoId) await tx.insert(equipmentRecoveryEvents).values({ providerId, caseId: conversa.recuperacaoId, userId, type: "nota", channel: "whatsapp", notes: notas, metadata });
+    });
   }
 }

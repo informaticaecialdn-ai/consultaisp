@@ -31,6 +31,7 @@ import { registerSuporteAcessoRoutes } from "./suporte-acesso.routes";
 import { registerCobrancaRoutes } from "./cobranca.routes";
 import { registerChatBullqRoutes } from "./chat-bullq.routes";
 import { registerChatBullqAgenteRoutes } from "./chat-bullq-agente.routes";
+import { registerChatAutonomiaRoutes } from "./chat-autonomia.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -82,6 +83,8 @@ export async function registerRoutes(
   app.use(registerChatBullqRoutes());
   // As skills do agente de IA e o webhook de volta do Chat BullQ (sem sessao: chave e HMAC).
   app.use(registerChatBullqAgenteRoutes());
+  // A autonomia do chat: configuracao por provedor, fila por status e a volta da conversa ao assistente (sessao).
+  app.use(registerChatAutonomiaRoutes());
 
   return httpServer;
 }

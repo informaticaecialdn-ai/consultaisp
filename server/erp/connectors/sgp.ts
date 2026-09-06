@@ -35,7 +35,9 @@ import type {
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { cleanCpfCnpj, cleanPhone, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
 import type { FaturaAbertaDoErp } from "../types.js";
+import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
 import { corteFinanceiro } from "@shared/motivo-corte";
+import { autenticacoesDoSgp } from "@shared/equipamentos/identificacao";
 
 /** Teto documentado de `limit` em /api/ura/titulos/. Pedir mais nao traz mais. */
 const LIMITE_TITULOS = 250;
@@ -947,6 +949,15 @@ export class SgpConnector implements ErpConnector {
    * aceita o CPF direto e devolve contrato, status, endereco e data de
    * cadastro; `titulos` filtrado pelo mesmo CPF traz os vencimentos.
    */
+  async fetchSegundaVia(config: ErpConnectionConfig, documento: string, referencia: string) {
+    const r = await this.post(config, "/api/ura/fatura2via/", { cpfcnpj: documento.replace(/\D/g, ""), faturas_abertas_todas: 1, nao_gerar_os: 1 }, { timeoutMs: 12000, retries: 0 });
+    if (!r.ok) throw new Error("O SGP não disponibilizou a segunda via");
+    const d = await this.lerJson(r) as { cpfCnpj?: string; links?: Array<{ fatura?: string | number; link?: string; codigopix?: string; linhadigitavel?: string; valor?: number; vencimento?: string }> };
+    if (d.cpfCnpj && d.cpfCnpj.replace(/\D/g, "") !== documento.replace(/\D/g, "")) throw new Error("O ERP devolveu uma segunda via de outro cadastro");
+    const f = d.links?.find(l => String(l.fatura) === referencia);
+    return f ? normalizarPagamento({ link: f.link, pix: f.codigopix, linhaDigitavel: f.linhadigitavel, valor: f.valor, vencimento: f.vencimento }) : null;
+  }
+
   async fetchCustomerByCpf(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult> {
     const doc = cpfCnpj.replace(/\D/g, "");
     try {
@@ -1015,6 +1026,8 @@ export class SgpConnector implements ErpConnector {
         contractStatus: statusDoContratoSgp(principal?.contratoStatus, principal?.contratoStatusDisplay),
         contractPlan: texto(principal?.planointernet) ?? texto(principal?.servico_plano),
         contractStartDate: texto(principal?.dataCadastro),
+        autenticacoes: autenticacoesDoSgp(contratos),
+        equipmentDetails: aparelhosDoCliente(contratos),
         erpSource: "sgp",
       };
 
@@ -1195,6 +1208,7 @@ export class SgpConnector implements ErpConnector {
             motivoCorte: texto(comMotivo?.motivo_status),
             cortadoEm: texto(comMotivo?.data_status),
             equipmentDetails: aparelhosDoCliente(contratos),
+            autenticacoes: autenticacoesDoSgp(contratos),
             erpSource: "sgp",
           });
         }

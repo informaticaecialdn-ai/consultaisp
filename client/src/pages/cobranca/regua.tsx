@@ -13,7 +13,8 @@
  */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { carteiraDaNavegacao, caminhoNaCarteira } from "@/components/cobranca/carteiras";
 import { Pause, Play, Scale, Settings2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,7 +44,9 @@ export default function ReguaPage() {
   const { user, personificando } = useAuth();
   const podeAdministrar = podeAdministrarCobranca(user, personificando);
   const search = useSearch();
-  const [carteira, setCarteira] = useState<Carteira>(() => (new URLSearchParams(search).get("carteira") === "ex_cliente" ? "ex_cliente" : "ativo"));
+  const [caminho, navigate] = useLocation();
+  const carteira = carteiraDaNavegacao(caminho, search);
+  const setCarteira = (valor: Carteira) => navigate(caminhoNaCarteira(caminho, valor));
   const [quadrante, setQuadrante] = useState<Quadrante>("B3");
   const [pausa, setPausa] = useState<{ aberta: boolean; motivo: string }>({ aberta: false, motivo: "" });
 

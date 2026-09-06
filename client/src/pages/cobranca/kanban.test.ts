@@ -48,9 +48,9 @@ describe("a página do kanban", () => {
   });
 
   it("os KPIs vêm do servidor pela fila, nunca contados na página", () => {
-    expect(pagina).toContain("lerRespostaDaFila(filaCrua)");
+    expect(pagina).not.toContain("API_FILA");
     // os indicadores vem do QUADRO (mesmo recorte das colunas); a fila e reserva
-    expect(pagina).toContain("const kpis = quadro.kpis ?? fila.kpis;");
+    expect(pagina).toContain("const kpis = quadro.kpis;");
     expect(tipos).toContain("kpis: KpisDaFila | null;");
     expect(pagina).toContain("kpis?.casosVivos");
     expect(pagina).toContain("kpis?.vencidos");
@@ -67,7 +67,8 @@ describe("a página do kanban", () => {
 
   it("filtra por etapa da régua e carteira, e limpa os filtros", () => {
     expect(pagina).toContain('data-testid="filtro-etapa"');
-    expect(pagina).toContain('data-testid="filtro-carteira"');
+    expect(pagina).toContain("<NavegacaoCarteiras carteira={carteira}");
+    expect(pagina).not.toContain("Ativos e ex-clientes");
     expect(pagina).toContain('data-testid="limpar-filtros-kanban"');
     expect(pagina).toContain('data-testid="busca-kanban"');
   });
@@ -128,10 +129,12 @@ describe("fiação", () => {
     expect(app).toMatch(/"\/cobranca\/fila",\s*"\/cobranca\/kanban"/);
   });
 
-  it("a sidebar tem o item Kanban ao lado da Fila do dia", () => {
-    expect(sidebar).toContain('url: "/cobranca/kanban"');
-    expect(sidebar).toContain('testId: "link-cobranca-kanban"');
-    expect(sidebar).toContain('testId: "link-cobranca-fila"');
+  it("cada carteira tem seu Kanban e sua Fila do dia", () => {
+    for (const carteira of ["ativo", "ex_cliente"]) expect(sidebar).toContain(`caminhoNaCarteira("/cobranca/kanban", "${carteira}")`);
+    for (const menu of ["ativos", "ex-clientes"]) {
+      expect(sidebar).toContain(`testId: "link-cobranca-${menu}-kanban"`);
+      expect(sidebar).toContain(`testId: "link-cobranca-${menu}-fila"`);
+    }
   });
 
   it("a fila e o kanban apontam um para o outro", () => {

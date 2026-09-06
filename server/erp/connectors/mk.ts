@@ -29,6 +29,7 @@ import { chaveLogradouro } from "../../services/logradouro.js";
 import { normalizarLocalidade } from "../../services/localidade.js";
 import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
 import type { FaturaAbertaDoErp } from "../types.js";
+import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
 
 // Token cache for MK auth
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
@@ -294,7 +295,20 @@ export class MkConnector implements ErpConnector {
     return config.apiUrl.replace(/\/+$/, "").replace(/\/mk$/i, "");
   }
 
-  /** Step 1: Authenticate via WSAutenticacao to get session token */
+  /** Consulta o instrumento existente de uma fatura já validada para o cliente. */
+  async fetchSegundaVia(config: ErpConnectionConfig, _documento: string, referencia: string) {
+    // Referências sintéticas da importação não são códigos de fatura do MK.
+    if (!/^\d+$/.test(referencia)) return null;
+    const token = await this.authenticate(config);
+    const base = this.baseUrl(config);
+    const qs = new URLSearchParams({ sys: "MK0", token, cd_fatura: referencia });
+    const r = await fetch(`${base}/mk/WSMKSegundaViaCobranca.rule?${qs}`, { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) throw new Error("O MK não disponibilizou a segunda via desta fatura");
+    const d = await r.json() as { Fatura?: string | number; PathDownload?: string; Valor?: string; Vcto?: string; linha_digitavel_boleto?: string; pix_copia_cola?: string };
+    if (d.Fatura && String(d.Fatura) !== referencia) throw new Error("O ERP devolveu outra fatura");
+    return normalizarPagamento({ link: d.PathDownload, pix: d.pix_copia_cola, linhaDigitavel: d.linha_digitavel_boleto, valor: d.Valor, vencimento: vencimentoIso(d.Vcto) });
+  }
+
   private async authenticate(config: ErpConnectionConfig): Promise<string> {
     const base = this.baseUrl(config);
     const cacheKey = `${base}::${config.apiToken}`;
@@ -321,7 +335,6 @@ export class MkConnector implements ErpConnector {
     }
 
     const json: any = await response.json();
-    console.log(`[MK] Resposta autenticacao:`, JSON.stringify(json).substring(0, 200));
 
     // Try multiple token field names — MK API varies between versions
     const tokenAcesso =
@@ -580,7 +593,6 @@ export class MkConnector implements ErpConnector {
 
             if (faturas.length > 0) {
               console.log(`[MK] Campos da primeira fatura:`, Object.keys(faturas[0]).join(", "));
-              console.log(`[MK] Primeira fatura completa:`, JSON.stringify(faturas[0]).substring(0, 500));
             }
             console.log(`[MK] ${faturas.length} fatura(s) pendente(s) encontrada(s)`);
 

@@ -51,6 +51,13 @@ beforeEach(() => {
 });
 
 describe("snapshotAoVivoDoCliente", () => {
+  it("expõe autenticação técnica sem senha e não confunde contrato ativo com sessão online", async () => {
+    fake.integracoes = [integracao("sgp")];
+    fake.conectores.set("sgp", conectorQueDevolve([{ cpfCnpj: DOC, name: "Maria", contractStatus: "active", autenticacoes: [{ login: "assinante", mac: "AABBCCDDEEFF", ip: "100.64.0.2", contrato: "1", serial: null, online: null, fonte: "sgp", senha: "segredo-que-nao-pode-sair" }] }]));
+    const s = await snapshotAoVivoDoCliente(7, DOC);
+    expect(s.cliente?.autenticacoes).toEqual([{ login: "assinante", mac: "AABBCCDDEEFF", ip: "100.64.0.2", contrato: "1", serial: null, online: null, fonte: "sgp" }]);
+    expect(JSON.stringify(s)).not.toContain("segredo-que-nao-pode-sair");
+  });
   it("sem integração ligada, diz isso e não lança", async () => {
     const s = await snapshotAoVivoDoCliente(7, DOC);
     expect(s.ok).toBe(false);

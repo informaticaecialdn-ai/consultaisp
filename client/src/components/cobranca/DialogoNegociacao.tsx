@@ -35,7 +35,8 @@ function primeiroVencimentoPadrao(): string {
   return hojeInput(d);
 }
 
-export function DialogoNegociacao({ alvo, politica, aberto, onFechar }: {
+export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicial }: {
+  tipoInicial?: TipoDeNegociacao;
   alvo: AlvoDaNegociacao | null;
   politica: Politica | null;
   aberto: boolean;
@@ -47,10 +48,10 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar }: {
 
   useEffect(() => {
     if (aberto) {
-      setForm(formInicial(alvo?.valorAtual ?? 0, primeiroVencimentoPadrao()));
+      setForm({ ...formInicial(alvo?.valorAtual ?? 0, primeiroVencimentoPadrao()), ...(tipoInicial ? { tipo: tipoInicial } : {}) });
       setViolacoesDoServidor([]);
     }
-  }, [aberto, alvo]);
+  }, [aberto, alvo, tipoInicial]);
 
   const valorOriginal = alvo?.valorAtual ?? 0;
   const previa = useMemo(() => previaDaNegociacao(form, valorOriginal, politica), [form, valorOriginal, politica]);

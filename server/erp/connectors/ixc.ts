@@ -34,6 +34,7 @@ import type {
   FaturaAbertaDoErp,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
+import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
 import { cleanCpfCnpj, cleanCep, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
 
 /**
@@ -57,6 +58,7 @@ export function faturasAbertasPorCliente(rows: any[]): Map<string, FaturaAbertaD
     const obs = typeof row.obs === "string" && row.obs.trim() ? row.obs.trim() : null;
     const lista = mapa.get(cid);
     const fatura: FaturaAbertaDoErp = { ref, vencimento, valor, descricao: obs };
+    if (row.linha_digitavel) fatura.pagamento = normalizarPagamento({ linhaDigitavel: row.linha_digitavel, valor, vencimento });
     if (lista) lista.push(fatura); else mapa.set(cid, [fatura]);
   }
   return mapa;
@@ -1136,6 +1138,7 @@ export class IxcConnector implements ErpConnector {
       const customerId = String(r.id || "");
 
       // Fetch overdue invoices for this specific customer
+      let faturasAbertas: FaturaAbertaDoErp[] | undefined;
       let totalOverdueAmount = 0;
       let maxDaysOverdue = 0;
       let overdueInvoicesCount = 0;
@@ -1145,6 +1148,8 @@ export class IxcConnector implements ErpConnector {
           { TB: "fn_areceber.id_cliente", OP: "=", P: customerId, C: "AND", G: "" },
           ...FATURA_ABERTA,
         ], 200, 5);
+
+        faturasAbertas = faturasAbertasPorCliente(invoiceRows).get(customerId) ?? [];
 
         for (const inv of invoiceRows) {
           const dueDate = inv.data_vencimento;
@@ -1258,6 +1263,7 @@ export class IxcConnector implements ErpConnector {
         }
       }
 
+      const radius = customerId ? await this.fetchRadiusStatus(config, customerId) : null;
       const customer: NormalizedErpCustomer = {
         cpfCnpj: clean,
         name: r.razao || r.nome || "",
@@ -1276,6 +1282,8 @@ export class IxcConnector implements ErpConnector {
         hasUnreturnedEquipment,
         unreturnedEquipmentCount,
         equipmentDetails: equipmentDetails.length > 0 ? equipmentDetails : undefined,
+        autenticacoes: radius?.ok ? radius.connections.map(c => ({ login: c.login || null, mac: c.mac || null, ip: c.ip || null, online: c.online, contrato: null, serial: null, fonte: "ixc_radius" })) : undefined,
+        faturasAbertas,
         contractStatus,
         contractStartDate,
         contractPlan,

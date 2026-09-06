@@ -34,6 +34,8 @@ import {
   API_CARTEIRA, API_CARTEIRA_MES, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_FILA, ROTA_REGUA, rotaDoCliente,
   type RespostaDaCarteira, type RespostaDaRegua, type RespostaDoMes,
 } from "@/components/cobranca/tipos";
+import { caminhoNaCarteira } from "@/components/cobranca/carteiras";
+import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
 import { BarraComposicao, FiltroPilula, mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
 export type EspacoDaCarteira = "ativos" | "ex";
@@ -46,17 +48,17 @@ export const ESPACO_META: Record<EspacoDaCarteira, {
     carteira: "ativo",
     rota: ROTA_CARTEIRA_ATIVOS,
     titulo: "Clientes ativos",
-    subtitulo: "situação ERP fixada pelo espaço: Ativo · por dívida / bairro / etapa da régua",
+    subtitulo: "Regularize atrasos e preserve o vínculo. Inclui clientes com serviço suspenso.",
     kpiClientes: "Clientes ativos",
     labelAberto: "Vencido em ativos",
-    situacaoErp: "Ativo",
+    situacaoErp: "Ativo ou suspenso",
     vazio: "Nenhum cliente ativo",
   },
   ex: {
     carteira: "ex_cliente",
     rota: ROTA_CARTEIRA_EX,
     titulo: "Ex-clientes com dívida",
-    subtitulo: "situação ERP fixada pelo espaço: Ex-cliente · por dívida / bairro / etapa da régua",
+    subtitulo: "Recupere valores pendentes de contratos cancelados ou inativos.",
     kpiClientes: "Ex-clientes com dívida",
     labelAberto: "Saldo vencido",
     situacaoErp: "Ex-cliente",
@@ -212,7 +214,7 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
   const meta = ESPACO_META[espaco];
   const [, navigate] = useLocation();
   const search = useSearch();
-  const [filtros, setFiltros] = useState<FiltrosDaCarteira>(() => ({ ...filtrosDaUrl(search), carteira: meta.carteira }));
+  const [filtros, setFiltros] = useState<FiltrosDaCarteira>(() => ({ ...filtrosDaUrl(search), carteira: meta.carteira, ...(espaco === "ex" ? { mes: "", mesStatus: "" } : {}) }));
   const [buscaDigitada, setBuscaDigitada] = useState(filtros.busca);
   const [visao, setVisao] = useState<VisaoDaCarteira>(() => lerVisao(typeof localStorage === "undefined" ? null : localStorage));
   const hoje = useMemo(() => new Date(), []);
@@ -244,7 +246,7 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
   const filtrosAtuais = useRef(filtros);
   filtrosAtuais.current = filtros;
   useEffect(() => {
-    const daUrl = { ...filtrosDaUrl(search), carteira: meta.carteira };
+    const daUrl = { ...filtrosDaUrl(search), carteira: meta.carteira, ...(espaco === "ex" ? { mes: "", mesStatus: "" } : {}) };
     if (mesmosFiltros(filtrosAtuais.current, daUrl)) return;
     setFiltros(daUrl);
     setBuscaDigitada(daUrl.busca);
@@ -285,40 +287,41 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
 
   const kpis = data?.kpis ?? null;
   const valorKpi = (v: number | null | undefined, dinheiro = false) => (v === null || v === undefined ? TRACO : dinheiro ? brl(v) : num(v));
-  const clientesNoEspaco = espaco === "ativos" ? (filtrado ? total : (data?.total ?? null)) : kpis?.exClientesComDivida;
+  const clientesNoEspaco = espaco === "ativos"
+    ? (data?.composicao ? data.composicao.emDia + data.composicao.emCobranca : null)
+    : kpis?.exClientesComDivida;
 
   return (
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid={`cobranca-carteira-${espaco}`}>
       <CabecalhoPainel
         titulo={meta.titulo}
-        descricao={isLoading ? "carregando…" : `${num(total)} ${espaco === "ativos" ? "clientes ativos" : "ex-clientes com dívida"} · ${meta.subtitulo}`}
+        descricao={isLoading ? "carregando…" : `${num(total)} ${espaco === "ativos" ? (total === 1 ? "cliente ativo" : "clientes ativos") : (total === 1 ? "ex-cliente com dívida" : "ex-clientes com dívida")} · ${meta.subtitulo}`}
         testIdTitulo="titulo-carteira"
         acoes={
           <>
-            <Link href={espaco === "ativos" ? ROTA_CARTEIRA_EX : ROTA_CARTEIRA_ATIVOS} className={BOTAO_SECUNDARIO} data-testid="link-outro-espaco">
-              <Users className="h-3.5 w-3.5" aria-hidden /> {espaco === "ativos" ? "Ex-clientes" : "Clientes ativos"}
-            </Link>
-            <Link href={ROTA_FILA} className={BOTAO_SECUNDARIO} data-testid="link-fila"><ListTodo className="h-3.5 w-3.5" aria-hidden /> Fila do dia</Link>
-            <Link href={ROTA_REGUA} className={BOTAO_SECUNDARIO} data-testid="link-regua"><Route className="h-3.5 w-3.5" aria-hidden /> Régua e DNA</Link>
+            <Link href={caminhoNaCarteira(ROTA_FILA, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-fila"><ListTodo className="h-3.5 w-3.5" aria-hidden /> Fila do dia</Link>
+            <Link href={caminhoNaCarteira(ROTA_REGUA, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-regua"><Route className="h-3.5 w-3.5" aria-hidden /> Régua e DNA</Link>
           </>
         }
       />
 
+      <NavegacaoCarteiras carteira={meta.carteira} />
+
       {/* KPIs — o mesmo quarteto do CarteiraKpis do Provedor.ai; sem fonte, "—". */}
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Indicadores" data-testid="kpis-carteira">
-        <KpiCarteira rotulo={meta.kpiClientes} valor={valorKpi(clientesNoEspaco)} carregando={isLoading} testId="kpi-clientes" />
-        <KpiCarteira rotulo="Em aberto (carteira)" valor={valorKpi(kpis?.emAberto, true)} negativo={Boolean(kpis?.emAberto)} sub="dívida vencida de hoje, segundo o ERP · as duas carteiras" carregando={isLoading} testId="kpi-em-aberto" />
-        <KpiCarteira rotulo="Contatados hoje" valor={valorKpi(kpis?.contatadosHoje)} sub="contatos registrados desde a meia-noite" carregando={isLoading} testId="kpi-contatados" />
-        <KpiCarteira rotulo="Recuperado 30 d" valor={valorKpi(kpis?.recuperado30d, true)} sub="parcelas pagas + casos pagos" carregando={isLoading} testId="kpi-recuperado" />
+        <KpiCarteira rotulo={meta.kpiClientes} valor={valorKpi(clientesNoEspaco)} sub="total da carteira, antes dos filtros" carregando={isLoading} testId="kpi-clientes" />
+        <KpiCarteira rotulo={meta.labelAberto} valor={valorKpi(kpis?.emAberto, true)} negativo={Boolean(kpis?.emAberto)} sub="dívida vencida nesta carteira, segundo o ERP" carregando={isLoading} testId="kpi-em-aberto" />
+        <KpiCarteira rotulo="Contatados hoje" valor={valorKpi(kpis?.contatadosHoje)} sub="clientes desta carteira contatados hoje" carregando={isLoading} testId="kpi-contatados" />
+        <KpiCarteira rotulo="Recuperado 30 d" valor={valorKpi(kpis?.recuperado30d, true)} sub="recuperações registradas nesta carteira" carregando={isLoading} testId="kpi-recuperado" />
       </section>
 
       {data?.pausada && (
         <p className="rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--text-2)]" data-testid="aviso-pausada">
-          <b className="text-[var(--danger)]">Régua pausada:</b> os casos não mudam de etapa até ela ser retomada em <Link href={ROTA_REGUA} className="underline">Régua e DNA</Link>.
+          <b className="text-[var(--danger)]">Régua pausada:</b> os casos não mudam de etapa até ela ser retomada em <Link href={caminhoNaCarteira(ROTA_REGUA, meta.carteira)} className="underline">Régua e DNA</Link>.
         </p>
       )}
 
-      <BarraComposicao composicao={data?.composicao} carregando={isLoading} testId="composicao-carteira" />
+      <BarraComposicao carteira={meta.carteira} composicao={data?.composicao} carregando={isLoading} testId="composicao-carteira" />
 
       {/* Realidade mensal — só faz sentido para quem AINDA é cliente. */}
       {espaco === "ativos" && (
@@ -385,7 +388,7 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
       ) : visao === "cards" ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="grade-cards">
           {itens.map(item => (
-            <CardCliente key={item.customerId} item={item} etapas={regua?.etapas} hoje={hoje} onAbrir={() => navigate(rotaDoCliente(item.customerId))} />
+            <CardCliente key={item.customerId} item={item} etapas={regua?.etapas} hoje={hoje} onAbrir={() => navigate(rotaDoCliente(item.customerId, meta.carteira))} />
           ))}
         </div>
       ) : (
@@ -401,7 +404,7 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
             </thead>
             <tbody>
               {itens.map(item => (
-                <LinhaDoCliente key={item.customerId} item={item} etapas={regua?.etapas} hoje={hoje} onAbrir={() => navigate(rotaDoCliente(item.customerId))} />
+                <LinhaDoCliente key={item.customerId} item={item} etapas={regua?.etapas} hoje={hoje} onAbrir={() => navigate(rotaDoCliente(item.customerId, meta.carteira))} />
               ))}
             </tbody>
           </TabelaPainel>

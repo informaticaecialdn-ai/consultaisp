@@ -50,7 +50,7 @@ export const ROTA_CARTEIRA_EX = "/cobranca/ex-clientes";
 export const ROTA_FILA = "/cobranca/fila";
 export const ROTA_REGUA = "/cobranca/regua";
 export const ROTA_POLITICA = "/cobranca/politica";
-export const rotaDoCliente = (customerId: number) => `/cobranca/cliente/${customerId}`;
+export const rotaDoCliente = (customerId: number, carteira?: string) => `/cobranca/cliente/${customerId}${carteira === "ativo" || carteira === "ex_cliente" ? `?carteira=${carteira}` : ""}`;
 
 export const API_CARTEIRA = "/api/cobranca/carteira";
 /** Realidade mensal do espaco de ativos: GET ?mes=AAAA-MM. */
@@ -352,6 +352,7 @@ export interface EquipamentoAoVivo {
 }
 
 export interface ClienteAoVivo {
+  autenticacoes?: import("@shared/equipamentos/identificacao").AutenticacaoCliente[];
   nome: string | null;
   plano: string | null;
   statusContrato: "active" | "cancelled" | "suspended" | null;
@@ -437,6 +438,7 @@ export interface ItemDaFila extends CasoDetalhe {
  * mostra "—" e nunca soma os itens da página no lugar.
  */
 export interface KpisDaFila {
+  criticos?: number | null;
   casosVivos: number | null;
   paraHoje: number | null;
   /** Follow-up (kanban): casos vivos sem data de proximo contato — caso parado. */
@@ -597,6 +599,7 @@ export function lerRespostaDaFila(resposta: unknown): RespostaDaFila {
   const kpisCrus = r.kpis && typeof r.kpis === "object" ? (r.kpis as Record<string, unknown>) : null;
   const kpis: KpisDaFila | null = kpisCrus
     ? {
+        criticos: numero(kpisCrus.criticos),
         // A rota da fila escreve `casos`/`valor`; a do kanban, `casosVivos`/`emAberto`. Os dois valem.
         casosVivos: numero(kpisCrus.casosVivos) ?? numero(kpisCrus.casos),
         paraHoje: numero(kpisCrus.paraHoje),
@@ -641,12 +644,13 @@ export interface NegociacaoResumo {
 }
 
 export interface IntegracaoDoChat {
+  webhookDatafyUrl?: string | null;
   ligado: boolean;
   provisionado: boolean;
   organizationId: string | null;
   /** O e-mail com que a equipe entra no inbox. */
   ownerEmail: string | null;
-  canal: { id: string; nome: string | null } | null;
+  canal: { id: string; nome: string | null; provider?: "ZAPPFY" | "UAZAPI" | "DATAFY" } | null;
   /** O agente de cobranca criado na organizacao do provedor, quando existe. */
   agente: { id: string; modelo: string | null } | null;
   status: string | null;
@@ -663,13 +667,14 @@ export function lerIntegracaoDoChat(resposta: unknown): IntegracaoDoChat | null 
     provisionado: r.provisionado === true,
     organizationId: typeof r.organizationId === "string" ? r.organizationId : null,
     ownerEmail: typeof r.ownerEmail === "string" ? r.ownerEmail : null,
-    canal: canal ? { id: String(canal.id), nome: typeof canal.nome === "string" ? canal.nome : null } : null,
+    canal: canal ? { id: String(canal.id), nome: typeof canal.nome === "string" ? canal.nome : null, ...(["ZAPPFY", "UAZAPI", "DATAFY"].includes(String(canal.provider)) ? { provider: canal.provider as "ZAPPFY" | "UAZAPI" | "DATAFY" } : {}) } : null,
     agente: r.agente && typeof r.agente === "object" && typeof (r.agente as Record<string, unknown>).id === "string"
       ? { id: String((r.agente as Record<string, unknown>).id), modelo: typeof (r.agente as Record<string, unknown>).modelo === "string" ? String((r.agente as Record<string, unknown>).modelo) : null }
       : null,
     status: typeof r.status === "string" ? r.status : null,
     ultimoErro: typeof r.ultimoErro === "string" ? r.ultimoErro : null,
     inboxUrl: typeof r.inboxUrl === "string" ? r.inboxUrl : "https://chat.consultaisp.com.br/inbox",
+    ...(typeof r.webhookDatafyUrl === "string" ? { webhookDatafyUrl: r.webhookDatafyUrl } : {}),
   };
 }
 

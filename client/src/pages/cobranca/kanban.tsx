@@ -15,14 +15,16 @@
  */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { carteiraDaNavegacao, caminhoNaCarteira, retornoDaCarteira, NOME_DA_CARTEIRA } from "@/components/cobranca/carteiras";
+import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
 import { AlarmClock, ClipboardList, HandCoins, KanbanSquare, ListTodo, Pause, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { CARTEIRAS, ETAPA_IDS, ROTULO_CARTEIRA, type Carteira, type EtapaId } from "@shared/cobranca";
+import { ETAPA_IDS, type Carteira, type EtapaId } from "@shared/cobranca";
 import { brl, Kpi, num, Segmentado } from "@/components/localizacao/ui";
 import { AvisoNaoCarregou, BOTAO_SECUNDARIO, CabecalhoPainel, CONTROLE_CAMPO, EstadoVazio } from "@/components/painel/ui";
 import { KanbanCobranca } from "@/components/cobranca/KanbanCobranca";
@@ -33,8 +35,8 @@ import { lerPolitica } from "@/components/cobranca/politica-form";
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { etapaDoCard } from "@/components/cobranca/CardCaso";
 import {
-  API_CASOS, API_CHAT_BULLQ, API_FILA, API_KANBAN, API_POLITICA, API_REGUA, apiEnviarCasoParaChat, chatProntoParaEnviar, lerIntegracaoDoChat, lerKanban, lerRespostaDaFila,
-  ROTA_CARTEIRA, ROTA_FILA, type ItemDaFila, type RespostaDaRegua,
+  API_CASOS, API_CHAT_BULLQ, API_KANBAN, API_POLITICA, API_REGUA, apiEnviarCasoParaChat, chatProntoParaEnviar, lerIntegracaoDoChat, lerKanban,
+  ROTA_FILA, type ItemDaFila, type RespostaDaRegua,
 } from "@/components/cobranca/tipos";
 import { invalidarCobranca, mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
@@ -58,14 +60,21 @@ export function queryDoKanban(f: { escopo: Escopo; etapa: string; carteira: stri
 }
 
 export default function KanbanPage() {
+  const [caminho] = useLocation();
+  const carteira = carteiraDaNavegacao(caminho, useSearch());
+  return <QuadroDaCarteira key={carteira} carteira={carteira} />;
+}
+
+function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   const { user, personificando } = useAuth();
   const { toast } = useToast();
+  const [caminho] = useLocation();
+
   const podeAdministrar = podeAdministrarCobranca(user, personificando);
   const hoje = useMemo(() => new Date(), []);
 
   const [escopo, setEscopo] = useState<Escopo>("eu");
   const [etapa, setEtapa] = useState("");
-  const [carteira, setCarteira] = useState("");
   const [buscaDigitada, setBuscaDigitada] = useState("");
   const [busca, setBusca] = useState("");
 
@@ -76,13 +85,11 @@ export default function KanbanPage() {
   const query = queryDoKanban({ escopo, etapa, carteira, busca });
   const chaveDoQuadro = useMemo(() => [`${API_KANBAN}${query}`], [query]);
   const { data, isLoading, isError, error, refetch } = useQuery<unknown>({ queryKey: chaveDoQuadro, staleTime: 15_000 });
-  const { data: filaCrua } = useQuery<unknown>({ queryKey: [`${API_FILA}?responsavel=${escopo === "eu" ? "eu" : "todos"}&limite=1`], staleTime: 30_000 });
   const { data: regua } = useQuery<RespostaDaRegua>({ queryKey: [API_REGUA], staleTime: 300_000 });
   const { data: politicaCrua } = useQuery<unknown>({ queryKey: [API_POLITICA], staleTime: 300_000 });
   const politica = useMemo(() => (politicaCrua === undefined ? null : lerPolitica(politicaCrua)), [politicaCrua]);
 
   const quadro = useMemo(() => lerKanban(data), [data]);
-  const fila = useMemo(() => lerRespostaDaFila(filaCrua), [filaCrua]);
   const mostrarSkeleton = useSkeletonAtrasado(isLoading);
   const vazio = !isLoading && quadro.colunas.every(c => c.casos.length === 0);
 
@@ -97,7 +104,7 @@ export default function KanbanPage() {
     },
     onSuccess: (r: { reaproveitada?: boolean }) => {
       invalidarCobranca();
-      toast({ title: r.reaproveitada ? "Mensagem enviada na conversa que já existia" : "Enviado para cobrança pelo chat", description: "O caso passou a \"em contato\". A conversa segue no inbox do chat." });
+      toast({ title: r.reaproveitada ? "Conversa existente aberta" : "Primeiro contato enviado", description: "Continue pelo botão de conversa do caso, dentro de Cobrança." });
     },
     onError: (erro: Error) => toast({ title: "Não foi possível enviar para o chat", description: mensagemDoErro(erro), variant: "destructive" }),
   });
@@ -126,25 +133,27 @@ export default function KanbanPage() {
     inboxUrl: integracaoDoChat?.inboxUrl ?? null,
   };
 
-  // Os indicadores do QUADRO (mesmo recorte das colunas); a fila e so reserva quando o quadro nao os calculou.
-  const kpis = quadro.kpis ?? fila.kpis;
+  // Só o mesmo recorte das colunas: a fila inclui casos gerais e não é uma reserva equivalente.
+  const kpis = quadro.kpis;
 
   return (
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-kanban">
       <CabecalhoPainel
-        titulo="Kanban de cobrança"
+        titulo={`Kanban · ${NOME_DA_CARTEIRA[carteira]}`}
         descricao="Arraste o caso pelo fluxo: a contatar, em contato, negociando, acordo, pago ou cancelamento. A etapa da régua é o selo do card."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
             <Segmentado opcoes={OPCOES_ESCOPO} valor={escopo} onChange={setEscopo} rotulo="Escopo do quadro" />
-            <Link href={ROTA_FILA} className={BOTAO_SECUNDARIO} data-testid="link-fila-lista"><ListTodo className="h-3.5 w-3.5" aria-hidden /> Lista</Link>
-            <Link href={ROTA_CARTEIRA} className={BOTAO_SECUNDARIO} data-testid="link-carteira">Carteira</Link>
+            <Link href={caminhoNaCarteira(ROTA_FILA, carteira)} className={BOTAO_SECUNDARIO} data-testid="link-fila-lista"><ListTodo className="h-3.5 w-3.5" aria-hidden /> Lista</Link>
+            <Link href={retornoDaCarteira(carteira)} className={BOTAO_SECUNDARIO} data-testid="link-carteira">Carteira</Link>
           </div>
         }
       />
 
+      <NavegacaoCarteiras carteira={carteira} destino={caminho} />
+
       <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" aria-label="Indicadores" data-testid="kpis-kanban">
-        <Kpi icone={<KanbanSquare className="h-4 w-4" aria-hidden />} iconeCor="var(--brand-ink)" iconeBg="var(--brand-soft)" rotulo="casos vivos" valor={isLoading ? "…" : num(kpis?.casosVivos ?? quadro.total)} sub="no recorte" />
+        <Kpi icone={<KanbanSquare className="h-4 w-4" aria-hidden />} iconeCor="var(--brand-ink)" iconeBg="var(--brand-soft)" rotulo="casos vivos" valor={isLoading ? "…" : num(kpis?.casosVivos)} sub="no recorte" />
         <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(kpis?.vencidos ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-2)"} rotulo="contato vencido" valor={isLoading ? "…" : num(kpis?.vencidos)} valorCor={(kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : undefined} sub="passou da data" />
         <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor="var(--gated)" iconeBg="var(--gated-bg)" rotulo="para hoje" valor={isLoading ? "…" : num(kpis?.paraHoje)} sub="contato marcado" />
         {/* Follow-up: caso sem proxima acao vira divida perdida — o quadro conta quantos estao parados. */}
@@ -171,12 +180,9 @@ export default function KanbanPage() {
           {(regua?.etapas ?? []).map(e => <option key={e.id} value={e.id}>{e.rotulo}</option>)}
           {!regua && ETAPA_IDS.map(id => <option key={id} value={id}>{id}</option>)}
         </select>
-        <select className={cn(CONTROLE_CAMPO, "w-auto")} value={carteira} onChange={e => setCarteira(e.target.value)} aria-label="Carteira" data-testid="filtro-carteira">
-          <option value="">Ativos e ex-clientes</option>
-          {CARTEIRAS.map(c => <option key={c} value={c}>{ROTULO_CARTEIRA[c as Carteira]}</option>)}
-        </select>
-        {(etapa || carteira || busca) && (
-          <button type="button" className={cn(BOTAO_SECUNDARIO, "h-9")} onClick={() => { setEtapa(""); setCarteira(""); setBusca(""); setBuscaDigitada(""); }} data-testid="limpar-filtros-kanban">Limpar</button>
+
+        {(etapa || busca) && (
+          <button type="button" className={cn(BOTAO_SECUNDARIO, "h-9")} onClick={() => { setEtapa(""); setBusca(""); setBuscaDigitada(""); }} data-testid="limpar-filtros-kanban">Limpar</button>
         )}
         {quadro.total !== null && <span className="ml-auto font-mono text-[11px] tabular-nums text-[var(--text-muted)]">{num(quadro.total)} casos no quadro</span>}
       </div>

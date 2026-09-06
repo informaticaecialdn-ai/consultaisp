@@ -9,9 +9,10 @@
  * Otimismo com rollback: o card muda de coluna no gesto, o servidor confirma
  * atrás; se recusar, o board anterior volta e o motivo vai para o toast.
  */
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { rotaChat } from "@/components/chat/tipos";
 import {
   DndContext, DragOverlay, KeyboardSensor, PointerSensor, pointerWithin, rectIntersection,
   useSensor, useSensors,
@@ -106,6 +107,7 @@ const agoraIso = () => new Date().toISOString();
 export default function RecuperacaoPage() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const search = useSearch();
 
   const { data: board, isLoading, isError, error, refetch } = useQuery<BoardKanban>({ queryKey: [QUERY_BOARD], staleTime: 30_000 });
   const mostrarSkeleton = useSkeletonAtrasado(isLoading);
@@ -120,6 +122,14 @@ export default function RecuperacaoPage() {
 
   const cards = board?.cards ?? [];
   const cardPorChave = useMemo(() => new Map(cards.map(card => [card.chave, card])), [cards]);
+  const casoAbertoPelaUrl = useRef<number | null>(null);
+  useEffect(() => {
+    const id = Number(new URLSearchParams(search).get("caso"));
+    if (!id) { casoAbertoPelaUrl.current = null; return; }
+    if (casoAbertoPelaUrl.current === id) return;
+    const card = board?.cards.find(c => c.caseId === id);
+    if (card) { casoAbertoPelaUrl.current = id; setChaveDrawer(card.chave); }
+  }, [search, board]);
   const cardDe = (chave: string | null) => (chave ? cardPorChave.get(chave) ?? null : null);
 
   const cardsFiltrados = useMemo(() => filtrarCards(cards, filtros), [cards, filtros]);
@@ -202,9 +212,10 @@ export default function RecuperacaoPage() {
       if (!card.caseId) throw new Error("Este equipamento ainda nao tem caso de retirada");
       return (await apiRequest("POST", `${API_CHAT_BULLQ}/recuperacao/${card.caseId}/enviar`, {})).json();
     },
-    onSuccess: (r: { reaproveitada?: boolean }, card) => {
+    onSuccess: (r: { reaproveitada?: boolean; conversationId: string }, card) => {
       if (card.caseId) invalidarTudoDoCaso(card.caseId);
-      toast({ title: r.reaproveitada ? "Mensagem enviada na conversa que já existia" : "Retirada enviada para o chat", description: "A conversa segue no inbox do chat; o contato fica registrado no caso." });
+      toast({ title: r.reaproveitada ? "Conversa existente aberta" : "Primeiro contato enviado", description: "Continue o atendimento dentro de Equipamentos." });
+      navigate(rotaChat("equipamentos", r.conversationId));
     },
     onError: (erro: Error) => toast({ title: "Não foi possível enviar para o chat", description: mensagemDoErro(erro), variant: "destructive" }),
   });

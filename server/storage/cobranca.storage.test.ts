@@ -49,6 +49,31 @@ vi.mock("../db", () => ({
 import { getTableColumns, getTableName, type SQL } from "drizzle-orm";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pg-proxy";
+
+describe("indicadores e fila por carteira", () => {
+  it.each(["ativo", "ex_cliente"] as const)("restringe contatos, parcelas, casos e entradas a %s", async carteira => {
+    await storage.kpisDaCobranca(PROVEDOR, new Date(2026, 8, 6), carteira);
+    const [saldo, ...movimentos] = banco.consultas;
+    expect(saldo.sql).toMatch(/where .*"customers"\."status"/);
+    expect(movimentos).toHaveLength(4);
+    for (const consulta of movimentos) {
+      expect(consulta.sql).toContain('"cobranca_casos"."carteira"');
+      expect(consulta.params).toContain(carteira);
+      expect(consulta.params).toContain(PROVEDOR);
+    }
+  });
+
+  it.each(["ativo", "ex_cliente"] as const)("a fila restringe %s antes do limite", async carteira => {
+    await storage.filaDeCobranca(PROVEDOR, { carteira, limite: 20 });
+    expect(banco.consultas[0].sql).toContain('"cobranca_casos"."carteira"');
+    expect(banco.consultas[0].params).toContain(carteira);
+  });
+
+  it("os bairros de ex-clientes excluem os contratos atuais no banco", async () => {
+    await storage.bairrosDaCarteira(PROVEDOR, "ex_cliente");
+    expect(banco.consultas[0].sql).toMatch(/not \("customers"\."status" in/);
+  });
+});
 import {
   cobrancaCasos, cobrancaEventos, cobrancaNegociacoes, cobrancaParcelas, cobrancaPolitica, customers, users,
   CARTEIRAS_DE_COBRANCA, POLITICA_DE_COBRANCA_PADRAO, STATUS_CASO_COBRANCA, STATUS_CASO_FECHADO,

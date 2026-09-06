@@ -13,7 +13,9 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
+import { carteiraDaNavegacao, caminhoNaCarteira, retornoDaCarteira, NOME_DA_CARTEIRA } from "@/components/cobranca/carteiras";
+import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
 import { AlarmClock, CalendarClock, HandCoins, ListTodo, MessageCircle, Pause, PhoneCall, UserRound } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -25,7 +27,7 @@ import { brl, Kpi, num, Segmentado, TRACO } from "@/components/localizacao/ui";
 import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, CabecalhoPainel, EstadoVazio, FOCO } from "@/components/painel/ui";
 import { DialogoContato, type AlvoDoContato } from "@/components/cobranca/DialogoContato";
 import { dataHoraBr, proximoContato, whatsappDe, type UrgenciaDoContato } from "@/components/cobranca/formatacao";
-import { API_CASOS, API_FILA, API_REGUA, lerFila, pausaDaResposta, ROTA_CARTEIRA, ROTA_KANBAN, ROTA_REGUA, rotaDoCliente, type ItemDaFila, type RespostaDaRegua } from "@/components/cobranca/tipos";
+import { API_CASOS, API_FILA, API_REGUA, lerRespostaDaFila, ROTA_KANBAN, ROTA_REGUA, rotaDoCliente, type ItemDaFila, type RespostaDaRegua } from "@/components/cobranca/tipos";
 import { Avatar, invalidarCobranca, LinkWhatsapp, mensagemDoErro, PilulaAtraso, SeloCarteira, SeloPrioridade, SeloQuadrante, SeloStatusCaso, SeloTom, Traco, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
 type Escopo = "eu" | "todos";
@@ -66,18 +68,27 @@ export function etapaDaLinha(item: ItemDaFila, etapas: readonly Etapa[] | undefi
 }
 
 export default function FilaPage() {
+  const [caminho] = useLocation();
+  const carteira = carteiraDaNavegacao(caminho, useSearch());
+  return <FilaDaCarteira key={carteira} carteira={carteira} />;
+}
+
+function FilaDaCarteira({ carteira }: { carteira: Carteira }) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [caminho] = useLocation();
+
   const [escopo, setEscopo] = useState<Escopo>("eu");
   const [contato, setContato] = useState<AlvoDoContato | null>(null);
   const hoje = useMemo(() => new Date(), []);
 
-  const { data, isLoading, isError, error, refetch } = useQuery<unknown>({ queryKey: [`${API_FILA}?responsavel=${escopo}`], staleTime: 30_000 });
+  const { data, isLoading, isError, error, refetch } = useQuery<unknown>({ queryKey: [`${API_FILA}?responsavel=${escopo}&carteira=${carteira}`], staleTime: 30_000 });
   const { data: regua } = useQuery<RespostaDaRegua>({ queryKey: [API_REGUA], staleTime: 300_000 });
   const mostrarSkeleton = useSkeletonAtrasado(isLoading);
 
-  const itens = useMemo(() => lerFila(data), [data]);
-  const pausa = useMemo(() => pausaDaResposta(data), [data]);
+  const fila = useMemo(() => lerRespostaDaFila(data), [data]);
+  const itens = fila.itens;
+  const kpis = fila.kpis;
 
   // "Pegar para mim": a rota deixa o operador se atribuir um caso da fila geral.
   const pegar = useMutation({
@@ -92,8 +103,8 @@ export default function FilaPage() {
     return { paraHoje: paraHojeLista, agendados: agendadosLista };
   }, [itens, hoje]);
 
-  const criticos = itens.filter(i => i.prioridade === "critica").length;
-  const valorTotal = itens.reduce((s, i) => s + (i.valorAtual ?? 0), 0);
+  const criticos = kpis?.criticos ?? null;
+  const valorTotal = kpis?.emAberto ?? null;
 
   const abrirContato = (item: ItemDaFila) => {
     const { etapa } = etapaDaLinha(item, regua?.etapas);
@@ -103,29 +114,35 @@ export default function FilaPage() {
   return (
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-fila">
       <CabecalhoPainel
-        titulo="Fila do dia"
+        titulo={`Fila do dia · ${NOME_DA_CARTEIRA[carteira]}`}
         descricao={`O que ${escopo === "eu" ? (user?.name ?? "você") : "a equipe"} tem para cobrar hoje: os casos atribuídos mais a fila geral, na ordem de prioridade e vencimento do contato.`}
         testIdTitulo="titulo-fila"
         acoes={
           <>
             <Segmentado opcoes={OPCOES_ESCOPO} valor={escopo} onChange={setEscopo} rotulo="Escopo da fila" />
-            <Link href={ROTA_KANBAN} className={BOTAO_SECUNDARIO} data-testid="link-kanban">Kanban</Link>
-            <Link href={ROTA_CARTEIRA} className={BOTAO_SECUNDARIO} data-testid="link-carteira">Carteira</Link>
+            <Link href={caminhoNaCarteira(ROTA_KANBAN, carteira)} className={BOTAO_SECUNDARIO} data-testid="link-kanban">Kanban</Link>
+            <Link href={retornoDaCarteira(carteira)} className={BOTAO_SECUNDARIO} data-testid="link-carteira">Carteira</Link>
           </>
         }
       />
 
+      <NavegacaoCarteiras carteira={carteira} destino={caminho} />
+
       <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" aria-label="Indicadores" data-testid="kpis-fila">
-        <Kpi icone={<ListTodo className="h-4 w-4" aria-hidden />} iconeCor="var(--brand-ink)" iconeBg="var(--brand-soft)" rotulo="na fila" valor={isLoading ? "…" : num(itens.length)} sub={escopo === "eu" ? "seus casos + fila geral" : "todos os casos vivos"} />
-        <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor={paraHoje.length > 0 ? "var(--gated)" : "var(--text-muted)"} iconeBg={paraHoje.length > 0 ? "var(--gated-bg)" : "var(--surface-inset)"} rotulo="para hoje" valor={isLoading ? "…" : num(paraHoje.length)} sub="vencidos, de hoje ou sem data" />
-        <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor={criticos > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={criticos > 0 ? "var(--danger-bg)" : "var(--surface-inset)"} rotulo="críticos" valor={isLoading ? "…" : num(criticos)} valorCor={criticos > 0 ? "var(--danger)" : undefined} sub="prioridade crítica" />
-        <Kpi icone={<HandCoins className="h-4 w-4" aria-hidden />} iconeCor="var(--money-neg)" iconeBg="var(--past-bg)" rotulo="valor na fila" valor={isLoading ? "…" : brl(valorTotal)} valorCor={valorTotal > 0 ? "var(--money-neg)" : undefined} sub="soma do valor atual dos casos" />
+        <Kpi icone={<ListTodo className="h-4 w-4" aria-hidden />} iconeCor="var(--brand-ink)" iconeBg="var(--brand-soft)" rotulo="na fila" valor={isLoading ? "…" : num(fila.total)} sub={escopo === "eu" ? "seus casos + fila geral" : "todos os casos vivos"} />
+        <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.paraHoje ?? 0) > 0 ? "var(--gated)" : "var(--text-muted)"} iconeBg={(kpis?.paraHoje ?? 0) > 0 ? "var(--gated-bg)" : "var(--surface-inset)"} rotulo="para hoje" valor={isLoading ? "…" : num(kpis?.paraHoje)} sub="vencidos, de hoje ou sem data" />
+        <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor={(criticos ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(criticos ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-inset)"} rotulo="críticos" valor={isLoading ? "…" : num(criticos)} valorCor={(criticos ?? 0) > 0 ? "var(--danger)" : undefined} sub="prioridade crítica" />
+        <Kpi icone={<HandCoins className="h-4 w-4" aria-hidden />} iconeCor="var(--money-neg)" iconeBg="var(--past-bg)" rotulo="valor na fila" valor={isLoading ? "…" : brl(valorTotal)} valorCor={(valorTotal ?? 0) > 0 ? "var(--money-neg)" : undefined} sub="soma do valor atual dos casos" />
       </section>
 
-      {pausa.pausada && (
+      {fila.total !== null && fila.total > itens.length && !isLoading && (
+        <p className="text-[12px] text-[var(--text-muted)]" data-testid="fila-limitada">Exibindo {num(itens.length)} de {num(fila.total)} casos desta carteira. Os indicadores consideram a fila inteira; a lista prioriza os primeiros casos.</p>
+      )}
+
+      {fila.pausada && (
         <p className="flex items-center gap-2 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--text-2)]" data-testid="aviso-pausada">
           <Pause className="h-3.5 w-3.5 text-[var(--danger)]" aria-hidden />
-          <span><b className="text-[var(--danger)]">Régua pausada</b>{pausa.motivo ? ` — ${pausa.motivo}` : ""}: os casos não mudam de etapa. A fila continua; retome em <Link href={ROTA_REGUA} className="underline">Régua e DNA</Link>.</span>
+          <span><b className="text-[var(--danger)]">Régua pausada</b>{fila.pausadaMotivo ? ` — ${fila.pausadaMotivo}` : ""}: os casos não mudam de etapa. A fila continua; retome em <Link href={caminhoNaCarteira(ROTA_REGUA, carteira)} className="underline">Régua e DNA</Link>.</span>
         </p>
       )}
 
@@ -135,7 +152,7 @@ export default function FilaPage() {
         <div className="space-y-2" aria-busy>{[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[92px] rounded-lg" />)}</div>
       ) : !isLoading && itens.length === 0 ? (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          <EstadoVazio Icone={ListTodo} titulo="Fila vazia" descricao={escopo === "eu" ? "Nenhum caso atribuído a você nem na fila geral. Os casos nascem na carteira, a partir da dívida que o ERP informa." : "Nenhum caso vivo na cobrança."} cta={<Link href={ROTA_CARTEIRA} className={BOTAO_MARCA}>Ir para a carteira</Link>} testId="fila-vazia" />
+          <EstadoVazio Icone={ListTodo} titulo="Fila vazia" descricao={escopo === "eu" ? "Nenhum caso atribuído a você nem na fila geral. Os casos nascem na carteira, a partir da dívida que o ERP informa." : "Nenhum caso vivo na cobrança."} cta={<Link href={retornoDaCarteira(carteira)} className={BOTAO_MARCA}>Ir para a carteira</Link>} testId="fila-vazia" />
         </div>
       ) : (
         <>
@@ -183,7 +200,7 @@ function LinhaDaFila({ item, etapas, hoje, onContato, onPegar, pegando }: {
       <div className="flex min-w-0 items-start gap-2.5">
         <Avatar nome={cliente.nome} />
         <div className="min-w-0">
-          <Link href={rotaDoCliente(cliente.id)} className={cn("block truncate text-[13px] font-semibold text-[var(--text)] hover:underline", FOCO)} data-testid={`fila-abrir-360-${item.id}`}>{cliente.nome}</Link>
+          <Link href={rotaDoCliente(cliente.id, item.carteira)} className={cn("block truncate text-[13px] font-semibold text-[var(--text)] hover:underline", FOCO)} data-testid={`fila-abrir-360-${item.id}`}>{cliente.nome}</Link>
           <p className="truncate font-mono text-[11px] tabular-nums text-[var(--text-muted)]">{cliente.cpfCnpj}</p>
           <p className="mt-0.5 flex flex-wrap items-center gap-1 font-mono text-[11px] tabular-nums text-[var(--text-2)]">
             <PhoneCall className="h-3 w-3 text-[var(--text-faint)]" aria-hidden /> {cliente.telefone ?? TRACO}
@@ -227,7 +244,7 @@ function LinhaDaFila({ item, etapas, hoje, onContato, onPegar, pegando }: {
       <div className="flex flex-row flex-wrap gap-2 lg:flex-col">
         <button type="button" className={BOTAO_MARCA} onClick={onContato} data-testid={`fila-contato-${item.id}`}><PhoneCall className="h-3.5 w-3.5" aria-hidden /> Registrar contato</button>
         {onPegar && <button type="button" className={BOTAO_SECUNDARIO} disabled={pegando} onClick={onPegar} data-testid={`fila-pegar-${item.id}`}><UserRound className="h-3.5 w-3.5" aria-hidden /> Pegar para mim</button>}
-        <Link href={rotaDoCliente(cliente.id)} className={BOTAO_SECUNDARIO}>Cliente 360</Link>
+        <Link href={rotaDoCliente(cliente.id, item.carteira)} className={BOTAO_SECUNDARIO}>Cliente 360</Link>
       </div>
     </article>
   );

@@ -931,6 +931,7 @@ const CHAVES_DA_POLITICA = ["etapas", "negociacao", "encargos", "janelaContato",
  */
 const LIMITE_MAXIMO_DA_FILA = 500;
 const FilaQuerySchema = z.object({
+  carteira: z.enum(CARTEIRAS).optional(),
   responsavel: z.enum(["eu", "todos"]).default("eu"),
   limite: z.coerce.number().int().min(1).max(LIMITE_MAXIMO_DA_FILA).default(100),
 });
@@ -959,11 +960,12 @@ async function agregarFila(
   providerId: number,
   escopoUserId: number | undefined,
   hoje: Date,
+  carteira?: Carteira,
 ): Promise<{ total: number; kpis: KpisDaFila | null; kpisMotivo: string | null }> {
   const recortes: FiltrosDaCarteira[] = escopoUserId === undefined
     ? [{}]
     : [{ responsavelUserId: escopoUserId }, { responsavelUserId: null }];
-  const varreduras = await Promise.all(recortes.map(f => varrerCasos(providerId, f)));
+  const varreduras = await Promise.all(recortes.map(f => varrerCasos(providerId, { ...f, ...(carteira ? { carteira } : {}) })));
   const total = varreduras.reduce((s, v) => s + v.total, 0);
   if (varreduras.some(v => !v.completa)) {
     return {
@@ -1120,9 +1122,9 @@ export function registerCobrancaRoutes(): Router {
         ? new Set<number>(await storage.clientesDoMes(providerId, q.mes ?? mesDe(hoje), q.mesStatus))
         : null;
       const [kpis, composicao, bairros, { politica, etapas }, listaDeClientes] = await Promise.all([
-        storage.kpisDaCobranca(providerId, hoje),
-        storage.composicaoDaCarteira(providerId),
-        storage.bairrosDaCarteira(providerId),
+        storage.kpisDaCobranca(providerId, hoje, q.carteira),
+        storage.composicaoDaCarteira(providerId, q.carteira),
+        storage.bairrosDaCarteira(providerId, q.carteira),
         carregarPolitica(providerId),
         storage.getCustomersByProvider(providerId),
       ]);
@@ -1854,8 +1856,8 @@ export function registerCobrancaRoutes(): Router {
     try {
       const [{ politica, etapas }, linhas, agregado] = await Promise.all([
         carregarPolitica(providerId),
-        storage.filaDeCobranca(providerId, { responsavelUserId: escopoUserId, hoje, limite: parsed.data.limite }),
-        agregarFila(providerId, escopoUserId, hoje),
+        storage.filaDeCobranca(providerId, { responsavelUserId: escopoUserId, hoje, limite: parsed.data.limite, ...(parsed.data.carteira ? { carteira: parsed.data.carteira } : {}) }),
+        agregarFila(providerId, escopoUserId, hoje, parsed.data.carteira),
       ]);
       res.json({
         itens: linhas.map(l => itemDaFila(l, etapas, hoje)),

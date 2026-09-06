@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { Switch, Route, Redirect, useLocation } from "wouter";
+import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
+import { carteiraDaNavegacao, retornoDaCarteira } from "@/components/cobranca/carteiras";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -14,6 +15,12 @@ import { FaixaSuporte, useSessaoDeSuporte } from "@/components/FaixaSuporte";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMarca } from "@/lib/marca";
 import { pagina } from "@/lib/pagina-do-deploy";
+
+function RedirecionarCarteira() {
+  const search = useSearch();
+  const rota = retornoDaCarteira(carteiraDaNavegacao("/cobranca", search));
+  return <Redirect to={`${rota}${search ? `?${search}` : ""}`} />;
+}
 
 // Auth
 const LoginPage = lazy(pagina(() => import("@/pages/auth/login")));
@@ -31,6 +38,7 @@ const LocalizacaoPage = lazy(pagina(() => import("@/pages/operacional/localizaca
 const ImportacaoPage = lazy(pagina(() => import("@/pages/operacional/importacao")));
 const EquipamentosPage = lazy(pagina(() => import("@/pages/operacional/equipamentos")));
 const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperacao")));
+const ChatOperacionalPage = lazy(pagina(() => import("@/pages/operacional/chat")));
 
 // Cobranca — carteira, ficha 360, fila do dia, regua + DNA e politica (05/09/2026).
 const CobrancaCarteiraPage = lazy(pagina(() => import("@/pages/cobranca/carteira")));
@@ -102,11 +110,13 @@ function Router() {
         <Route path="/importacao" component={ImportacaoPage} />
         <Route path="/importacao-equipamentos"><Redirect to="/equipamentos?importar=1" /></Route>
         <Route path="/equipamentos" component={EquipamentosPage} />
+        <Route path="/equipamentos/chat" component={ChatOperacionalPage} />
+        <Route path="/cobranca/chat" component={ChatOperacionalPage} />
         <Route path="/recuperacao" component={RecuperacaoPage} />
         {/* A carteira tem dois espacos (Provedor.ai): /cobranca cai no de ativos. */}
-        <Route path="/cobranca"><Redirect to="/cobranca/ativos" /></Route>
-        <Route path="/cobranca/ativos">{() => <CobrancaCarteiraPage espaco="ativos" />}</Route>
-        <Route path="/cobranca/ex-clientes">{() => <CobrancaCarteiraPage espaco="ex" />}</Route>
+        <Route path="/cobranca"><RedirecionarCarteira /></Route>
+        <Route path="/cobranca/ativos">{() => <CobrancaCarteiraPage key="ativos" espaco="ativos" />}</Route>
+        <Route path="/cobranca/ex-clientes">{() => <CobrancaCarteiraPage key="ex" espaco="ex" />}</Route>
         <Route path="/cobranca/cliente/:id" component={CobrancaCliente360Page} />
         <Route path="/cobranca/fila" component={CobrancaFilaPage} />
         <Route path="/cobranca/kanban" component={CobrancaKanbanPage} />
@@ -139,7 +149,7 @@ function Router() {
 export const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-cadastral", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
-  "/importacao-equipamentos", "/equipamentos", "/recuperacao", "/administracao", "/painel-provedor",
+  "/importacao-equipamentos", "/equipamentos", "/equipamentos/chat", "/recuperacao", "/administracao", "/painel-provedor",
   "/benchmark-regional",
   // A cobranca. `/cobranca/cliente/:id` nao cabe numa lista de caminho exato —
   // e coberta por `ehRotaDeCobranca`, abaixo, pelo prefixo.
@@ -604,7 +614,7 @@ function AuthenticatedApp() {
           <main className="flex-1 overflow-auto bg-[var(--color-bg)]">
             <Router />
           </main>
-          <ChatWidget />
+          {!['/cobranca/chat', '/equipamentos/chat'].includes(location) && <ChatWidget />}
         </div>
       </div>
     </SidebarProvider>

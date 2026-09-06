@@ -22,7 +22,8 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "wouter";
+import { Link, useParams, useSearch } from "wouter";
+import { carteiraDaNavegacao } from "@/components/cobranca/carteiras";
 import {
   AlertTriangle, ArrowLeft, Ban, CheckCheck, ChevronRight, CircleDashed, Coins, FileSignature, FileText, GitBranch, Hammer, History,
   Info, Inbox, Lock, MapPin, MessageCircle, MessagesSquare, Milestone, PhoneCall, QrCode, RefreshCw, Settings, Shield, ShieldCheck, Sparkles,
@@ -52,6 +53,7 @@ import { dataBr, dataCivilBr, dataHoraBr, deInputDataHora, paraInputDataHora, pr
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { lerPolitica } from "@/components/cobranca/politica-form";
 import { ConversaDoChat } from "@/components/cobranca/ConversaDoChat";
+import { IdentificacaoTecnica } from "@/components/cobranca/IdentificacaoTecnica";
 import {
   API_CHAT_BULLQ, API_EQUIPE, API_POLITICA, api360, api360AoVivo, apiEnviarCasoParaChat, chatProntoParaEnviar, lerEquipe, lerIntegracaoDoChat, numero, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_POLITICA, ROTA_REGUA,
   type CasoDetalhe, type Cliente360, type EquipamentoDoCliente, type NegociacaoDeCobranca, type SnapshotAoVivo,
@@ -161,6 +163,7 @@ function unirEquipamentos(doBanco: EquipamentoDoCliente[], snapshot: SnapshotAoV
 export default function Cliente360Page() {
   const { id } = useParams<{ id: string }>();
   const customerId = Number(id);
+  const carteiraDeOrigem = carteiraDaNavegacao(`/cobranca/cliente/${id}`, useSearch());
   const { toast } = useToast();
   const { user, personificando } = useAuth();
   const podeAdministrar = podeAdministrarCobranca(user, personificando);
@@ -245,7 +248,7 @@ export default function Cliente360Page() {
       if (!caso) throw new Error("Sem caso aberto");
       return (await apiRequest("POST", apiEnviarCasoParaChat(caso.id), { acaoDaEtapa: data?.regua?.etapa?.acao ?? undefined })).json();
     },
-    onSuccess: (r: { reaproveitada?: boolean }) => { invalidarCobranca(); toast({ title: r.reaproveitada ? "Mensagem enviada na conversa que já existia" : "Enviado para cobrança pelo chat" }); },
+    onSuccess: (r: { reaproveitada?: boolean }) => { invalidarCobranca(); toast({ title: r.reaproveitada ? "Conversa existente aberta" : "Primeiro contato enviado pelo chat" }); },
     onError: (erro: Error) => toast({ title: "Não foi possível enviar para o chat", description: mensagemDoErro(erro), variant: "destructive" }),
   });
   const pagarParcela = useMutation({
@@ -270,7 +273,9 @@ export default function Cliente360Page() {
   const atraso = cliente?.diasAtraso ?? 0;
   const faturasAbertas = cliente?.faturasAbertas ?? null;
   const situacao = ficha?.situacaoReal ?? null;
-  const exCliente = situacao === "ex-cliente" || cliente?.carteira === "ex_cliente";
+  const exCliente = cliente
+    ? situacao === "ex-cliente" || cliente.carteira === "ex_cliente"
+    : carteiraDeOrigem === "ex_cliente";
   const statusMeta = clienteStatusMeta(situacao ?? cliente?.statusErp ?? null);
   const negociacaoAtiva = (data?.negociacoes ?? []).find(n => !negociacaoEncerrada(n.status)) ?? null;
   const encargos = data?.divida?.atualizado ? Math.max(0, data.divida.atualizado.total - data.divida.atualizado.principal) : 0;
@@ -428,6 +433,7 @@ export default function Cliente360Page() {
                 <span className="text-[12px] leading-4 text-[var(--text-2)]">{confissao ? "habilitada nesta sessão — a emissão do título executivo (CPC 784) depende de assinatura eletrônica e parecer jurídico; a habilitação por cliente ainda não persiste" : "habilite para ofertar o título executivo ao cliente"}</span>
                 <span><ACriar oque="habilitação de confissão POR CLIENTE (campo não existe no schema) + emissão com assinatura eletrônica" /></span>
               </div>
+              <IdentificacaoTecnica snapshot={snapshot} equipamentos={data?.equipamentos ?? []} />
               <Let k="Comodato a recuperar" testId="lista-equipamentos">
                 {equipamentos.length === 0 ? <span className="text-[var(--text-muted)]">nenhum equipamento registrado para este cliente (sync do ERP)</span> : (
                   <ul className="space-y-1">
@@ -556,7 +562,7 @@ export default function Cliente360Page() {
                 </form>
               )}
               {caso && (data?.chat || chatPronto) && (
-                <ConversaDoChat casoId={caso.id} chat={data?.chat ?? null} inboxUrl={integracaoDoChat?.inboxUrl ?? null} onEnviar={!data?.chat ? () => enviarParaChat.mutate() : undefined} enviando={enviarParaChat.isPending} />
+                <ConversaDoChat chat={data?.chat ?? null} onEnviar={!data?.chat ? () => enviarParaChat.mutate() : undefined} enviando={enviarParaChat.isPending} />
               )}
               <Let k="Chamados técnicos"><Pendente motivo="sem integração de chamados — o ERP expõe atendimentos/OS mas o sync não traz" ext="EXT" /></Let>
               <Let k="Opt-out / DND"><ACriar oque="registro de opt-out por canal (CDC art. 42 / Lei 14.181)" /></Let>

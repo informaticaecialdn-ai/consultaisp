@@ -76,6 +76,8 @@ export interface CasoParaAgente {
   tom: { quadrante: string | null; tom: string | null; diretiva: string | null } | null;
   politica: { descontoMaxPct: number; maxParcelas: number; entradaMinimaPct: number; saldoMinimoParcelar: number; multaPct: number; jurosMesPct: number } | null;
   promessaAberta: { data: string | null; valor: number | null; registradaEm: string } | null;
+  /** De onde vem o valor em aberto e quando foi lido — aqui e sempre a varredura, nunca o ERP ao vivo. */
+  valores?: { origem: "base_sincronizada"; lidoEm: string | null };
   /** O que o agente deve fazer, em uma frase — montado do DNA, da etapa e da politica. */
   instrucao: string;
 }
@@ -134,11 +136,31 @@ export async function casoParaAgente(providerId: number, telefone: string | null
   };
   const tom = { quadrante: cls.dna?.quadrante ?? null, tom: cls.tom, diretiva: cls.tom ? DIRETIVA_POR_TOM[cls.tom] : null };
 
+  /*
+   * O VALOR AQUI NUNCA E LEITURA DE AGORA — e diz isso ao agente.
+   *
+   * `cliente.totalOverdueAmount` e o que a ultima varredura do ERP gravou (a
+   * automatica roda seg/qua/sex as 03:00). A revisao de 06/09/2026 achou este
+   * caminho como a porta lateral do mesmo defeito que fechamos na autonomia:
+   * a instrucao dizia "Divida vencida de R$ X" como fato do momento, e quem
+   * pagou depois da varredura seria cobrado por WhatsApp. Esta rota nao tem
+   * consulta ao vivo (o agente do fork pergunta por telefone, sem o ERP na
+   * mao), entao a saida honesta e datar o valor e mandar transferir a duvida.
+   */
+  const lidoEm = cliente.lastSyncAt ? new Date(cliente.lastSyncAt) : null;
+  const dataDaLeitura = lidoEm && Number.isFinite(lidoEm.getTime())
+    ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(lidoEm)
+    : null;
+  const origemDoValor = dataDaLeitura
+    ? `segundo a ultima leitura do ERP em ${dataDaLeitura}`
+    : "segundo a ultima leitura do ERP (sem data registrada)";
+
   const partes: string[] = [];
   if (dividaAtual <= 0) partes.push("O cliente NAO tem divida vencida: nao cobre; agradeca e, se ele pedir algo, transfira ao atendente.");
   else if (prescrita(diasAtraso)) partes.push("A divida esta PRESCRITA (mais de cinco anos): nao cobre nem negocie; transfira ao atendente.");
   else {
-    partes.push(`Divida vencida de ${brl(dividaAtual)} ha ${diasAtraso} dia${diasAtraso === 1 ? "" : "s"}${faturas !== null ? ` em ${faturas} fatura${faturas === 1 ? "" : "s"}` : ""}.`);
+    partes.push(`Divida vencida de ${brl(dividaAtual)} ha ${diasAtraso} dia${diasAtraso === 1 ? "" : "s"}${faturas !== null ? ` em ${faturas} fatura${faturas === 1 ? "" : "s"}` : ""}, ${origemDoValor}.`);
+    partes.push("Esse valor pode ter mudado desde entao: se o cliente disser que ja pagou, ou questionar o valor, NAO insista e NAO repita o numero — transfira ao atendente.");
     if (regua.etapa) partes.push(`Etapa da regua "${regua.etapa.rotulo}": ${regua.etapa.acao}`);
     if (tom.diretiva) partes.push(`Tom: ${tom.diretiva}`);
     partes.push(`Pode oferecer ate ${pct(politicaResumo.descontoMaxPct)} de desconto e ate ${politicaResumo.maxParcelas}x${politicaResumo.entradaMinimaPct > 0 ? ` com entrada minima de ${pct(politicaResumo.entradaMinimaPct)}` : ""}; abaixo de ${brl(politicaResumo.saldoMinimoParcelar)} so a vista. Fora disso, transfira ao atendente.`);
@@ -164,6 +186,9 @@ export async function casoParaAgente(providerId: number, telefone: string | null
           responsavel: detalhe.responsavelNome,
         }
       : null,
+    // De onde vem o valor acima e quando ele foi lido. Nunca e leitura de agora:
+    // esta rota nao consulta o ERP ao vivo (ver a nota junto de `origemDoValor`).
+    valores: { origem: "base_sincronizada" as const, lidoEm: lidoEm && Number.isFinite(lidoEm.getTime()) ? lidoEm.toISOString() : null },
     tom,
     politica: politicaResumo,
     promessaAberta,

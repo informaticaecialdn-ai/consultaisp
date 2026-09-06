@@ -17,6 +17,9 @@
  * query (que carrega telefone), o corpo (que carrega a mensagem) nem o token.
  */
 import { logger } from "../../logger";
+import type { ContextoDoPrimeiroContato, ModelosDosAgentes, PrimeiroContatoPreparado } from "@shared/chat-agentes";
+import type { CanalWhatsapp, EstadoDaConexaoWhatsapp, TemplateDatafy } from "@shared/chat-whatsapp";
+import type { PedidoPlanoAutonomia, PlanoResposta } from "@shared/chat-autonomia";
 
 export type Resultado<T> =
   | { ok: true; valor: T }
@@ -64,7 +67,7 @@ export interface Mensagem {
   id: string;
   direction: "INBOUND" | "OUTBOUND";
   type: string;
-  content: { text?: string };
+  content: { text?: string; name?: string; language?: { code?: string } };
   status: string;
   senderName?: string;
   createdAt: string;
@@ -100,10 +103,16 @@ export interface DadosAgente {
   name: string;
   kind: "ORCHESTRATOR" | "WORKER";
   systemPrompt: string;
+  /** CreateAgentDto.description (≤ 500) — como o provedor apresenta o agente. */
+  description?: string;
+  /** CreateAgentDto.operationalContext (≤ 8000) — avisos do dia; o fork injeta no prompt a cada run. */
+  operationalContext?: string;
   modelId: string;
   temperature?: number;
   maxTokens?: number;
   capabilities?: unknown;
+  isActive?: boolean;
+  canRespondDirectly?: boolean;
 }
 
 interface Tokens {
@@ -119,6 +128,7 @@ interface OpcoesRequisicao {
   headers: Record<string, string>;
   corpo?: unknown;
   query?: Query;
+  timeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,8 +252,42 @@ export class ChatBullqClient {
     });
   }
 
-  testarCanal(orgId: string, canalId: string): Promise<Resultado<{ ok: boolean; message?: string }>> {
-    return this.operacao<{ ok: boolean; message?: string }>(orgId, "POST", `/channels/${enc(canalId)}/test`);
+  criarCanalWhatsapp(orgId: string, dados: CanalWhatsapp): Promise<Resultado<Canal>> {
+    const config = dados.provider === "DATAFY"
+      ? { provider: "DATAFY", accessToken: dados.token, phoneNumberId: dados.phoneNumberId, ...(dados.businessAccountId ? { businessAccountId: dados.businessAccountId } : {}) }
+      : { provider: dados.provider, token: dados.token, ...(dados.provider === "UAZAPI" ? { baseUrl: dados.baseUrl } : {}) };
+    return this.operacao(orgId, "POST", "/channels", { corpo: {
+      type: dados.provider === "DATAFY" ? "WHATSAPP_OFFICIAL" : "WHATSAPP_ZAPPFY",
+      name: dados.nome, config, ...(dados.webhookSecret ? { webhookSecret: dados.webhookSecret } : {}),
+    } });
+  }
+
+  async testarCanal(orgId: string, canalId: string): Promise<Resultado<{ ok: boolean; message?: string }>> {
+    const r = await this.operacao<{ success?: boolean; ok?: boolean }>(orgId, "POST", `/channels/${enc(canalId)}/test`);
+    const message = "Não foi possível validar o canal. Verifique a instância e o token.";
+    if (!r.ok) return { ok: false, erro: message, ...(r.status ? { status: r.status } : {}) };
+    const ok = typeof r.valor?.success === "boolean" ? r.valor.success : r.valor?.ok === true;
+    return { ok: true, valor: ok ? { ok: true } : { ok: false, message } };
+  }
+
+  capacidadesDosCanais(orgId: string): Promise<Resultado<{ whatsappUnofficial: boolean; instanceConnect: boolean; instanceStatus: boolean; provider: string; uazapi: boolean; datafy: boolean; templateFirstContact: boolean }>> {
+    return this.operacao(orgId, "GET", "/channels/capabilities");
+  }
+
+  estadoDaConexaoWhatsapp(orgId: string, canalId: string): Promise<Resultado<EstadoDaConexaoWhatsapp>> {
+    return this.operacao(orgId, "GET", `/channels/${enc(canalId)}/connection-status`);
+  }
+
+  conectarWhatsapp(orgId: string, canalId: string, phone?: string): Promise<Resultado<EstadoDaConexaoWhatsapp>> {
+    return this.operacao(orgId, "POST", `/channels/${enc(canalId)}/connect`, { corpo: phone ? { phone } : {} });
+  }
+
+  async listarTemplatesWhatsapp(orgId: string, canalId: string): Promise<Resultado<{ data: TemplateDatafy[] }>> {
+    const r = await this.operacao<TemplateDatafy[]>(orgId, "GET", `/channels/${enc(canalId)}/templates`);
+    if (!r.ok) return r;
+    if (!Array.isArray(r.valor)) return { ok: false, erro: "O catálogo de templates do WhatsApp é inválido." };
+    // The channel endpoint lists approved templates only, including legacy Meta.
+    return { ok: true, valor: { data: r.valor.map(t => ({ ...t, status: t.status ?? "APPROVED" })) } };
   }
 
   // ---------------------------------------------------------- conversas
@@ -282,7 +326,7 @@ export class ChatBullqClient {
   /** Abre uma conversa ativa com a primeira mensagem ja enviada. */
   async iniciarConversa(
     orgId: string,
-    dados: { canalId: string; telefone: string; nome?: string; texto: string; aiEnabled?: boolean; activeAgentId?: string | null },
+    dados: { canalId: string; telefone: string; nome?: string; texto: string; template?: { name: string; language: { code: string }; components?: unknown[] }; aiEnabled?: boolean; activeAgentId?: string | null },
   ): Promise<Resultado<{ conversationId: string; messageId: string }>> {
     const phone = normalizarTelefoneParaChat(dados.telefone);
     if (!phone) return { ok: false, erro: "Telefone inválido para o chat" };
@@ -295,7 +339,7 @@ export class ChatBullqClient {
         corpo: {
           channelId: dados.canalId,
           contact: { phone, ...(dados.nome ? { name: dados.nome } : {}) },
-          message: { type: "TEXT", content: { text: dados.texto } },
+          message: dados.template ? { type: "TEMPLATE", content: dados.template } : { type: "TEXT", content: { text: dados.texto } },
           // Patch 4 do fork: a conversa nasce com a IA ligada e o agente fixado —
           // sem isso o Chat BullQ cria com aiEnabled=false e o agente nunca responde.
           ...(dados.aiEnabled !== undefined ? { aiEnabled: dados.aiEnabled } : {}),
@@ -319,14 +363,18 @@ export class ChatBullqClient {
     return { ok: true, valor: { messageId: r.valor.id, status: r.valor.status } };
   }
 
+  obterMidia(orgId: string, messageId: string): Promise<Resultado<{ url: string; mimeType?: string }>> {
+    return this.operacao(orgId, "GET", `/messages/${enc(messageId)}/media`);
+  }
+
   /** As mensagens da conversa. Aceita o envelope `{ messages, pagination }` ou o array cru. */
   async listarMensagens(
     orgId: string,
     conversationId: string,
-    opcoes: { limit?: number } = {},
+    opcoes: { limit?: number; page?: number } = {},
   ): Promise<Resultado<Mensagem[]>> {
     const r = await this.operacao<{ messages?: Mensagem[] } | Mensagem[]>(orgId, "GET", "/messages", {
-      query: { conversationId, page: 1, limit: opcoes.limit ?? 50 },
+      query: { conversationId, page: opcoes.page ?? 1, limit: opcoes.limit ?? 50 },
     });
     if (!r.ok) return r;
     return { ok: true, valor: Array.isArray(r.valor) ? r.valor : (r.valor?.messages ?? []) };
@@ -362,6 +410,28 @@ export class ChatBullqClient {
 
   listarAgentes(orgId: string): Promise<Resultado<AgenteIa[]>> {
     return this.operacao<AgenteIa[]>(orgId, "GET", "/ai-agents");
+  }
+
+  obterAgente(orgId: string, agenteId: string): Promise<Resultado<unknown>> {
+    return this.operacao(orgId, "GET", `/ai-agents/${enc(agenteId)}`);
+  }
+
+  planejarAutonomia(orgId: string, agenteId: string, pedido: PedidoPlanoAutonomia): Promise<Resultado<PlanoResposta>> {
+    return this.operacao(orgId, "POST", `/ai-agents/${enc(agenteId)}/autonomous-plan`, { corpo: pedido, timeoutMs: 30_000 });
+  }
+
+  /** Patch 002: lista os modelos realmente disponíveis na credencial do serviço. */
+  listarModelosDePrimeiroContato(orgId: string): Promise<Resultado<ModelosDosAgentes>> {
+    return this.operacao(orgId, "GET", "/ai-agents/first-contact/models");
+  }
+
+  /** Patch 002: uma conclusão sem tools, sem conversa e sem envio a canais. */
+  prepararPrimeiroContato(orgId: string, agenteId: string, contexto: ContextoDoPrimeiroContato): Promise<Resultado<PrimeiroContatoPreparado>> {
+    return this.operacao(orgId, "POST", `/ai-agents/${enc(agenteId)}/first-contact-draft`, { corpo: { context: contexto }, timeoutMs: 30_000 });
+  }
+
+  listarAutomacoes(orgId: string): Promise<Resultado<{ id: string; name: string; trigger: string }[]>> {
+    return this.operacao(orgId, "GET", "/automations");
   }
 
   criarAgente(orgId: string, dados: DadosAgente): Promise<Resultado<AgenteIa>> {
@@ -503,7 +573,7 @@ export class ChatBullqClient {
     orgId: string,
     metodo: Metodo,
     caminho: string,
-    opcoes: { corpo?: unknown; query?: Query } = {},
+    opcoes: { corpo?: unknown; query?: Query; timeoutMs?: number } = {},
     podeRenovar = true,
   ): Promise<Resultado<T>> {
     const sessao = await this.obterTokens(orgId);
@@ -535,7 +605,8 @@ export class ChatBullqClient {
   private async requisicao<T>(metodo: Metodo, caminho: string, opcoes: OpcoesRequisicao): Promise<Resultado<T>> {
     const url = this.montarUrl(caminho, opcoes.query);
     const controlador = new AbortController();
-    const temporizador = setTimeout(() => controlador.abort(), this.timeoutMs);
+    const timeoutMs = opcoes.timeoutMs ?? this.timeoutMs;
+    const temporizador = setTimeout(() => controlador.abort(), timeoutMs);
     const inicio = Date.now();
 
     try {
@@ -564,7 +635,7 @@ export class ChatBullqClient {
       const ms = Date.now() - inicio;
       if (controlador.signal.aborted) {
         logger.warn({ metodo, caminho, ms }, "chat-bullq: tempo esgotado");
-        return { ok: false, erro: `O Chat BullQ não respondeu em ${Math.round(this.timeoutMs / 1000)}s` };
+        return { ok: false, erro: `O Chat BullQ não respondeu em ${Math.round(timeoutMs / 1000)}s` };
       }
       // So o nome/codigo do erro: a mensagem do fetch pode trazer a URL, e a URL a query.
       const causa = (erro as { code?: string })?.code ?? (erro as { name?: string })?.name ?? "erro";

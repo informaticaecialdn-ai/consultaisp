@@ -155,6 +155,18 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   } catch (err) {
     logger.warn({ err }, "[Worker] Régua de cobrança failed to start");
   }
+  const { iniciarPrimeirosContatos, pararPrimeirosContatos } = await import("./services/chat/chat-primeiro-contato.service");
+  iniciarPrimeirosContatos();
+  // A autonomia do chat confere UMA vez, aqui, se as tabelas da 0028 existem.
+  // Sem elas o laço de 3 s não sobe (um aviso só no log, em vez de um por
+  // volta); `verifySchema` acima não as cobre porque o chat é opcional.
+  const { iniciarAutonomia, pararAutonomia } = await import("./services/chat/chat-autonomia.service");
+  try {
+    if (await iniciarAutonomia()) logger.info("[Worker] Autonomia do chat: fila ligada");
+    else logger.warn("[Worker] Autonomia do chat: fila NÃO ligada (migração 0028 ausente ou banco sem resposta)");
+  } catch (err) {
+    logger.warn({ err }, "[Worker] Autonomia do chat failed to start");
+  }
 
   /**
    * Espera o sync em voo antes de fechar o pool.
@@ -169,6 +181,8 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
    */
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "[Worker] Shutdown signal received");
+    await pararPrimeirosContatos();
+    await pararAutonomia();
     try {
       const { isSyncing } = await import("./services/erp-sync.service");
       const limite = Date.now() + 30_000;

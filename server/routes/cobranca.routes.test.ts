@@ -149,6 +149,34 @@ const json = (method: string, caminho: string, corpo?: unknown) =>
     body: corpo === undefined ? undefined : JSON.stringify(corpo),
   });
 
+describe("carteiras separadas em toda a operacao", () => {
+  it.each(["ativo", "ex_cliente"])("passa %s aos indicadores e bairros, alem da lista", async carteira => {
+    sessao = ADMIN;
+    const r = await json("GET", `/api/cobranca/carteira?carteira=${carteira}`);
+    expect(r.status).toBe(200);
+    expect(storageMock.kpisDaCobranca).toHaveBeenCalledWith(42, expect.any(Date), carteira);
+    expect(storageMock.composicaoDaCarteira).toHaveBeenCalledWith(42, carteira);
+    expect(storageMock.bairrosDaCarteira).toHaveBeenCalledWith(42, carteira);
+  });
+
+  it.each(["ativo", "ex_cliente"])("a fila %s e seus indicadores usam a mesma carteira", async carteira => {
+    sessao = OPERADOR;
+    const r = await json("GET", `/api/cobranca/fila?responsavel=eu&carteira=${carteira}`);
+    expect(r.status).toBe(200);
+    expect(storageMock.filaDeCobranca).toHaveBeenCalledWith(42, expect.objectContaining({ carteira, responsavelUserId: 8 }));
+    for (const chamada of storageMock.listarCasosDeCobranca.mock.calls) {
+      expect(chamada[1]).toMatchObject({ carteira });
+    }
+    expect(storageMock.listarCasosDeCobranca).toHaveBeenCalled();
+  });
+
+  it("a fila recusa carteira desconhecida em vez de misturar os clientes", async () => {
+    sessao = ADMIN;
+    expect((await json("GET", "/api/cobranca/fila?carteira=inventada")).status).toBe(400);
+    expect(storageMock.filaDeCobranca).not.toHaveBeenCalled();
+  });
+});
+
 /* ── Fixtures ────────────────────────────────────────────────────────── */
 
 /** Contrato de 2010: fiel para sempre, e o teste nao envelhece. 45 dias e 2 faturas: oscila → B3, "cuidado". */
@@ -322,9 +350,9 @@ describe("GET /api/cobranca/carteira", () => {
     const body = await res.json();
     expect(res.status).toBe(200);
 
-    expect(storageMock.kpisDaCobranca).toHaveBeenCalledWith(42, expect.any(Date));
-    expect(storageMock.composicaoDaCarteira).toHaveBeenCalledWith(42);
-    expect(storageMock.bairrosDaCarteira).toHaveBeenCalledWith(42);
+    expect(storageMock.kpisDaCobranca).toHaveBeenCalledWith(42, expect.any(Date), undefined);
+    expect(storageMock.composicaoDaCarteira).toHaveBeenCalledWith(42, undefined);
+    expect(storageMock.bairrosDaCarteira).toHaveBeenCalledWith(42, undefined);
     expect(storageMock.getPoliticaDeCobranca).toHaveBeenCalledWith(42);
     expect(storageMock.getCustomersByProvider).toHaveBeenCalledWith(42);
     expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, {}, { pagina: 1, porPagina: 50 });

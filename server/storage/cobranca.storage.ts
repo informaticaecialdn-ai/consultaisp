@@ -336,6 +336,9 @@ const num = (v: unknown): number => Number(v ?? 0);
 const casoVivo = () => notInArray(cobrancaCasos.status, [...STATUS_CASO_FECHADO]);
 const casoFechado = (status: string) => (STATUS_CASO_FECHADO as readonly string[]).includes(status);
 const clienteAtual = () => inArray(customers.status, [...STATUS_DE_CLIENTE_ATUAL]);
+const clienteDaCarteira = (carteira?: CarteiraDeCobranca) => carteira === undefined
+  ? undefined
+  : carteira === "ativo" ? clienteAtual() : sql`not (${clienteAtual()})`;
 const comDivida = () => sql`coalesce(${customers.totalOverdueAmount}, 0) > 0`;
 const semDivida = () => sql`coalesce(${customers.totalOverdueAmount}, 0) <= 0`;
 
@@ -1268,16 +1271,25 @@ export class CobrancaStorage {
    * ja estao contados pelas parcelas e pela entrada. Pagamento parcial ainda
    * em curso nao entra: a parcela so conta quando fecha.
    */
-  async kpisDaCobranca(providerId: number, hoje: Date = new Date()): Promise<KpisDaCobranca> {
+  async kpisDaCobranca(providerId: number, hoje: Date = new Date(), escopo?: CarteiraDeCobranca): Promise<KpisDaCobranca> {
     const inicioDoDia = new Date(hoje);
     inicioDoDia.setHours(0, 0, 0, 0);
     const ha30Dias = new Date(hoje.getTime() - 30 * 24 * 60 * 60 * 1000);
+    // Movimentos pertencem à carteira do caso, inclusive depois de encerrado.
+    const casosDoEscopo = db.select({ id: cobrancaCasos.id }).from(cobrancaCasos).where(and(
+      eq(cobrancaCasos.providerId, providerId),
+      escopo ? eq(cobrancaCasos.carteira, escopo) : undefined,
+    ));
+    const acordosDoEscopo = db.select({ id: cobrancaNegociacoes.id }).from(cobrancaNegociacoes).where(and(
+      eq(cobrancaNegociacoes.providerId, providerId),
+      inArray(cobrancaNegociacoes.casoId, casosDoEscopo),
+    ));
 
     const [carteira] = await db.select({
       ativosComDivida: sql<number>`count(*) filter (where ${clienteAtual()} and ${comDivida()})`.mapWith(Number),
       exClientesComDivida: sql<number>`count(*) filter (where not (${clienteAtual()}) and ${comDivida()})`.mapWith(Number),
       emAberto: sql<number>`coalesce(sum(${customers.totalOverdueAmount}) filter (where ${comDivida()}), 0)`.mapWith(Number),
-    }).from(customers).where(eq(customers.providerId, providerId));
+    }).from(customers).where(and(eq(customers.providerId, providerId), clienteDaCarteira(escopo)));
 
     const [contatos] = await db.select({
       total: sql<number>`count(distinct ${cobrancaEventos.customerId})`.mapWith(Number),
@@ -1285,6 +1297,7 @@ export class CobrancaStorage {
       eq(cobrancaEventos.providerId, providerId),
       eq(cobrancaEventos.tipo, "contato"),
       gte(cobrancaEventos.ocorridoEm, inicioDoDia),
+      escopo ? inArray(cobrancaEventos.casoId, casosDoEscopo) : undefined,
     ));
 
     const [parcelas] = await db.select({
@@ -1293,6 +1306,7 @@ export class CobrancaStorage {
       eq(cobrancaParcelas.providerId, providerId),
       eq(cobrancaParcelas.status, "paga"),
       gte(cobrancaParcelas.pagoEm, ha30Dias),
+      escopo ? inArray(cobrancaParcelas.negociacaoId, acordosDoEscopo) : undefined,
     ));
 
     const comAcordo = db.select({ um: sql`1` }).from(cobrancaNegociacoes).where(and(
@@ -1307,6 +1321,7 @@ export class CobrancaStorage {
       eq(cobrancaCasos.status, "pago"),
       gte(cobrancaCasos.encerradoEm, ha30Dias),
       notExists(comAcordo),
+      escopo ? eq(cobrancaCasos.carteira, escopo) : undefined,
     ));
 
     const [entradas] = await db.select({
@@ -1316,6 +1331,7 @@ export class CobrancaStorage {
       // Quebrada fica de fora: "aceita mas a entrada nunca veio" e o que a quebra de uma aceita significa.
       inArray(cobrancaNegociacoes.status, ["aceita", "ativa", "cumprida"]),
       gte(cobrancaNegociacoes.aceitaEm, ha30Dias),
+      escopo ? inArray(cobrancaNegociacoes.casoId, casosDoEscopo) : undefined,
     ));
 
     return {
@@ -1328,22 +1344,23 @@ export class CobrancaStorage {
   }
 
   /** A barra de composicao: em dia + em cobranca + ex com divida, de `customers`. */
-  async composicaoDaCarteira(providerId: number): Promise<ComposicaoDaCarteira> {
+  async composicaoDaCarteira(providerId: number, carteira?: CarteiraDeCobranca): Promise<ComposicaoDaCarteira> {
     const [c] = await db.select({
       emDia: sql<number>`count(*) filter (where ${clienteAtual()} and ${semDivida()})`.mapWith(Number),
       emCobranca: sql<number>`count(*) filter (where ${clienteAtual()} and ${comDivida()})`.mapWith(Number),
       exComDivida: sql<number>`count(*) filter (where not (${clienteAtual()}) and ${comDivida()})`.mapWith(Number),
-    }).from(customers).where(eq(customers.providerId, providerId));
+    }).from(customers).where(and(eq(customers.providerId, providerId), clienteDaCarteira(carteira)));
     return { emDia: num(c?.emDia), emCobranca: num(c?.emCobranca), exComDivida: num(c?.exComDivida) };
   }
 
   /** Opcoes do filtro de bairro: os 40 com mais devedores. */
-  async bairrosDaCarteira(providerId: number): Promise<Array<{ bairro: string; total: number }>> {
+  async bairrosDaCarteira(providerId: number, carteira?: CarteiraDeCobranca): Promise<Array<{ bairro: string; total: number }>> {
     const linhas = await db.select({ bairro: customers.neighborhood, total: count() }).from(customers)
       .where(and(
         eq(customers.providerId, providerId),
         comDivida(),
         isNotNull(customers.neighborhood),
+        clienteDaCarteira(carteira),
         ne(customers.neighborhood, ""),
       ))
       .groupBy(customers.neighborhood)
@@ -1364,10 +1381,11 @@ export class CobrancaStorage {
    */
   async filaDeCobranca(
     providerId: number,
-    opcoes: { responsavelUserId?: number; hoje?: Date; limite?: number } = {},
+    opcoes: { responsavelUserId?: number; hoje?: Date; limite?: number; carteira?: CarteiraDeCobranca } = {},
   ): Promise<LinhaDaCarteira[]> {
     const hoje = opcoes.hoje ?? new Date();
     const conds: (SQL | undefined)[] = [eq(cobrancaCasos.providerId, providerId), casoVivo()];
+    if (opcoes.carteira) conds.push(eq(cobrancaCasos.carteira, opcoes.carteira));
     if (opcoes.responsavelUserId !== undefined) {
       conds.push(or(
         eq(cobrancaCasos.responsavelUserId, opcoes.responsavelUserId),

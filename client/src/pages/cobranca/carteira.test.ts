@@ -54,7 +54,7 @@ describe("chipsDoMes", () => {
 
 describe("os dois espaços", () => {
   it("ativos e ex têm carteira, rota e situação ERP próprias", () => {
-    expect(ESPACO_META.ativos).toMatchObject({ carteira: "ativo", rota: "/cobranca/ativos", situacaoErp: "Ativo" });
+    expect(ESPACO_META.ativos).toMatchObject({ carteira: "ativo", rota: "/cobranca/ativos", situacaoErp: "Ativo ou suspenso" });
     expect(ESPACO_META.ex).toMatchObject({ carteira: "ex_cliente", rota: "/cobranca/ex-clientes", situacaoErp: "Ex-cliente" });
   });
 });

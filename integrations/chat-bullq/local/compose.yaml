@@ -1,0 +1,41 @@
+name: consultaisp-chat-local
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chat_bullq_local
+      POSTGRES_DB: chat_bullq_local
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Use the private local env file}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5544}:5432"
+    volumes:
+      - chat-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U chat_bullq_local -d chat_bullq_local"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Use the private local env file}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6382}:6379"
+    volumes:
+      - chat-redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  chat-postgres:
+    name: consultaisp-chat-local-postgres
+  chat-redis:
+    name: consultaisp-chat-local-redis

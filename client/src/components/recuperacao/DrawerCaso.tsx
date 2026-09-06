@@ -10,6 +10,7 @@
  * `disputeReason`, e um select inline no card não teria onde pedir o texto.
  */
 import { useEffect, useState, type ReactNode } from "react";
+import { ChatDaRecuperacao } from "@/components/chat/ChatDaRecuperacao";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CalendarClock, History, MessageCircle, PackageCheck, PackageX, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -139,6 +140,7 @@ export function DrawerCaso({ card, aberto, onFechar, responsaveis, onContato, on
                 </div>
               )}
             </SheetHeader>
+            {caseId && <div className="px-5 pt-4"><ChatDaRecuperacao key={caseId} casoId={caseId} /></div>}
 
             {/* Equipamento */}
             <section className="border-b border-[var(--border)] px-5 py-4">

@@ -1,5 +1,6 @@
+import { carteiraDaNavegacao, caminhoNaCarteira, retornoDaCarteira } from "@/components/cobranca/carteiras";
 import * as React from "react";
-import { useLocation, Link } from "wouter";
+import { useLocation, useSearch, Link } from "wouter";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { Sidebar } from "@/components/ui/sidebar";
@@ -32,6 +33,7 @@ import {
   Route,
   Scale,
   UserX,
+  ChevronRight,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { SimboloDaMarca } from "@/components/marca";
@@ -153,15 +155,8 @@ function CabecalhoSidebar({
 }
 
 /**
- * Grupo de navegacao — rotulo e itens. Sem recolher, nos dois lados.
- *
- * O admin tinha chevron em "Gestão" e "Financeiro"; o provedor nao recolhia
- * nada. Escolhi tirar, e nao espalhar: nenhum dos dois menus tem lista longa
- * (6 grupos de 1 a 3 itens no admin, 5 no provedor), entao o controle nao
- * paga o que custa — ele esconde item, guarda estado que o operador precisa
- * lembrar e acrescenta um clique antes de cada navegacao. E, existindo so de
- * um lado, ensinava que sao dois produtos. Se um dia um menu passar de ~10
- * itens por grupo, recolher volta — para os dois ao mesmo tempo.
+ * Grupo de navegacao — rotulo e itens, sempre visiveis nos dois paineis.
+ * Os menus de carteira dentro de Cobranca recolhem suas proprias operacoes.
  */
 function GrupoNav({ titulo, children }: { titulo: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -425,12 +420,9 @@ const ADMIN_GROUPS: Array<{ label: string; key: string; items: ItemAdmin[] }> = 
 
 type ItemDeNav = { label: string; url: string; Icone: Icone; testId: string };
 
-const NAV_PROVEDOR: Array<{
+export const NAV_PROVEDOR: Array<{
   grupo: string;
-  /**
-   * Um item com `filhos` e uma PASTA: o rotulo dele nao acende; quem acende e o
-   * filho. Sempre aberta — o menu nao recolhe (ver GrupoNav).
-   */
+  /** Cada menu com filhos abre suas operacoes; so o destino atual acende. */
   itens: Array<ItemDeNav & { filhos?: ItemDeNav[] }>;
 }> = [
   {
@@ -454,19 +446,27 @@ const NAV_PROVEDOR: Array<{
     // porque vem depois de consultar e antes de comprar credito (05/09/2026).
     grupo: "Cobrança",
     itens: [
-      // A carteira e uma PASTA com dois espacos separados, como no Provedor.ai
-      // (pedido do dono, 05/09/2026): cliente ativo e ex-cliente juntos criam
-      // confusao — o que tem mais chance de recuperar e o valor quente, recente.
+      { label: "Conversas", url: "/cobranca/chat", Icone: MessageSquare, testId: "link-cobranca-chat" },
+      // Os destinos de cada menu fixam a carteira mesmo quando a navegacao
+      // comeca fora da cobranca ou na operacao da outra carteira.
       {
-        label: "Carteira", url: "/cobranca", Icone: Wallet, testId: "link-cobranca-carteira",
+        label: "Clientes Ativos", url: "/cobranca/ativos", Icone: Users, testId: "menu-cobranca-ativos",
         filhos: [
-          { label: "Clientes ativos", url: "/cobranca/ativos",      Icone: Users, testId: "link-cobranca-ativos" },
-          { label: "Ex-clientes",     url: "/cobranca/ex-clientes", Icone: UserX, testId: "link-cobranca-ex-clientes" },
+          { label: "Visão geral", url: caminhoNaCarteira("/cobranca/ativos", "ativo"), Icone: Wallet, testId: "link-cobranca-ativos" },
+          { label: "Fila do dia", url: caminhoNaCarteira("/cobranca/fila", "ativo"), Icone: ListTodo, testId: "link-cobranca-ativos-fila" },
+          { label: "Kanban", url: caminhoNaCarteira("/cobranca/kanban", "ativo"), Icone: Kanban, testId: "link-cobranca-ativos-kanban" },
+          { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ativo"), Icone: Route, testId: "link-cobranca-ativos-regua" },
         ],
       },
-      { label: "Kanban",      url: "/cobranca/kanban",   Icone: Kanban,   testId: "link-cobranca-kanban" },
-      { label: "Fila do dia", url: "/cobranca/fila",     Icone: ListTodo, testId: "link-cobranca-fila" },
-      { label: "Régua",       url: "/cobranca/regua",    Icone: Route,    testId: "link-cobranca-regua" },
+      {
+        label: "Ex-Clientes", url: "/cobranca/ex-clientes", Icone: UserX, testId: "menu-cobranca-ex-clientes",
+        filhos: [
+          { label: "Visão geral", url: caminhoNaCarteira("/cobranca/ex-clientes", "ex_cliente"), Icone: Wallet, testId: "link-cobranca-ex-clientes" },
+          { label: "Fila do dia", url: caminhoNaCarteira("/cobranca/fila", "ex_cliente"), Icone: ListTodo, testId: "link-cobranca-ex-clientes-fila" },
+          { label: "Kanban", url: caminhoNaCarteira("/cobranca/kanban", "ex_cliente"), Icone: Kanban, testId: "link-cobranca-ex-clientes-kanban" },
+          { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ex_cliente"), Icone: Route, testId: "link-cobranca-ex-clientes-regua" },
+        ],
+      },
       { label: "Política",    url: "/cobranca/politica", Icone: Scale,    testId: "link-cobranca-politica" },
     ],
   },
@@ -485,6 +485,7 @@ const NAV_PROVEDOR: Array<{
       { label: "Equipamentos", url: "/equipamentos", Icone: Package, testId: "link-equipamentos" },
       // Kanban por idade desde a rescisão: a fila de retirada em forma de quadro.
       { label: "Recuperação",  url: "/recuperacao",  Icone: Kanban,  testId: "link-recuperacao" },
+      { label: "Conversas", url: "/equipamentos/chat", Icone: MessageSquare, testId: "link-equipamentos-chat" },
     ],
   },
   {
@@ -552,19 +553,21 @@ export function itemDeRevendaAtivo(url: string, caminho: string): boolean {
 /**
  * Qual item do menu do provedor esta aceso.
  *
- * Prefixo, nao igualdade: subrota mantem o pai aceso. Duas raizes sao caso
- * especial, pelo mesmo motivo de `itemDeRevendaAtivo`: "/" ficaria aceso em
- * toda rota, e "/cobranca" ficaria aceso junto com Fila, Regua e Politica —
- * duas linhas destacadas, e o operador deixa de saber onde esta. A ficha do
- * cliente (`/cobranca/cliente/:id`) acende a Carteira, que e de onde se abre.
+ * Os destinos compartilhados (fila, quadro e regua) distinguem a carteira
+ * pela query; a ficha acende a visao geral da carteira de origem. As demais
+ * subrotas mantem o pai aceso, com excecao da raiz exata do painel.
  */
-export function itemDeProvedorAtivo(url: string, caminho: string): boolean {
-  if (url === "/") return caminho === "/";
-  // A pasta nao acende; o espaco de ativos e a raiz da cobranca (/cobranca
-  // redireciona para ele) e e de onde a ficha do cliente se abre.
-  if (url === "/cobranca") return false;
-  if (url === "/cobranca/ativos") return caminho === "/cobranca" || caminho === "/cobranca/ativos" || caminho.startsWith("/cobranca/cliente/");
-  return caminho === url || caminho.startsWith(url + "/");
+export function itemDeProvedorAtivo(url: string, caminho: string, search = ""): boolean {
+  const [rota, consulta] = url.split("?");
+  const carteiraDoItem = new URLSearchParams(consulta).get("carteira");
+  const carteiraAtual = carteiraDaNavegacao(caminho, search);
+  if (carteiraDoItem && carteiraDoItem !== carteiraAtual) return false;
+  if (rota === "/") return caminho === "/";
+  if (rota === "/cobranca") return false;
+  if ((caminho === "/cobranca" || caminho.startsWith("/cobranca/cliente/")) && (rota === "/cobranca/ativos" || rota === "/cobranca/ex-clientes")) {
+    return rota === retornoDaCarteira(carteiraAtual);
+  }
+  return caminho === rota || caminho.startsWith(rota + "/");
 }
 
 /* ==================================================================== */
@@ -572,6 +575,7 @@ export function itemDeProvedorAtivo(url: string, caminho: string): boolean {
 export function AppSidebar() {
   const marca = useMarca();
   const [location, navigate] = useLocation();
+  const search = useSearch();
   const { user, provider, marca: marcaDaSessao, personificando, logout } = useAuth();
 
   /**
@@ -749,7 +753,9 @@ export function AppSidebar() {
     );
   }
 
-  const estaAtivo = (url: string) => itemDeProvedorAtivo(url, location);
+  const estaAtivo = (url: string) => itemDeProvedorAtivo(url, location, search);
+  const hrefDaOperacao = (url: string) => (location === "/cobranca" || location.startsWith("/cobranca/")) && url === "/cobranca/chat"
+    ? caminhoNaCarteira(url, carteiraDaNavegacao(location, search)) : url;
 
   return (
     <CascaSidebar
@@ -782,24 +788,25 @@ export function AppSidebar() {
       {NAV_PROVEDOR.map(({ grupo, itens }) => (
         <GrupoNav key={grupo} titulo={grupo}>
           {itens.map(({ label, url, Icone, testId, filhos }) => filhos ? (
-            <div key={url} data-testid={testId}>
-              <div className={`${ITEM_BASE} text-[var(--text-muted)] font-medium cursor-default`} aria-hidden>
-                <Icone className="w-4 h-4 flex-none" strokeWidth={2} />
+            <details key={url} open={filhos.some(f => estaAtivo(f.url))} className="group/carteira" data-testid={testId}>
+              <summary className={`${ITEM_BASE} ${ITEM_INATIVO} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}>
+                <Icone className="w-4 h-4 flex-none" strokeWidth={2} aria-hidden="true" />
                 <span className="truncate">{label}</span>
-              </div>
+                <ChevronRight className="ml-auto w-3.5 h-3.5 flex-none group-open/carteira:rotate-90 motion-safe:transition-transform" aria-hidden="true" />
+              </summary>
               <div className="ml-[18px] flex flex-col gap-0.5 border-l border-[var(--border)] pl-2" role="group" aria-label={label}>
                 {filhos.map(f => (
                   <ItemNav key={f.url} label={f.label} Icone={f.Icone} ativo={estaAtivo(f.url)} href={f.url} testId={f.testId} />
                 ))}
               </div>
-            </div>
+            </details>
           ) : (
             <ItemNav
               key={url}
               label={label}
               Icone={Icone}
               ativo={estaAtivo(url)}
-              href={url}
+              href={hrefDaOperacao(url)}
               testId={testId}
             >
               {url === "/anti-fraude" && <ContadorDeAlertas />}

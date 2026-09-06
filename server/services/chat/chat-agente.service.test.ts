@@ -107,6 +107,24 @@ describe("casoParaAgente", () => {
     expect(r.instrucao).toContain("entrada minima de 20%");
     expect(r.promessaAberta).toBeNull();
   });
+
+  it("o valor vai DATADO e com a ordem de transferir quem disser que pagou — esta rota nunca le o ERP ao vivo", async () => {
+    fake.cliente = { ...CLIENTE, lastSyncAt: new Date("2026-09-05T06:00:00Z") };
+    const r = await casoParaAgente(6, "43999990000");
+    // 06:00Z = 03:00 em Brasilia, a hora da varredura automatica
+    expect(r.instrucao).toContain("segundo a ultima leitura do ERP em 05/09/2026, 03:00");
+    expect(r.instrucao).toContain("se o cliente disser que ja pagou");
+    expect(r.instrucao).toContain("NAO insista");
+    expect(r.valores).toEqual({ origem: "base_sincronizada", lidoEm: "2026-09-05T06:00:00.000Z" });
+  });
+
+  it("sem data de varredura o texto diz isso, em vez de inventar uma data", async () => {
+    fake.cliente = { ...CLIENTE, lastSyncAt: null };
+    const r = await casoParaAgente(6, "43999990000");
+    expect(r.instrucao).toContain("sem data registrada");
+    expect(r.instrucao).not.toMatch(new RegExp("em \d{2}/\d{2}/\d{4}"));
+    expect(r.valores).toEqual({ origem: "base_sincronizada", lidoEm: null });
+  });
   it("sem divida: instrucao de nao cobrar; prescrita: instrucao de transferir", async () => {
     fake.cliente = { ...CLIENTE, totalOverdueAmount: "0", maxDaysOverdue: 0, overdueInvoicesCount: 0 };
     fake.casoVivo = undefined; fake.detalhe = undefined;

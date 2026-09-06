@@ -1,0 +1,979 @@
+/**
+ * A mesma conversa no 360, na recuperação e nas duas filas. Segredos nunca
+ * chegam ao navegador.
+ *
+ * Regra do follow-up (dono, 05/09/2026): todo contato termina com a próxima
+ * ação, o dono, o quando e o status. Aqui:
+ *  - "Encerrar" abre o diálogo de follow-up — ação e data obrigatórias — a
+ *    menos que não haja onde gravar (sem caso de cobrança, ou caso fechado);
+ *  - "Enviar" leva um campo recolhido de próxima ação; vazio, o servidor grava
+ *    "Aguardar resposta do cliente" no próximo dia útil;
+ *  - "Devolver ao assistente" entrega a conversa de volta ao motor autônomo,
+ *    quando o provedor o ligou.
+ *
+ * Pele do DESIGN_SYSTEM v5: botão de marca em `--brand` com `--text-on-brand`,
+ * raio de 4px em botão e campo, todo número em mono tabular, skeleton em vez
+ * de "Carregando". `--past` aqui só pinta dívida — nunca botão nem avatar.
+ */
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  useQuery,
+} from "@tanstack/react-query";
+import { Link } from "wouter";
+import {
+  Bot,
+  CalendarClock,
+  Send,
+  UserRoundCheck,
+  RefreshCw,
+  QrCode,
+  GitBranch,
+  Layers,
+} from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
+import type { ContextoDoChat } from "@shared/cobranca/contexto-chat";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  BOTAO_SECUNDARIO,
+  CAIXA_ICONE,
+  Campo,
+  CONTROLE_CAMPO,
+  CONTROLE_CAMPO_MULTILINHA,
+  DESABILITAVEL,
+  FOCO,
+} from "@/components/painel/ui";
+import { PROXIMAS_ACOES_COMUNS } from "@/components/cobranca/DialogoContato";
+import {
+  agoraInput,
+  dataHoraBr,
+  deInputDataHora,
+  validarProximoContato,
+} from "@/components/cobranca/formatacao";
+import { mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
+import {
+  AvatarChat,
+  BOTAO_CHAT_MARCA,
+  LINK_CHAT,
+  NUM_CHAT,
+  PerfilDoCliente,
+} from "./PerfilDoCliente";
+import { PagamentosDoChat } from "./PagamentosDoChat";
+import { DialogoNegociacao } from "@/components/cobranca/DialogoNegociacao";
+import { lerPolitica } from "@/components/cobranca/politica-form";
+import { API_POLITICA } from "@/components/cobranca/tipos";
+import {
+  ACAO_PADRAO_APOS_RESPOSTA,
+  ACOES_COMUNS_DO_CHAT,
+  API_ATENDIMENTOS,
+  API_AUTONOMIA,
+  STATUS_CHAT,
+  TAMANHO_MAXIMO_DA_ACAO,
+  encerrarDispensaFollowUp,
+  type AcaoChat,
+  type DetalheChat,
+  type EstadoAutonomiaChat,
+  type FollowUpChat,
+  type OrigemChat,
+} from "./tipos";
+
+const dataHora = (valor: string) =>
+  new Date(valor).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+/** Chip de próxima ação: um clique em vez de digitar. Retangular, 4px. */
+const CHIP =
+  "rounded border px-2 py-1 text-[11px] leading-4 motion-safe:transition-colors";
+const chip = (ativo: boolean) =>
+  cn(
+    CHIP,
+    FOCO,
+    ativo
+      ? "border-[var(--brand)] bg-[var(--brand-soft)] text-[var(--brand-ink)]"
+      : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--border-strong)]",
+  );
+
+const ACOES_SUGERIDAS = [...ACOES_COMUNS_DO_CHAT, ...PROXIMAS_ACOES_COMUNS];
+
+const MOTIVO_ASSISTENTE_DESLIGADO = "assistente desligado";
+
+function Anexo({ url, tipo }: { url: string; tipo: string }) {
+  const midia = useMutation({
+    mutationFn: async (): Promise<{ url: string; mimeType: string | null }> =>
+      (await apiRequest("GET", url)).json(),
+    retry: false,
+  });
+  if (!midia.data)
+    return (
+      <div>
+        <button
+          type="button"
+          className={cn(LINK_CHAT, "text-xs", DESABILITAVEL)}
+          disabled={midia.isPending}
+          aria-busy={midia.isPending}
+          onClick={() => midia.mutate()}
+        >
+          {`Abrir ${tipo.toLowerCase()}`}
+        </button>
+        {midia.isError && (
+          <p role="alert" className="text-xs text-[var(--danger)]">
+            Anexo indisponível. Atualize o histórico e tente novamente.
+          </p>
+        )}
+      </div>
+    );
+  const mime = midia.data.mimeType ?? "";
+  return (
+    <div className="mt-2">
+      {mime.startsWith("image/") && mime !== "image/svg+xml" ? (
+        <img
+          src={midia.data.url}
+          alt="Imagem recebida do cliente"
+          className="max-h-64 max-w-full rounded-lg"
+        />
+      ) : mime.startsWith("audio/") ? (
+        <audio
+          src={midia.data.url}
+          controls
+          preload="none"
+          className="max-w-full"
+        />
+      ) : mime.startsWith("video/") ? (
+        <video
+          src={midia.data.url}
+          controls
+          preload="none"
+          className="max-h-64 max-w-full"
+        />
+      ) : null}
+      <a
+        href={midia.data.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(LINK_CHAT, "text-xs")}
+      >
+        Abrir arquivo
+      </a>
+    </div>
+  );
+}
+
+/* ── Follow-up ao encerrar ────────────────────────────────────────────── */
+
+/**
+ * O diálogo que fecha o atendimento: próxima ação e data OBRIGATÓRIAS. O
+ * servidor recusa encerrar sem as duas; aqui o botão nem habilita. Chips das
+ * ações comuns do chat e da cobrança para não digitar; a data tem o `min`
+ * de agora e é validada de novo no submit (quem digita passa pelo `min`).
+ */
+function DialogoFollowUpDoChat({
+  aberto,
+  clienteNome,
+  casoId,
+  pendente,
+  erro,
+  onFechar,
+  onConfirmar,
+}: {
+  aberto: boolean;
+  clienteNome: string;
+  casoId: number | null;
+  pendente: boolean;
+  erro: string | null;
+  onFechar: () => void;
+  onConfirmar: (followUp: FollowUpChat) => void;
+}) {
+  const [proximaAcao, setProximaAcao] = useState("");
+  const [proximoContatoEm, setProximoContatoEm] = useState("");
+  const [erroLocal, setErroLocal] = useState<string | null>(null);
+  // Cada abertura começa limpa: o follow-up de ontem não é o de hoje.
+  useEffect(() => {
+    if (aberto) {
+      setProximaAcao("");
+      setProximoContatoEm("");
+      setErroLocal(null);
+    }
+  }, [aberto]);
+
+  const semFollowUp = !proximaAcao.trim() || !proximoContatoEm;
+  const confirmar = () => {
+    const erroData = validarProximoContato(proximoContatoEm, new Date());
+    const iso = deInputDataHora(proximoContatoEm);
+    if (erroData || !iso) {
+      setErroLocal(erroData ?? "Data do próximo contato inválida.");
+      return;
+    }
+    setErroLocal(null);
+    onConfirmar({ proximaAcao: proximaAcao.trim(), proximoContatoEm: iso });
+  };
+
+  return (
+    <Dialog
+      open={aberto}
+      onOpenChange={(open) => {
+        if (!open) onFechar();
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-[520px]"
+        data-testid="dialogo-followup-chat"
+      >
+        <DialogHeader>
+          <DialogTitle>Encerrar atendimento</DialogTitle>
+          <DialogDescription>
+            {clienteNome}
+            {casoId !== null ? (
+              <>
+                {" "}
+                · caso <span className={NUM_CHAT}>#{casoId}</span>
+              </>
+            ) : null}
+            . Todo contato termina com a próxima ação e o dia em que ela
+            acontece.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            confirmar();
+          }}
+        >
+          <Campo rotulo="próxima ação (obrigatório)">
+            <input
+              type="text"
+              required
+              maxLength={TAMANHO_MAXIMO_DA_ACAO}
+              className={CONTROLE_CAMPO}
+              placeholder="ex.: cobrar a promessa, enviar boleto"
+              value={proximaAcao}
+              onChange={(e) => setProximaAcao(e.target.value)}
+              data-testid="followup-chat-acao"
+            />
+          </Campo>
+          <div
+            className="flex flex-wrap gap-1.5"
+            aria-label="próximas ações comuns"
+          >
+            {ACOES_SUGERIDAS.map((acao) => (
+              <button
+                key={acao}
+                type="button"
+                className={chip(proximaAcao === acao)}
+                onClick={() => setProximaAcao(acao)}
+                data-testid={`followup-chat-chip-${acao}`}
+              >
+                {acao}
+              </button>
+            ))}
+          </div>
+          <Campo rotulo="quando (obrigatório)">
+            <input
+              type="datetime-local"
+              required
+              className={cn(CONTROLE_CAMPO, NUM_CHAT)}
+              min={agoraInput()}
+              value={proximoContatoEm}
+              onChange={(e) => setProximoContatoEm(e.target.value)}
+              data-testid="followup-chat-quando"
+            />
+          </Campo>
+          <p className="text-[11px] text-[var(--text-muted)]">
+            O caso volta à fila nesta data, com esta ação escrita no card. O
+            dono continua sendo quem assumiu a conversa.
+          </p>
+          {(erroLocal || erro) && (
+            <p role="alert" className="text-xs text-[var(--danger)]">
+              {erroLocal ?? erro}
+            </p>
+          )}
+          <DialogFooter>
+            <button
+              type="button"
+              className={BOTAO_SECUNDARIO}
+              onClick={onFechar}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className={BOTAO_CHAT_MARCA}
+              disabled={pendente || semFollowUp}
+              title={
+                semFollowUp
+                  ? "Diga a próxima ação e quando ela acontece"
+                  : undefined
+              }
+              data-testid="followup-chat-confirmar"
+            >
+              Encerrar com follow-up
+            </button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ── Atendimento ──────────────────────────────────────────────────────── */
+
+export function Atendimento({
+  conversationId,
+  origem,
+  compacto = false,
+}: {
+  conversationId: string;
+  origem: OrigemChat;
+  compacto?: boolean;
+}) {
+  const qc = useQueryClient();
+  const [texto, setTexto] = useState("");
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
+  const [mostrarContexto, setMostrarContexto] = useState(false);
+  const [pagamento, setPagamento] = useState<{ aberto: boolean; ref?: string }>(
+    { aberto: false },
+  );
+  const [negociar, setNegociar] = useState(false);
+  const [encerrando, setEncerrando] = useState(false);
+  // Follow-up opcional ao responder: recolhido até o atendente querer dizer o depois.
+  const [followUpEnvio, setFollowUpEnvio] = useState({
+    aberto: false,
+    proximaAcao: "",
+    proximoContatoEm: "",
+  });
+  const forcarContexto = useRef(false);
+  const historico = useRef<HTMLDivElement>(null);
+  const pertoDoFim = useRef(true);
+  const url = `${API_ATENDIMENTOS}/${encodeURIComponent(conversationId)}`;
+  const contexto = useQuery<ContextoDoChat>({
+    queryKey: [`${url}/contexto`],
+    queryFn: async () => {
+      const forcar = forcarContexto.current;
+      forcarContexto.current = false;
+      return (
+        await apiRequest(
+          "GET",
+          `${url}/contexto${forcar ? "?atualizar=true" : ""}`,
+        )
+      ).json();
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const politica = useQuery({
+    queryKey: [API_POLITICA],
+    queryFn: async () =>
+      lerPolitica(await (await apiRequest("GET", API_POLITICA)).json()),
+    enabled: negociar,
+    staleTime: 60_000,
+  });
+  // Sem estado (rota ausente, fila sem migração) o botão de devolver fica desligado — nunca finge.
+  const autonomia = useQuery<EstadoAutonomiaChat>({
+    queryKey: [API_AUTONOMIA],
+    queryFn: async () => (await apiRequest("GET", API_AUTONOMIA)).json(),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const assistenteLigado = autonomia.data?.config?.ativa === true;
+  const query = useInfiniteQuery({
+    queryKey: [url],
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }): Promise<DetalheChat> =>
+      (await apiRequest("GET", `${url}?pagina=${pageParam}`)).json(),
+    getNextPageParam: (pagina) =>
+      pagina.temMais ? pagina.pagina + 1 : undefined,
+    refetchInterval: 8000,
+    retry: 1,
+  });
+  const dados = query.data?.pages[0];
+  const mostrarSkeleton = useSkeletonAtrasado(!dados && !query.isError);
+  const alvoNegociacao = useMemo(
+    () =>
+      dados?.cobranca
+        ? {
+            casoId: dados.cobranca.id,
+            clienteNome: dados.cliente?.nome ?? "Cliente",
+            valorAtual: dados.cobranca.valor,
+          }
+        : null,
+    [dados?.cobranca?.id, dados?.cobranca?.valor, dados?.cliente?.nome],
+  );
+  const mensagens = Array.from(
+    new Map(
+      (query.data?.pages.flatMap((p) => p.mensagens) ?? []).map((m) => [
+        m.id,
+        m,
+      ]),
+    ).values(),
+  ).sort((a, b) => a.em.localeCompare(b.em));
+  const ultima = mensagens.at(-1)?.id;
+  useEffect(() => {
+    const elemento = historico.current;
+    if (elemento && pertoDoFim.current)
+      elemento.scrollTop = elemento.scrollHeight;
+  }, [ultima]);
+  useEffect(() => {
+    setTexto("");
+    setErroEnvio(null);
+    setEncerrando(false);
+    setFollowUpEnvio({ aberto: false, proximaAcao: "", proximoContatoEm: "" });
+  }, [conversationId]);
+  const invalidarAtendimentos = () =>
+    qc.invalidateQueries({
+      predicate: (q) =>
+        typeof q.queryKey[0] === "string" &&
+        q.queryKey[0].startsWith(API_ATENDIMENTOS),
+    });
+  const acao = useMutation({
+    mutationFn: async (pedido: AcaoChat) =>
+      (await apiRequest("POST", `${url}/acoes`, pedido)).json(),
+    onSuccess: async (_r, pedido) => {
+      if (pedido.acao === "enviar") {
+        setTexto("");
+        setFollowUpEnvio({ aberto: false, proximaAcao: "", proximoContatoEm: "" });
+      }
+      if (pedido.acao === "encerrar") setEncerrando(false);
+      setErroEnvio(null);
+      await invalidarAtendimentos();
+    },
+    onError: (erro: unknown, pedido) =>
+      setErroEnvio(
+        pedido.acao === "encerrar"
+          ? mensagemDoErro(erro)
+          : "O chat não confirmou a operação. O texto foi preservado. Atualize o histórico para conferir antes de tentar novamente.",
+      ),
+    retry: false,
+  });
+  const devolver = useMutation({
+    mutationFn: async () =>
+      (
+        await apiRequest(
+          "POST",
+          `${API_AUTONOMIA}/conversas/${encodeURIComponent(conversationId)}/devolver`,
+        )
+      ).json(),
+    onSuccess: async () => {
+      setErroEnvio(null);
+      await invalidarAtendimentos();
+    },
+    onError: (erro: unknown) =>
+      setErroEnvio(
+        (erro as { status?: number }).status === 404
+          ? `${MOTIVO_ASSISTENTE_DESLIGADO}: a devolução não está disponível nesta instalação.`
+          : mensagemDoErro(erro),
+      ),
+    retry: false,
+  });
+  const enviar = () => {
+    if (!texto.trim() || acao.isPending || query.isError) return;
+    const erroData = validarProximoContato(
+      followUpEnvio.proximoContatoEm,
+      new Date(),
+    );
+    if (erroData) {
+      setErroEnvio(erroData);
+      return;
+    }
+    const proximoContatoEm = deInputDataHora(followUpEnvio.proximoContatoEm);
+    acao.mutate({
+      acao: "enviar",
+      texto,
+      ...(followUpEnvio.proximaAcao.trim()
+        ? { proximaAcao: followUpEnvio.proximaAcao.trim() }
+        : {}),
+      ...(proximoContatoEm ? { proximoContatoEm } : {}),
+    });
+  };
+  if (!dados)
+    return (
+      <div
+        className="p-6 text-sm text-[var(--text-muted)]"
+        role="status"
+        aria-busy={!query.isError}
+        data-testid="atendimento-carregando"
+      >
+        {query.isError ? (
+          <>
+            <p>Não foi possível carregar a conversa.</p>
+            <button
+              type="button"
+              className={cn(BOTAO_SECUNDARIO, "mt-2")}
+              onClick={() => query.refetch()}
+            >
+              Tentar novamente
+            </button>
+          </>
+        ) : mostrarSkeleton ? (
+          <div className="space-y-3" aria-hidden>
+            <Skeleton className="h-10 w-2/3" />
+            <Skeleton className="h-16 w-4/5" />
+            <Skeleton className="ml-auto h-16 w-3/5" />
+            <Skeleton className="h-11 w-full" />
+          </div>
+        ) : null}
+      </div>
+    );
+  const c = dados.cobranca;
+  const nomeDoCliente = dados.cliente?.nome ?? "Cliente";
+  const emAtendimento = dados.conversa.status === "OPEN";
+  const pedirEncerrar = () => {
+    // Sem caso de cobrança ou caso fechado não há onde gravar o follow-up: encerra direto.
+    if (encerrarDispensaFollowUp(c)) acao.mutate({ acao: "encerrar" });
+    else setEncerrando(true);
+  };
+  return (
+    <div
+      className={cn(
+        "relative flex min-h-0 min-w-0 flex-col text-[var(--text)]",
+        !compacto && "h-full xl:flex-row",
+      )}
+      data-testid="atendimento-integrado"
+    >
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-3">
+          <AvatarChat nome={nomeDoCliente} className="h-10 w-10 text-sm" />
+          <div className="min-w-0 flex-1 basis-[calc(100%-4rem)] sm:basis-0">
+            <h2 className="text-sm font-semibold">{nomeDoCliente}</h2>
+            <p className="text-xs text-[var(--text-muted)]">
+              <span className={NUM_CHAT}>
+                {dados.cliente?.telefone ?? "Sem telefone"}
+              </span>{" "}
+              · WhatsApp ·{" "}
+              {STATUS_CHAT[dados.conversa.status] ?? dados.conversa.status}
+            </p>
+            {c && (
+              <p
+                className="text-xs text-[var(--text-muted)]"
+                data-testid="atendimento-followup-atual"
+              >
+                {c.proximaAcao && c.proximoContatoEm ? (
+                  <>
+                    próxima ação: {c.proximaAcao} ·{" "}
+                    <span className={NUM_CHAT}>
+                      {dataHoraBr(c.proximoContatoEm)}
+                    </span>
+                    {c.responsavel ? ` · ${c.responsavel}` : " · sem dono"}
+                  </>
+                ) : (
+                  <span className="text-[var(--gated)]">
+                    caso sem próxima ação — parado na fila
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE)}
+            onClick={() => query.refetch()}
+            aria-label="Atualizar mensagens"
+          >
+            <RefreshCw
+              className={cn(
+                "h-3.5 w-3.5",
+                query.isFetching && "motion-safe:animate-spin",
+              )}
+            />
+          </button>
+          {!compacto && (
+            <button
+              type="button"
+              className={cn(BOTAO_SECUNDARIO, "xl:hidden")}
+              onClick={() => setMostrarContexto(true)}
+            >
+              Dados do caso
+            </button>
+          )}
+          {!emAtendimento && (
+            <button
+              type="button"
+              className={BOTAO_CHAT_MARCA}
+              disabled={acao.isPending}
+              onClick={() => acao.mutate({ acao: "assumir" })}
+              data-testid="chat-assumir"
+            >
+              <UserRoundCheck className="h-4 w-4" />
+              {dados.conversa.status === "CLOSED"
+                ? "Reabrir atendimento"
+                : "Tomar conversa"}
+            </button>
+          )}
+          {emAtendimento && (
+            <>
+              <button
+                type="button"
+                className={BOTAO_SECUNDARIO}
+                disabled={
+                  !assistenteLigado || devolver.isPending || acao.isPending
+                }
+                title={
+                  assistenteLigado
+                    ? "O assistente retoma a conversa dentro das permissões do provedor"
+                    : MOTIVO_ASSISTENTE_DESLIGADO
+                }
+                onClick={() => devolver.mutate()}
+                data-testid="chat-devolver-assistente"
+              >
+                <Bot className="h-4 w-4" />
+                Devolver ao assistente
+              </button>
+              <button
+                type="button"
+                className={BOTAO_SECUNDARIO}
+                disabled={acao.isPending}
+                onClick={pedirEncerrar}
+                data-testid="chat-encerrar"
+              >
+                Encerrar conversa
+              </button>
+            </>
+          )}
+        </header>
+        {query.isError && (
+          <p role="alert" className="px-4 py-2 text-xs text-[var(--gated)]">
+            O histórico pode estar desatualizado. Confira a conexão antes de
+            enviar.
+          </p>
+        )}
+        <div
+          ref={historico}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            pertoDoFim.current =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          }}
+          className={cn(
+            "flex flex-col gap-3 overflow-y-auto bg-[var(--surface-2)] p-4",
+            compacto ? "h-72" : "min-h-0 flex-1",
+          )}
+          aria-label="Histórico da conversa"
+        >
+          {query.hasNextPage && (
+            <button
+              type="button"
+              className={cn(BOTAO_SECUNDARIO, "mx-auto")}
+              disabled={query.isFetchingNextPage}
+              aria-busy={query.isFetchingNextPage}
+              onClick={() => query.fetchNextPage()}
+            >
+              Carregar mensagens anteriores
+            </button>
+          )}
+          {!mensagens.length && (
+            <p className="m-auto text-sm text-[var(--text-muted)]">
+              Ainda não há mensagens nesta conversa.
+            </p>
+          )}
+          {mensagens.map((m) => (
+            <article
+              key={m.id}
+              className={cn(
+                "max-w-[88%] rounded-lg border border-[var(--border)] p-3 text-sm",
+                m.direcao === "OUTBOUND"
+                  ? "self-end bg-[var(--ok-bg)]"
+                  : "self-start bg-[var(--surface)]",
+              )}
+            >
+              <p className="whitespace-pre-wrap break-words">
+                {m.texto ||
+                  (m.tipo === "TEMPLATE"
+                    ? "Template de abertura"
+                    : `Mensagem ${m.tipo.toLowerCase()} · anexo recebido`)}
+              </p>
+              {["IMAGE", "AUDIO", "VIDEO", "DOCUMENT", "STICKER"].includes(
+                m.tipo,
+              ) && (
+                <Anexo
+                  tipo={m.tipo}
+                  url={`${url}/mensagens/${encodeURIComponent(m.id)}/midia?pagina=${query.data?.pages.find((p) => p.mensagens.some((x) => x.id === m.id))?.pagina ?? 1}`}
+                />
+              )}
+              <p className="mt-1 text-right text-[10px] text-[var(--text-muted)]">
+                {m.quem ? `${m.quem} · ` : ""}
+                <span className={NUM_CHAT}>{dataHora(m.em)}</span> ·{" "}
+                {(
+                  {
+                    SENT: "enviada",
+                    DELIVERED: "entregue",
+                    READ: "lida",
+                    QUEUED: "na fila de envio",
+                    FAILED: "falha no envio",
+                    RECEIVED: "recebida",
+                    PENDING: "pendente",
+                  } as Record<string, string>
+                )[m.status] ?? m.status}
+              </p>
+            </article>
+          ))}
+        </div>
+        <form
+          className="shrink-0 space-y-2 border-t border-[var(--border)] bg-[var(--surface)] p-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            enviar();
+          }}
+        >
+          <div className="flex flex-wrap gap-2 pb-1">
+            <button
+              type="button"
+              className={BOTAO_SECUNDARIO}
+              onClick={() => setPagamento({ aberto: true })}
+            >
+              <QrCode className="h-3.5 w-3.5" /> Enviar PIX / 2ª via
+            </button>
+            <button
+              type="button"
+              className={BOTAO_SECUNDARIO}
+              disabled={!alvoNegociacao || politica.isFetching}
+              aria-busy={politica.isFetching && negociar}
+              title={
+                !alvoNegociacao
+                  ? "Vincule um caso de cobrança para negociar"
+                  : undefined
+              }
+              onClick={() => setNegociar(true)}
+            >
+              <GitBranch className="h-3.5 w-3.5" /> Parcelar
+            </button>
+            <Link
+              className={BOTAO_SECUNDARIO}
+              href={`/cobranca/cliente/${dados.conversa.customerId}?carteira=${c?.carteira ?? "ativo"}`}
+            >
+              <Layers className="h-3.5 w-3.5" /> Cliente 360
+            </Link>
+          </div>
+          {negociar && politica.isError && (
+            <p role="alert" className="text-xs text-[var(--danger)]">
+              Não foi possível ler a política.{" "}
+              <button
+                type="button"
+                className={cn(LINK_CHAT, "text-xs")}
+                onClick={() => politica.refetch()}
+              >
+                Tentar novamente
+              </button>
+            </p>
+          )}
+          {!emAtendimento ? (
+            <p className="text-xs text-[var(--text-muted)]">
+              {dados.conversa.status === "WAITING"
+                ? "Primeiro contato realizado. A resposta do cliente será encaminhada à equipe."
+                : "Assuma o atendimento para continuar a conversa."}
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className={cn(LINK_CHAT, "text-xs")}
+                  onClick={() =>
+                    setTexto(
+                      origem === "equipamentos"
+                        ? "Obrigado por responder. Qual dia e período são melhores para combinar a retirada? Pode confirmar o endereço?"
+                        : "Obrigado por responder. Vou conferir seu contrato e ajudar com as opções disponíveis.",
+                    )
+                  }
+                >
+                  Usar mensagem de continuidade
+                </button>
+                {c?.tom === "humanizado_vulneravel" && (
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Tom acolhedor · sem pressão
+                  </span>
+                )}
+              </div>
+              <label className="sr-only" htmlFor={`mensagem-${conversationId}`}>
+                Mensagem ao cliente
+              </label>
+              <div className="flex items-end gap-2">
+                <textarea
+                  id={`mensagem-${conversationId}`}
+                  value={texto}
+                  onChange={(e) => setTexto(e.target.value)}
+                  disabled={acao.isPending}
+                  rows={texto.includes("\n") ? 3 : 1}
+                  maxLength={2000}
+                  className={cn(
+                    CONTROLE_CAMPO_MULTILINHA,
+                    "min-h-11 min-w-0 flex-1 resize-none bg-[var(--surface-2)] text-sm",
+                  )}
+                  placeholder="Escreva uma mensagem…"
+                />
+                <button
+                  type="submit"
+                  aria-label={acao.isPending ? "Enviando…" : "Enviar"}
+                  title={acao.isPending ? "Enviando…" : "Enviar"}
+                  className={cn(
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded bg-[var(--brand)] text-[var(--text-on-brand)] hover:opacity-90",
+                    FOCO,
+                    DESABILITAVEL,
+                  )}
+                  disabled={!texto.trim() || acao.isPending || query.isError}
+                  data-testid="chat-enviar"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+              {/* Follow-up ao responder: recolhido; vazio, o servidor grava o padrão no próximo dia útil. */}
+              <div data-testid="chat-followup-envio">
+                <button
+                  type="button"
+                  className={cn(LINK_CHAT, "text-xs")}
+                  aria-expanded={followUpEnvio.aberto}
+                  onClick={() =>
+                    setFollowUpEnvio((f) => ({ ...f, aberto: !f.aberto }))
+                  }
+                  data-testid="chat-followup-envio-abrir"
+                >
+                  <CalendarClock className="mr-1 inline h-3.5 w-3.5" />
+                  {followUpEnvio.aberto
+                    ? "Ocultar próxima ação"
+                    : "Próxima ação (opcional)"}
+                </button>
+                {followUpEnvio.aberto && (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <Campo rotulo="próxima ação">
+                      <input
+                        type="text"
+                        maxLength={TAMANHO_MAXIMO_DA_ACAO}
+                        className={CONTROLE_CAMPO}
+                        placeholder={ACAO_PADRAO_APOS_RESPOSTA}
+                        list={`acoes-${conversationId}`}
+                        value={followUpEnvio.proximaAcao}
+                        onChange={(e) =>
+                          setFollowUpEnvio((f) => ({
+                            ...f,
+                            proximaAcao: e.target.value,
+                          }))
+                        }
+                        data-testid="chat-followup-envio-acao"
+                      />
+                      <datalist id={`acoes-${conversationId}`}>
+                        {ACOES_SUGERIDAS.map((a) => (
+                          <option key={a} value={a} />
+                        ))}
+                      </datalist>
+                    </Campo>
+                    <Campo rotulo="quando">
+                      <input
+                        type="datetime-local"
+                        className={cn(CONTROLE_CAMPO, NUM_CHAT)}
+                        min={agoraInput()}
+                        value={followUpEnvio.proximoContatoEm}
+                        onChange={(e) =>
+                          setFollowUpEnvio((f) => ({
+                            ...f,
+                            proximoContatoEm: e.target.value,
+                          }))
+                        }
+                        data-testid="chat-followup-envio-quando"
+                      />
+                    </Campo>
+                    <p className="text-[11px] text-[var(--text-muted)] sm:col-span-2">
+                      Sem preencher: “{ACAO_PADRAO_APOS_RESPOSTA}” no próximo
+                      dia útil.
+                    </p>
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)]">
+                <span className={NUM_CHAT}>{texto.length}/2000</span> ·
+                WhatsApp do provedor · atendimento humano
+              </p>
+            </>
+          )}
+          {erroEnvio && (
+            <p role="alert" className="text-xs text-[var(--danger)]">
+              {erroEnvio}
+            </p>
+          )}
+        </form>
+      </section>
+      {!compacto && (
+        <aside
+          className={cn(
+            "w-full shrink-0 overflow-y-auto border-[var(--border)] bg-[var(--surface)] px-4 xl:static xl:block xl:w-80 xl:border-l",
+            mostrarContexto ? "absolute inset-0 z-20" : "hidden",
+          )}
+          aria-label="Contexto do atendimento"
+        >
+          <button
+            type="button"
+            className={cn(BOTAO_SECUNDARIO, "my-3 xl:hidden")}
+            onClick={() => setMostrarContexto(false)}
+          >
+            Voltar à conversa
+          </button>
+          <div className="pt-4">
+            <PerfilDoCliente
+              dados={dados}
+              contexto={contexto.data}
+              carregando={contexto.isFetching}
+              erro={contexto.isError}
+              atualizar={() => {
+                forcarContexto.current = true;
+                contexto.refetch();
+              }}
+              pagamento={(ref) => setPagamento({ aberto: true, ref })}
+            />
+          </div>
+        </aside>
+      )}
+      <DialogoFollowUpDoChat
+        aberto={encerrando}
+        clienteNome={nomeDoCliente}
+        casoId={c?.id ?? null}
+        pendente={acao.isPending}
+        erro={encerrando ? erroEnvio : null}
+        onFechar={() => setEncerrando(false)}
+        onConfirmar={(followUp) => acao.mutate({ acao: "encerrar", ...followUp })}
+      />
+      <PagamentosDoChat
+        aberto={pagamento.aberto}
+        fechar={() => setPagamento({ aberto: false })}
+        contexto={contexto.data}
+        carregando={contexto.isFetching}
+        url={url}
+        referencia={pagamento.ref}
+        inserir={(mensagem) => {
+          if (!emAtendimento)
+            throw new Error("Tome a conversa antes de preparar o envio.");
+          const novo = texto.trim() ? `${texto}\n\n${mensagem}` : mensagem;
+          if (novo.length > 2000)
+            throw new Error(
+              "A mensagem atual mais os dados de pagamento excedem 2.000 caracteres. Edite o rascunho antes de inserir.",
+            );
+          setTexto(novo);
+          setMostrarContexto(false);
+        }}
+      />
+      <DialogoNegociacao
+        alvo={alvoNegociacao}
+        aberto={negociar && politica.isSuccess}
+        politica={politica.data ?? null}
+        tipoInicial="parcelamento"
+        onFechar={() => {
+          setNegociar(false);
+          qc.invalidateQueries({ queryKey: [url] });
+        }}
+      />
+    </div>
+  );
+}
