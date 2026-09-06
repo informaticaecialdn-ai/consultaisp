@@ -14,6 +14,7 @@ import { requireAuth, requireProvider } from "../auth";
 import { logger } from "../logger";
 import {
   configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarRecuperacaoParaChat, estadoDaIntegracao, ErroDaPonteDoChat,
+  garantirAgenteDeCobranca,
 } from "../services/chat/chat-ponte.service";
 import { podeAdministrarOProvedor } from "./provider.routes";
 
@@ -85,6 +86,15 @@ export function registerChatBullqRoutes(): Router {
     if (!parsed.success) return res.status(400).json({ message: "A senha precisa ter entre 6 e 128 caracteres" });
     try {
       res.json(await definirSenhaDoInbox(providerDaSessao(req), parsed.data.senha));
+    } catch (e) {
+      falha(res, e);
+    }
+  });
+
+  /** Cria (uma vez) o agente de cobranca do provedor no Chat BullQ — tool, skills, prompt do ISP e automacoes de volta. */
+  router.post("/api/chat-bullq/integracao/agente", requireAuth, requireProvider, exigirAdmin("criar o agente de cobranca"), async (req, res) => {
+    try {
+      res.json(await garantirAgenteDeCobranca(providerDaSessao(req)));
     } catch (e) {
       falha(res, e);
     }

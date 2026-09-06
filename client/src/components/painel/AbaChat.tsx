@@ -60,6 +60,15 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
     onError: (erro: Error) => toast({ title: "Não foi possível definir a senha", description: mensagemDoErro(erro), variant: "destructive" }),
   });
 
+  const criarAgente = useMutation({
+    mutationFn: async () => (await apiRequest("POST", `${API_CHAT_BULLQ}/integracao/agente`, {})).json(),
+    onSuccess: (r: { criado?: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: [CHAVE_INTEGRACAO] });
+      toast({ title: r.criado ? "Agente de cobrança criado" : "O agente já existia", description: "Ele faz o primeiro contato no WhatsApp e passa ao atendente quando precisa." });
+    },
+    onError: (erro: Error) => toast({ title: "Não foi possível criar o agente", description: mensagemDoErro(erro), variant: "destructive" }),
+  });
+
   const tomDoStatus = integracao?.status === "ativo" ? "ok" : integracao?.status === "erro" ? "danger" : "gated";
 
   return (
@@ -81,6 +90,22 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
         </p>
         {integracao?.ultimoErro && <p className="mt-2 text-[12px] text-[var(--danger)]" data-testid="chat-ultimo-erro">último erro: {integracao.ultimoErro}</p>}
         {integracao?.ligado && !pronto && <p className="mt-2 text-[12px] text-[var(--gated)]">Sem número ativo, os botões de envio não aparecem nas telas.</p>}
+
+        {/* O agente de IA de cobrança: primeiro contato no WhatsApp, dentro da política e do tom do DNA; transfere ao atendente. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3" data-testid="chat-agente">
+          <Kicker>agente de cobrança (IA)</Kicker>
+          {integracao?.agente ? (
+            <SeloCobranca tom="ok" className="normal-case tracking-normal" testId="selo-agente-criado">criado · {integracao.agente.modelo ?? "modelo padrão"}</SeloCobranca>
+          ) : (
+            <SeloCobranca tom="neutro" testId="selo-agente-ausente">não criado</SeloCobranca>
+          )}
+          {integracao?.ligado && !integracao.agente && (
+            <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8 text-[11.5px]")} disabled={!podeAdministrar || criarAgente.isPending} onClick={() => criarAgente.mutate()} data-testid="chat-criar-agente">{criarAgente.isPending ? "Criando…" : "Criar agente de cobrança"}</button>
+          )}
+          <span className="basis-full text-[11.5px] leading-4 text-[var(--text-muted)]">
+            O agente responde ao cliente no WhatsApp com o tom da régua DNA e só oferece o que a política permite (teto de desconto, parcelas). Ele consulta o caso aqui antes de falar de valor, registra a promessa de pagamento e transfere ao atendente quando o cliente pede, contesta ou sai do combinado. Precisa da chave da OpenAI configurada no chat.
+          </span>
+        </div>
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">

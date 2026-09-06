@@ -591,6 +591,8 @@ export interface IntegracaoDoChat {
   /** O e-mail com que a equipe entra no inbox. */
   ownerEmail: string | null;
   canal: { id: string; nome: string | null } | null;
+  /** O agente de cobranca criado na organizacao do provedor, quando existe. */
+  agente: { id: string; modelo: string | null } | null;
   status: string | null;
   ultimoErro: string | null;
   inboxUrl: string;
@@ -606,6 +608,9 @@ export function lerIntegracaoDoChat(resposta: unknown): IntegracaoDoChat | null 
     organizationId: typeof r.organizationId === "string" ? r.organizationId : null,
     ownerEmail: typeof r.ownerEmail === "string" ? r.ownerEmail : null,
     canal: canal ? { id: String(canal.id), nome: typeof canal.nome === "string" ? canal.nome : null } : null,
+    agente: r.agente && typeof r.agente === "object" && typeof (r.agente as Record<string, unknown>).id === "string"
+      ? { id: String((r.agente as Record<string, unknown>).id), modelo: typeof (r.agente as Record<string, unknown>).modelo === "string" ? String((r.agente as Record<string, unknown>).modelo) : null }
+      : null,
     status: typeof r.status === "string" ? r.status : null,
     ultimoErro: typeof r.ultimoErro === "string" ? r.ultimoErro : null,
     inboxUrl: typeof r.inboxUrl === "string" ? r.inboxUrl : "https://chat.consultaisp.com.br/inbox",

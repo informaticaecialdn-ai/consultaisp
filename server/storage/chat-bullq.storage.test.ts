@@ -162,14 +162,16 @@ describe("comportamento", () => {
   });
 });
 
-describe("paridade com a migracao 0024", () => {
-  it("as colunas do schema sao as da migracao, tabela a tabela", () => {
+describe("paridade com as migracoes 0024 e 0025", () => {
+  it("as colunas do schema sao as da migracao (CREATE da 0024 + ADD COLUMN da 0025), tabela a tabela", () => {
     const sql = fs.readFileSync(path.resolve(process.cwd(), "migrations/0024_chat_bullq_ponte.sql"), "utf8");
+    const sql25 = fs.readFileSync(path.resolve(process.cwd(), "migrations/0025_chat_bullq_agente.sql"), "utf8");
     for (const t of TABELAS) {
       const nome = getTableName(t);
       const bloco = sql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${nome} \\(([\\s\\S]*?)\\n\\);`));
       expect(bloco, nome).not.toBeNull();
-      const colunasSql = Array.from(bloco![1].matchAll(/^\s*([a-z_]+)\s+(?:SERIAL|INTEGER|TEXT|TIMESTAMP)/gm)).map(m => m[1]).sort();
+      const adicionadas = Array.from(sql25.matchAll(new RegExp(`ALTER TABLE ${nome} ADD COLUMN IF NOT EXISTS ([a-z_]+)`, "g"))).map(m => m[1]);
+      const colunasSql = [...Array.from(bloco![1].matchAll(/^\s*([a-z_]+)\s+(?:SERIAL|INTEGER|TEXT|TIMESTAMP)/gm)).map(m => m[1]), ...adicionadas].sort();
       const colunasSchema = Object.values(getTableColumns(t)).map(c => (c as any).name as string).sort();
       expect(colunasSql, nome).toEqual(colunasSchema);
     }

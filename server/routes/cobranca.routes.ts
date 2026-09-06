@@ -335,7 +335,7 @@ interface PoliticaCarregada {
  * o motor de um JSON de outra versao: uma etapa com id que nao existe mais
  * derruba para o padrao com aviso no log, em vez de derrubar a rota.
  */
-async function carregarPolitica(providerId: number): Promise<PoliticaCarregada> {
+export async function carregarPolitica(providerId: number): Promise<PoliticaCarregada> {
   const linha = await storage.getPoliticaDeCobranca(providerId);
   if (!linha) {
     return { politica: POLITICA_PADRAO, etapas: etapasDaPolitica(POLITICA_PADRAO), configurada: false, updatedAt: null };
@@ -381,7 +381,7 @@ interface Classificacao {
  * `historicoInsuficiente` e sempre true na fase 1: o sync grava agregados, e
  * a taxa de atraso historica que separa "oscila" de "em dia" nao existe.
  */
-function classificarCliente(
+export function classificarCliente(
   c: { contractStartDate: string | null; diasAtraso: number; faturasAbertas: number },
   hoje: Date,
 ): Classificacao {
@@ -397,7 +397,7 @@ function classificarCliente(
 }
 
 /** A carteira gravada e texto; fora do vocabulario cai em ex-cliente, a regua mais curta. */
-function carteiraValida(valor: string): Carteira {
+export function carteiraValida(valor: string): Carteira {
   return (CARTEIRAS as readonly string[]).includes(valor) ? (valor as Carteira) : "ex_cliente";
 }
 
@@ -407,7 +407,7 @@ interface ReguaHoje {
   motivoRotulo: string | null;
 }
 
-function reguaParaHoje(diasAtraso: number, carteira: Carteira, etapas: Etapa[]): ReguaHoje {
+export function reguaParaHoje(diasAtraso: number, carteira: Carteira, etapas: Etapa[]): ReguaHoje {
   const decisao = etapaParaAtraso(diasAtraso, carteira, etapas);
   return decisao.etapa
     ? { etapa: decisao.etapa, motivo: null, motivoRotulo: null }

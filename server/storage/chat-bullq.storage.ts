@@ -133,6 +133,33 @@ export class ChatBullqStorage {
     return criada;
   }
 
+  /** A integracao pela organizacao do Chat BullQ: e assim que o webhook de volta se identifica. */
+  async getIntegracaoDoChatPorOrganizacao(organizationId: string): Promise<ChatBullqIntegracao | undefined> {
+    const [linha] = await db.select().from(chatBullqIntegracoes).where(eq(chatBullqIntegracoes.organizationId, organizationId)).limit(1);
+    return linha;
+  }
+
+  /** A integracao pela CHAVE do agente (SHA-256): e assim que a skill do Chat BullQ se identifica. */
+  async getIntegracaoDoChatPorChave(chaveAgenteHash: string): Promise<ChatBullqIntegracao | undefined> {
+    const [linha] = await db.select().from(chatBullqIntegracoes).where(eq(chatBullqIntegracoes.chaveAgenteHash, chaveAgenteHash)).limit(1);
+    return linha;
+  }
+
+  /** O que o agente de cobranca criado la deixa aqui: a chave (hash), o id do agente, os ids da config e o segredo do webhook. */
+  async guardarAgenteDoChat(providerId: number, dados: { chaveAgenteHash?: string | null; agenteId?: string | null; agenteConfig?: Record<string, unknown> | null; webhookSecret?: string | null }): Promise<ChatBullqIntegracao | undefined> {
+    const [linha] = await db.update(chatBullqIntegracoes)
+      .set({
+        ...(dados.chaveAgenteHash !== undefined ? { chaveAgenteHash: dados.chaveAgenteHash } : {}),
+        ...(dados.agenteId !== undefined ? { agenteId: dados.agenteId } : {}),
+        ...(dados.agenteConfig !== undefined ? { agenteConfig: dados.agenteConfig } : {}),
+        ...(dados.webhookSecret !== undefined ? { webhookSecret: dados.webhookSecret } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(chatBullqIntegracoes.providerId, providerId))
+      .returning();
+    return linha;
+  }
+
   async getConversaDoChatPorCaso(providerId: number, casoId: number): Promise<ChatBullqConversa | undefined> {
     const [linha] = await db.select().from(chatBullqConversas)
       .where(and(eq(chatBullqConversas.providerId, providerId), eq(chatBullqConversas.casoId, casoId)))

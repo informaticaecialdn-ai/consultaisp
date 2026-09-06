@@ -83,6 +83,9 @@ SPC_INSUMOS_OPCIONAIS=              # Insumos opcionais por consulta (ex.: 17,78
 CHAT_BULLQ_URL=                     # Base do Chat BullQ (fork privado, https://chat-api.consultaisp.com.br). Sem ela o chat fica desligado e a tela nao oferece "Enviar para cobranca"
 CHAT_BULLQ_PLATFORM_KEY=            # A mesma PLATFORM_API_KEY do .env.api do Chat BullQ: provisiona a organizacao de cada provedor e emite o token do dono dela
 CHAT_BULLQ_INBOX_URL=               # Opcional; padrao https://chat.consultaisp.com.br/inbox (para onde o 360 e o kanban levam o funcionario)
+CHAT_BULLQ_AGENTE_URL=              # Opcional; base que a tool do agente de IA chama (padrao https://consultaisp.com.br/api/chat-bullq/agente)
+CHAT_BULLQ_WEBHOOK_URL=             # Opcional; para onde o Chat BullQ manda o call_webhook de volta (padrao https://consultaisp.com.br/api/webhooks/chat-bullq)
+CHAT_BULLQ_AGENTE_MODELO=           # Opcional; modelo do agente de cobranca criado por provedor (padrao openai/gpt-4o-mini)
 ```
 
 ---

@@ -111,7 +111,7 @@ interface Tokens {
   refreshToken: string;
 }
 
-type Metodo = "GET" | "POST" | "PATCH";
+type Metodo = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 type Query = Record<string, string | number | undefined>;
 
@@ -282,7 +282,7 @@ export class ChatBullqClient {
   /** Abre uma conversa ativa com a primeira mensagem ja enviada. */
   async iniciarConversa(
     orgId: string,
-    dados: { canalId: string; telefone: string; nome?: string; texto: string },
+    dados: { canalId: string; telefone: string; nome?: string; texto: string; aiEnabled?: boolean; activeAgentId?: string | null },
   ): Promise<Resultado<{ conversationId: string; messageId: string }>> {
     const phone = normalizarTelefoneParaChat(dados.telefone);
     if (!phone) return { ok: false, erro: "Telefone inválido para o chat" };
@@ -296,6 +296,10 @@ export class ChatBullqClient {
           channelId: dados.canalId,
           contact: { phone, ...(dados.nome ? { name: dados.nome } : {}) },
           message: { type: "TEXT", content: { text: dados.texto } },
+          // Patch 4 do fork: a conversa nasce com a IA ligada e o agente fixado —
+          // sem isso o Chat BullQ cria com aiEnabled=false e o agente nunca responde.
+          ...(dados.aiEnabled !== undefined ? { aiEnabled: dados.aiEnabled } : {}),
+          ...(dados.activeAgentId ? { activeAgentId: dados.activeAgentId } : {}),
         },
       },
     );
@@ -376,6 +380,50 @@ export class ChatBullqClient {
         corpo: { channelId: canalId, mode, ...(trigger ? { trigger } : {}) },
       }),
     );
+  }
+
+  // ---------------------------------------------------------- catalogo do agente
+
+  /** A conexao HTTP que as skills usam (uma por organizacao): base + headers literais (a chave do agente vai aqui). */
+  async criarTool(orgId: string, dados: { nome: string; descricao: string; httpBaseUrl: string; httpHeaders: Record<string, string> }): Promise<Resultado<{ id: string }>> {
+    return this.operacao<{ id: string }>(orgId, "POST", "/ai-catalog/tools", {
+      corpo: { name: dados.nome, description: dados.descricao, source: "CUSTOM_HTTP", httpBaseUrl: dados.httpBaseUrl, httpHeaders: dados.httpHeaders },
+    });
+  }
+
+  /** Uma funcao que o LLM pode chamar: nome (identificador), descricao, JSON Schema do input e a chamada HTTP. */
+  async criarSkill(orgId: string, dados: {
+    nome: string; descricao: string; categoria?: string; promptInstructions?: string; toolId: string;
+    parameters: Record<string, unknown>; httpMethod: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; httpPath: string;
+    httpBodyTemplate?: string; responseMap?: Record<string, string>; timeoutMs?: number;
+  }): Promise<Resultado<{ id: string }>> {
+    return this.operacao<{ id: string }>(orgId, "POST", "/ai-catalog/skills", {
+      corpo: {
+        name: dados.nome, description: dados.descricao, ...(dados.categoria ? { category: dados.categoria } : {}),
+        ...(dados.promptInstructions ? { promptInstructions: dados.promptInstructions } : {}),
+        source: "HTTP", toolId: dados.toolId, parameters: dados.parameters, httpMethod: dados.httpMethod, httpPath: dados.httpPath,
+        ...(dados.httpBodyTemplate ? { httpBodyTemplate: dados.httpBodyTemplate } : {}),
+        ...(dados.responseMap ? { responseMap: dados.responseMap } : {}),
+        timeoutMs: dados.timeoutMs ?? 10000,
+      },
+    });
+  }
+
+  /** Substitui o conjunto de skills do agente (o Chat BullQ apaga e recria os vinculos). */
+  async ligarSkillsAoAgente(orgId: string, agenteId: string, skillIds: string[]): Promise<Resultado<void>> {
+    return descartar(await this.operacao(orgId, "PUT", `/ai-catalog/agents/${enc(agenteId)}/skills`, { corpo: { skillIds } }));
+  }
+
+  /** PATCH no agente: prompt, contexto operacional, modelo, ativo. */
+  async atualizarAgente(orgId: string, agenteId: string, dados: Record<string, unknown>): Promise<Resultado<{ id: string }>> {
+    return this.operacao<{ id: string }>(orgId, "PATCH", `/ai-agents/${enc(agenteId)}`, { corpo: dados });
+  }
+
+  /** Uma automacao (gatilho → acoes) — usada para o webhook de volta ao Consulta ISP. */
+  async criarAutomacao(orgId: string, dados: { nome: string; descricao?: string; trigger: string; conditions?: unknown; actions: unknown[]; enabled?: boolean }): Promise<Resultado<{ id: string }>> {
+    return this.operacao<{ id: string }>(orgId, "POST", "/automations", {
+      corpo: { name: dados.nome, ...(dados.descricao ? { description: dados.descricao } : {}), trigger: dados.trigger, ...(dados.conditions !== undefined ? { conditions: dados.conditions } : {}), actions: dados.actions, enabled: dados.enabled ?? true },
+    });
   }
 
   /**

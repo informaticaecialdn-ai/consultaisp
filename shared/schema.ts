@@ -1518,6 +1518,14 @@ export const chatBullqIntegracoes = pgTable("chat_bullq_integracoes", {
   /** provisionado (org criada, sem canal) · ativo (canal testado) · erro */
   status: text("status").notNull().default("provisionado"),
   ultimoErro: text("ultimo_erro"),
+  /** SHA-256 da chave que o agente de IA do Chat BullQ usa para chamar o Consulta ISP (migracao 0025). */
+  chaveAgenteHash: text("chave_agente_hash"),
+  /** O AiAgent de cobranca criado na organizacao do provedor. */
+  agenteId: text("agente_id"),
+  /** ids da tool, das skills e das automacoes criadas la — para nao recriar. */
+  agenteConfig: jsonb("agente_config").$type<Record<string, unknown>>(),
+  /** Segredo do HMAC dos avisos que o Chat BullQ manda de volta (call_webhook). */
+  webhookSecret: text("webhook_secret"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("chat_bullq_integracoes_provider").on(t.providerId)]);

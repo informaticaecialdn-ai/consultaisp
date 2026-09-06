@@ -663,4 +663,29 @@ export class CustomersStorage {
       }));
   }
 
+  /**
+   * O cliente do provedor pelo TELEFONE, como o Chat BullQ o conhece: so
+   * digitos, comparados pelo final (o ERP grava com ou sem DDI/DDD/mascara).
+   * Empate (dois cadastros com o mesmo numero) → o que tem divida vence,
+   * depois o mais recente. E o que liga a conversa do WhatsApp ao caso.
+   */
+  async getCustomerByPhoneDigits(providerId: number, digitos: string): Promise<Customer | undefined> {
+    const limpo = digitos.replace(/D/g, "");
+    if (limpo.length < 8) return undefined;
+    const sufixo = limpo.slice(-8);
+    const candidatos = await db.select().from(customers)
+      .where(and(
+        eq(customers.providerId, providerId),
+        sql`regexp_replace(coalesce(${customers.phone}, ''), '[^0-9]', '', 'g') LIKE ${"%" + sufixo}`,
+      ))
+      .limit(20);
+    if (candidatos.length === 0) return undefined;
+    const semDdi = (t: string | null) => { const d = (t ?? "").replace(/D/g, ""); return d.startsWith("55") && d.length >= 12 ? d.slice(2) : d; };
+    const alvo = semDdi(limpo);
+    const exatos = candidatos.filter(c => semDdi(c.phone) === alvo);
+    const lista = exatos.length > 0 ? exatos : candidatos;
+    lista.sort((x, y) => (Number(y.totalOverdueAmount ?? 0) - Number(x.totalOverdueAmount ?? 0)) || ((y.lastSyncAt?.getTime() ?? 0) - (x.lastSyncAt?.getTime() ?? 0)));
+    return lista[0];
+  }
+
 }

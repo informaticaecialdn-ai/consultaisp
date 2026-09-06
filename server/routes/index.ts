@@ -30,6 +30,7 @@ import { registerPrecosRoutes } from "./precos.routes";
 import { registerSuporteAcessoRoutes } from "./suporte-acesso.routes";
 import { registerCobrancaRoutes } from "./cobranca.routes";
 import { registerChatBullqRoutes } from "./chat-bullq.routes";
+import { registerChatBullqAgenteRoutes } from "./chat-bullq-agente.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -79,6 +80,8 @@ export async function registerRoutes(
   app.use(registerCobrancaRoutes());
   // A ponte com o Chat BullQ (chat com o cliente em cobranca e equipamentos).
   app.use(registerChatBullqRoutes());
+  // As skills do agente de IA e o webhook de volta do Chat BullQ (sem sessao: chave e HMAC).
+  app.use(registerChatBullqAgenteRoutes());
 
   return httpServer;
 }

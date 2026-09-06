@@ -89,6 +89,7 @@ export interface IStorage {
   getAllProvidersWithStats(): Promise<ProviderWithStats[]>;
 
   getCustomersByProvider(providerId: number): Promise<Customer[]>;
+  getCustomerByPhoneDigits(providerId: number, digitos: string): Promise<Customer | undefined>;
   getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]>;
   baixarDividaQuitada(providerId: number, docsAindaDevendo: string[], inicioDaVarredura: Date): Promise<number>;
   getCustomersByExactAddress(address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string): Promise<Customer[]>;
@@ -277,6 +278,9 @@ export interface IStorage {
 
   // Chat BullQ — a ponte com o atendimento. Ver server/storage/chat-bullq.storage.ts.
   getIntegracaoDoChat(providerId: number): Promise<ChatBullqIntegracao | undefined>;
+  getIntegracaoDoChatPorChave(chaveAgenteHash: string): Promise<ChatBullqIntegracao | undefined>;
+  getIntegracaoDoChatPorOrganizacao(organizationId: string): Promise<ChatBullqIntegracao | undefined>;
+  guardarAgenteDoChat(providerId: number, dados: { chaveAgenteHash?: string | null; agenteId?: string | null; agenteConfig?: Record<string, unknown> | null; webhookSecret?: string | null }): Promise<ChatBullqIntegracao | undefined>;
   upsertIntegracaoDoChat(providerId: number, dados: DadosDaIntegracaoDoChat): Promise<ChatBullqIntegracao>;
   marcarEstadoDaIntegracaoDoChat(providerId: number, estado: { status: StatusDeIntegracaoDoChat; ultimoErro?: string | null; canalId?: string | null; canalNome?: string | null }): Promise<ChatBullqIntegracao | undefined>;
   registrarConversaDoChat(providerId: number, dados: NovaConversaDoChat): Promise<ChatBullqConversa>;
@@ -386,6 +390,7 @@ class DatabaseStorage implements IStorage {
   getAllProvidersWithStats = () => this._providers.getAllProvidersWithStats();
   // Customers
   getCustomersByProvider = (providerId: number) => this._customers.getCustomersByProvider(providerId);
+  getCustomerByPhoneDigits = (providerId: number, digitos: string) => this._customers.getCustomerByPhoneDigits(providerId, digitos);
   getCustomerByCpfCnpj = (cpfCnpj: string) => this._customers.getCustomerByCpfCnpj(cpfCnpj);
   baixarDividaQuitada = (providerId: number, docsAindaDevendo: string[], inicioDaVarredura: Date) => this._customers.baixarDividaQuitada(providerId, docsAindaDevendo, inicioDaVarredura);
   getCustomersByExactAddress = (address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string) => this._customers.getCustomersByExactAddress(address, city, state, cep, excludeCpfCnpj);
@@ -554,6 +559,9 @@ class DatabaseStorage implements IStorage {
   // Cobranca
   // Chat BullQ
   getIntegracaoDoChat = (providerId: number) => this._chatBullq.getIntegracaoDoChat(providerId);
+  getIntegracaoDoChatPorChave = (chaveAgenteHash: string) => this._chatBullq.getIntegracaoDoChatPorChave(chaveAgenteHash);
+  getIntegracaoDoChatPorOrganizacao = (organizationId: string) => this._chatBullq.getIntegracaoDoChatPorOrganizacao(organizationId);
+  guardarAgenteDoChat = (providerId: number, dados: { chaveAgenteHash?: string | null; agenteId?: string | null; agenteConfig?: Record<string, unknown> | null; webhookSecret?: string | null }) => this._chatBullq.guardarAgenteDoChat(providerId, dados);
   upsertIntegracaoDoChat = (providerId: number, dados: DadosDaIntegracaoDoChat) => this._chatBullq.upsertIntegracaoDoChat(providerId, dados);
   marcarEstadoDaIntegracaoDoChat = (providerId: number, estado: { status: StatusDeIntegracaoDoChat; ultimoErro?: string | null; canalId?: string | null; canalNome?: string | null }) => this._chatBullq.marcarEstadoDaIntegracaoDoChat(providerId, estado);
   registrarConversaDoChat = (providerId: number, dados: NovaConversaDoChat) => this._chatBullq.registrarConversaDoChat(providerId, dados);
