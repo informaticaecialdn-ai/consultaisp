@@ -157,16 +157,44 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   }
   const { iniciarPrimeirosContatos, pararPrimeirosContatos } = await import("./services/chat/chat-primeiro-contato.service");
   iniciarPrimeirosContatos();
-  // A autonomia do chat confere UMA vez, aqui, se as tabelas da 0028 existem.
-  // Sem elas o laço de 3 s não sobe (um aviso só no log, em vez de um por
-  // volta); `verifySchema` acima não as cobre porque o chat é opcional.
+  /*
+   * A autonomia do chat confere se as tabelas da 0028 existem antes de ligar o
+   * laço de 3 s — `verifySchema` acima não as cobre porque o chat é opcional.
+   *
+   * A conferência é repetida algumas vezes, e não uma só, por causa de uma
+   * CORRIDA DE BOOT medida no deploy de 06/09/2026: o `pm2 start` sobe a API e
+   * o worker juntos, quem aplica as migrações é a API, e o worker conferiu um
+   * segundo ANTES de a 0028 rodar. Resultado: as tabelas existiam e a fila
+   * ficou desligada até alguém reiniciar o worker à mão. Seis tentativas, de
+   * 30 em 30 segundos, cobrem qualquer migração que a API leve para aplicar; o
+   * log só fala quando o estado muda, para não repetir o aviso.
+   */
   const { iniciarAutonomia, pararAutonomia } = await import("./services/chat/chat-autonomia.service");
-  try {
-    if (await iniciarAutonomia()) logger.info("[Worker] Autonomia do chat: fila ligada");
-    else logger.warn("[Worker] Autonomia do chat: fila NÃO ligada (migração 0028 ausente ou banco sem resposta)");
-  } catch (err) {
-    logger.warn({ err }, "[Worker] Autonomia do chat failed to start");
-  }
+  const TENTATIVAS_DA_AUTONOMIA = 6;
+  const ESPERA_ENTRE_TENTATIVAS_MS = 30_000;
+  let tentativaDaAutonomia = 0;
+  let timerDaAutonomia: NodeJS.Timeout | null = null;
+  const tentarLigarAutonomia = async () => {
+    tentativaDaAutonomia += 1;
+    try {
+      if (await iniciarAutonomia()) {
+        logger.info({ tentativa: tentativaDaAutonomia }, "[Worker] Autonomia do chat: fila ligada");
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err, tentativa: tentativaDaAutonomia }, "[Worker] Autonomia do chat failed to start");
+    }
+    if (tentativaDaAutonomia >= TENTATIVAS_DA_AUTONOMIA) {
+      logger.warn(
+        { tentativas: tentativaDaAutonomia },
+        "[Worker] Autonomia do chat: fila NÃO ligada (migração 0028 ausente ou banco sem resposta). Reinicie o worker depois de aplicar a migração.",
+      );
+      return;
+    }
+    timerDaAutonomia = setTimeout(() => { void tentarLigarAutonomia(); }, ESPERA_ENTRE_TENTATIVAS_MS);
+    timerDaAutonomia.unref();
+  };
+  await tentarLigarAutonomia();
 
   /**
    * Espera o sync em voo antes de fechar o pool.
@@ -182,6 +210,9 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "[Worker] Shutdown signal received");
     await pararPrimeirosContatos();
+    // A tentativa pendente de ligar a fila (corrida de boot) morre junto.
+    if (timerDaAutonomia) { clearTimeout(timerDaAutonomia); timerDaAutonomia = null; }
+    tentativaDaAutonomia = TENTATIVAS_DA_AUTONOMIA;
     await pararAutonomia();
     try {
       const { isSyncing } = await import("./services/erp-sync.service");
