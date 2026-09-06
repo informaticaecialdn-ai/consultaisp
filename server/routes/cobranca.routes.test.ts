@@ -1073,7 +1073,7 @@ describe("GET /api/cobranca/kanban", () => {
       cancelamento: { linhas: [linhaCaso({ id: 6, status: "cancelamento", encerradoEm: emDias(-1) })], total: 1 },
       encerrado: { linhas: [linhaCaso({ id: 7, status: "encerrado", encerradoEm: emDias(-90) })], total: 1 },
     };
-    storageMock.listarCasosDeCobranca.mockImplementation(async (_p: number, filtros: any) => porStatus[filtros.status[0]] ?? { linhas: [], total: 0 });
+    storageMock.listarCasosDeCobranca.mockImplementation(async (_p: number, filtros: any) => (filtros.status ? porStatus[filtros.status[0]] : undefined) ?? { linhas: [], total: 0 });
 
     const res = await json("GET", "/api/cobranca/kanban?etapa=lembrete_atraso&responsavel=geral&carteira=ativo&busca=maria&porColuna=50");
     const body = await res.json();
@@ -1101,7 +1101,8 @@ describe("GET /api/cobranca/kanban", () => {
     const filtrosDaBarra = { carteira: "ativo", etapa: "lembrete_atraso", busca: "maria", responsavelUserId: null };
     expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, { ...filtrosDaBarra, status: ["aberto"] }, { pagina: 1, porPagina: 50 });
     expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, { ...filtrosDaBarra, status: ["pago"] }, { pagina: 1, porPagina: 200 });
-    expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledTimes(ORDEM_ESPERADA.length);
+    // uma chamada por coluna + a varredura dos indicadores (sem `status`)
+    expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledTimes(ORDEM_ESPERADA.length + 1);
 
     // o card e a linha da fila: documento mascarado, selo da regua e tom de agora
     const card = coluna("aberto").casos[0];
@@ -1114,7 +1115,7 @@ describe("GET /api/cobranca/kanban", () => {
   it("coluna viva acima de porColuna vem truncada com o total exato; responsavel=eu e o usuario da sessao", async () => {
     sessao = OPERADOR;
     storageMock.listarCasosDeCobranca.mockImplementation(async (_p: number, filtros: any) =>
-      filtros.status[0] === "aberto" ? { linhas: [linhaCaso({ id: 1 }), linhaCaso({ id: 2 })], total: 7200 } : { linhas: [], total: 0 });
+      filtros.status?.[0] === "aberto" ? { linhas: [linhaCaso({ id: 1 }), linhaCaso({ id: 2 })], total: 7200 } : { linhas: [], total: 0 });
     const res = await json("GET", "/api/cobranca/kanban?responsavel=eu&porColuna=2");
     const body = await res.json();
     expect(res.status).toBe(200);
