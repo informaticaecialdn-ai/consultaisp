@@ -138,7 +138,9 @@ export function chipsDoMes(dados: RespostaDoMes | undefined): ChipDoMes[] {
       id: "sem_fatura",
       rotulo: "Sem fatura no mês",
       valor: r ? num(r.semFatura) : null,
-      sub: "ativo que o ERP não faturou — buraco de faturamento",
+      // O sync so ve fatura ABERTA: quem pagou o mes antes da leitura tambem cai aqui ate a conciliacao
+      // (fatura vista aberta e depois sumida) existir. O texto diz isso; nada de "buraco" como certeza.
+      sub: "ativo sem fatura do mês vista pelo sync — buraco de faturamento ou paga antes da leitura",
       cor: "var(--gated)",
     },
   ];

@@ -11,6 +11,11 @@
  * o sync produz "1 dia" para todos inadimplentes (data não parseada).
  */
 import "dotenv/config";
+// Sai por IPv4 ANTES de qualquer rede: a VPS tem IPv6 que nenhum parceiro liberou
+// (custou 3 dias no SGP da Amplinet; ver server/rede-saida.ts). index.ts e worker.ts
+// ja fazem isso; este script nao fazia — e a varredura manual do SGP dava 403.
+import { preferirIPv4NaSaida } from "../server/rede-saida";
+preferirIPv4NaSaida();
 import { storage } from "../server/storage";
 import { MkConnector } from "../server/erp/connectors/mk";
 import { syncProviderToDb } from "../server/services/erp-sync.service";
