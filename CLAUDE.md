@@ -606,6 +606,44 @@ varredura COMPLETA marca `baixada_no_erp` o que sumiu dos pendentes (pagamento
 provável — nenhum ERP nos confirma o valor pago). SGP: só `status=abertos`, nunca
 cancelado/anulado. `server/storage/faturas.storage.ts` é a fonte do resumo mensal.
 
+### Chat, agentes e assistente autônomo (requireAuth + requireProvider)
+O atendimento vive DENTRO do sistema: `/cobranca/chat` e `/equipamentos/chat`, a
+conversa no Cliente 360 e no card de retirada. O Chat BullQ é o transporte e o
+histórico; a decisão é sempre daqui.
+```
+GET  /api/chat-bullq/integracao            # estado (sem credencial: só provider, canal, status)
+POST /api/chat-bullq/integracao/canal      # admin — liga o número (Zappfy · Uazapi · Datafy)
+GET  /api/chat-bullq/atendimentos          # a fila humana; POST :id/acoes = assumir · enviar · encerrar
+GET  /api/chat-bullq/integracao/agentes    # os três perfis e a configuração de cada um
+POST /api/chat-bullq/integracao/agentes/:tipo          # admin — provisiona/atualiza no fork
+GET  /api/chat-bullq/integracao/agentes/:tipo/prompt   # admin — o PROMPT FINAL que o agente recebe
+GET/PUT /api/chat-bullq/autonomia          # o assistente por provedor (PUT só admin)
+GET  /api/chat-bullq/autonomia/estado      # a fila do assistente, por status
+POST /api/chat-bullq/autonomia/conversas/:conversationId/devolver   # volta do humano ao assistente
+POST /api/webhooks/chat-bullq              # o fork avisa (HMAC X-Signature-256)
+```
+**Três faixas de autonomia** (migração 0028, DESLIGADA por padrão em todo provedor):
+a IA sozinha faz primeiro contato, lembrete, segunda via de fatura que ela LEU
+agora e promessa de valor integral com data citada; dentro da política e sem
+humano ela só escolhe entre ofertas que o SERVIDOR calculou; o resto vira
+aprovação humana ou transferência. **Nunca pela IA:** negativar, baixar fatura,
+desconto fora da política.
+
+**A IA não fala valor que não leu.** `ContextoDoChat.erp` carrega
+`financeiroAoVivo`, `valoresDe` (`ao_vivo` | `base_sincronizada`) e `lidoEm`.
+Sem leitura ao vivo o assistente não cita número, não registra promessa e
+transfere — o saldo da varredura das 03:00 diria "o ERP informa R$ X" para quem
+pagou depois. A instrução entregue ao agente do fork (`GET /api/chat-bullq/agente/caso`)
+vai datada, com ordem de transferir quem disser que já pagou.
+
+**Todo contato pelo chat termina com follow-up** gravado no caso (próxima ação,
+dono, quando), inclusive quando o assistente transfere. Encerrar sem follow-up é
+recusado, exceto em caso já pago/cancelado.
+
+**O fork** vive em `integrations/chat-bullq/` (patches 000→003, com teste de
+aplicação). A linhagem da VPS é outra (prompt sem Bravy, `call_webhook`,
+transferência completa, modelos por env) — ver a memória `chat-bullq-analise`.
+
 ### Mapa de Calor (requireAuth)
 GET heatmap/provider, heatmap/regional, heatmap/city-ranking, heatmap/sync-info, heatmap/cache-status
 POST heatmap/refresh
