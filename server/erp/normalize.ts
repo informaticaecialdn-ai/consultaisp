@@ -82,6 +82,36 @@ function dataLocal(ano: number, mes: number, dia: number): Date | null {
  * e foi assim que fatura a vencer virou inadimplencia de "1 dia".
  */
 export function diasDesdeVencimento(dueDate: string | Date | null | undefined): number | null {
+  const due = dataDeVencimento(dueDate);
+  if (!due) return null;
+
+  // Comparacao por DIA, nao por instante: uma fatura que vence hoje as 00:00
+  // nao esta "ha algumas horas em atraso".
+  const meiaNoite = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const dif = meiaNoite(new Date()) - meiaNoite(due);
+  return Math.round(dif / 86_400_000);
+}
+
+/**
+ * O vencimento como AAAA-MM-DD, ou `null` quando nao da para ler.
+ *
+ * E a forma em que a fatura do ERP viaja ate `invoices`: dia de calendario,
+ * sem hora e sem fuso. Mesmo parser de `diasDesdeVencimento`, para que a
+ * fatura que conta como atraso e a fatura que e gravada sejam a mesma.
+ */
+export function vencimentoIso(dueDate: string | Date | null | undefined): string | null {
+  const due = dataDeVencimento(dueDate);
+  if (!due) return null;
+  const mm = String(due.getMonth() + 1).padStart(2, "0");
+  const dd = String(due.getDate()).padStart(2, "0");
+  return `${due.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * A data de vencimento como o ERP escreveu, virando `Date` local — ou `null`
+ * para o que nao e data. Parser unico de `diasDesdeVencimento` e `vencimentoIso`.
+ */
+export function dataDeVencimento(dueDate: string | Date | null | undefined): Date | null {
   if (!dueDate) return null;
 
   let due: Date;
@@ -116,12 +146,7 @@ export function diasDesdeVencimento(dueDate: string | Date | null | undefined): 
     due = dueDate;
   }
   if (isNaN(due.getTime())) return null;
-
-  // Comparacao por DIA, nao por instante: uma fatura que vence hoje as 00:00
-  // nao esta "ha algumas horas em atraso".
-  const meiaNoite = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
-  const dif = meiaNoite(new Date()) - meiaNoite(due);
-  return Math.round(dif / 86_400_000);
+  return due;
 }
 
 /**

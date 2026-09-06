@@ -32,8 +32,15 @@ export interface FiltrosDaCarteira {
   saude: string;
   divida: string;
   bairro: string;
+  /** Realidade mensal (so no espaco de ativos): "AAAA-MM"; vazio = mes corrente. */
+  mes: string;
+  /** Qual grupo do mes filtra a lista: pago · inadimplente · a_vencer · sem_fatura; vazio = nenhum. */
+  mesStatus: string;
   pagina: number;
 }
+
+export const GRUPOS_DO_MES = ["pago", "inadimplente", "a_vencer", "sem_fatura"] as const;
+export type GrupoDoMes = (typeof GRUPOS_DO_MES)[number];
 
 export const FILTROS_INICIAIS: FiltrosDaCarteira = {
   carteira: "ativo",
@@ -44,6 +51,8 @@ export const FILTROS_INICIAIS: FiltrosDaCarteira = {
   saude: "",
   divida: "",
   bairro: "",
+  mes: "",
+  mesStatus: "",
   pagina: 1,
 };
 
@@ -99,7 +108,7 @@ export const OPCOES_DIVIDA: OpcaoDeFiltro[] = [
   { valor: "1000-mais", rotulo: "Acima de R$ 1.000", chip: "1.000+" },
 ];
 
-const CHAVES_DE_FILTRO = ["status", "etapa", "quadrante", "saude", "divida", "bairro"] as const;
+const CHAVES_DE_FILTRO = ["status", "etapa", "quadrante", "saude", "divida", "bairro", "mesStatus"] as const;
 
 /** Algum filtro além da carteira e da página está ligado. */
 export function temFiltros(f: FiltrosDaCarteira): boolean {
@@ -121,6 +130,9 @@ export function queryDaCarteira(f: FiltrosDaCarteira): string {
   const busca = f.busca.trim();
   if (busca) p.set("busca", busca);
   for (const k of CHAVES_DE_FILTRO) if (f[k]) p.set(k, f[k]);
+  // O mes so viaja quando ha um grupo do mes ligado ou quando nao e o corrente:
+  // a URL limpa continua sendo a que se compartilha.
+  if (f.mes) p.set("mes", f.mes);
   if (f.pagina > 1) p.set("pagina", String(f.pagina));
   return p.toString();
 }
@@ -139,6 +151,8 @@ export function filtrosDaUrl(search: string): FiltrosDaCarteira {
     saude: p.get("saude") ?? "",
     divida: p.get("divida") ?? "",
     bairro: p.get("bairro") ?? "",
+    mes: /^\d{4}-(0[1-9]|1[0-2])$/.test(p.get("mes") ?? "") ? (p.get("mes") as string) : "",
+    mesStatus: (GRUPOS_DO_MES as readonly string[]).includes(p.get("mesStatus") ?? "") ? (p.get("mesStatus") as string) : "",
     pagina: Number.isInteger(pagina) && pagina > 1 ? pagina : 1,
   };
 }

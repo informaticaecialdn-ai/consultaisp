@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
+import type { ClienteEmDia } from "../storage/cobranca.storage";
 import { logger } from "../logger";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { casoEstaEncerrado } from "../services/equipment-recovery-rules";
@@ -563,6 +564,15 @@ function itemDoCandidato(c: CandidatoACaso, cliente: Customer | undefined, etapa
   }, null, cliente, etapas, hoje);
 }
 
+/** Cliente ativo em dia: sem divida, sem caso — o card diz "em dia". */
+function itemDoEmDia(c: ClienteEmDia, cliente: Customer | undefined, etapas: Etapa[], hoje: Date): ItemDaCarteira {
+  return montarItem({
+    customerId: c.customerId, nome: c.nome, cpfCnpj: c.cpfCnpj, telefone: c.telefone ?? cliente?.phone ?? null,
+    cidade: c.cidade ?? cliente?.city ?? null, bairro: c.bairro ?? cliente?.neighborhood ?? null, statusErp: c.statusErp, carteira: "ativo",
+    dividaAtual: 0, diasAtraso: 0, faturasAbertas: 0, contractStartDate: c.contractStartDate,
+  }, null, cliente, etapas, hoje);
+}
+
 function parcelaParaApi(p: CobrancaParcela) {
   return {
     id: p.id,
@@ -694,6 +704,18 @@ function lerRecorteDeStatus(valor: string | undefined): RecorteDeStatus | { erro
   return { casos: statuses as StatusDeCaso[], semCaso };
 }
 
+/** Os quatro grupos da faixa do mes — os mesmos chips do Provedor.ai. */
+const GRUPOS_DO_MES = ["pago", "inadimplente", "a_vencer", "sem_fatura"] as const;
+
+const MesQuerySchema = z.object({
+  mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "use AAAA-MM").optional(),
+});
+
+/** "AAAA-MM" de uma data, no fuso do servidor. */
+function mesDe(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 const CarteiraQuerySchema = z.object({
   carteira: z.enum(CARTEIRAS).optional(),
   status: z.string().trim().max(160).optional(),
@@ -704,10 +726,14 @@ const CarteiraQuerySchema = z.object({
   bairro: z.string().trim().min(1).max(80).optional(),
   busca: z.string().trim().min(1).max(120).optional(),
   responsavel: z.union([z.literal("eu"), z.literal("geral"), z.coerce.number().int().positive()]).optional(),
+  /** Realidade mensal (espaco de ativos): o mes e o grupo do mes que filtra a lista. */
+  mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "use AAAA-MM").optional(),
+  mesStatus: z.enum(GRUPOS_DO_MES).optional(),
   pagina: z.coerce.number().int().min(1).default(1),
   porPagina: z.coerce.number().int().min(1).max(200).default(50),
 });
 type CarteiraQuery = z.infer<typeof CarteiraQuerySchema>;
+
 
 interface Varredura {
   linhas: LinhaDaCarteira[];
@@ -1087,6 +1113,12 @@ export function registerCobrancaRoutes(): Router {
     const providerId = providerDaSessao(req);
     const hoje = new Date();
     try {
+      // Realidade mensal: o chip clicado vira um recorte de ids de cliente, e
+      // os tres segmentos (casos, quem deve sem caso, quem esta em dia) passam
+      // por ele. So a carteira de ativos tem mes.
+      const idsDoMes = q.mesStatus && q.carteira !== "ex_cliente"
+        ? new Set<number>(await storage.clientesDoMes(providerId, q.mes ?? mesDe(hoje), q.mesStatus))
+        : null;
       const [kpis, composicao, bairros, { politica, etapas }, listaDeClientes] = await Promise.all([
         storage.kpisDaCobranca(providerId, hoje),
         storage.composicaoDaCarteira(providerId),
@@ -1103,15 +1135,17 @@ export function registerCobrancaRoutes(): Router {
       let casosDaPagina: LinhaDaCarteira[] = [];
       if (recorte.casos !== "nenhum") {
         const filtros = filtrosDoStorage(q, recorte, usuarioDaSessao(req));
-        if (q.saude) {
+        if (q.saude || idsDoMes) {
           const varredura = await varrerCasos(providerId, filtros);
           if (!varredura.completa) {
             return res.status(400).json({
-              message: "Recorte grande demais para filtrar por saude: combine com carteira, etapa ou bairro.",
-              errors: { saude: ["recorte grande demais"] },
+              message: "Recorte grande demais para filtrar por saude ou pelo mes: combine com etapa ou bairro.",
+              errors: { [q.saude ? "saude" : "mesStatus"]: ["recorte grande demais"] },
             });
           }
-          const filtradas = varredura.linhas.filter(l => faixaDaSaude(ispScoreReal(clientes.get(l.cliente.id)).ispScore) === q.saude);
+          const filtradas = varredura.linhas.filter(l =>
+            (!q.saude || faixaDaSaude(ispScoreReal(clientes.get(l.cliente.id)).ispScore) === q.saude)
+            && (!idsDoMes || idsDoMes.has(l.cliente.id)));
           totalCasos = filtradas.length;
           casosDaPagina = filtradas.slice(offset, offset + q.porPagina);
         } else {
@@ -1126,14 +1160,34 @@ export function registerCobrancaRoutes(): Router {
       if (recorte.semCaso) {
         const brutos = await storage.clientesParaAbrirCaso(providerId, 0, LIMITE_DE_CANDIDATOS);
         candidatos = filtrarCandidatos(brutos, clientes, q, etapas, hoje);
+        if (idsDoMes) candidatos = candidatos.filter(c => idsDoMes.has(c.customerId));
       }
       const inicioDosCandidatos = Math.max(0, offset - totalCasos);
       const faltam = Math.max(0, q.porPagina - casosDaPagina.length);
       const candidatosDaPagina = faltam > 0 ? candidatos.slice(inicioDosCandidatos, inicioDosCandidatos + faltam) : [];
 
+      // Segmento 3 (so a carteira de ATIVOS): quem esta EM DIA, depois de quem
+      // deve. O Provedor.ai lista a carteira inteira — "570 clientes ativos" —,
+      // nao so os devedores; e e o que da a "Sem fatura no mes" e a "Pagou o
+      // mes" alguem para mostrar. Um filtro que so faz sentido para quem deve
+      // (etapa, divida, situacao do caso, saude, quadrante, responsavel)
+      // deixa o segmento de fora.
+      const filtroDeDevedor = Boolean(q.status || q.etapa || q.quadrante || q.saude || q.divida || q.responsavel !== undefined);
+      let emDia: { linhas: ClienteEmDia[]; total: number } = { linhas: [], total: 0 };
+      if (q.carteira === "ativo" && recorte.semCaso && !filtroDeDevedor && q.mesStatus !== "inadimplente") {
+        const inicioEmDia = Math.max(0, offset - totalCasos - candidatos.length);
+        const faltamEmDia = Math.max(0, q.porPagina - casosDaPagina.length - candidatosDaPagina.length);
+        emDia = await storage.clientesAtivosEmDia(
+          providerId,
+          { busca: q.busca, bairro: q.bairro, ...(idsDoMes ? { ids: [...idsDoMes] } : {}) },
+          { offset: inicioEmDia, limite: faltamEmDia },
+        );
+      }
+
       const itens = [
         ...casosDaPagina.map(l => itemDoCaso(l, clientes.get(l.cliente.id), etapas, hoje)),
         ...candidatosDaPagina.map(c => itemDoCandidato(c, clientes.get(c.customerId), etapas, hoje)),
+        ...emDia.linhas.map(c => itemDoEmDia(c, clientes.get(c.customerId), etapas, hoje)),
       ];
 
       res.json({
@@ -1141,11 +1195,34 @@ export function registerCobrancaRoutes(): Router {
         composicao,
         bairros,
         itens,
-        total: totalCasos + candidatos.length,
-        totais: { casos: totalCasos, semCaso: candidatos.length },
+        total: totalCasos + candidatos.length + emDia.total,
+        totais: { casos: totalCasos, semCaso: candidatos.length, emDia: emDia.total },
         pagina: q.pagina,
         porPagina: q.porPagina,
         pausada: politica.pausada,
+      });
+    } catch (e) {
+      falha(res, e);
+    }
+  });
+
+  /**
+   * A realidade mensal do espaco de ativos — a mesma regua da safra mensal do
+   * Provedor.ai, sobre as faturas que o sync grava fatura a fatura. Sem
+   * fatura vinda do ERP, `live: false` e o motivo: a tela mostra "—".
+   */
+  router.get("/api/cobranca/carteira/mes", requireAuth, requireProvider, async (req, res) => {
+    const parsed = MesQuerySchema.safeParse(semVazios(req.query));
+    if (!parsed.success) return recusar(res, parsed.error);
+    const providerId = providerDaSessao(req);
+    const hoje = new Date();
+    const mes = parsed.data.mes ?? mesDe(hoje);
+    try {
+      const resumo = await storage.resumoDoMes(providerId, mes, hoje);
+      res.json({
+        live: resumo.base,
+        motivo: resumo.base ? null : "O ERP ainda não mandou fatura a fatura: o sync passa a gravar as faturas abertas na próxima varredura.",
+        resumo: { ...resumo, atualizadoEm: resumo.atualizadoEm ? new Date(resumo.atualizadoEm).toISOString() : null },
       });
     } catch (e) {
       falha(res, e);

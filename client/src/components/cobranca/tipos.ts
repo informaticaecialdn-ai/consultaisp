@@ -44,12 +44,17 @@ export function rotuloDoStatusDeCaso(status: string | null | undefined): string 
 /* ── Vocabulário de rota ─────────────────────────────────────────────── */
 
 export const ROTA_CARTEIRA = "/cobranca";
+/** Os dois espacos da carteira (Provedor.ai): /cobranca redireciona para o de ativos. */
+export const ROTA_CARTEIRA_ATIVOS = "/cobranca/ativos";
+export const ROTA_CARTEIRA_EX = "/cobranca/ex-clientes";
 export const ROTA_FILA = "/cobranca/fila";
 export const ROTA_REGUA = "/cobranca/regua";
 export const ROTA_POLITICA = "/cobranca/politica";
 export const rotaDoCliente = (customerId: number) => `/cobranca/cliente/${customerId}`;
 
 export const API_CARTEIRA = "/api/cobranca/carteira";
+/** Realidade mensal do espaco de ativos: GET ?mes=AAAA-MM. */
+export const API_CARTEIRA_MES = "/api/cobranca/carteira/mes";
 export const API_FILA = "/api/cobranca/fila";
 export const API_REGUA = "/api/cobranca/regua";
 export const API_DNA = "/api/cobranca/dna";
@@ -114,6 +119,34 @@ export interface ItemDaCarteira {
   ispScore: number | null;
   /** `low` · `medium` · `high` · `critical` — o rótulo em português sai de `rotuloDoRiskTier`. */
   riskTier?: string | null;
+  /** Sempre null hoje: o sync não traz o valor do plano (MRR) — o card diz "—". */
+  mrr?: number | null;
+  /** Sempre null hoje: propensão a pagar é modelo a criar — o card diz "—". */
+  propensao?: number | null;
+}
+
+/** O mês de vencimento resumido — a mesma régua do scoring do Provedor.ai (safra mensal). */
+export interface ResumoDoMes {
+  mes: string;
+  /** false = o provedor não tem fatura vinda do ERP: a faixa mostra "—". */
+  base: boolean;
+  faturado: number;
+  recebido: number;
+  recebidoConfirmado: boolean;
+  emConciliacao: number;
+  inadimplente: number;
+  numInadimplentes: number;
+  aVencer: number;
+  numAVencer: number;
+  semFatura: number;
+  clientes: { emDia: number; inadimplentes: number };
+  atualizadoEm: string | null;
+}
+
+export interface RespostaDoMes {
+  live: boolean;
+  motivo: string | null;
+  resumo: ResumoDoMes | null;
 }
 
 export interface KpisDaCobranca {

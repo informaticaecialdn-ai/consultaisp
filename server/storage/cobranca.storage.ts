@@ -1450,6 +1450,63 @@ export class CobrancaStorage {
       contractStartDate: l.contractStartDate,
     }));
   }
+
+  /**
+   * Clientes ATUAIS (contrato ativo/suspenso) SEM divida — o resto da carteira
+   * de ativos, que o Provedor.ai lista junto com quem deve. Busca por nome ou
+   * pelos digitos do documento; bairro por igualdade. `limite` 0 devolve so o
+   * total (a pagina ja esta cheia de devedores, mas o rodape precisa do total).
+   */
+  async clientesAtivosEmDia(
+    providerId: number,
+    filtros: { busca?: string; bairro?: string; ids?: number[] },
+    pagina: { offset: number; limite: number },
+  ): Promise<{ linhas: ClienteEmDia[]; total: number }> {
+    // Recorte por ids (o grupo do mes): lista vazia e recorte vazio, nao "sem recorte".
+    if (filtros.ids && filtros.ids.length === 0) return { linhas: [], total: 0 };
+    const condicoes = [eq(customers.providerId, providerId), clienteAtual(), semDivida()];
+    if (filtros.ids) condicoes.push(inArray(customers.id, filtros.ids));
+    const busca = filtros.busca?.trim();
+    if (busca) {
+      const digitos = busca.replace(/\D/g, "");
+      const porNome = sql`${customers.name} ilike ${"%" + busca + "%"}`;
+      condicoes.push(digitos.length >= 3
+        ? sql`(${porNome} or regexp_replace(coalesce(${customers.cpfCnpj}, ''), '\\D', '', 'g') like ${"%" + digitos + "%"})`
+        : porNome);
+    }
+    if (filtros.bairro) condicoes.push(eq(customers.neighborhood, filtros.bairro));
+    const onde = and(...condicoes);
+
+    const [{ total }] = await db.select({ total: sql<number>`count(*)`.mapWith(Number) }).from(customers).where(onde);
+    if (pagina.limite <= 0 || total === 0) return { linhas: [], total };
+    const linhas = await db.select({
+      customerId: customers.id,
+      nome: customers.name,
+      cpfCnpj: customers.cpfCnpj,
+      statusErp: customers.status,
+      telefone: customers.phone,
+      cidade: customers.city,
+      bairro: customers.neighborhood,
+      contractStartDate: customers.contractStartDate,
+    }).from(customers)
+      .where(onde)
+      .orderBy(asc(customers.name), asc(customers.id))
+      .offset(Math.max(0, pagina.offset))
+      .limit(pagina.limite);
+    return { linhas: linhas.map(l => ({ ...l, statusErp: l.statusErp as string })), total };
+  }
+}
+
+/** Uma linha do segmento "em dia" da carteira de ativos. */
+export interface ClienteEmDia {
+  customerId: number;
+  nome: string;
+  cpfCnpj: string;
+  statusErp: string;
+  telefone: string | null;
+  cidade: string | null;
+  bairro: string | null;
+  contractStartDate: string | null;
 }
 
 /** `metadata.motivo` da nota de sistema que avisa que o DNA saiu sem a data do contrato. */

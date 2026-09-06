@@ -27,7 +27,8 @@ import { CircuitBreaker, withResilience } from "../resilience.js";
 import { agregarEquipamentosCobrados } from "../equipamento-na-fatura.js";
 import { chaveLogradouro } from "../../services/logradouro.js";
 import { normalizarLocalidade } from "../../services/localidade.js";
-import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, aggregateByCustomer } from "../normalize.js";
+import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
+import type { FaturaAbertaDoErp } from "../types.js";
 
 // Token cache for MK auth
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
@@ -195,6 +196,47 @@ type LeituraDeContratos = { contratos: ContratosDoCliente; fonte: "v2" | "v1" };
 export function cadastroSemContrato(leitura: LeituraDeContratos | null | undefined, situacao: unknown): boolean {
   if (!leitura || leitura.fonte !== "v2" || leitura.contratos.total > 0) return false;
   return situacaoParaStatus(situacao) === undefined;
+}
+
+/**
+ * Onde o MK poe o id da fatura em `WSMKFaturasPendentes` — `codfatura` e o
+ * nome visto na instalacao da NsLink (o mesmo das fixtures de
+ * mk-contratos.test.ts); os demais sao tolerancia a outras releases.
+ */
+const CAMPOS_DE_ID_DA_FATURA = [
+  "codfatura", "CodFatura", "cod_fatura", "cd_fatura", "codigo_fatura", "CodigoFatura",
+  "codigo", "Codigo", "id", "Id", "nossonumero", "NossoNumero", "nosso_numero",
+] as const;
+
+/**
+ * A referencia de uma fatura do MK: o id dela, quando ha um, senao
+ * `${cd_cliente}:${vencimento}:${valor}` — o que uma release sem id ainda
+ * permite reconhecer entre varreduras. A reserva e documentada porque tem um
+ * custo: duas faturas iguais (mesmo cliente, dia e valor) colapsam numa so, e
+ * o valor que muda no ERP faz a fatura parecer OUTRA.
+ */
+export function refDaFaturaMk(f: any, cdCliente: string, vencimento: string, valor: number): string {
+  for (const campo of CAMPOS_DE_ID_DA_FATURA) {
+    const v = f?.[campo];
+    if (v !== null && v !== undefined && String(v).trim() !== "") return String(v).trim();
+  }
+  return `${cdCliente}:${vencimento}:${valor.toFixed(2)}`;
+}
+
+/**
+ * Uma linha de `WSMKFaturasPendentes` como fatura aberta — `null` quando o
+ * vencimento nao e legivel, que e a mesma fatura que a divida descarta.
+ */
+export function faturaAbertaDoMk(f: any, cdCliente: string, dueDate: unknown, valor: number): FaturaAbertaDoErp | null {
+  const vencimento = vencimentoIso(dueDate as string | null);
+  if (!vencimento) return null;
+  const descricao = f?.descricao ?? f?.Descricao ?? f?.contas ?? f?.Contas ?? null;
+  return {
+    ref: refDaFaturaMk(f, cdCliente, vencimento, valor),
+    vencimento,
+    valor,
+    descricao: typeof descricao === "string" && descricao.trim() ? descricao.trim() : null,
+  };
 }
 
 /** Pick the first non-null, non-undefined, non-empty-string value from an invoice row, preserving numeric 0. */
@@ -498,6 +540,9 @@ export class MkConnector implements ErpConnector {
       // A descricao da fatura e onde o equipamento retido aparece nesta
       // instalacao — ver equipamento-na-fatura.ts.
       const descricoesDeFatura: Array<string | null> = [];
+      // As faturas em aberto, uma a uma — vencidas e a vencer — para o
+      // resumo do mes. Nao mexe na divida: ela segue somando so as vencidas.
+      const faturasAbertas: FaturaAbertaDoErp[] = [];
 
       if (cdCliente) {
         const faturasUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
@@ -560,6 +605,8 @@ export class MkConnector implements ErpConnector {
                 console.log(`[MK] Fatura sem data de vencimento legivel, ignorada. Campos: ${Object.keys(f).join(", ")}`);
                 continue;
               }
+              const aberta = faturaAbertaDoMk(f, String(cdCliente), dueDate, valor);
+              if (aberta) faturasAbertas.push(aberta);
               if (dias <= 0) continue;
               totalOverdueAmount += valor;
               maxDaysOverdue = Math.max(maxDaysOverdue, dias);
@@ -574,6 +621,9 @@ export class MkConnector implements ErpConnector {
 
         // Fallback: If WSMKFaturasPendentes returned 0 invoices, try WSMKFaturas with liquidado=false
         if (overdueInvoicesCount === 0) {
+          // Se o primeiro endpoint ja listou faturas (a vencer), o segundo
+          // nao pode listar as mesmas com outro id — a lista ficaria dobrada.
+          const primeiroJaListou = faturasAbertas.length > 0;
           try {
             const faturasAltUrl = `${base}/mk/WSMKFaturas.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&codigo_cliente=${encodeURIComponent(cdCliente)}&liquidado=false&quantidade_meses=12`;
             console.log(`[MK] Fallback: buscando via WSMKFaturas (liquidado=false) para cd_cliente=${cdCliente}`);
@@ -619,6 +669,10 @@ export class MkConnector implements ErpConnector {
                   faturasSemData++;
                   console.log(`[MK] WSMKFaturas: fatura sem data legivel, ignorada. Campos: ${Object.keys(f).join(", ")}`);
                   continue;
+                }
+                if (!primeiroJaListou) {
+                  const aberta = faturaAbertaDoMk(f, String(cdCliente), dueDate, valor);
+                  if (aberta) faturasAbertas.push(aberta);
                 }
                 if (dias <= 0) continue;
                 totalOverdueAmount += valor;
@@ -759,6 +813,7 @@ export class MkConnector implements ErpConnector {
         totalOverdueAmount,
         maxDaysOverdue,
         overdueInvoicesCount,
+        faturasAbertas: faturasAbertas.length > 0 ? faturasAbertas : undefined,
         contractStatus,
         contractStartDate,
         contractPlan,
@@ -849,6 +904,11 @@ export class MkConnector implements ErpConnector {
 
     const CONCURRENCY = 8;
     const results: NormalizedErpCustomer[] = [];
+    // As faturas a vencer de quem esta EM DIA. Esse cliente nao entra em
+    // `results` (nao deve), mas a fatura do mes dele e dado do resumo mensal
+    // — sem ela todo pagante apareceria como "sem fatura". Vai por documento,
+    // fora da lista de inadimplentes; ver ErpFetchResult.faturasDeClientesEmDia.
+    const emDia: NonNullable<ErpFetchResult["faturasDeClientesEmDia"]> = [];
     let processed = 0;
     let withPending = 0;
     let semDataIgnoradas = 0;
@@ -937,11 +997,16 @@ export class MkConnector implements ErpConnector {
           let maxDays = 0;
           let vencidas = 0;
           let semData = 0;
+          // Fatura a fatura, vencidas E a vencer — o que o resumo do mes le.
+          // A divida (abaixo) continua somando so as vencidas.
+          const abertas: FaturaAbertaDoErp[] = [];
           for (const f of faturas) {
             const dueDate = f.data_vencimento || f.DataVencimento || f.vencimento || f.Vencimento || null;
             const valor = parseFloat(f.valor_total ?? f.valor ?? f.Valor ?? 0) || 0;
             const dias = diasDesdeVencimento(dueDate);
             if (dias === null) { semData++; continue; }
+            const aberta = faturaAbertaDoMk(f, cdPessoa, dueDate, valor);
+            if (aberta) abertas.push(aberta);
             if (dias <= 0) continue;
             vencidas++;
             totalAmount += valor;
@@ -955,8 +1020,13 @@ export class MkConnector implements ErpConnector {
 
           // Sem nenhuma fatura vencida o cliente nao e inadimplente. Ele
           // continua sendo atualizado pelo fetchCustomers, que varre a
-          // carteira inteira — some desta lista, nao da base.
-          if (vencidas === 0) return null;
+          // carteira inteira — some desta lista, nao da base. A fatura a
+          // vencer dele vai por fora, por documento.
+          if (vencidas === 0) {
+            const docEmDia = cleanCpfCnpj(cliente.CPF_CNPJ || cliente.cpf_cnpj || cliente.documento || "");
+            if (docEmDia && abertas.length > 0) emDia.push({ cpfCnpj: docEmDia, faturasAbertas: abertas });
+            return null;
+          }
 
           withPending++;
 
@@ -1002,6 +1072,7 @@ export class MkConnector implements ErpConnector {
             totalOverdueAmount: totalAmount,
             maxDaysOverdue: maxDays,
             overdueInvoicesCount: vencidas,
+            faturasAbertas: abertas.length > 0 ? abertas : undefined,
             contractStatus,
             contractPlan,
             contractStartDate,
@@ -1046,6 +1117,7 @@ export class MkConnector implements ErpConnector {
       customers: results,
       docsNaoLidos: Array.from(naoLidos),
       leiturasFalhas,
+      faturasDeClientesEmDia: emDia,
       totalRecords: results.length,
     };
   }

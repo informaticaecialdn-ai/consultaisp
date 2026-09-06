@@ -9,7 +9,7 @@ import { storage } from "../storage";
 import { pool } from "../db";
 import type { PoolClient } from "pg";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
-import type { ErpFetchResult } from "../erp/types";
+import type { ErpFetchResult, FaturaAbertaDoErp } from "../erp/types";
 import { dataDoErp } from "../erp/data-do-erp";
 import { agendaDoAmbiente, proximaExecucao, ultimaExecucaoAgendada, descreverAgenda } from "./erp-agenda";
 import { geocodeCep, resolveIbgeCode } from "./geocoding";
@@ -256,6 +256,44 @@ async function syncProviderToDbInterno(
   // SEM geocoding (so inadimplentes precisam de coords pro mapa). Resolve cidade FK.
   const hasFetchCustomers = typeof connector.fetchCustomers === "function";
   let falhaNaCarteira: string | undefined;
+
+  /**
+   * AS FATURAS ABERTAS, fatura a fatura (fase 2 da cobranca, 05/09/2026).
+   *
+   * Cada cliente que o conector devolve com `faturasAbertas` tem as faturas
+   * gravadas em `invoices` logo depois do upsert dele — nos DOIS passos, porque
+   * a mensalidade a vencer de quem esta em dia so chega pelo passo 1 (IXC) ou
+   * por `faturasDeClientesEmDia` (MK e SGP).
+   *
+   * Toda referencia que o ERP mencionou entra em `refsVistas` ANTES de
+   * qualquer gravacao, esteja o cliente na base ou nao, tenha o upsert dele
+   * dado certo ou nao: "vista" e o ERP ter dito que a fatura esta aberta. E a
+   * lista que, no fim, prova que uma fatura SUMIU dos pendentes — e uma
+   * fatura de cliente cujo upsert falhou nao sumiu de nada.
+   *
+   * Falha ao gravar fatura nao derruba o cliente nem o sync: divida e vinculo
+   * sao o ativo do bureau, a fatura e o detalhe dele. Conta e vai para o log.
+   */
+  const refsVistas = new Set<string>();
+  let faturasGravadas = 0;
+  let faturasComErro = 0;
+  let faturasNaoLidasNoPasso1 = false;
+  const verFaturas = (faturas: FaturaAbertaDoErp[] | undefined) => {
+    for (const f of faturas ?? []) if (f?.ref) refsVistas.add(String(f.ref).trim());
+  };
+  const gravarFaturas = async (customerId: number | undefined, faturas: FaturaAbertaDoErp[] | undefined) => {
+    if (!faturas?.length || !customerId) return;
+    try {
+      faturasGravadas += await storage.upsertFaturasDoErp(providerId, erpSource, customerId, faturas);
+    } catch (e: any) {
+      faturasComErro++;
+      if (faturasComErro <= 3) {
+        // LGPD: o documento nao vai para o log; o id do cliente basta para achar.
+        console.warn(`[ERPSync] ${providerName}: falha ao gravar ${faturas.length} fatura(s) do cliente ${customerId}: ${e.message}`);
+      }
+    }
+  };
+
   if (hasFetchCustomers) {
     try {
       const allResult = await limiter(() => connector.fetchCustomers!(config));
@@ -266,12 +304,16 @@ async function syncProviderToDbInterno(
         falhaNaCarteira = allResult.message;
         console.warn(`[ERPSync] ${providerName}: fetchCustomers recusou: ${allResult.message}`);
       }
+      // O conector leu a carteira mas NAO as faturas dela: "sem fatura" nesta
+      // resposta nao e "sem fatura", e a baixa nao pode usar isso como prova.
+      if (allResult.ok && allResult.faturasNaoLidas) faturasNaoLidasNoPasso1 = true;
       if (allResult.ok && allResult.customers.length > 0) {
         console.log(`[ERPSync] ${providerName}: fetchCustomers retornou ${allResult.customers.length} clientes totais`);
         let activeUpserted = 0;
         let semDocumento = 0;
         let coordsForaDaCidade = 0;
         for (const customer of allResult.customers) {
+          verFaturas(customer.faturasAbertas);
           // Sem documento nao ha o que gravar: a tabela e chaveada por
           // (providerId, cpfCnpj) e todo o bureau pergunta por documento.
           // Descartado aqui, e nao no `catch`, para nao contar como erro de
@@ -368,6 +410,7 @@ async function syncProviderToDbInterno(
              * sem dever nada continua sendo um dado do bureau.
              */
             await gravarEquipamento(providerId, salvoNoPasso1?.id, customer, providerName);
+            await gravarFaturas(salvoNoPasso1?.id, customer.faturasAbertas);
           } catch {}
         }
         console.log(`[ERPSync] ${providerName}: ${activeUpserted} clientes totais upserted (sem geocoding)`);
@@ -487,6 +530,7 @@ async function syncProviderToDbInterno(
 
   for (let idx = 0; idx < total; idx++) {
     const customer = result.customers[idx];
+    verFaturas(customer.faturasAbertas);
     if (idx > 0 && idx % 100 === 0) {
       const elapsed = Math.round((Date.now() - startMs) / 1000);
       console.log(`[ERPSync] ${providerName}: ${idx}/${total} upserted (${elapsed}s)`);
@@ -604,6 +648,7 @@ async function syncProviderToDbInterno(
       });
 
       await gravarEquipamento(providerId, clienteSalvo?.id, customer, providerName);
+      await gravarFaturas(clienteSalvo?.id, customer.faturasAbertas);
       upserted++;
     } catch (err: any) {
       errors++;
@@ -648,6 +693,58 @@ async function syncProviderToDbInterno(
       console.warn(`[ERPSync] ${providerName}: falha ao baixar divida quitada: ${e.message}`);
       falhaNaBaixa = e.message;
     }
+  }
+
+  // 3b. As faturas de quem esta EM DIA — a mensalidade do mes ainda a vencer.
+  //
+  // O conector que le fatura por cliente (MK) devolve essas fora da lista de
+  // inadimplentes, por documento: quem nao deve nao passa pelo passo 2, e sem
+  // isto todo cliente pagante apareceria no resumo do mes como "sem fatura".
+  // Cliente que nao esta na base (a porteira barrou) nao ganha fatura — e nao
+  // e erro; a referencia ainda conta como vista.
+  let faturasDeQuemNaoEstaNaBase = 0;
+  for (const r of tentadas) {
+    if (!r.ok) continue;
+    for (const entrada of r.faturasDeClientesEmDia ?? []) {
+      verFaturas(entrada.faturasAbertas);
+      try {
+        const n = await storage.upsertFaturasDoErpPorDocumento(providerId, erpSource, entrada.cpfCnpj, entrada.faturasAbertas);
+        if (n === null) faturasDeQuemNaoEstaNaBase++;
+        else faturasGravadas += n;
+      } catch (e: any) {
+        faturasComErro++;
+        if (faturasComErro <= 3) console.warn(`[ERPSync] ${providerName}: falha ao gravar fatura de cliente em dia: ${e.message}`);
+      }
+    }
+  }
+
+  // 3c. A fatura que SUMIU dos pendentes e baixada — `baixada_no_erp`, com a
+  // data em que notamos. Pagamento provavel; o ERP nao confirma.
+  //
+  // E prova negativa, como a baixa de divida acima, e exige mais do que ela:
+  // a varredura INTEIRA completa. O passo 1 tambem entra na conta, porque e
+  // por ele que a fatura a vencer de quem esta em dia chega (IXC) — carteira
+  // nao lida ou faturas nao lidas deixam a lista de referencias curta, e lista
+  // curta baixaria fatura que continua aberta. Em varredura parcial, nada.
+  const faturasNaoLidas = faturasNaoLidasNoPasso1 || tentadas.some(r => r.ok && r.faturasNaoLidas);
+  let faturasBaixadas = 0;
+  const varreduraCompleta = leituraCompleta && errors === 0 && !falhaNaCarteira && !faturasNaoLidas;
+  if (varreduraCompleta && refsVistas.size > 0) {
+    try {
+      faturasBaixadas = await storage.baixarFaturasSumidas(providerId, erpSource, refsVistas, docsProtegidos);
+    } catch (e: any) {
+      console.warn(`[ERPSync] ${providerName}: falha ao baixar faturas sumidas do ERP: ${e.message}`);
+    }
+  } else if (refsVistas.size > 0) {
+    console.warn(`[ERPSync] ${providerName}: varredura incompleta — nenhuma fatura marcada como baixada no ERP`);
+  }
+  if (faturasGravadas > 0 || faturasBaixadas > 0 || faturasComErro > 0) {
+    console.log(
+      `[ERPSync] ${providerName}: ${faturasGravadas} fatura(s) aberta(s) gravadas, `
+      + `${faturasBaixadas} baixada(s) no ERP desde a ultima varredura`
+      + (faturasComErro > 0 ? `, ${faturasComErro} nao gravada(s)` : "")
+      + (faturasDeQuemNaoEstaNaBase > 0 ? `, ${faturasDeQuemNaoEstaNaBase} cliente(s) em dia fora da base` : ""),
+    );
   }
 
   // "success" so quando nada falhou. Um sync que grava 900 de 1000 e "partial":

@@ -31,6 +31,7 @@ import {
   ListTodo,
   Route,
   Scale,
+  UserX,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { SimboloDaMarca } from "@/components/marca";
@@ -422,9 +423,15 @@ const ADMIN_GROUPS: Array<{ label: string; key: string; items: ItemAdmin[] }> = 
 /* Conteudo: provedor                                                   */
 /* ==================================================================== */
 
+type ItemDeNav = { label: string; url: string; Icone: Icone; testId: string };
+
 const NAV_PROVEDOR: Array<{
   grupo: string;
-  itens: Array<{ label: string; url: string; Icone: Icone; testId: string }>;
+  /**
+   * Um item com `filhos` e uma PASTA: o rotulo dele nao acende; quem acende e o
+   * filho. Sempre aberta — o menu nao recolhe (ver GrupoNav).
+   */
+  itens: Array<ItemDeNav & { filhos?: ItemDeNav[] }>;
 }> = [
   {
     grupo: "Principal",
@@ -447,8 +454,17 @@ const NAV_PROVEDOR: Array<{
     // porque vem depois de consultar e antes de comprar credito (05/09/2026).
     grupo: "Cobrança",
     itens: [
-      { label: "Carteira",    url: "/cobranca",          Icone: Wallet,   testId: "link-cobranca-carteira" },
-        { label: "Kanban",      url: "/cobranca/kanban",   Icone: Kanban,   testId: "link-cobranca-kanban" },
+      // A carteira e uma PASTA com dois espacos separados, como no Provedor.ai
+      // (pedido do dono, 05/09/2026): cliente ativo e ex-cliente juntos criam
+      // confusao — o que tem mais chance de recuperar e o valor quente, recente.
+      {
+        label: "Carteira", url: "/cobranca", Icone: Wallet, testId: "link-cobranca-carteira",
+        filhos: [
+          { label: "Clientes ativos", url: "/cobranca/ativos",      Icone: Users, testId: "link-cobranca-ativos" },
+          { label: "Ex-clientes",     url: "/cobranca/ex-clientes", Icone: UserX, testId: "link-cobranca-ex-clientes" },
+        ],
+      },
+      { label: "Kanban",      url: "/cobranca/kanban",   Icone: Kanban,   testId: "link-cobranca-kanban" },
       { label: "Fila do dia", url: "/cobranca/fila",     Icone: ListTodo, testId: "link-cobranca-fila" },
       { label: "Régua",       url: "/cobranca/regua",    Icone: Route,    testId: "link-cobranca-regua" },
       { label: "Política",    url: "/cobranca/politica", Icone: Scale,    testId: "link-cobranca-politica" },
@@ -544,7 +560,10 @@ export function itemDeRevendaAtivo(url: string, caminho: string): boolean {
  */
 export function itemDeProvedorAtivo(url: string, caminho: string): boolean {
   if (url === "/") return caminho === "/";
-  if (url === "/cobranca") return caminho === "/cobranca" || caminho.startsWith("/cobranca/cliente/");
+  // A pasta nao acende; o espaco de ativos e a raiz da cobranca (/cobranca
+  // redireciona para ele) e e de onde a ficha do cliente se abre.
+  if (url === "/cobranca") return false;
+  if (url === "/cobranca/ativos") return caminho === "/cobranca" || caminho === "/cobranca/ativos" || caminho.startsWith("/cobranca/cliente/");
   return caminho === url || caminho.startsWith(url + "/");
 }
 
@@ -762,7 +781,19 @@ export function AppSidebar() {
     >
       {NAV_PROVEDOR.map(({ grupo, itens }) => (
         <GrupoNav key={grupo} titulo={grupo}>
-          {itens.map(({ label, url, Icone, testId }) => (
+          {itens.map(({ label, url, Icone, testId, filhos }) => filhos ? (
+            <div key={url} data-testid={testId}>
+              <div className={`${ITEM_BASE} text-[var(--text-muted)] font-medium cursor-default`} aria-hidden>
+                <Icone className="w-4 h-4 flex-none" strokeWidth={2} />
+                <span className="truncate">{label}</span>
+              </div>
+              <div className="ml-[18px] flex flex-col gap-0.5 border-l border-[var(--border)] pl-2" role="group" aria-label={label}>
+                {filhos.map(f => (
+                  <ItemNav key={f.url} label={f.label} Icone={f.Icone} ativo={estaAtivo(f.url)} href={f.url} testId={f.testId} />
+                ))}
+              </div>
+            </div>
+          ) : (
             <ItemNav
               key={url}
               label={label}

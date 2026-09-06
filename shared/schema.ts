@@ -393,14 +393,37 @@ export const contracts = pgTable("contracts", {
 
 export const invoices = pgTable("invoices", {
   id: serial("id").primaryKey(),
-  contractId: integer("contract_id").notNull().references(() => contracts.id),
+  // Nulo desde a 0027: a fatura que vem do ERP nao tem contrato NOSSO — so o
+  // import CSV cria um `contracts` para pendurar a fatura. Fatura sem
+  // contract_id e fatura do ERP.
+  contractId: integer("contract_id").references(() => contracts.id),
   customerId: integer("customer_id").notNull().references(() => customers.id),
   providerId: integer("provider_id").notNull().references(() => providers.id),
   value: decimal("value", { precision: 10, scale: 2 }).notNull(),
   dueDate: timestamp("due_date").notNull(),
   paidDate: timestamp("paid_date"),
+  // CSV/manual: pending | overdue | paid. ERP (0027): "aberta" (pendente no
+  // ERP) e "baixada_no_erp" (sumiu dos pendentes numa varredura COMPLETA —
+  // pagamento provavel, sem confirmacao). Ver server/storage/faturas.storage.ts.
   status: text("status").notNull().default("pending"),
-});
+  // ── Faturas do ERP (0027, fase 2 da cobranca) ─────────────────────────────
+  // `erp_source` nulo = CSV/manual; "mk", "ixc"... = gravada pela varredura.
+  // `erp_ref` e o id da fatura la, unico por (provedor, fonte) — e o que faz
+  // a varredura seguinte reconhecer a mesma fatura em vez de duplica-la.
+  erpSource: text("erp_source"),
+  erpRef: text("erp_ref"),
+  descricao: text("descricao"),
+  /** Quando NOTAMOS que a fatura saiu dos pendentes — nao quando foi paga. */
+  baixadaEm: timestamp("baixada_em"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  // Parcial porque a fatura do CSV nao tem referencia no ERP e pode repetir.
+  uniqueIndex("invoices_provider_erp_ref_uq")
+    .on(t.providerId, t.erpSource, t.erpRef)
+    .where(sql`erp_ref IS NOT NULL`),
+  // O resumo do mes pergunta "faturas deste provedor vencendo em [de, ate)".
+  index("idx_invoices_provider_due").on(t.providerId, t.dueDate),
+]);
 
 export const equipment = pgTable("equipment", {
   id: serial("id").primaryKey(),

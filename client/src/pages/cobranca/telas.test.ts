@@ -40,6 +40,8 @@ const componentes = readdirSync(join(raiz, "components/cobranca"))
 describe("rotas da cobrança em App.tsx", () => {
   const ROTAS: [string, string][] = [
     ["/cobranca", "pages/cobranca/carteira"],
+    ["/cobranca/ativos", "pages/cobranca/carteira"],
+    ["/cobranca/ex-clientes", "pages/cobranca/carteira"],
     ["/cobranca/cliente/:id", "pages/cobranca/cliente360"],
     ["/cobranca/fila", "pages/cobranca/fila"],
     ["/cobranca/regua", "pages/cobranca/regua"],
@@ -93,6 +95,9 @@ describe("o grupo Cobrança na barra lateral", () => {
     expect(financeiro).toBeGreaterThan(cobranca);
     for (const [url, testId] of [
       ["/cobranca", "link-cobranca-carteira"],
+      // a Carteira e uma pasta: os dois espacos sao os filhos dela
+      ["/cobranca/ativos", "link-cobranca-ativos"],
+      ["/cobranca/ex-clientes", "link-cobranca-ex-clientes"],
       ["/cobranca/fila", "link-cobranca-fila"],
       ["/cobranca/regua", "link-cobranca-regua"],
       ["/cobranca/politica", "link-cobranca-politica"],
@@ -103,23 +108,27 @@ describe("o grupo Cobrança na barra lateral", () => {
   });
 
   it("todo item do menu tem rota em App.tsx", () => {
-    for (const url of ["/cobranca", "/cobranca/fila", "/cobranca/regua", "/cobranca/politica"]) {
+    for (const url of ["/cobranca", "/cobranca/ativos", "/cobranca/ex-clientes", "/cobranca/fila", "/cobranca/regua", "/cobranca/politica"]) {
       expect(app).toContain(`<Route path="${url}"`);
     }
+    // /cobranca e so o redirecionamento para o espaco de ativos
+    expect(app).toContain('<Route path="/cobranca"><Redirect to="/cobranca/ativos" /></Route>');
   });
 
-  const urls = ["/", "/cobranca", "/cobranca/fila", "/cobranca/regua", "/cobranca/politica", "/creditos"];
+  const urls = ["/", "/cobranca", "/cobranca/ativos", "/cobranca/ex-clientes", "/cobranca/fila", "/cobranca/regua", "/cobranca/politica", "/creditos"];
   const acesos = (caminho: string) => urls.filter(u => itemDeProvedorAtivo(u, caminho));
 
-  it("cada tela acende um item só — a Carteira não acende junto com a Fila", () => {
-    expect(acesos("/cobranca")).toEqual(["/cobranca"]);
+  it("cada tela acende um item só — a pasta Carteira nunca acende; acende o espaço", () => {
+    expect(acesos("/cobranca")).toEqual(["/cobranca/ativos"]);
+    expect(acesos("/cobranca/ativos")).toEqual(["/cobranca/ativos"]);
+    expect(acesos("/cobranca/ex-clientes")).toEqual(["/cobranca/ex-clientes"]);
     expect(acesos("/cobranca/fila")).toEqual(["/cobranca/fila"]);
     expect(acesos("/cobranca/regua")).toEqual(["/cobranca/regua"]);
     expect(acesos("/cobranca/politica")).toEqual(["/cobranca/politica"]);
   });
 
-  it("a ficha do cliente acende a Carteira, de onde se abre", () => {
-    expect(acesos("/cobranca/cliente/42")).toEqual(["/cobranca"]);
+  it("a ficha do cliente acende Clientes ativos, de onde se abre", () => {
+    expect(acesos("/cobranca/cliente/42")).toEqual(["/cobranca/ativos"]);
   });
 
   it("os outros itens continuam por prefixo, e a raiz exata", () => {
@@ -127,26 +136,63 @@ describe("o grupo Cobrança na barra lateral", () => {
     expect(acesos("/")).toEqual(["/"]);
     expect(acesos("/consulta-isp")).toEqual([]);
   });
+
+  it("a Carteira e uma pasta com os dois espacos como filhos, sempre aberta", () => {
+    expect(sidebar).toContain("filhos: [");
+    expect(sidebar).toContain('url: "/cobranca/ativos"');
+    expect(sidebar).toContain('url: "/cobranca/ex-clientes"');
+    // o rotulo da pasta nao e link nem acende: quem navega e o filho
+    expect(sidebar).toContain("filhos ? (");
+    expect(sidebar).toContain("{filhos.map(f => (");
+  });
 });
 
 /* ── Carteira ────────────────────────────────────────────────────────── */
 
-describe("carteira", () => {
+describe("carteira — os dois espaços, no molde do Provedor.ai", () => {
   const f = PAGINAS.carteira;
 
-  it("KPIs, composição, duas abas, as seis pílulas, cards, tabela e rodapé", () => {
+  it("KPIs, composição, a faixa do mês, a situação ERP fixada, as pílulas, cards, tabela e rodapé", () => {
     for (const id of [
-      "cobranca-carteira", "kpis-carteira", "composicao-carteira", "abas-carteira", "aba-ativos", "aba-ex-clientes",
-      "filtros-carteira", "busca-carteira", "filtro-quadrante", "filtro-saude", "filtro-etapa", "filtro-status", "filtro-bairro", "filtro-divida",
-      "grade-cards", "tabela-carteira", "rodape-carteira", "carteira-vazia", "erro-carteira",
+      "cobranca-carteira-${espaco}", "kpis-carteira", "kpi-clientes", "kpi-em-aberto", "kpi-contatados", "kpi-recuperado", "composicao-carteira",
+      "faixa-do-mes", "mes-anterior", "mes-seguinte", "mes-atual", "mes-${ch.id}", "mes-filtro-ligado", "mes-sem-base",
+      "filtros-carteira", "busca-carteira", "filtro-quadrante", "filtro-saude", "filtro-etapa", "filtro-situacao-erp", "filtro-status", "filtro-bairro", "filtro-divida",
+      "link-outro-espaco", "grade-cards", "tabela-carteira", "rodape-carteira", "carteira-vazia", "erro-carteira",
     ]) {
-      expect(f, id).toContain(`"${id}"`);
+      // ids com template (`mes-${ch.id}`) vivem entre crases; os fixos, entre aspas
+      expect(f.includes(`"${id}"`) || f.includes(`\`${id}\``), id).toBe(true);
     }
+  });
+
+  it("dois espaços separados: ativo e ex-cliente, cada um com a própria rota, título e situação ERP fixada", () => {
+    expect(f).toContain('ativos: {');
+    expect(f).toContain('ex: {');
+    expect(f).toContain('carteira: "ativo"');
+    expect(f).toContain('carteira: "ex_cliente"');
+    expect(f).toContain("rota: ROTA_CARTEIRA_ATIVOS");
+    expect(f).toContain("rota: ROTA_CARTEIRA_EX");
+    expect(f).toContain('titulo: "Clientes ativos"');
+    expect(f).toContain('titulo: "Ex-clientes com dívida"');
+    // trocar de espaço troca o recorte inteiro — nada de filtro de um vazando no outro
+    expect(f).toContain("{ ...limparFiltros(atual), carteira: meta.carteira }");
+  });
+
+  it("a realidade mensal só existe para quem ainda é cliente, e os chips filtram a lista", () => {
+    expect(f).toContain('enabled: espaco === "ativos"');
+    expect(f).toContain('{espaco === "ativos" && (');
+    expect(f).toContain("onGrupo(ativo ? \"\" : ch.id)");
+    expect(f).toContain('"Pagou o mês"');
+    expect(f).toContain('"Inadimplente do mês"');
+    expect(f).toContain('"A vencer no mês"');
+    expect(f).toContain('"Sem fatura no mês"');
+    // sem base de fatura do ERP, a faixa mostra o traço e diz o motivo — nunca zero
+    expect(f).toContain("const r = dados?.live ? dados.resumo : null;");
+    expect(f).toContain("valor: r ? brl(r.inadimplente) : TRACO");
   });
 
   it("a query vai inteira ao servidor — nenhum filtro é só da página", () => {
     expect(f).toContain("queryDaCarteira(filtros)");
-    expect(f).toContain("`${API_CARTEIRA}?${query}`");
+    expect(f).toContain("${API_CARTEIRA}?${query}");
     expect(f).not.toContain(".filter(item =>");
   });
 
@@ -156,17 +202,10 @@ describe("carteira", () => {
   });
 
   it("a URL que muda por fora vira estado — o link do DNA abre o recorte dele, não o de antes", () => {
-    // O efeito inverso: depende de `search`, compara com os filtros ATUAIS
-    // (não com a caixa, que a URL só alcança 350 ms depois) e só então mexe
-    // no estado e na busca digitada.
     expect(f).toContain("if (mesmosFiltros(filtrosAtuais.current, daUrl)) return;");
-    expect(f).toContain("}, [search]);");
+    expect(f).toContain("}, [search, meta.carteira]);");
     expect(f).toContain("setFiltros(daUrl);\n    setBuscaDigitada(daUrl.busca);");
     expect(f).not.toContain("setBuscaDigitada(atual =>");
-  });
-
-  it("trocar de aba limpa também o que está digitado na busca", () => {
-    expect(f).toContain('onValueChange={v => { setBuscaDigitada(""); mudar({ ...limparFiltros(filtros), carteira: v as Carteira }); }}');
   });
 
   it("clique no card ou na linha abre o cliente 360", () => {

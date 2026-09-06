@@ -31,9 +31,36 @@ import type {
   ErpTestResult,
   ErpFetchResult,
   NormalizedErpCustomer,
+  FaturaAbertaDoErp,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
-import { cleanCpfCnpj, cleanCep, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, aggregateByCustomer } from "../normalize.js";
+import { cleanCpfCnpj, cleanCep, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
+
+/**
+ * As faturas em aberto de `fn_areceber`, agrupadas por `id_cliente` — VENCIDAS
+ * e A VENCER, so as de data legivel.
+ *
+ * `ref` e o `id` da fatura no IXC (a chave da tabela `fn_areceber`); `valor` e
+ * o mesmo campo que a divida soma (`valor`, com `valor_original` de reserva),
+ * para que a soma das faturas do cliente bata com `totalOverdueAmount`. A
+ * fatura nao carrega CPF — quem a liga ao cliente e `id_cliente`, o mesmo
+ * mapeamento que os tres leitores desta classe ja usam.
+ */
+export function faturasAbertasPorCliente(rows: any[]): Map<string, FaturaAbertaDoErp[]> {
+  const mapa = new Map<string, FaturaAbertaDoErp[]>();
+  for (const row of rows) {
+    const cid = String(row?.id_cliente || "");
+    const ref = String(row?.id ?? "").trim();
+    const vencimento = vencimentoIso(row?.data_vencimento);
+    if (!cid || !ref || !vencimento) continue;
+    const valor = parseFloat(row.valor || row.valor_original || "0") || 0;
+    const obs = typeof row.obs === "string" && row.obs.trim() ? row.obs.trim() : null;
+    const lista = mapa.get(cid);
+    const fatura: FaturaAbertaDoErp = { ref, vencimento, valor, descricao: obs };
+    if (lista) lista.push(fatura); else mapa.set(cid, [fatura]);
+  }
+  return mapa;
+}
 
 /**
  * Extracts address number from the endereco field when numero is empty.
@@ -368,6 +395,9 @@ export class IxcConnector implements ErpConnector {
       const clienteMap = await this.clientesPorId(config, new Set(porCliente.keys()), "fetchDelinquents");
       const cidadeMap = await this.bulkResolveCidadeUf(config);
       const contratos = await this.contratosPorClienteBulk(config);
+      // As faturas do devedor, uma a uma (vencidas e a vencer) — das mesmas
+      // linhas ja lidas, sem ida a mais ao IXC.
+      const abertasPorCliente = faturasAbertasPorCliente(allRows);
 
       let semCadastro = 0;
       let semDocumento = 0;
@@ -402,6 +432,7 @@ export class IxcConnector implements ErpConnector {
           totalOverdueAmount: Math.round(overdue.totalAmount * 100) / 100,
           maxDaysOverdue: overdue.maxDays,
           overdueInvoicesCount: overdue.count,
+          faturasAbertas: abertasPorCliente.get(cid),
           contractStatus: this.statusDoContrato(resumo),
           contractPlan: resumo?.plano || undefined,
           contractStartDate: resumo?.inicio || undefined,
@@ -557,6 +588,7 @@ export class IxcConnector implements ErpConnector {
       }
 
       console.log(`[IXC] fetchCancelledDelinquents: ${overdueByClient.size} cancelados com faturas vencidas de ${clienteIdArray.length} total`);
+      const abertasPorCliente = faturasAbertasPorCliente(allInvoices);
 
       // 5. Cadastro em LOTE — ver clientesPorId.
       const clientsWithDebt = Array.from(overdueByClient.keys());
@@ -600,6 +632,7 @@ export class IxcConnector implements ErpConnector {
             totalOverdueAmount: overdue.totalAmount,
             maxDaysOverdue: overdue.maxDays,
             overdueInvoicesCount: overdue.count,
+            faturasAbertas: abertasPorCliente.get(cid),
             contractStatus,
             contractStartDate: contrato?.startDate || undefined,
             contractPlan: contrato?.plan || undefined,
@@ -645,6 +678,24 @@ export class IxcConnector implements ErpConnector {
       const contratos = await this.contratosPorClienteBulk(config);
       let semContrato = 0;
 
+      // As faturas em aberto da CARTEIRA INTEIRA, em lote — e por aqui que a
+      // mensalidade a vencer de quem esta em dia chega a `invoices`;
+      // `fetchDelinquents` so devolve quem deve. Uma leitura a mais de
+      // `fn_areceber` por varredura (os dois leitores de inadimplente ja a
+      // fazem). Se falhar, a carteira segue sem fatura e a resposta avisa
+      // (`faturasNaoLidas`): "sem fatura" aqui seria mentira, e o sync nao
+      // pode baixar nada com base nela.
+      let abertasPorCliente = new Map<string, FaturaAbertaDoErp[]>();
+      let faturasNaoLidas = false;
+      try {
+        const abertas = await this.listWithFilter(config, "fn_areceber", [...FATURA_ABERTA], 500, 200);
+        abertasPorCliente = faturasAbertasPorCliente(abertas);
+        console.log(`[IXC] fetchCustomers: ${abertas.length} faturas em aberto de ${abertasPorCliente.size} clientes`);
+      } catch (e) {
+        faturasNaoLidas = true;
+        console.warn(`[IXC] fetchCustomers: faturas em aberto nao lidas (${e instanceof Error ? e.message : e}) — carteira segue sem fatura, nada sera baixado`);
+      }
+
       const customers: NormalizedErpCustomer[] = allRows
         .map((row: any) => {
           const cpfCnpj = cleanCpfCnpj(row.cnpj_cpf || row.cpf_cnpj || row.documento || "");
@@ -667,6 +718,7 @@ export class IxcConnector implements ErpConnector {
             longitude: row.longitude != null && String(row.longitude).trim() ? String(row.longitude).trim() : undefined,
             totalOverdueAmount: 0,
             maxDaysOverdue: 0,
+            faturasAbertas: abertasPorCliente.get(String(row.id || "")),
             contractStatus: this.statusDoContrato(resumo),
             contractPlan: resumo?.plano || undefined,
             contractStartDate: resumo?.inicio || undefined,
@@ -681,6 +733,7 @@ export class IxcConnector implements ErpConnector {
         message: `${customers.length} clientes encontrados` + (semContrato > 0 ? `, ${semContrato} sem contrato ignorados` : ""),
         customers,
         totalRecords: customers.length,
+        ...(faturasNaoLidas ? { faturasNaoLidas: true } : {}),
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";

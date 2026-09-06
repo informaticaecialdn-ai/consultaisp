@@ -33,7 +33,8 @@ import type {
   NormalizedErpCustomer,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
-import { cleanCpfCnpj, cleanPhone, diasDesdeVencimento, aggregateByCustomer } from "../normalize.js";
+import { cleanCpfCnpj, cleanPhone, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
+import type { FaturaAbertaDoErp } from "../types.js";
 import { corteFinanceiro } from "@shared/motivo-corte";
 
 /** Teto documentado de `limit` em /api/ura/titulos/. Pedir mais nao traz mais. */
@@ -248,6 +249,8 @@ function numero(v: unknown): number {
 
 /** Um titulo como /api/ura/titulos/ o devolve. */
 interface TituloSgp {
+  /** O id do titulo no SGP — a referencia da fatura em `invoices`. */
+  id?: number | string;
   clienteNome?: string;
   clienteCpfcnpj?: string;
   clienteContrato?: number;
@@ -257,6 +260,19 @@ interface TituloSgp {
   valorPago?: number;
   valorPagoParcial?: number;
   dataVencimento?: string;
+  descricao?: string;
+}
+
+/** Um titulo aberto ja lido: quem deve, quanto esta em aberto e quando vence. */
+interface TituloAberto {
+  cpfCnpj: string;
+  nome: string;
+  emAberto: number;
+  /** Dias desde o vencimento, com sinal — negativo e a vencer. */
+  dias: number;
+  vencimento: string;
+  ref: string;
+  descricao: string | null;
 }
 
 /**
@@ -658,31 +674,78 @@ export class SgpConnector implements ErpConnector {
   }> {
     const faturas = [];
     for (const t of titulos) {
-      const cpfCnpj = cleanCpfCnpj(String(t.clienteCpfcnpj ?? ""));
-      if (!cpfCnpj) continue;
-
-      const situacao = achatar(String(t.status ?? ""));
-      // "aberto" e o que a doc devolve; "atrasado"/"vencido" entram por
-      // seguranca, caso a instalacao use outro rotulo para o mesmo estado.
-      if (situacao && !["aberto", "atrasado", "vencido", "pendente"].includes(situacao)) continue;
-
-      const dias = diasDesdeVencimento(t.dataVencimento ?? null);
-      // `null` = vencimento ilegivel. Fatura sem data nao vira atraso de zero
-      // dia nem de mil: ela sai da conta.
-      if (dias === null || dias <= 0) continue;
-
-      const emAberto = numero(t.valor) - numero(t.valorPagoParcial) - numero(t.valorPago);
-      if (emAberto <= 0) continue;
-
+      const a = this.tituloAberto(t);
+      // A vencer nao e atraso: fica para `faturasAbertasPorDocumento`.
+      if (!a || a.dias <= 0) continue;
       faturas.push({
-        cpfCnpj,
-        name: texto(t.clienteNome) ?? "",
-        amount: emAberto,
-        daysOverdue: dias,
+        cpfCnpj: a.cpfCnpj,
+        name: a.nome,
+        amount: a.emAberto,
+        daysOverdue: a.dias,
         erpSource: "sgp",
       });
     }
     return faturas;
+  }
+
+  /**
+   * Um titulo ABERTO, lido — ou `null` para o que nao conta: sem documento,
+   * status que nao e "aberto", vencimento ilegivel, nada em aberto.
+   *
+   * E a regra unica de `faturasVencidas` (a divida) e de
+   * `faturasAbertasPorDocumento` (a fatura em `invoices`): a fatura que soma
+   * na divida e a que e gravada sao a mesma. So `status=abertos` chega aqui —
+   * regra do dono (04/09/2026): NADA se deriva de titulo cancelado ou anulado.
+   * Cancelado no SGP e contrato encerrado que nao deve mais; Suspenso e quem
+   * esta cortado e ainda deve.
+   *
+   * `ref` e o `id` do titulo; sem ele, `${cpfcnpj}:${vencimento}:${valor}` —
+   * reconhecivel entre varreduras, ao custo de dois titulos iguais no mesmo
+   * dia colapsarem num so.
+   */
+  private tituloAberto(t: TituloSgp): TituloAberto | null {
+    const cpfCnpj = cleanCpfCnpj(String(t.clienteCpfcnpj ?? ""));
+    if (!cpfCnpj) return null;
+
+    const situacao = achatar(String(t.status ?? ""));
+    // "aberto" e o que a doc devolve; "atrasado"/"vencido" entram por
+    // seguranca, caso a instalacao use outro rotulo para o mesmo estado.
+    if (situacao && !["aberto", "atrasado", "vencido", "pendente"].includes(situacao)) return null;
+
+    const dias = diasDesdeVencimento(t.dataVencimento ?? null);
+    const vencimento = vencimentoIso(t.dataVencimento ?? null);
+    // `null` = vencimento ilegivel. Fatura sem data nao vira atraso de zero
+    // dia nem de mil: ela sai da conta — e de `invoices` tambem.
+    if (dias === null || !vencimento) return null;
+
+    // `valor` (o principal), nao `valorCorrigido`: juros e multa variam por
+    // provedor e inflariam a comparacao entre ERPs. O ja pago sai da conta.
+    const emAberto = numero(t.valor) - numero(t.valorPagoParcial) - numero(t.valorPago);
+    if (emAberto <= 0) return null;
+
+    const id = texto(t.id);
+    return {
+      cpfCnpj,
+      nome: texto(t.clienteNome) ?? "",
+      emAberto,
+      dias,
+      vencimento,
+      ref: id ?? `${cpfCnpj}:${vencimento}:${emAberto.toFixed(2)}`,
+      descricao: texto(t.descricao) ?? null,
+    };
+  }
+
+  /** Os titulos abertos — vencidos E a vencer — por documento, como faturas de `invoices`. */
+  private faturasAbertasPorDocumento(titulos: TituloSgp[]): Map<string, FaturaAbertaDoErp[]> {
+    const mapa = new Map<string, FaturaAbertaDoErp[]>();
+    for (const t of titulos) {
+      const a = this.tituloAberto(t);
+      if (!a) continue;
+      const fatura: FaturaAbertaDoErp = { ref: a.ref, vencimento: a.vencimento, valor: a.emAberto, descricao: a.descricao };
+      const lista = mapa.get(a.cpfCnpj);
+      if (lista) lista.push(fatura); else mapa.set(a.cpfCnpj, [fatura]);
+    }
+    return mapa;
   }
 
   /**
@@ -801,13 +864,18 @@ export class SgpConnector implements ErpConnector {
   async fetchDelinquents(config: ErpConnectionConfig, _lastDays?: number): Promise<ErpFetchResult> {
     try {
       const hoje = new Date();
-      const ate = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+      // A janela vai ate um ano a FRENTE. Ate 05/09/2026 fechava em hoje, e
+      // as faturas em aberto que ainda nao venceram ficavam fora — certo para
+      // a divida (a vencer nao e atraso), errado para `invoices`: a mensalidade
+      // do mes de quem esta em dia e o que o resumo mensal le, e sem ela todo
+      // pagante apareceria como "sem fatura". Um ano cobre o carne anual. A
+      // decisao de "esta vencida" continua sendo local, em `faturasVencidas`,
+      // com o mesmo calculo dos outros conectores. Custo medido no SGP de
+      // demonstracao da TSMX: 498 titulos a vencer em 7.033 abertos — duas
+      // paginas a mais.
+      const fim = new Date(hoje.getFullYear() + 1, hoje.getMonth(), hoje.getDate());
+      const ate = `${fim.getFullYear()}-${String(fim.getMonth() + 1).padStart(2, "0")}-${String(fim.getDate()).padStart(2, "0")}`;
 
-      // Filtra no servidor pelo que ja venceu, e confere de novo aqui pela
-      // data. O corte no servidor e por economia de paginas; a decisao de
-      // "esta vencida" continua sendo local, com o mesmo calculo dos outros
-      // conectores.
-      //
       // As DUAS datas vao juntas porque o SGP exige o par. Mandar so o fim
       // devolve `400 {"erro":"[data_vencimento_inicio] obrigatória caso
       // [data_vencimento_fim] informada"}` — e era o que este conector fazia:
@@ -815,10 +883,6 @@ export class SgpConnector implements ErpConnector {
       // tinha SGP ligado ninguem viu. Medido contra o SGP de demonstracao da
       // TSMX em 03/09/2026. A colecao Postman lista os dois parametros e nao
       // diz que um exige o outro; so a API real ensina.
-      //
-      // O ganho de filtrar continua valendo: na mesma base medida, o par de
-      // datas levou 7.033 titulos abertos para 6.535 — as 498 que sairam sao
-      // faturas em aberto que ainda NAO venceram, que nao sao inadimplencia.
       const { titulos, parcial, erro } = await this.paginarTitulos(config, {
         status: "abertos",
         data_vencimento_inicio: INICIO_DA_JANELA,
@@ -849,6 +913,17 @@ export class SgpConnector implements ErpConnector {
         }
       }
 
+      // Fatura a fatura — vencidas e a vencer — para `invoices`. O devedor
+      // leva as dele; quem so tem fatura a vencer nao e inadimplente e vai por
+      // documento, fora desta lista (o titulo ja traz o cpfcnpj, sem ida a mais
+      // ao SGP).
+      const abertasPorDoc = this.faturasAbertasPorDocumento(titulos);
+      const devedores = new Set(customers.map(c => c.cpfCnpj));
+      for (const c of customers) c.faturasAbertas = abertasPorDoc.get(c.cpfCnpj);
+      const faturasDeClientesEmDia = Array.from(abertasPorDoc.entries())
+        .filter(([doc]) => !devedores.has(doc))
+        .map(([cpfCnpj, faturasAbertas]) => ({ cpfCnpj, faturasAbertas }));
+
       return {
         ok: true,
         message: parcial
@@ -856,6 +931,7 @@ export class SgpConnector implements ErpConnector {
           : `${customers.length} inadimplentes encontrados`,
         customers,
         totalRecords: customers.length,
+        faturasDeClientesEmDia,
         ...(parcial ? { leituraParcial: true } : {}),
       };
     } catch (err: unknown) {
@@ -914,6 +990,8 @@ export class SgpConnector implements ErpConnector {
       const emAberto = this.faturasVencidas(faturas.titulos);
       const totalOverdueAmount = emAberto.reduce((s, f) => s + f.amount, 0);
       const maxDaysOverdue = emAberto.reduce((m, f) => Math.max(m, f.daysOverdue), 0);
+      // Os titulos vieram filtrados por este documento no SGP: tudo e dele.
+      const abertas = Array.from(this.faturasAbertasPorDocumento(faturas.titulos).values()).flat();
 
       const documento = cleanCpfCnpj(String(principal?.cpfCnpj ?? doc)) || doc;
 
@@ -933,6 +1011,7 @@ export class SgpConnector implements ErpConnector {
         totalOverdueAmount,
         maxDaysOverdue,
         overdueInvoicesCount: emAberto.length,
+        faturasAbertas: abertas.length > 0 ? abertas : undefined,
         contractStatus: statusDoContratoSgp(principal?.contratoStatus, principal?.contratoStatusDisplay),
         contractPlan: texto(principal?.planointernet) ?? texto(principal?.servico_plano),
         contractStartDate: texto(principal?.dataCadastro),

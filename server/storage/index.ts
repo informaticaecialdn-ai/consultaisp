@@ -23,6 +23,8 @@ import type {
   CobrancaPolitica, CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela,
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
+import type { FaturaAbertaDoErp } from "../erp/types";
+import { FaturasStorage, type GrupoDoMes, type ResumoDoMes } from "./faturas.storage";
 
 import { UsersStorage } from "./users.storage";
 import { ProvidersStorage, type ProviderWithStats } from "./providers.storage";
@@ -49,6 +51,7 @@ import {
   type NegociacaoComParcelas, type NovaNegociacao, type NovaParcela, type NovoEvento, type Paginacao,
   type PatchDeCaso, type PatchDePolitica, type StatusCasoFechado, type StatusNegociacao,
   type ResumoDaNegociacao,
+  type ClienteEmDia,
 } from "./cobranca.storage";
 
 export interface IStorage {
@@ -319,12 +322,20 @@ export interface IStorage {
   bairrosDaCarteira(providerId: number): Promise<Array<{ bairro: string; total: number }>>;
   filaDeCobranca(providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number }): Promise<LinhaDaCarteira[]>;
   clientesParaAbrirCaso(providerId: number, minimoValor: number, limite?: number): Promise<CandidatoACaso[]>;
+  clientesAtivosEmDia(providerId: number, filtros: { busca?: string; bairro?: string; ids?: number[] }, pagina: { offset: number; limite: number }): Promise<{ linhas: ClienteEmDia[]; total: number }>;
 
   // Proactive alerts
   getLastProactiveAlert(cpfCnpj: string, providerId: number): Promise<{ sentAt: Date } | undefined>;
   createProactiveAlert(data: InsertProactiveAlert): Promise<ProactiveAlert>;
   getProactiveAlertsByProvider(providerId: number, limit?: number): Promise<ProactiveAlert[]>;
   acknowledgeProactiveAlert(alertId: number, providerId: number): Promise<ProactiveAlert | undefined>;
+
+  // ── Faturas do ERP (fase 2 da cobranca) ── ver server/storage/faturas.storage.ts
+  upsertFaturasDoErp(providerId: number, erpSource: string, customerId: number, faturas: FaturaAbertaDoErp[]): Promise<number>;
+  upsertFaturasDoErpPorDocumento(providerId: number, erpSource: string, cpfCnpj: string, faturas: FaturaAbertaDoErp[]): Promise<number | null>;
+  baixarFaturasSumidas(providerId: number, erpSource: string, refsVistas: Set<string>, docsProtegidos?: string[]): Promise<number>;
+  resumoDoMes(providerId: number, mes: string, hoje: Date): Promise<ResumoDoMes>;
+  clientesDoMes(providerId: number, mes: string, grupo: GrupoDoMes, opcoes?: { hoje?: Date; limite?: number }): Promise<number[]>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -598,6 +609,7 @@ class DatabaseStorage implements IStorage {
   bairrosDaCarteira = (providerId: number) => this._cobranca.bairrosDaCarteira(providerId);
   filaDeCobranca = (providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number }) => this._cobranca.filaDeCobranca(providerId, opcoes);
   clientesParaAbrirCaso = (providerId: number, minimoValor: number, limite?: number) => this._cobranca.clientesParaAbrirCaso(providerId, minimoValor, limite);
+  clientesAtivosEmDia = (providerId: number, filtros: { busca?: string; bairro?: string; ids?: number[] }, pagina: { offset: number; limite: number }) => this._cobranca.clientesAtivosEmDia(providerId, filtros, pagina);
 
   // Proactive alerts
   getLastProactiveAlert = (cpfCnpj: string, providerId: number) => this._consultations.getLastProactiveAlert(cpfCnpj, providerId);
@@ -609,6 +621,14 @@ class DatabaseStorage implements IStorage {
   bulkImportCustomers = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportCustomers(rows, providerId);
   bulkImportInvoices = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportInvoices(rows, providerId);
   bulkImportEquipment = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportEquipment(rows, providerId);
+
+  // ── Faturas do ERP (fase 2 da cobranca) ──
+  private _faturas = new FaturasStorage();
+  upsertFaturasDoErp = (providerId: number, erpSource: string, customerId: number, faturas: FaturaAbertaDoErp[]) => this._faturas.upsertFaturasDoErp(providerId, erpSource, customerId, faturas);
+  upsertFaturasDoErpPorDocumento = (providerId: number, erpSource: string, cpfCnpj: string, faturas: FaturaAbertaDoErp[]) => this._faturas.upsertFaturasDoErpPorDocumento(providerId, erpSource, cpfCnpj, faturas);
+  baixarFaturasSumidas = (providerId: number, erpSource: string, refsVistas: Set<string>, docsProtegidos?: string[]) => this._faturas.baixarFaturasSumidas(providerId, erpSource, refsVistas, docsProtegidos);
+  resumoDoMes = (providerId: number, mes: string, hoje: Date) => this._faturas.resumoDoMes(providerId, mes, hoje);
+  clientesDoMes = (providerId: number, mes: string, grupo: GrupoDoMes, opcoes?: { hoje?: Date; limite?: number }) => this._faturas.clientesDoMes(providerId, mes, grupo, opcoes);
 }
 
 export const storage = new DatabaseStorage();

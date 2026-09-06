@@ -1,0 +1,253 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * `FaturasStorage`: o upsert por (provider, fonte, ref), a baixa do que sumiu
+ * — que e prova negativa e nao pode rodar sem referencia nenhuma —, o resumo
+ * do mes com a regra do Provedor.ai e as listas por grupo. Mesmo banco de
+ * mentira (pg-proxy) dos outros storages: o SQL que o Drizzle gera e o que
+ * se confere aqui, e toda consulta precisa carregar o provider_id.
+ */
+const banco = vi.hoisted(() => ({
+  consultas: [] as { sql: string; params: unknown[]; method: string }[],
+  responder: null as null | ((sql: string, params: unknown[]) => unknown[][]),
+  db: null as any,
+}));
+vi.mock("../db", () => ({ db: new Proxy({} as any, { get: (_alvo, chave) => banco.db[chave] }), pool: {} }));
+
+import { drizzle } from "drizzle-orm/pg-proxy";
+import { FaturasStorage, diaComoTimestamp, janelaDoMes, diaDeHoje } from "./faturas.storage";
+
+const PROVEDOR = 6;
+const HOJE = new Date(2026, 8, 5, 14, 30); // 05/09/2026, tarde
+
+let storage: FaturasStorage;
+beforeEach(() => {
+  banco.consultas.length = 0;
+  banco.responder = null;
+  banco.db = drizzle(async (sqlTexto, params, method) => {
+    banco.consultas.push({ sql: sqlTexto, params, method });
+    return { rows: banco.responder ? banco.responder(sqlTexto, params) : [] };
+  });
+  storage = new FaturasStorage();
+});
+
+/** Toda ocorrencia de "provider_id" = $n na consulta aponta para o provedor. */
+function conferirTenant(c: { sql: string; params: unknown[] }) {
+  const oc = Array.from(c.sql.matchAll(/"provider_id" = \$(\d+)/g));
+  expect(oc.length, c.sql).toBeGreaterThan(0);
+  for (const o of oc) expect(c.params[Number(o[1]) - 1]).toBe(PROVEDOR);
+}
+
+describe("datas: dia de calendario, sem fuso", () => {
+  it("o vencimento vira meia-noite UTC — e o que o Drizzle grava e le de volta igual", () => {
+    expect(diaComoTimestamp("2026-09-10").toISOString()).toBe("2026-09-10T00:00:00.000Z");
+  });
+  it("a janela do mes e [primeiro dia, primeiro dia do mes seguinte)", () => {
+    expect(janelaDoMes("2026-09")).toEqual({ de: "2026-09-01", ate: "2026-10-01" });
+    expect(janelaDoMes("2026-12")).toEqual({ de: "2026-12-01", ate: "2027-01-01" });
+    expect(() => janelaDoMes("2026-13")).toThrow(/Mes invalido/);
+    expect(() => janelaDoMes("setembro")).toThrow(/Mes invalido/);
+  });
+  it("hoje e o dia local do relogio do servidor", () => {
+    expect(diaDeHoje(HOJE)).toBe("2026-09-05");
+  });
+});
+
+describe("upsertFaturasDoErp", () => {
+  it("insere por (provider, fonte, ref) e no conflito regrava valor, vencimento e volta a aberta", async () => {
+    const n = await storage.upsertFaturasDoErp(PROVEDOR, "mk", 42, [
+      { ref: "11", vencimento: "2026-09-10", valor: 99.9, descricao: "Mensalidade" },
+      { ref: "12", vencimento: "2026-10-10", valor: 99.9 },
+    ]);
+    expect(n).toBe(2);
+    expect(banco.consultas).toHaveLength(1);
+    const c = banco.consultas[0];
+    expect(c.sql).toMatch(/^insert into "invoices"/);
+    expect(c.sql).toContain('on conflict ("provider_id","erp_source","erp_ref") where erp_ref IS NOT NULL do update set');
+    expect(c.sql).toContain('"customer_id" = excluded.customer_id');
+    expect(c.sql).toContain('"value" = excluded.value');
+    expect(c.sql).toContain('"due_date" = excluded.due_date');
+    // `baixada_em` volta a nulo: fatura que reapareceu nos pendentes nao esta baixada.
+    const baixada = c.sql.match(/"baixada_em" = \$(\d+)/);
+    expect(baixada).not.toBeNull();
+    expect(c.params[Number(baixada![1]) - 1]).toBeNull();
+    // Insert nao tem "provider_id = $n": o tenant vai como VALOR — conferido nos params abaixo.
+    // DECIMAL entra como texto com duas casas; a data como meia-noite UTC.
+    expect(c.params).toEqual(expect.arrayContaining([PROVEDOR, 42, "mk", "11", "99.90", "2026-09-10T00:00:00.000Z", "Mensalidade", "aberta", "12"]));
+  });
+
+  it("descarta o que nao serve e deduplica pela ref — a ultima vence", async () => {
+    const n = await storage.upsertFaturasDoErp(PROVEDOR, "ixc", 7, [
+      { ref: "", vencimento: "2026-09-10", valor: 10 },            // sem ref
+      { ref: "5", vencimento: "10/09/2026", valor: 10 },           // vencimento fora do formato
+      { ref: "6", vencimento: "2026-09-10", valor: Number.NaN },   // valor que nao e numero
+      { ref: "7", vencimento: "2026-09-10", valor: 10 },
+      { ref: "7", vencimento: "2026-09-11", valor: 20 },           // repetida: fica esta
+    ]);
+    expect(n).toBe(1);
+    const c = banco.consultas[0];
+    expect(c.params).toEqual(expect.arrayContaining(["7", "20.00", "2026-09-11T00:00:00.000Z"]));
+    expect(c.params).not.toEqual(expect.arrayContaining(["10.00"]));
+  });
+
+  it("sem fatura valida nao vai ao banco", async () => {
+    expect(await storage.upsertFaturasDoErp(PROVEDOR, "mk", 1, [])).toBe(0);
+    expect(banco.consultas).toHaveLength(0);
+  });
+});
+
+describe("upsertFaturasDoErpPorDocumento", () => {
+  it("resolve o cliente DESTE provedor pelo documento e grava; sem cliente devolve null", async () => {
+    banco.responder = (sqlTexto) => sqlTexto.startsWith("select") ? [[42]] : [];
+    const n = await storage.upsertFaturasDoErpPorDocumento(PROVEDOR, "mk", "041.179.829-40", [
+      { ref: "1", vencimento: "2026-09-20", valor: 80 },
+    ]);
+    expect(n).toBe(1);
+    expect(banco.consultas).toHaveLength(2);
+    const busca = banco.consultas[0];
+    expect(busca.sql).toMatch(/from "customers"/);
+    conferirTenant(busca);
+    expect(busca.params).toContain("04117982940");
+    expect(banco.consultas[1].params).toContain(42);
+
+    banco.consultas.length = 0;
+    banco.responder = () => [];
+    expect(await storage.upsertFaturasDoErpPorDocumento(PROVEDOR, "mk", "04117982940", [{ ref: "1", vencimento: "2026-09-20", valor: 80 }])).toBeNull();
+    expect(banco.consultas).toHaveLength(1);
+  });
+});
+
+describe("baixarFaturasSumidas", () => {
+  it("marca baixada_no_erp so a aberta desta fonte cuja ref nao veio — a lista vai como UM parametro de array", async () => {
+    banco.responder = () => [[101], [102]];
+    const n = await storage.baixarFaturasSumidas(PROVEDOR, "mk", new Set(["11", "12", " 13 "]));
+    expect(n).toBe(2);
+    const c = banco.consultas[0];
+    expect(c.sql).toMatch(/^update "invoices" set/);
+    expect(c.sql).toContain('"status" = $1');
+    expect(c.params[0]).toBe("baixada_no_erp");
+    expect(c.sql).toContain('"erp_source" = $');
+    expect(c.sql).toContain('"erp_ref" is not null');
+    expect(c.sql).toContain('not ("invoices"."erp_ref" = any($');
+    expect(c.sql).toContain("::text[]))");
+    expect(c.sql).toMatch(/returning "id"$/);
+    conferirTenant(c);
+    expect(c.params).toContainEqual(["11", "12", "13"]);
+    expect(c.params).toContain("aberta");
+    expect(c.params).toContain("mk");
+    // Sem a lista de protegidos nao ha subconsulta em customers.
+    expect(c.sql).not.toContain('"customers"');
+  });
+
+  it("os clientes nao lidos ficam como estavam: subconsulta por documento, com provider_id", async () => {
+    banco.responder = () => [];
+    await storage.baixarFaturasSumidas(PROVEDOR, "sgp", new Set(["1"]), ["041.179.829-40", ""]);
+    const c = banco.consultas[0];
+    expect(c.sql).toContain('not exists (');
+    expect(c.sql).toContain('"customers"."cpf_cnpj" = any($');
+    expect(c.params).toContainEqual(["04117982940"]);
+    // Duas ocorrencias de provider_id: a da tabela e a da subconsulta.
+    expect(Array.from(c.sql.matchAll(/"provider_id" = \$(\d+)/g))).toHaveLength(2);
+    conferirTenant(c);
+  });
+
+  it("sem NENHUMA referencia vista nao baixa nada — lista vazia nao e prova de que ninguem tem fatura", async () => {
+    expect(await storage.baixarFaturasSumidas(PROVEDOR, "mk", new Set())).toBe(0);
+    expect(await storage.baixarFaturasSumidas(PROVEDOR, "mk", new Set(["", "  "]))).toBe(0);
+    expect(banco.consultas).toHaveLength(0);
+  });
+});
+
+/**
+ * As tres consultas do resumo, na ordem em que o storage as faz, e as colunas
+ * na ordem em que ele as seleciona — o pg-proxy devolve linhas posicionais.
+ */
+function responderResumo(o: {
+  faturas?: (string | number)[];
+  clientes?: (string | number)[];
+  base?: (string | number | null)[];
+}) {
+  banco.responder = (sqlTexto) => {
+    if (sqlTexto.includes('from "customers"')) return [o.clientes ?? ["0", "0", "0"]];
+    if (sqlTexto.includes("max(")) return [o.base ?? ["0", null]];
+    return [o.faturas ?? ["0", "0", "0", "0", "0", "0", "0"]];
+  };
+}
+
+describe("resumoDoMes", () => {
+  it("sem fatura do ERP: base=false, tudo zero e recebido nunca confirmado — a tela mostra '—'", async () => {
+    responderResumo({});
+    const r = await storage.resumoDoMes(PROVEDOR, "2026-09", HOJE);
+    expect(r).toEqual({
+      mes: "2026-09", base: false,
+      faturado: 0, recebido: 0, recebidoConfirmado: false, emConciliacao: 0,
+      inadimplente: 0, numInadimplentes: 0, aVencer: 0, numAVencer: 0,
+      semFatura: 0, clientes: { emDia: 0, inadimplentes: 0 }, atualizadoEm: null,
+    });
+    expect(banco.consultas).toHaveLength(3);
+    for (const c of banco.consultas) conferirTenant(c);
+  });
+
+  it("as quatro categorias saem das faturas do mes, e os clientes atuais sao contados contra elas", async () => {
+    responderResumo({
+      faturas: ["1000.00", "0", "150.00", "300.00", "2", "550.00", "5"],
+      clientes: ["4", "2", "30"],
+      base: ["12", "2026-09-05 03:10:00"],
+    });
+    const r = await storage.resumoDoMes(PROVEDOR, "2026-09", HOJE);
+    expect(r).toMatchObject({
+      base: true, faturado: 1000, recebido: 0, recebidoConfirmado: false, emConciliacao: 150,
+      inadimplente: 300, numInadimplentes: 2, aVencer: 550, numAVencer: 5,
+      semFatura: 4, clientes: { emDia: 30, inadimplentes: 2 },
+    });
+    expect(r.atualizadoEm).toBeInstanceOf(Date);
+    expect(r.atualizadoEm!.toISOString()).toBe("2026-09-05T03:10:00.000Z");
+
+    const [faturas, clientes, base] = banco.consultas;
+    // O universo: faturas do provedor vencendo em [de, ate), nos cinco status.
+    expect(faturas.sql).toContain('"invoices"."due_date" >= $');
+    expect(faturas.sql).toContain('"invoices"."due_date" < $');
+    expect(faturas.params).toEqual(expect.arrayContaining(["2026-09-01", "2026-10-01", "2026-09-05", "aberta", "pending", "overdue", "paid", "baixada_no_erp"]));
+    // Vencida = aberta e antes de HOJE (fatura que vence hoje ainda nao venceu).
+    expect(faturas.sql).toMatch(/filter \(where \("invoices"\."status" in \(\$\d+, \$\d+, \$\d+\) and "invoices"\."due_date" < \$\d+::timestamp\)\)/);
+    expect(faturas.sql).toMatch(/filter \(where \("invoices"\."status" in \(\$\d+, \$\d+, \$\d+\) and "invoices"\."due_date" >= \$\d+::timestamp\)\)/);
+    // Clientes ATUAIS (ativo/suspenso), contra as faturas DELES no mes.
+    expect(clientes.sql).toContain('"customers"."status" in ($');
+    expect(clientes.params).toEqual(expect.arrayContaining(["active", "suspended"]));
+    expect(clientes.sql).toContain('"invoices"."customer_id" = "customers"."id"');
+    expect(clientes.sql).toContain("not exists (");
+    // A base: alguma fatura do ERP (erp_source nao nulo) deste provedor.
+    expect(base.sql).toContain('"invoices"."erp_source" is not null');
+  });
+});
+
+describe("clientesDoMes", () => {
+  it("sem_fatura: cliente atual sem nenhuma fatura no mes", async () => {
+    banco.responder = () => [[1], [2]];
+    const ids = await storage.clientesDoMes(PROVEDOR, "2026-09", "sem_fatura", { hoje: HOJE, limite: 10 });
+    expect(ids).toEqual([1, 2]);
+    const c = banco.consultas[0];
+    expect(c.sql).toMatch(/^select "id" from "customers"/);
+    expect(c.sql).toContain("not exists (select 1 from \"invoices\"");
+    expect(c.sql).toMatch(/limit \$\d+$/);
+    expect(c.params).toContain(10);
+    conferirTenant(c);
+  });
+
+  it("pago, inadimplente e a_vencer saem das faturas do mes, distintos por cliente", async () => {
+    banco.responder = () => [[42]];
+    for (const grupo of ["pago", "inadimplente", "a_vencer"] as const) {
+      banco.consultas.length = 0;
+      const ids = await storage.clientesDoMes(PROVEDOR, "2026-09", grupo, { hoje: HOJE });
+      expect(ids).toEqual([42]);
+      const c = banco.consultas[0];
+      expect(c.sql).toMatch(/^select distinct "customer_id" from "invoices"/);
+      conferirTenant(c);
+      expect(c.params).toEqual(expect.arrayContaining(["2026-09-01", "2026-10-01"]));
+      if (grupo === "pago") expect(c.params).toEqual(expect.arrayContaining(["paid", "baixada_no_erp"]));
+      if (grupo === "inadimplente") expect(c.sql).toMatch(/"due_date" < \$\d+::timestamp/);
+      if (grupo === "a_vencer") expect(c.sql).toMatch(/"due_date" >= \$\d+::timestamp/);
+      expect(c.params).toContain(20_000);
+    }
+  });
+});

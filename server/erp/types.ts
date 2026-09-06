@@ -91,6 +91,29 @@ export interface ErpTestResult {
   latencyMs?: number;
 }
 
+/**
+ * Uma fatura EM ABERTO no ERP, do jeito que a varredura grava em `invoices`.
+ *
+ * Nasceu na fase 2 da cobranca (05/09/2026): o agregado por cliente
+ * (totalOverdueAmount, maxDaysOverdue) responde "quanto deve", mas nao "qual
+ * mes ficou sem pagar" nem "quem ficou sem fatura este mes" — isso exige a
+ * fatura com o vencimento dela. Vai VENCIDA e A VENCER: a vencer nao e atraso,
+ * mas e fatura do mes, e sem ela o resumo diria que o cliente em dia ficou
+ * sem faturamento.
+ */
+export interface FaturaAbertaDoErp {
+  /**
+   * Id da fatura no ERP — a chave de (provedor, fonte). E o que faz a
+   * varredura seguinte reconhecer a MESMA fatura em vez de duplica-la, e o
+   * que prova que ela sumiu dos pendentes quando deixa de vir. Nunca vazio.
+   */
+  ref: string;
+  /** Vencimento como AAAA-MM-DD — dia de calendario, sem hora e sem fuso. */
+  vencimento: string;
+  valor: number;
+  descricao?: string | null;
+}
+
 /** Normalized customer record — common shape across all ERPs */
 export interface NormalizedErpCustomer {
   cpfCnpj: string;
@@ -111,6 +134,13 @@ export interface NormalizedErpCustomer {
   totalOverdueAmount: number;
   maxDaysOverdue: number;
   overdueInvoicesCount?: number;
+  /**
+   * As faturas em aberto deste cliente, uma a uma — vencidas E a vencer, so as
+   * de data legivel. Nao altera a divida: `totalOverdueAmount` continua sendo
+   * a soma das VENCIDAS. Ausente = o conector nao le fatura a fatura (o sync
+   * entao nao grava nem baixa nada de `invoices` para ele).
+   */
+  faturasAbertas?: FaturaAbertaDoErp[];
   hasUnreturnedEquipment?: boolean;
   unreturnedEquipmentCount?: number;
   equipmentDetails?: Array<{
@@ -214,6 +244,31 @@ export interface ErpFetchResult {
    * e o comportamento que os demais conectores ja tinham. Sinalizar e opt-in.
    */
   leituraParcial?: boolean;
+
+  /**
+   * Faturas em aberto de quem NAO esta em `customers` por estar EM DIA — o
+   * cliente com a mensalidade do mes ainda a vencer e nada vencido.
+   *
+   * `fetchDelinquents` devolve so quem deve, e e a decisao certa para a divida.
+   * Mas o resumo do mes precisa da fatura a vencer de quem esta em dia — sem
+   * ela, todo cliente pagante apareceria como "sem fatura no mes", que e o
+   * buraco de faturamento que a tela existe para apontar. O MK le a fatura de
+   * cada cliente na varredura e ja tem esse dado na mao; entrega por aqui em
+   * vez de inflar a lista de inadimplentes com gente que nao deve. O sync
+   * resolve o cliente pelo documento e grava as faturas.
+   */
+  faturasDeClientesEmDia?: Array<{ cpfCnpj: string; faturasAbertas: FaturaAbertaDoErp[] }>;
+
+  /**
+   * `true` quando o conector TENTOU ler as faturas em aberto e nao conseguiu —
+   * `faturasAbertas` ausente nesta resposta nao significa "sem fatura".
+   *
+   * O sync usa a lista de faturas vistas como prova NEGATIVA: a que estava
+   * aberta e nao apareceu e marcada `baixada_no_erp`. Com a leitura das
+   * faturas falha, essa prova nao existe, e nada pode ser baixado — o mesmo
+   * raciocinio de `leituraParcial`, so que para a fatura e nao para o cliente.
+   */
+  faturasNaoLidas?: boolean;
 }
 
 /**

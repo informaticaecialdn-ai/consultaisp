@@ -2,21 +2,36 @@
  * Um cliente da carteira — o card e a linha da tabela, célula a célula com a
  * mesma regra: dado ausente é "—", nunca zero, nunca chute.
  *
- * O molde é o `.ct-card` do Provedor.ai (avatar · nome · cidade · plano ·
- * selos · em aberto · atraso · saúde · rodapé), na pele desta casa. O plano
- * é sempre "—" na fase 1: `customers` não guarda o plano, e o card diz isso
- * no title em vez de esconder a coluna.
+ * O molde é o `.ct-card` da tela "Sua carteira" do Provedor.ai (pedido do
+ * dono, 05/09/2026: "faça exatamente igual"): avatar · nome · cidade · plano;
+ * chips de situação, DNA e histórico; "Em aberto R$" ou "Situação em dia" com
+ * a pílula D+atraso; a barra de saúde; e o rodapé Crédito · Propensão · MRR.
+ * O que o nosso sync ainda não traz (plano, MRR, propensão, score de crédito
+ * externo) sai como "—" com o motivo no title — igual à regra de ouro deles.
  */
-import { CalendarClock, Milestone, UserRound } from "lucide-react";
-import { etapaPorId, ROTULO_MOTIVO_SEM_ETAPA, type Etapa, type EtapaId, type MotivoSemEtapa } from "@shared/cobranca";
+import { ROTULO_CONFIABILIDADE, ROTULO_STATUS_DE_CASO, etapaPorId, ROTULO_MOTIVO_SEM_ETAPA, type Confiabilidade, type Etapa, type EtapaId, type MotivoSemEtapa, type StatusDeCaso } from "@shared/cobranca";
 import { cn } from "@/lib/utils";
-import { brl, TRACO } from "@/components/localizacao/ui";
+import { brl, num, TRACO } from "@/components/localizacao/ui";
 import { FOCO, Td } from "@/components/painel/ui";
 import { faixaDoScore, proximoContato } from "./formatacao";
 import type { ItemDaCarteira } from "./tipos";
-import { Avatar, BarraDeScore, PilulaAtraso, SeloErp, SeloQuadrante, SeloStatusCaso, Traco } from "./ui";
+import { Avatar, BarraDeScore, PilulaAtraso, SeloCobranca, SeloErp, SeloQuadrante, SeloStatusCaso, Traco, type TomDeSelo } from "./ui";
 
-const MOTIVO_SEM_PLANO = "O sync do ERP não traz o plano — fase 2";
+export const MOTIVO_SEM_PLANO = "O sync do ERP não traz o plano — fase 2";
+export const MOTIVO_SEM_MRR = "O sync do ERP não traz o valor do plano (MRR) — fase 2";
+export const MOTIVO_SEM_PROPENSAO = "Propensão a pagar é um modelo a criar — nada inventado";
+export const MOTIVO_SEM_CREDITO = "Score de crédito externo (bureau) — não consultado para este cliente";
+
+const TOM_DA_CONFIABILIDADE: Record<Confiabilidade, TomDeSelo> = { em_dia: "ok", oscila: "gated", cronico: "past" };
+
+/** "Em dia · Oscila · Crônico" do DNA; sem histórico suficiente, diz isso. */
+export function SeloHistorico({ confiabilidade }: { confiabilidade: string | null | undefined }) {
+  if (!confiabilidade || !(confiabilidade in ROTULO_CONFIABILIDADE)) {
+    return <SeloCobranca tom="neutro" titulo="Sem histórico de pagamento suficiente para o DNA">Sem histórico</SeloCobranca>;
+  }
+  const c = confiabilidade as Confiabilidade;
+  return <SeloCobranca tom={TOM_DA_CONFIABILIDADE[c]} titulo="Confiabilidade do DNA de pagamento">{ROTULO_CONFIABILIDADE[c]}</SeloCobranca>;
+}
 
 function rotuloDaEtapa(id: string | null, etapas?: readonly Etapa[]): string | null {
   if (!id) return null;
@@ -35,6 +50,9 @@ function etapaDoItem(item: ItemDaCarteira, etapas?: readonly Etapa[]) {
   return <Traco titulo="Sem caso: sem etapa" />;
 }
 
+const MINI = "font-mono text-[9.5px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]";
+const NUM = "font-mono tabular-nums";
+
 export function CardCliente({ item, etapas, hoje, onAbrir }: {
   item: ItemDaCarteira;
   etapas?: readonly Etapa[];
@@ -44,7 +62,7 @@ export function CardCliente({ item, etapas, hoje, onAbrir }: {
   const devendo = item.dividaAtual > 0;
   const score = item.ispScore;
   const faixa = score !== null ? faixaDoScore(score) : null;
-  const contato = item.caso ? proximoContato(item.caso.proximoContatoEm, hoje) : null;
+  void etapas; void hoje;
 
   return (
     <article
@@ -55,60 +73,61 @@ export function CardCliente({ item, etapas, hoje, onAbrir }: {
       aria-label={`${item.nome} — abrir cliente 360`}
       data-testid={`card-cliente-${item.customerId}`}
       className={cn(
-        "flex cursor-pointer flex-col gap-2.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-[14px] py-3 text-left hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] motion-safe:transition-colors",
+        "flex cursor-pointer flex-col gap-2.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-[14px] py-3 text-left hover:border-[var(--border-strong)] hover:shadow-[0_0_0_1px_var(--border-strong)] motion-safe:transition-[border-color,box-shadow]",
         FOCO,
       )}
     >
+      {/* topo: avatar + nome + cidade · plano */}
       <div className="flex items-center gap-2.5">
         <Avatar nome={item.nome} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13.5px] font-semibold leading-tight text-[var(--text)]">{item.nome}</p>
           <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">
-            {item.cidade ?? TRACO}{item.bairro ? ` · ${item.bairro}` : ""} · <span title={MOTIVO_SEM_PLANO}>{item.plano ?? "plano —"}</span>
+            {item.cidade ?? TRACO} · <span title={MOTIVO_SEM_PLANO}>{item.plano ?? TRACO}</span>
           </p>
         </div>
-        <span className="font-mono text-[11px] tabular-nums text-[var(--text-muted)]">{item.documentoMascarado}</span>
+        <span className={cn(NUM, "text-[11px] text-[var(--text-muted)]")}>{item.documentoMascarado}</span>
       </div>
 
+      {/* chips: situação + DNA + histórico */}
       <div className="flex flex-wrap gap-1.5">
         <SeloErp status={item.statusErp} />
         <SeloQuadrante quadrante={item.quadrante} />
-        <SeloStatusCaso status={item.caso?.status ?? null} />
+        <SeloHistorico confiabilidade={item.confiabilidade} />
+        {item.caso && <SeloStatusCaso status={item.caso.status} />}
       </div>
 
-      <div className="flex items-baseline gap-2 rounded bg-[var(--surface-2)] px-2.5 py-2">
+      {/* grana: em aberto (vencidas) ou "em dia" + D+atraso */}
+      <div className="flex items-baseline gap-2 rounded bg-[var(--surface-2)] px-[11px] py-[9px]">
         <div>
-          <p className="font-mono text-[9.5px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]">{devendo ? "em aberto" : "situação"}</p>
-          <p className={cn("font-mono text-[17px] font-medium tabular-nums tracking-[-0.01em]", devendo ? "text-[var(--money-neg)]" : "text-[var(--ok)]")}>
-            {devendo ? brl(item.dividaAtual) : "em dia"}
+          <p className={MINI}>{devendo ? "em aberto" : "situação"}</p>
+          <p className={cn(NUM, "text-[17px] font-semibold tracking-[-0.01em]", devendo ? "text-[var(--money-neg)]" : "text-[var(--ok)]")}>
+            {devendo ? <><span className="text-[11px] font-medium text-[var(--text-muted)]">R$ </span>{brl(item.dividaAtual).replace(/^R\$\s?/, "")}</> : "em dia"}
           </p>
         </div>
-        <span className="ml-auto"><PilulaAtraso dias={item.diasAtraso} /></span>
+        {item.diasAtraso > 0 && <span className="ml-auto"><PilulaAtraso dias={item.diasAtraso} /></span>}
       </div>
 
+      {/* saúde: barra + número (null → barra vazia + "—") */}
       <div className="flex items-center gap-2">
-        <span className="w-[42px] font-mono text-[9.5px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]">crédito</span>
+        <span className={cn(MINI, "w-[42px]")}>saúde</span>
         <BarraDeScore score={score} cor={faixa?.cor ?? "var(--border-strong)"} />
-        <span className="w-8 text-right font-mono text-[12px] font-medium tabular-nums text-[var(--text)]" title={faixa ? `Score ISP ${score} — ${faixa.rotulo}` : "Sem score ISP"}>
-          {score !== null ? score : TRACO}
+        <span className={cn(NUM, "w-8 text-right text-[12px] font-medium text-[var(--text)]")} title={faixa ? `Score ISP ${score} — ${faixa.rotulo}` : "Sem score ISP calculado"}>
+          {score !== null ? num(score) : TRACO}
         </span>
       </div>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 border-t border-[var(--border-faint)] pt-2 text-[11px]">
-        <dt className="flex items-center gap-1 text-[var(--text-faint)]"><Milestone className="h-3 w-3" aria-hidden /> etapa</dt>
-        <dd className="truncate text-[var(--text-2)]">{etapaDoItem(item, etapas)}</dd>
-        <dt className="flex items-center gap-1 text-[var(--text-faint)]"><UserRound className="h-3 w-3" aria-hidden /> resp.</dt>
-        <dd className="truncate text-[var(--text-2)]">{item.caso ? (item.caso.responsavel?.nome ?? <span className="text-[var(--text-faint)]">fila geral</span>) : <Traco />}</dd>
-        <dt className="flex items-center gap-1 text-[var(--text-faint)]"><CalendarClock className="h-3 w-3" aria-hidden /> contato</dt>
-        <dd className={cn("truncate font-mono tabular-nums", contato?.urgencia === "vencido" ? "text-[var(--danger)]" : "text-[var(--text-2)]")}>
-          {contato ? contato.texto : <Traco />}
-        </dd>
-      </dl>
+      {/* rodapé: crédito · propensão · MRR */}
+      <div className="flex items-center gap-2.5 border-t border-[var(--border-faint)] pt-[9px] text-[11px] text-[var(--text-muted)]">
+        <span title={MOTIVO_SEM_CREDITO}>Crédito <b className={cn(NUM, "text-[var(--text)]")}>{TRACO}</b></span>
+        <span title={MOTIVO_SEM_PROPENSAO}>Propensão <b className={cn(NUM, "text-[var(--text)]")}>{item.propensao != null ? `${num(item.propensao)}%` : TRACO}</b></span>
+        <span className="ml-auto" title={MOTIVO_SEM_MRR}>MRR <b className={cn(NUM, "text-[var(--text)]")}>{item.mrr != null ? brl(item.mrr) : TRACO}</b></span>
+      </div>
     </article>
   );
 }
 
-/** A mesma leitura em forma de linha — a tabela da visão "Tabela". */
+/** A mesma leitura em forma de linha — a tabela da visão "Tabela" (colunas do Provedor.ai; Agente virou Responsável, que é o que temos). */
 export function LinhaDoCliente({ item, etapas, hoje, onAbrir }: {
   item: ItemDaCarteira;
   etapas?: readonly Etapa[];
@@ -137,20 +156,33 @@ export function LinhaDoCliente({ item, etapas, hoje, onAbrir }: {
       </Td>
       <Td num alinhamento="esquerda">{item.documentoMascarado}</Td>
       <Td><span title={MOTIVO_SEM_PLANO}>{item.plano ?? <Traco titulo={MOTIVO_SEM_PLANO} />}</span></Td>
-      <Td><SeloErp status={item.statusErp} /></Td>
-      <Td num className={item.dividaAtual > 0 ? "text-[var(--money-neg)]" : undefined}>{item.dividaAtual > 0 ? brl(item.dividaAtual) : <Traco />}</Td>
-      <Td alinhamento="direita"><PilulaAtraso dias={item.diasAtraso} /></Td>
-      <Td><SeloQuadrante quadrante={item.quadrante} /></Td>
+      <Td num>{item.mrr != null ? brl(item.mrr) : <Traco titulo={MOTIVO_SEM_MRR} />}</Td>
+      <Td num className={item.dividaAtual > 0 ? "text-[var(--money-neg)]" : "text-[var(--ok)]"}>{item.dividaAtual > 0 ? brl(item.dividaAtual) : "em dia"}</Td>
+      <Td alinhamento="direita">{item.diasAtraso > 0 ? <PilulaAtraso dias={item.diasAtraso} /> : <Traco />}</Td>
+      <Td><span className="inline-flex flex-wrap gap-1"><SeloQuadrante quadrante={item.quadrante} /><SeloHistorico confiabilidade={item.confiabilidade} /></span></Td>
       <Td>
         <span className="inline-flex w-[88px] items-center gap-2">
           <BarraDeScore score={score} cor={faixa?.cor ?? "var(--border-strong)"} />
-          <span className="font-mono text-[12px] tabular-nums">{score !== null ? score : TRACO}</span>
+          <span className={cn(NUM, "text-[12px]")}>{score !== null ? num(score) : TRACO}</span>
         </span>
       </Td>
+      <Td num><Traco titulo={MOTIVO_SEM_CREDITO} /></Td>
+      <Td num>{item.propensao != null ? `${num(item.propensao)}%` : <Traco titulo={MOTIVO_SEM_PROPENSAO} />}</Td>
       <Td>{etapaDoItem(item, etapas)}</Td>
       <Td>{item.caso ? (item.caso.responsavel?.nome ?? <span className="text-[var(--text-faint)]">fila geral</span>) : <Traco />}</Td>
       <Td num alinhamento="esquerda" className={contato?.urgencia === "vencido" ? "text-[var(--danger)]" : undefined}>{contato ? contato.texto : <Traco />}</Td>
-      <Td><SeloStatusCaso status={item.caso?.status ?? null} /></Td>
+      <Td>
+        <span className="inline-flex flex-wrap gap-1">
+          <SeloErp status={item.statusErp} />
+          {item.caso && <SeloStatusCaso status={item.caso.status} />}
+        </span>
+      </Td>
     </tr>
   );
+}
+
+/** O rótulo de status do caso, para a tabela e os títulos. */
+export function rotuloDoCaso(status: string | null | undefined): string | null {
+  if (!status) return null;
+  return ROTULO_STATUS_DE_CASO[status as StatusDeCaso] ?? status;
 }

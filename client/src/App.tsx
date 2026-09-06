@@ -103,7 +103,10 @@ function Router() {
         <Route path="/importacao-equipamentos"><Redirect to="/equipamentos?importar=1" /></Route>
         <Route path="/equipamentos" component={EquipamentosPage} />
         <Route path="/recuperacao" component={RecuperacaoPage} />
-        <Route path="/cobranca" component={CobrancaCarteiraPage} />
+        {/* A carteira tem dois espacos (Provedor.ai): /cobranca cai no de ativos. */}
+        <Route path="/cobranca"><Redirect to="/cobranca/ativos" /></Route>
+        <Route path="/cobranca/ativos">{() => <CobrancaCarteiraPage espaco="ativos" />}</Route>
+        <Route path="/cobranca/ex-clientes">{() => <CobrancaCarteiraPage espaco="ex" />}</Route>
         <Route path="/cobranca/cliente/:id" component={CobrancaCliente360Page} />
         <Route path="/cobranca/fila" component={CobrancaFilaPage} />
         <Route path="/cobranca/kanban" component={CobrancaKanbanPage} />

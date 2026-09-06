@@ -58,6 +58,12 @@ const storageMock = vi.hoisted(() => ({
   marcarParcelaPaga: vi.fn(async (): Promise<any> => undefined),
   filaDeCobranca: vi.fn(async (): Promise<any[]> => []),
   clientesParaAbrirCaso: vi.fn(async (): Promise<any[]> => []),
+  clientesAtivosEmDia: vi.fn(async (): Promise<any> => ({ linhas: [], total: 0 })),
+  clientesDoMes: vi.fn(async (): Promise<number[]> => []),
+  resumoDoMes: vi.fn(async (): Promise<any> => ({
+    mes: "2026-09", base: false, faturado: 0, recebido: 0, recebidoConfirmado: false, emConciliacao: 0, inadimplente: 0, numInadimplentes: 0,
+    aVencer: 0, numAVencer: 0, semFatura: 0, clientes: { emDia: 0, inadimplentes: 0 }, atualizadoEm: null,
+  })),
   getEquipmentByCustomer: vi.fn(async (): Promise<any[]> => []),
   getRecoveryCases: vi.fn(async (): Promise<any[]> => []),
   getRecentConsultationsForDocument: vi.fn(async (): Promise<any[]> => []),
@@ -207,7 +213,96 @@ describe("ispScoreReal", () => {
 
 /* ── Carteira ────────────────────────────────────────────────────────── */
 
+describe("GET /api/cobranca/carteira/mes", () => {
+  it("sem fatura do ERP: live=false com o motivo; com base: o resumo inteiro e o mes pedido", async () => {
+    sessao = OPERADOR;
+    const semBase = await json("GET", "/api/cobranca/carteira/mes?mes=2026-09");
+    expect(semBase.status).toBe(200);
+    const b1 = await semBase.json();
+    expect(b1.live).toBe(false);
+    expect(b1.motivo).toMatch(/fatura a fatura/);
+    expect(storageMock.resumoDoMes).toHaveBeenCalledWith(42, "2026-09", expect.any(Date));
+
+    storageMock.resumoDoMes.mockResolvedValueOnce({
+      mes: "2026-08", base: true, faturado: 1000, recebido: 0, recebidoConfirmado: false, emConciliacao: 250, inadimplente: 300, numInadimplentes: 3,
+      aVencer: 450, numAVencer: 5, semFatura: 12, clientes: { emDia: 500, inadimplentes: 24 }, atualizadoEm: new Date("2026-09-05T03:00:00Z"),
+    });
+    const comBase = await json("GET", "/api/cobranca/carteira/mes?mes=2026-08");
+    const b2 = await comBase.json();
+    expect(b2.live).toBe(true);
+    expect(b2.motivo).toBeNull();
+    expect(b2.resumo).toMatchObject({ mes: "2026-08", inadimplente: 300, aVencer: 450, semFatura: 12, atualizadoEm: "2026-09-05T03:00:00.000Z" });
+
+    const invalido = await json("GET", "/api/cobranca/carteira/mes?mes=2026-13");
+    expect(invalido.status).toBe(400);
+  });
+
+  it("sem mes na query, o mes corrente", async () => {
+    sessao = OPERADOR;
+    await json("GET", "/api/cobranca/carteira/mes");
+    const agora = new Date();
+    expect(storageMock.resumoDoMes).toHaveBeenLastCalledWith(42, `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`, expect.any(Date));
+  });
+});
+
 describe("GET /api/cobranca/carteira", () => {
+  it("o chip do mes vira um recorte de ids: os tres segmentos passam por ele", async () => {
+    sessao = OPERADOR;
+    storageMock.clientesDoMes.mockResolvedValueOnce([2, 77]);
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [linhaCaso({ id: 1, cliente: { ...linhaCaso().cliente, id: 1 } }), linhaCaso({ id: 2, cliente: { ...linhaCaso().cliente, id: 2 } })], total: 2 });
+    storageMock.clientesParaAbrirCaso.mockResolvedValueOnce([
+      { customerId: 3, nome: "Fora", cpfCnpj: "111", statusErp: "active", carteira: "ativo", dividaAtual: 50, diasAtraso: 10, faturasAbertas: 1, contractStartDate: null },
+    ]);
+    storageMock.clientesAtivosEmDia.mockResolvedValueOnce({ linhas: [], total: 0 });
+    const res = await json("GET", "/api/cobranca/carteira?carteira=ativo&mes=2026-09&mesStatus=a_vencer");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(storageMock.clientesDoMes).toHaveBeenCalledWith(42, "2026-09", "a_vencer");
+    // caso do cliente 1 e o candidato 3 ficam de fora; o em-dia recebe o recorte de ids
+    expect(body.itens.map((i: any) => i.customerId)).toEqual([2]);
+    expect(storageMock.clientesAtivosEmDia).toHaveBeenCalledWith(42, expect.objectContaining({ ids: [2, 77] }), expect.anything());
+
+    // "inadimplente" nunca lista quem esta em dia; ex-clientes nao tem mes
+    storageMock.clientesAtivosEmDia.mockClear();
+    storageMock.clientesDoMes.mockResolvedValueOnce([2]);
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [], total: 0 });
+    await json("GET", "/api/cobranca/carteira?carteira=ativo&mesStatus=inadimplente");
+    expect(storageMock.clientesAtivosEmDia).not.toHaveBeenCalled();
+    storageMock.clientesDoMes.mockClear();
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [], total: 0 });
+    await json("GET", "/api/cobranca/carteira?carteira=ex_cliente&mesStatus=pago");
+    expect(storageMock.clientesDoMes).not.toHaveBeenCalled();
+  });
+
+  it("espaco de ativos: quem esta em dia entra DEPOIS de quem deve, e so sem filtro de devedor", async () => {
+    sessao = OPERADOR;
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [linhaCaso({ id: 1 })], total: 1 });
+    storageMock.clientesAtivosEmDia.mockResolvedValueOnce({
+      linhas: [{ customerId: 77, nome: "Zelia Em Dia", cpfCnpj: "98765432100", statusErp: "active", telefone: null, cidade: "Ibipora", bairro: "Centro", contractStartDate: "2020-01-01" }],
+      total: 546,
+    });
+    const res = await json("GET", "/api/cobranca/carteira?carteira=ativo&busca=zel&bairro=Centro");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(storageMock.clientesAtivosEmDia).toHaveBeenCalledWith(42, { busca: "zel", bairro: "Centro" }, { offset: 0, limite: 49 });
+    expect(body.itens.map((i: any) => i.customerId)).toEqual([1, 77]);
+    const emDia = body.itens[1];
+    expect(emDia).toMatchObject({ nome: "Zelia Em Dia", dividaAtual: 0, diasAtraso: 0, caso: null, carteira: "ativo", documentoMascarado: expect.stringContaining("***") });
+    expect(body.total).toBe(1 + 546);
+    expect(body.totais).toEqual({ casos: 1, semCaso: 0, emDia: 546 });
+
+    // filtro de devedor (divida, etapa, status, saude, quadrante, responsavel) deixa o segmento de fora
+    storageMock.clientesAtivosEmDia.mockClear();
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [], total: 0 });
+    await json("GET", "/api/cobranca/carteira?carteira=ativo&divida=ate-100");
+    expect(storageMock.clientesAtivosEmDia).not.toHaveBeenCalled();
+
+    // e o espaco de ex-clientes nunca lista quem esta em dia
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [], total: 0 });
+    await json("GET", "/api/cobranca/carteira?carteira=ex_cliente");
+    expect(storageMock.clientesAtivosEmDia).not.toHaveBeenCalled();
+  });
+
   it("401 sem sessao, e o storage nem e consultado", async () => {
     const res = await json("GET", "/api/cobranca/carteira");
     expect(res.status).toBe(401);
