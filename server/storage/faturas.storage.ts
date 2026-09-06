@@ -36,7 +36,7 @@
  */
 import { and, eq, gte, inArray, isNotNull, lt, max, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
-import { customers, invoices } from "@shared/schema";
+import { cobrancaEventos, customers, invoices } from "@shared/schema";
 import type { FaturaAbertaDoErp } from "../erp/types";
 import { STATUS_DE_CLIENTE_ATUAL } from "./cobranca.storage";
 
@@ -68,6 +68,37 @@ export interface ResumoDoMes {
   clientes: { emDia: number; inadimplentes: number };
   /** Ultima varredura que tocou uma fatura do ERP deste provedor. */
   atualizadoEm: Date | null;
+}
+
+/** Quem conduziu o contato que antecedeu a baixa — ver `recuperacaoAposContato`. */
+export const ORIGENS_DE_CONTATO = ["assistente", "operador", "indefinido"] as const;
+export type OrigemDeContato = (typeof ORIGENS_DE_CONTATO)[number];
+
+/** Uma quebra do recuperado: por origem do contato ou por canal. */
+export interface RecorteDaRecuperacao {
+  chave: string;
+  valor: number;
+  faturas: number;
+  clientes: number;
+}
+
+export interface RecuperacaoAposContato {
+  /** Ha do que falar: fatura vinda do ERP E alguma baixa de varredura completa. */
+  base: boolean;
+  /** Por que nao ha base. `null` quando ha. */
+  motivo: string | null;
+  /** Periodo medido, em dias, terminando em `ate`. */
+  dias: number;
+  /** Quantos dias antes da baixa um contato ainda conta como o que a antecedeu. */
+  janelaDias: number;
+  desde: Date;
+  ate: Date;
+  /** `null` quando `base` e false — a tela mostra "—", nunca R$ 0,00. */
+  valor: number | null;
+  faturas: number | null;
+  clientes: number | null;
+  porOrigem: RecorteDaRecuperacao[];
+  porCanal: RecorteDaRecuperacao[];
 }
 
 const LOTE_DE_UPSERT = 500;
@@ -381,5 +412,131 @@ export class FaturasStorage {
       ))
       .limit(limite);
     return linhas.map(l => l.id);
+  }
+
+  /**
+   * QUANTO A COBRANCA RECUPEROU DEPOIS DE UM CONTATO (C6 do 2Safe).
+   *
+   * A pergunta do dono e "o contato adiantou alguma coisa?". A resposta
+   * possivel com o dado que existe: as faturas que SUMIRAM dos pendentes do
+   * ERP (`baixada_no_erp`) num periodo, cujo cliente tinha recebido um contato
+   * registrado nos dias anteriores.
+   *
+   * SO VARREDURA COMPLETA CONTA — e nao ha filtro aqui para isso, de
+   * proposito. Quem grava `baixada_no_erp` e `baixarFaturasSumidas` (acima), e
+   * o unico chamador dela e o sync, sob esta condicao
+   * (`server/services/erp-sync.service.ts`, passo 3c):
+   *
+   *     const varreduraCompleta = leituraCompleta && errors === 0
+   *       && !falhaNaCarteira && !faturasNaoLidas;
+   *     if (varreduraCompleta && refsVistas.size > 0) { ... }
+   *
+   * Ou seja: leitura completa da carteira, zero erros, nenhuma carteira que
+   * falhou e nenhuma fatura nao lida. Em varredura parcial nada e baixado,
+   * entao toda linha `baixada_no_erp` ja nasceu de uma varredura completa. Se
+   * um dia outro caminho gravar esse status, a conta aqui passa a mentir — por
+   * isso a regra esta escrita, e nao so subentendida.
+   *
+   * A baixa e PAGAMENTO PROVAVEL, nunca confirmado: nenhum ERP nos diz o valor
+   * pago (o mesmo motivo de `recebidoConfirmado: false` no resumo do mes).
+   *
+   * ATRIBUICAO DE ULTIMO TOQUE: cada fatura conta UMA vez, para o contato mais
+   * recente dentro da janela. Sem isso, um cliente contatado por dois canais
+   * somaria a mesma fatura duas vezes e o total nao fecharia com a realidade.
+   *
+   * ORIGEM DO CONTATO — o que o dado permite afirmar, e nada alem:
+   *   `assistente` = a MENSAGEM foi escrita pela maquina (o agente de IA ou um
+   *      template aprovado). E o que `origemTexto` marca em
+   *      `chat-ponte.service.ts`; vale tanto para a rodada automatica quanto
+   *      para o operador que clicou "Enviar p/ cobranca" — o evento gravado e
+   *      o mesmo, e o banco NAO distingue as duas iniciativas.
+   *   `operador` = a pessoa escreveu o texto ou registrou o contato a mao.
+   *   `indefinido` = nem um nem outro (linha antiga, sem usuario e sem chat).
+   */
+  async recuperacaoAposContato(
+    providerId: number,
+    opcoes: { dias?: number; janelaDias?: number; hoje?: Date } = {},
+  ): Promise<RecuperacaoAposContato> {
+    const hoje = opcoes.hoje ?? new Date();
+    const dias = Math.max(1, Math.min(Math.trunc(opcoes.dias ?? 30), 365));
+    const janelaDias = Math.max(1, Math.min(Math.trunc(opcoes.janelaDias ?? 7), 90));
+    const desde = new Date(hoje.getTime() - dias * 86_400_000);
+
+    // A base: existe fatura vinda do ERP, e alguma varredura completa ja
+    // baixou alguma? Sem uma das duas o KPI e "—" com motivo, nunca R$ 0,00.
+    const [b] = await db.select({
+      doErp: sql<number>`count(*) filter (where ${invoices.erpSource} is not null)`.mapWith(Number),
+      baixadas: sql<number>`count(*) filter (where ${invoices.status} = 'baixada_no_erp')`.mapWith(Number),
+    })
+      .from(invoices)
+      .where(eq(invoices.providerId, providerId));
+
+    const vazio = (motivo: string): RecuperacaoAposContato => ({
+      base: false, motivo, dias, janelaDias, desde, ate: hoje,
+      valor: null, faturas: null, clientes: null, porOrigem: [], porCanal: [],
+    });
+    if ((b?.doErp ?? 0) === 0) return vazio("Nenhuma fatura veio do ERP deste provedor; nao ha o que conciliar.");
+    if ((b?.baixadas ?? 0) === 0) return vazio("Nenhuma varredura completa fechou fatura ainda; sem baixa nao ha recuperacao para medir.");
+
+    // Fatura baixada no periodo x contato do MESMO provedor ao MESMO cliente,
+    // nos `janelaDias` que antecederam a baixa. `ordem = 1` e o ultimo toque.
+    const pares = db.select({
+      faturaId: invoices.id,
+      customerId: invoices.customerId,
+      valor: invoices.value,
+      canal: sql<string>`coalesce(${cobrancaEventos.canal}, 'nao_informado')`.as("canal"),
+      origem: sql<string>`case
+        when ${cobrancaEventos.metadata}->'chat' is not null
+         and coalesce(${cobrancaEventos.metadata}->>'origemTexto', '') in ('agente_ia', 'template_aprovado') then 'assistente'
+        when ${cobrancaEventos.userId} is not null then 'operador'
+        else 'indefinido' end`.as("origem"),
+      ordem: sql<number>`row_number() over (partition by ${invoices.id} order by ${cobrancaEventos.ocorridoEm} desc, ${cobrancaEventos.id} desc)`.as("ordem"),
+    })
+      .from(invoices)
+      .innerJoin(cobrancaEventos, and(
+        eq(cobrancaEventos.providerId, providerId),
+        eq(cobrancaEventos.customerId, invoices.customerId),
+        eq(cobrancaEventos.tipo, "contato"),
+        sql`${cobrancaEventos.ocorridoEm} <= ${invoices.baixadaEm}`,
+        sql`${cobrancaEventos.ocorridoEm} >= ${invoices.baixadaEm} - make_interval(days => ${janelaDias})`,
+      ))
+      .where(and(
+        eq(invoices.providerId, providerId),
+        eq(invoices.status, "baixada_no_erp"),
+        isNotNull(invoices.erpSource),
+        isNotNull(invoices.baixadaEm),
+        gte(invoices.baixadaEm, desde),
+      ))
+      .as("pares");
+
+    const soma = {
+      valor: sql<number>`coalesce(sum(${pares.valor}), 0)`.mapWith(Number),
+      faturas: sql<number>`count(*)`.mapWith(Number),
+      clientes: sql<number>`count(distinct ${pares.customerId})`.mapWith(Number),
+    };
+    const doUltimoToque = eq(pares.ordem, 1);
+    // Tres agregacoes sobre o MESMO recorte: o total, e as duas quebras. Os
+    // clientes distintos nao se somam entre grupos (o mesmo cliente pode ter
+    // sido tocado por dois canais), entao cada quebra conta os seus.
+    const [total, porOrigem, porCanal] = await Promise.all([
+      db.select(soma).from(pares).where(doUltimoToque),
+      db.select({ chave: pares.origem, ...soma }).from(pares).where(doUltimoToque).groupBy(pares.origem),
+      db.select({ chave: pares.canal, ...soma }).from(pares).where(doUltimoToque).groupBy(pares.canal),
+    ]);
+
+    const ordenar = (linhas: RecorteDaRecuperacao[]) => linhas.slice().sort((a, c) => c.valor - a.valor);
+    return {
+      base: true,
+      motivo: null,
+      dias,
+      janelaDias,
+      desde,
+      ate: hoje,
+      valor: total[0]?.valor ?? 0,
+      faturas: total[0]?.faturas ?? 0,
+      clientes: total[0]?.clientes ?? 0,
+      porOrigem: ordenar(porOrigem),
+      porCanal: ordenar(porCanal),
+    };
   }
 }

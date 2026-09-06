@@ -12,8 +12,11 @@
  */
 import {
   arredondar,
+  avaliarPedidoDeAcordo,
   gerarParcelas,
   validarNegociacao,
+  type Carteira,
+  type OfertaDeAcordo,
   type ParcelaGerada,
   type PedidoDeNegociacao,
   type Politica,
@@ -50,6 +53,28 @@ export function formInicial(valorOriginal: number, primeiroVencimento: string): 
     parcelas: "1",
     primeiroVencimento,
     aceita: false,
+  };
+}
+
+/** Dinheiro para dentro da caixa: 1234.5 vira "1234,50". */
+export function escreverDinheiro(valor: number): string {
+  return valor.toFixed(2).replace(".", ",");
+}
+
+/**
+ * Uma OFERTA da política de acordo preenchendo o formulário (0029): o
+ * operador clica na oferta em vez de digitar o número que a política já
+ * autoriza. `aceita` não vem da oferta — é o operador quem sabe se o cliente
+ * disse sim nesta conversa.
+ */
+export function formDaOferta(oferta: OfertaDeAcordo, atual: FormNegociacao): FormNegociacao {
+  return {
+    ...atual,
+    tipo: oferta.tipo === "a_vista" ? "quitacao_desconto" : "parcelamento",
+    valorNegociado: escreverDinheiro(oferta.valor),
+    entrada: oferta.entrada > 0 ? escreverDinheiro(oferta.entrada) : "",
+    parcelas: String(oferta.parcelas),
+    primeiroVencimento: oferta.vencimentos[0] ?? atual.primeiroVencimento,
   };
 }
 
@@ -125,6 +150,81 @@ export function corpoDaNegociacao(form: FormNegociacao, valorOriginal: number): 
     parcelas: pedido.parcelas,
     primeiroVencimento: form.primeiroVencimento,
     aceita: form.aceita,
+  };
+}
+
+/**
+ * Os motivos pelos quais ESTA proposta vai depender de aprovação, medidos com
+ * a mesma função do servidor (`avaliarPedidoDeAcordo`) sobre a política que a
+ * tela leu. É prévia, não decisão — quem julga é a rota. Sem carteira, sem
+ * atraso ou sem política não há régua, e não prever nada é melhor que prever
+ * pela régua errada.
+ */
+export function excecaoPrevista(
+  form: FormNegociacao,
+  valorOriginal: number,
+  politica: Pick<Politica, "acordo"> | null,
+  alvo: { carteira?: Carteira; diasAtraso?: number } | null,
+): string[] {
+  if (!politica || !alvo?.carteira || alvo.diasAtraso === undefined) return [];
+  const lido = pedidoDoForm(form, valorOriginal);
+  if (!lido.ok) return [];
+  const { pedido } = lido;
+  const decisao = avaliarPedidoDeAcordo({
+    carteira: alvo.carteira,
+    diasAtraso: alvo.diasAtraso,
+    valorOriginal,
+    valorNegociado: pedido.valorNegociado,
+    entrada: pedido.entrada,
+    parcelas: pedido.parcelas,
+  }, { acordo: politica.acordo });
+  return decisao.decisao === "excecao" ? decisao.motivos : [];
+}
+
+/* ── O que o servidor respondeu (201) ─────────────────────────────────── */
+
+/**
+ * O 201 do POST não é um "ok" mudo: ele diz se a proposta ENTROU como acordo
+ * ou se ficou pendente de aprovação. A rota rebaixa a proposta que passou da
+ * faixa da política de acordo (`aceita: b.aceita === true && excecao === null`)
+ * e devolve `exigeAprovacao` + `motivosDaExcecao` — e é isso que a tela tem de
+ * dizer. Escolher a frase pelo checkbox do formulário fazia o toast anunciar
+ * "Acordo registrado" para uma proposta que o servidor deixou esperando.
+ */
+export interface RegistroDaNegociacao {
+  exigeAprovacao: boolean;
+  motivos: string[];
+}
+
+/** Lê o corpo do 201 com desconfiança: corpo estranho vale como "sem exceção". */
+export function registroDaResposta(corpo: unknown): RegistroDaNegociacao {
+  if (!corpo || typeof corpo !== "object") return { exigeAprovacao: false, motivos: [] };
+  const c = corpo as { exigeAprovacao?: unknown; motivosDaExcecao?: unknown };
+  const motivos = Array.isArray(c.motivosDaExcecao) ? c.motivosDaExcecao.map(String) : [];
+  // Motivo sem a marca também é exceção: a marca é a bandeira, os motivos são
+  // o fato — e um deles sem o outro nunca pode virar "acordo registrado".
+  return { exigeAprovacao: c.exigeAprovacao === true || motivos.length > 0, motivos };
+}
+
+export interface AvisoDoRegistro {
+  titulo: string;
+  descricao: string;
+}
+
+/**
+ * O aviso da tela — a verdade da RESPOSTA, não a do checkbox. `contexto` é o
+ * "tipo · cliente" que o operador já esperava ver.
+ */
+export function avisoDoRegistro(registro: RegistroDaNegociacao, aceitaPedida: boolean, contexto: string): AvisoDoRegistro {
+  if (!registro.exigeAprovacao) {
+    return { titulo: aceitaPedida ? "Acordo registrado" : "Proposta registrada", descricao: contexto };
+  }
+  const porque = registro.motivos.length > 0
+    ? registro.motivos.join(" ")
+    : "A proposta passou da faixa da política de acordo desta carteira.";
+  return {
+    titulo: "Proposta pendente de aprovação",
+    descricao: `${porque} Um administrador do provedor precisa aceitá-la para o acordo valer.`,
   };
 }
 

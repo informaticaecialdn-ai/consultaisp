@@ -15,7 +15,7 @@
  * raio de 4px em botão e campo, todo número em mono tabular, skeleton em vez
  * de "Carregando". `--past` aqui só pinta dívida — nunca botão nem avatar.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -61,7 +61,13 @@ import {
   deInputDataHora,
   validarProximoContato,
 } from "@/components/cobranca/formatacao";
-import { mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
+import {
+  mensagemDoErro,
+  SeloCobranca,
+  SeloQuadrante,
+  Traco,
+  useSkeletonAtrasado,
+} from "@/components/cobranca/ui";
 import {
   AvatarChat,
   BOTAO_CHAT_MARCA,
@@ -78,9 +84,15 @@ import {
   ACOES_COMUNS_DO_CHAT,
   API_ATENDIMENTOS,
   API_AUTONOMIA,
+  AVISO_CDC_42,
+  MOTIVO_JANELA_DESCONHECIDA,
+  MOTIVO_SEM_JANELA_DE_CONTATO,
   STATUS_CHAT,
   TAMANHO_MAXIMO_DA_ACAO,
+  TOM_DO_STATUS_CHAT,
   encerrarDispensaFollowUp,
+  faixaDeContato,
+  janelaDaConversa,
   type AcaoChat,
   type DetalheChat,
   type EstadoAutonomiaChat,
@@ -88,13 +100,40 @@ import {
   type OrigemChat,
 } from "./tipos";
 
-const dataHora = (valor: string) =>
-  new Date(valor).toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
+const hora = (valor: string) =>
+  new Date(valor).toLocaleTimeString("pt-BR", {
     hour: "2-digit",
     minute: "2-digit",
   });
+
+/**
+ * Balões de mensageiro: o dia separa, e mensagens seguidas do MESMO autor
+ * dentro de cinco minutos formam um grupo — o nome de quem falou só aparece na
+ * primeira do grupo. Data ilegível não quebra o grupo (dado ruim não vira
+ * desenho errado).
+ */
+const GRUPO_JANELA_MS = 5 * 60_000;
+const dentroDaJanelaDeGrupo = (aIso: string, bIso: string) => {
+  const a = new Date(aIso).getTime();
+  const b = new Date(bIso).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return true;
+  return Math.abs(b - a) < GRUPO_JANELA_MS;
+};
+
+/** "Hoje" · "Ontem" · dd/mm/aaaa. Null quando a data não é legível — aí não há régua de dia. */
+function rotuloDoDia(iso: string, hoje = new Date()): string | null {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  const mesmoDia = (a: Date, b: Date) =>
+    a.getDate() === b.getDate() &&
+    a.getMonth() === b.getMonth() &&
+    a.getFullYear() === b.getFullYear();
+  if (mesmoDia(d, hoje)) return "Hoje";
+  const ontem = new Date(hoje);
+  ontem.setDate(hoje.getDate() - 1);
+  if (mesmoDia(d, ontem)) return "Ontem";
+  return d.toLocaleDateString("pt-BR");
+}
 
 /** Chip de próxima ação: um clique em vez de digitar. Retangular, 4px. */
 const CHIP =
@@ -376,13 +415,17 @@ export function Atendimento({
     refetchOnWindowFocus: false,
     retry: false,
   });
+  // A política é lida sempre, não só ao parcelar: o rodapé do compositor anuncia
+  // a janela de contato do provedor, e ela vem daqui. Sem resposta, o rodapé
+  // mostra traço com o motivo — nunca as 8–20h "de fábrica" como se fossem dele.
   const politica = useQuery({
     queryKey: [API_POLITICA],
     queryFn: async () =>
       lerPolitica(await (await apiRequest("GET", API_POLITICA)).json()),
-    enabled: negociar,
     staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
+  const faixaDeHorario = faixaDeContato(politica.data?.janelaContato);
   // Sem estado (rota ausente, fila sem migração) o botão de devolver fica desligado — nunca finge.
   const autonomia = useQuery<EstadoAutonomiaChat>({
     queryKey: [API_AUTONOMIA],
@@ -533,6 +576,10 @@ export function Atendimento({
   const c = dados.cobranca;
   const nomeDoCliente = dados.cliente?.nome ?? "Cliente";
   const emAtendimento = dados.conversa.status === "OPEN";
+  // A janela de 24 h do WhatsApp sai do que o servidor mandou (direção + instante
+  // de cada mensagem). Sem recebimento no histórico carregado ela é DESCONHECIDA,
+  // e o cabeçalho escreve "janela —" com o porquê no title.
+  const janela = janelaDaConversa(mensagens);
   const pedirEncerrar = () => {
     // Sem caso de cobrança ou caso fechado não há onde gravar o follow-up: encerra direto.
     if (encerrarDispensaFollowUp(c)) acao.mutate({ acao: "encerrar" });
@@ -550,13 +597,45 @@ export function Atendimento({
         <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-3">
           <AvatarChat nome={nomeDoCliente} className="h-10 w-10 text-sm" />
           <div className="min-w-0 flex-1 basis-[calc(100%-4rem)] sm:basis-0">
-            <h2 className="text-sm font-semibold">{nomeDoCliente}</h2>
-            <p className="text-xs text-[var(--text-muted)]">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold">{nomeDoCliente}</h2>
+              <SeloCobranca
+                tom={TOM_DO_STATUS_CHAT[dados.conversa.status] ?? "neutro"}
+                testId="chat-selo-estado"
+              >
+                {STATUS_CHAT[dados.conversa.status] ?? dados.conversa.status}
+              </SeloCobranca>
+              {c && (
+                <SeloQuadrante
+                  quadrante={c.quadrante}
+                  testId="chat-selo-quadrante"
+                />
+              )}
+            </div>
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]">
               <span className={NUM_CHAT}>
                 {dados.cliente?.telefone ?? "Sem telefone"}
-              </span>{" "}
-              · WhatsApp ·{" "}
-              {STATUS_CHAT[dados.conversa.status] ?? dados.conversa.status}
+              </span>
+              <span aria-hidden>·</span>
+              <span className="font-medium text-[var(--text-2)]">WhatsApp</span>
+              <span aria-hidden>·</span>
+              <span
+                data-testid="chat-janela"
+                title={janela?.motivo ?? MOTIVO_JANELA_DESCONHECIDA}
+                className={
+                  janela === null
+                    ? "text-[var(--text-faint)]"
+                    : janela.aberta
+                      ? "text-[var(--ok)]"
+                      : "text-[var(--past)]"
+                }
+              >
+                {janela === null
+                  ? "janela —"
+                  : janela.aberta
+                    ? "janela aberta · 24h"
+                    : "janela fechada · só template"}
+              </span>
             </p>
             {c && (
               <p
@@ -593,13 +672,22 @@ export function Atendimento({
             />
           </button>
           {!compacto && (
-            <button
-              type="button"
-              className={cn(BOTAO_SECUNDARIO, "xl:hidden")}
-              onClick={() => setMostrarContexto(true)}
-            >
-              Dados do caso
-            </button>
+            <>
+              <button
+                type="button"
+                className={cn(BOTAO_SECUNDARIO, "xl:hidden")}
+                onClick={() => setMostrarContexto(true)}
+              >
+                Dados do caso
+              </button>
+              <Link
+                className={cn(BOTAO_SECUNDARIO, "hidden sm:inline-flex")}
+                href={`/cobranca/cliente/${dados.conversa.customerId}?carteira=${c?.carteira ?? "ativo"}`}
+                data-testid="chat-cabecalho-360"
+              >
+                <Layers className="h-3.5 w-3.5" /> Cliente 360
+              </Link>
+            </>
           )}
           {!emAtendimento && (
             <button
@@ -660,7 +748,7 @@ export function Atendimento({
               el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
           className={cn(
-            "flex flex-col gap-3 overflow-y-auto bg-[var(--surface-2)] p-4",
+            "flex flex-col overflow-y-auto bg-[var(--surface-2)] p-4",
             compacto ? "h-72" : "min-h-0 flex-1",
           )}
           aria-label="Histórico da conversa"
@@ -668,7 +756,7 @@ export function Atendimento({
           {query.hasNextPage && (
             <button
               type="button"
-              className={cn(BOTAO_SECUNDARIO, "mx-auto")}
+              className={cn(BOTAO_SECUNDARIO, "mx-auto mb-3")}
               disabled={query.isFetchingNextPage}
               aria-busy={query.isFetchingNextPage}
               onClick={() => query.fetchNextPage()}
@@ -681,47 +769,82 @@ export function Atendimento({
               Ainda não há mensagens nesta conversa.
             </p>
           )}
-          {mensagens.map((m) => (
-            <article
-              key={m.id}
-              className={cn(
-                "max-w-[88%] rounded-lg border border-[var(--border)] p-3 text-sm",
-                m.direcao === "OUTBOUND"
-                  ? "self-end bg-[var(--ok-bg)]"
-                  : "self-start bg-[var(--surface)]",
-              )}
-            >
-              <p className="whitespace-pre-wrap break-words">
-                {m.texto ||
-                  (m.tipo === "TEMPLATE"
-                    ? "Template de abertura"
-                    : `Mensagem ${m.tipo.toLowerCase()} · anexo recebido`)}
-              </p>
-              {["IMAGE", "AUDIO", "VIDEO", "DOCUMENT", "STICKER"].includes(
-                m.tipo,
-              ) && (
-                <Anexo
-                  tipo={m.tipo}
-                  url={`${url}/mensagens/${encodeURIComponent(m.id)}/midia?pagina=${query.data?.pages.find((p) => p.mensagens.some((x) => x.id === m.id))?.pagina ?? 1}`}
-                />
-              )}
-              <p className="mt-1 text-right text-[10px] text-[var(--text-muted)]">
-                {m.quem ? `${m.quem} · ` : ""}
-                <span className={NUM_CHAT}>{dataHora(m.em)}</span> ·{" "}
-                {(
-                  {
-                    SENT: "enviada",
-                    DELIVERED: "entregue",
-                    READ: "lida",
-                    QUEUED: "na fila de envio",
-                    FAILED: "falha no envio",
-                    RECEIVED: "recebida",
-                    PENDING: "pendente",
-                  } as Record<string, string>
-                )[m.status] ?? m.status}
-              </p>
-            </article>
-          ))}
+          {mensagens.map((m, i) => {
+            const anterior = i > 0 ? mensagens[i - 1] : null;
+            const dia = rotuloDoDia(m.em);
+            const novoDia =
+              dia !== null && (!anterior || rotuloDoDia(anterior.em) !== dia);
+            const meu = m.direcao === "OUTBOUND";
+            // Grupo: mesmo autor, mesma direção, dentro de cinco minutos e no mesmo dia.
+            const novoGrupo =
+              novoDia ||
+              !anterior ||
+              anterior.direcao !== m.direcao ||
+              (anterior.quem ?? "") !== (m.quem ?? "") ||
+              !dentroDaJanelaDeGrupo(anterior.em, m.em);
+            const autor = m.quem ?? (meu ? "Provedor" : nomeDoCliente);
+            return (
+              <Fragment key={m.id}>
+                {novoDia && (
+                  <div className="my-3 flex justify-center">
+                    <span
+                      className={cn(
+                        "rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]",
+                        NUM_CHAT,
+                      )}
+                    >
+                      {dia}
+                    </span>
+                  </div>
+                )}
+                <article
+                  className={cn(
+                    "max-w-[80%] rounded-lg border border-[var(--border)] px-3 py-2 text-sm",
+                    novoDia ? "" : novoGrupo ? "mt-3" : "mt-0.5",
+                    meu
+                      ? "self-end bg-[var(--ok-bg)]"
+                      : "self-start bg-[var(--surface)]",
+                  )}
+                  data-testid="chat-balao"
+                >
+                  {novoGrupo && (
+                    <p className="mb-0.5 text-[10px] font-semibold text-[var(--text-2)]">
+                      {autor}
+                    </p>
+                  )}
+                  <p className="whitespace-pre-wrap break-words">
+                    {m.texto ||
+                      (m.tipo === "TEMPLATE"
+                        ? "Template de abertura"
+                        : `Mensagem ${m.tipo.toLowerCase()} · anexo recebido`)}
+                  </p>
+                  {["IMAGE", "AUDIO", "VIDEO", "DOCUMENT", "STICKER"].includes(
+                    m.tipo,
+                  ) && (
+                    <Anexo
+                      tipo={m.tipo}
+                      url={`${url}/mensagens/${encodeURIComponent(m.id)}/midia?pagina=${query.data?.pages.find((p) => p.mensagens.some((x) => x.id === m.id))?.pagina ?? 1}`}
+                    />
+                  )}
+                  {/* Hora e situação do envio como o servidor as mandou — nada de recibo inventado. */}
+                  <p className="mt-1 text-right text-[10px] text-[var(--text-muted)]">
+                    <span className={NUM_CHAT}>{hora(m.em)}</span> ·{" "}
+                    {(
+                      {
+                        SENT: "enviada",
+                        DELIVERED: "entregue",
+                        READ: "lida",
+                        QUEUED: "na fila de envio",
+                        FAILED: "falha no envio",
+                        RECEIVED: "recebida",
+                        PENDING: "pendente",
+                      } as Record<string, string>
+                    )[m.status] ?? m.status}
+                  </p>
+                </article>
+              </Fragment>
+            );
+          })}
         </div>
         <form
           className="shrink-0 space-y-2 border-t border-[var(--border)] bg-[var(--surface)] p-3"
@@ -741,8 +864,8 @@ export function Atendimento({
             <button
               type="button"
               className={BOTAO_SECUNDARIO}
-              disabled={!alvoNegociacao || politica.isFetching}
-              aria-busy={politica.isFetching && negociar}
+              disabled={!alvoNegociacao || politica.isPending}
+              aria-busy={politica.isPending}
               title={
                 !alvoNegociacao
                   ? "Vincule um caso de cobrança para negociar"
@@ -893,9 +1016,28 @@ export function Atendimento({
                   </div>
                 )}
               </div>
-              <p className="text-[10px] text-[var(--text-muted)]">
-                <span className={NUM_CHAT}>{texto.length}/2000</span> ·
-                WhatsApp do provedor · atendimento humano
+              {/* Rodapé honesto: contagem, canal e a janela de contato QUE O SERVIDOR
+                  mandou. Sem política lida, traço com o motivo — nunca as horas
+                  padrão exibidas como se fossem as do provedor. */}
+              <p
+                className="flex flex-wrap items-center gap-x-1.5 text-[10px] text-[var(--text-muted)]"
+                data-testid="chat-rodape-politica"
+              >
+                <span className={NUM_CHAT}>{texto.length}/2000</span>
+                <span aria-hidden>·</span>
+                <span>WhatsApp do provedor · atendimento humano</span>
+                <span className="ml-auto flex items-center gap-1.5">
+                  <span>janela de contato</span>
+                  {faixaDeHorario ? (
+                    <span className={NUM_CHAT} title={AVISO_CDC_42}>
+                      {faixaDeHorario}
+                    </span>
+                  ) : (
+                    <Traco titulo={MOTIVO_SEM_JANELA_DE_CONTATO} />
+                  )}
+                  <span aria-hidden>·</span>
+                  <span title={AVISO_CDC_42}>CDC 42</span>
+                </span>
               </p>
             </>
           )}
@@ -909,7 +1051,8 @@ export function Atendimento({
       {!compacto && (
         <aside
           className={cn(
-            "w-full shrink-0 overflow-y-auto border-[var(--border)] bg-[var(--surface)] px-4 xl:static xl:block xl:w-80 xl:border-l",
+            // O painel do cliente é a terceira coluna do porte: ~360px, rolando por si.
+            "w-full shrink-0 overflow-y-auto border-[var(--border)] bg-[var(--surface)] px-4 xl:static xl:block xl:w-[344px] xl:border-l 2xl:w-[360px]",
             mostrarContexto ? "absolute inset-0 z-20" : "hidden",
           )}
           aria-label="Contexto do atendimento"

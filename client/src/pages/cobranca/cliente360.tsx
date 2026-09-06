@@ -53,7 +53,7 @@ import { dataBr, dataCivilBr, dataHoraBr, deInputDataHora, paraInputDataHora, pr
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { lerPolitica } from "@/components/cobranca/politica-form";
 import { ConversaDoChat } from "@/components/cobranca/ConversaDoChat";
-import { IdentificacaoTecnica } from "@/components/cobranca/IdentificacaoTecnica";
+import { IdentificacaoTecnica, origemDoSnapshot, SeloOrigem } from "@/components/cobranca/IdentificacaoTecnica";
 import {
   API_CHAT_BULLQ, API_EQUIPE, API_POLITICA, api360, api360AoVivo, apiEnviarCasoParaChat, chatProntoParaEnviar, lerEquipe, lerIntegracaoDoChat, numero, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_POLITICA, ROTA_REGUA,
   type CasoDetalhe, type Cliente360, type EquipamentoDoCliente, type NegociacaoDeCobranca, type SnapshotAoVivo,
@@ -282,6 +282,17 @@ export default function Cliente360Page() {
   const economia = ficha?.economia ?? null;
   const economiaPendente = ficha?.economiaPendente ?? null;
   const confirmado = !!(politica?.economia.confirmado && economia);
+  // A rota do 360 manda `erpSource` e `lastSyncAt` do `customers`; o tipo do
+  // client ainda não os declara, então são lidos aqui sem inventar valor.
+  const varredura = cliente as unknown as { erpSource?: string | null; lastSyncAt?: string | null } | null;
+  // O selo do cabeçalho: "Dados reais" SÓ com leitura ao vivo que encontrou o
+  // cliente. Sem ela, diz "Base sincronizada" com a data da varredura — e o
+  // title lembra que valor e atraso vêm da varredura de qualquer jeito.
+  const origemDoCabecalho = origemDoSnapshot(
+    snapshot,
+    { erpSource: varredura?.erpSource, lidoEm: varredura?.lastSyncAt },
+    "Valor em aberto e dias de atraso vêm sempre da varredura gravada em customers; a leitura ao vivo traz plano, contrato, corte e aparelhos.",
+  );
   const alvoDoContato = (): AlvoDoContato | null => (caso && cliente ? { casoId: caso.id, clienteNome: cliente.nome, canalSugerido: regua?.etapa?.canalSugerido ?? null } : null);
   const abrirNegociacao = () => {
     if (!cliente) return;
@@ -320,7 +331,7 @@ export default function Cliente360Page() {
               <div className="min-w-[260px] flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-[23px] font-semibold leading-tight tracking-[var(--track-tight)] text-[var(--text)]" data-testid="nome-cliente">{cliente.nome}</h1>
-                  <SeloCobranca tom="ok" titulo={`Ficha montada com o banco${vivo ? ` e o ERP ao vivo (${snapshot?.erpSource})` : ""}`}>Dados reais</SeloCobranca>
+                  <SeloOrigem origem={origemDoCabecalho} testId="selo-origem-360" />
                   <Pendente motivo="não há coluna de vulnerabilidade (Lei 14.181) — a régua não pausa sozinha por vulnerabilidade" ext="Vulnerável" />
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--text-muted)]">
@@ -395,6 +406,14 @@ export default function Cliente360Page() {
             )}
           </section>
 
+          {/* 1f · CONEXÃO — a identificação da instalação, no porte dos outros cartões */}
+          <IdentificacaoTecnica
+            snapshot={snapshot}
+            equipamentos={data?.equipamentos ?? []}
+            varredura={{ erpSource: varredura?.erpSource, lidoEm: varredura?.lastSyncAt }}
+            statusContrato={vivo?.statusContrato ?? cliente.statusErp}
+          />
+
           {/* 2–4 · Tri-horizonte */}
           <div className="grid gap-3.5 lg:grid-cols-3">
             {/* ── PASSADO ── */}
@@ -433,7 +452,6 @@ export default function Cliente360Page() {
                 <span className="text-[12px] leading-4 text-[var(--text-2)]">{confissao ? "habilitada nesta sessão — a emissão do título executivo (CPC 784) depende de assinatura eletrônica e parecer jurídico; a habilitação por cliente ainda não persiste" : "habilite para ofertar o título executivo ao cliente"}</span>
                 <span><ACriar oque="habilitação de confissão POR CLIENTE (campo não existe no schema) + emissão com assinatura eletrônica" /></span>
               </div>
-              <IdentificacaoTecnica snapshot={snapshot} equipamentos={data?.equipamentos ?? []} />
               <Let k="Comodato a recuperar" testId="lista-equipamentos">
                 {equipamentos.length === 0 ? <span className="text-[var(--text-muted)]">nenhum equipamento registrado para este cliente (sync do ERP)</span> : (
                   <ul className="space-y-1">

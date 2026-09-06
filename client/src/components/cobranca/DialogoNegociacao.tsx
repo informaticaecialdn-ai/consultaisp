@@ -7,7 +7,18 @@
  * responde 422 com `violacoes` — e elas aparecem na mesma lista.
  *
  * "O cliente já aceitou" faz a negociação nascer aceita e o caso ir para
- * "acordo ativo" na mesma transação; sem a marca, fica como proposta.
+ * "acordo ativo" na mesma transação; sem a marca, fica como proposta. Uma
+ * proposta ALÉM da faixa da política de acordo (0029) nunca nasce aceita: o
+ * servidor a registra como proposta e deixa nota pedindo aprovação.
+ *
+ * Por isso o que a tela diz sai da RESPOSTA, não do checkbox: o 201 traz
+ * `exigeAprovacao` e `motivosDaExcecao`, e quando eles vêm a caixa não fecha
+ * com "Acordo registrado" — ela para e mostra que a proposta ficou esperando
+ * um administrador, com o motivo que o servidor deu.
+ *
+ * As OFERTAS no topo são as que a política autoriza para a carteira e o
+ * atraso deste caso (`ofertasDaPolitica`): o operador clica em uma em vez de
+ * digitar. Sem carteira e sem atraso no alvo, a caixa não aparece.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
@@ -15,10 +26,16 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, type ErroDaApi } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { brl, pct, ROTULO_TIPO_DE_NEGOCIACAO, TIPOS_DE_NEGOCIACAO, type Politica, type TipoDeNegociacao } from "@shared/cobranca";
+import {
+  brl, ofertasDaPolitica, pct, ROTULO_TIPO_DE_NEGOCIACAO, TIPOS_DE_NEGOCIACAO,
+  type Carteira, type Politica, type TipoDeNegociacao,
+} from "@shared/cobranca";
 import { BOTAO_MARCA, BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO, TabelaPainel, Td, Th } from "@/components/painel/ui";
 import { dataCivilBr, hojeInput } from "./formatacao";
-import { corpoDaNegociacao, formInicial, previaDaNegociacao, violacoesDoErro, type FormNegociacao } from "./negociacao-form";
+import {
+  avisoDoRegistro, corpoDaNegociacao, excecaoPrevista, formDaOferta, formInicial, previaDaNegociacao, registroDaResposta,
+  violacoesDoErro, type FormNegociacao, type RegistroDaNegociacao,
+} from "./negociacao-form";
 import { API_CASOS } from "./tipos";
 import { invalidarCobranca, mensagemDoErro } from "./ui";
 
@@ -27,6 +44,14 @@ export interface AlvoDaNegociacao {
   clienteNome: string;
   /** `valor_atual` do caso — a dívida de hoje, base do desconto. */
   valorAtual: number;
+  /**
+   * A carteira e o atraso do caso. OPCIONAIS: sem os dois não há como saber
+   * QUAL faixa da política de acordo vale, e chutar a carteira geraria oferta
+   * sob a régua errada. Sem eles a caixa some — quem julga de verdade
+   * continua sendo o servidor, que lê a carteira do próprio caso.
+   */
+  carteira?: Carteira;
+  diasAtraso?: number;
 }
 
 function primeiroVencimentoPadrao(): string {
@@ -45,16 +70,33 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
   const { toast } = useToast();
   const [form, setForm] = useState<FormNegociacao>(() => formInicial(alvo?.valorAtual ?? 0, primeiroVencimentoPadrao()));
   const [violacoesDoServidor, setViolacoesDoServidor] = useState<string[]>([]);
+  /** Preenchido quando o servidor rebaixou a proposta: a caixa para aqui em vez de fechar dizendo que fechou. */
+  const [pendente, setPendente] = useState<RegistroDaNegociacao | null>(null);
 
   useEffect(() => {
     if (aberto) {
       setForm({ ...formInicial(alvo?.valorAtual ?? 0, primeiroVencimentoPadrao()), ...(tipoInicial ? { tipo: tipoInicial } : {}) });
       setViolacoesDoServidor([]);
+      setPendente(null);
     }
   }, [aberto, alvo, tipoInicial]);
 
   const valorOriginal = alvo?.valorAtual ?? 0;
+  // As ofertas que a política de acordo autoriza para ESTE caso (0029). Sem
+  // carteira e sem atraso não há faixa: a caixa some em vez de sugerir número
+  // sob a régua errada.
+  const ofertas = useMemo(() => {
+    if (!politica || !alvo?.carteira || alvo.diasAtraso === undefined || valorOriginal <= 0) return null;
+    return ofertasDaPolitica(
+      { saldo: valorOriginal, diasAtraso: alvo.diasAtraso, carteira: alvo.carteira, hoje: hojeInput() },
+      { acordo: politica.acordo, negociacao: politica.negociacao },
+    );
+  }, [politica, alvo, valorOriginal]);
   const previa = useMemo(() => previaDaNegociacao(form, valorOriginal, politica), [form, valorOriginal, politica]);
+  // A mesma medida que o servidor fará contra a faixa da carteira: o operador
+  // vê ANTES de apertar que esta proposta vai depender de aprovação, em vez de
+  // descobrir no toast — e o "o cliente já aceitou" deixa de parecer um acordo.
+  const excecao = useMemo(() => excecaoPrevista(form, valorOriginal, politica, alvo), [form, valorOriginal, politica, alvo]);
   const violacoes = violacoesDoServidor.length > 0 ? violacoesDoServidor : previa.violacoes;
 
   const propor = useMutation({
@@ -65,9 +107,17 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
       const resposta = await apiRequest("POST", `${API_CASOS}/${alvo.casoId}/negociacoes`, corpo);
       return resposta.json();
     },
-    onSuccess: () => {
+    onSuccess: (corpo: unknown) => {
       invalidarCobranca();
-      toast({ title: form.aceita ? "Acordo registrado" : "Proposta registrada", description: `${ROTULO_TIPO_DE_NEGOCIACAO[form.tipo]} · ${alvo?.clienteNome ?? ""}` });
+      // Quem diz o que aconteceu e o servidor: ele rebaixa a proposta que
+      // passou da faixa da politica de acordo, mesmo com "o cliente ja aceitou".
+      const registro = registroDaResposta(corpo);
+      const aviso = avisoDoRegistro(registro, form.aceita, `${ROTULO_TIPO_DE_NEGOCIACAO[form.tipo]} · ${alvo?.clienteNome ?? ""}`);
+      toast({ title: aviso.titulo, description: aviso.descricao });
+      if (registro.exigeAprovacao) {
+        setPendente(registro);
+        return;
+      }
       onFechar();
     },
     onError: (erro: ErroDaApi) => {
@@ -97,7 +147,59 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
             {alvo ? <>{alvo.clienteNome} · dívida de <span className="font-mono tabular-nums text-[var(--money-neg)]">{brl(alvo.valorAtual)}</span></> : "Sem caso aberto"}
           </DialogDescription>
         </DialogHeader>
+        {pendente ? (
+          /* O servidor rebaixou a proposta: a caixa nao fecha dizendo que
+             fechou. O operador precisa sair daqui sabendo que o desconto so
+             vale depois de um admin aceitar — senao ele desliga o telefone
+             tendo prometido ao cliente um acordo que nao existe. */
+          <div className="space-y-3" data-testid="negociacao-pendente">
+            <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5">
+              <p className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--gated)]">pendente de aprovação</p>
+              <p className="mt-1 text-[12.5px] leading-4 text-[var(--text-2)]">
+                A proposta foi registrada, mas <b>ainda não vale como acordo</b>: ela passou da faixa que a política autoriza para esta carteira.
+              </p>
+              {pendente.motivos.length > 0 && (
+                <ul className="mt-2 space-y-1 text-[11.5px] leading-4 text-[var(--gated)]" data-testid="negociacao-pendente-motivos">
+                  {pendente.motivos.map(m => <li key={m}>{m}</li>)}
+                </ul>
+              )}
+            </div>
+            <p className="text-[11.5px] leading-4 text-[var(--text-muted)]">
+              Um administrador do provedor precisa registrar o aceite na ficha do cliente para o caso ir para “acordo ativo”. Até lá, não prometa o desconto ao cliente.
+            </p>
+            <DialogFooter>
+              <button type="button" className={BOTAO_MARCA} onClick={onFechar} data-testid="negociacao-pendente-fechar">Entendi</button>
+            </DialogFooter>
+          </div>
+        ) : (
         <form className="space-y-3" onSubmit={e => { e.preventDefault(); propor.mutate(); }}>
+          {ofertas && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5" data-testid="negociacao-ofertas">
+              <p className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">o que a política autoriza</p>
+              <p className="mt-1 text-[11.5px] leading-4 text-[var(--text-muted)]" data-testid="negociacao-oferta-motivo">{ofertas.motivo}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {ofertas.ofertas.map((oferta, i) => (
+                  <button
+                    key={`${oferta.tipo}-${i}`}
+                    type="button"
+                    className={cn(BOTAO_SECUNDARIO, "h-auto flex-col items-start gap-0.5 px-3 py-2 text-left")}
+                    onClick={() => { setViolacoesDoServidor([]); setForm(atual => formDaOferta(oferta, atual)); }}
+                    data-testid={`negociacao-oferta-${oferta.tipo}`}
+                  >
+                    <span className="text-[12px] font-medium text-[var(--text)]">
+                      {oferta.tipo === "a_vista" ? "À vista" : `${oferta.parcelas}x`}{" "}
+                      <span className="font-mono tabular-nums">{brl(oferta.valor)}</span>
+                    </span>
+                    <span className="font-mono text-[10.5px] tabular-nums text-[var(--text-muted)]">
+                      {oferta.descontoPct > 0 ? `${pct(oferta.descontoPct)} de desconto` : "sem desconto"}
+                      {oferta.entrada > 0 && ` · entrada ${brl(oferta.entrada)}`}
+                      {oferta.tipo === "parcelado" && ` · ${brl(oferta.valorParcela)}/mês`}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <Campo rotulo="tipo">
             <select className={CONTROLE_CAMPO} value={form.tipo} onChange={e => mudar("tipo", e.target.value as TipoDeNegociacao)} data-testid="negociacao-tipo">
               {TIPOS_DE_NEGOCIACAO.map(t => <option key={t} value={t}>{ROTULO_TIPO_DE_NEGOCIACAO[t]}</option>)}
@@ -152,14 +254,20 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
             <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={form.aceita} onChange={e => mudar("aceita", e.target.checked)} data-testid="negociacao-aceita" />
             O cliente já aceitou nesta conversa (o caso vai para "acordo ativo")
           </label>
+          {excecao.length > 0 && (
+            <p className="rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2 text-[11.5px] leading-4 text-[var(--gated)]" data-testid="negociacao-excecao">
+              {excecao.join(" ")} Ela entra como proposta e só vira acordo depois que um administrador do provedor aprovar{form.aceita ? ", mesmo com a marca acima" : ""}.
+            </p>
+          )}
 
           <DialogFooter>
             <button type="button" className={BOTAO_SECUNDARIO} onClick={onFechar}>Cancelar</button>
             <button type="submit" className={BOTAO_MARCA} disabled={travado} data-testid="negociacao-salvar">
-              {propor.isPending ? "Registrando…" : form.aceita ? "Registrar acordo" : "Registrar proposta"}
+              {propor.isPending ? "Registrando…" : excecao.length > 0 ? "Enviar para aprovação" : form.aceita ? "Registrar acordo" : "Registrar proposta"}
             </button>
           </DialogFooter>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   );

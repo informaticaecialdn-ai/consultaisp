@@ -18,14 +18,14 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { carteiraDaNavegacao, caminhoNaCarteira, retornoDaCarteira, NOME_DA_CARTEIRA } from "@/components/cobranca/carteiras";
 import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
-import { AlarmClock, ClipboardList, HandCoins, KanbanSquare, ListTodo, Pause, Search } from "lucide-react";
+import { AlarmClock, ClipboardList, HandCoins, KanbanSquare, ListTodo, Pause, Search, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { ETAPA_IDS, type Carteira, type EtapaId } from "@shared/cobranca";
-import { brl, Kpi, num, Segmentado } from "@/components/localizacao/ui";
+import { brl, Kpi, num, Segmentado, TRACO } from "@/components/localizacao/ui";
 import { AvisoNaoCarregou, BOTAO_SECUNDARIO, CabecalhoPainel, CONTROLE_CAMPO, EstadoVazio } from "@/components/painel/ui";
 import { KanbanCobranca } from "@/components/cobranca/KanbanCobranca";
 import { DialogoContato, type AlvoDoContato } from "@/components/cobranca/DialogoContato";
@@ -35,7 +35,8 @@ import { lerPolitica } from "@/components/cobranca/politica-form";
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { etapaDoCard } from "@/components/cobranca/CardCaso";
 import {
-  API_CASOS, API_CHAT_BULLQ, API_KANBAN, API_POLITICA, API_REGUA, apiEnviarCasoParaChat, chatProntoParaEnviar, lerIntegracaoDoChat, lerKanban,
+  API_CASOS, API_CHAT_BULLQ, API_KANBAN, API_POLITICA, API_REGUA, apiEnviarCasoParaChat, apiRecuperacao, chatProntoParaEnviar,
+  DIAS_DA_RECUPERACAO, lerIntegracaoDoChat, lerKanban, lerRecuperacao,
   ROTA_FILA, type ItemDaFila, type RespostaDaRegua,
 } from "@/components/cobranca/tipos";
 import { invalidarCobranca, mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
@@ -136,6 +137,22 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   // Só o mesmo recorte das colunas: a fila inclui casos gerais e não é uma reserva equivalente.
   const kpis = quadro.kpis;
 
+  /**
+   * O que a cobrança RECUPEROU depois de um contato (C6 do 2Safe): faturas que
+   * sumiram dos pendentes do ERP numa varredura completa, até `janelaDias`
+   * depois de um contato registrado. É do PROVEDOR inteiro, não do recorte do
+   * quadro — a fatura é do cliente, não do caso —, e o card diz isso.
+   * Sem fatura vinda do ERP o valor é "—" com o motivo, nunca R$ 0,00.
+   */
+  const { data: recuperacaoCrua, isLoading: carregandoRecuperacao } = useQuery<unknown>({
+    queryKey: [apiRecuperacao(DIAS_DA_RECUPERACAO)],
+    staleTime: 300_000,
+  });
+  const recuperacao = useMemo(() => (recuperacaoCrua === undefined ? null : lerRecuperacao(recuperacaoCrua)), [recuperacaoCrua]);
+  const tituloDaRecuperacao = recuperacao?.base
+    ? `${num(recuperacao.faturas)} fatura(s) de ${num(recuperacao.clientes)} cliente(s) baixadas no ERP até ${num(recuperacao.janelaDias)} dias depois de um contato. Pagamento provável: nenhum ERP confirma o valor pago. Vale para toda a carteira, não para o recorte do quadro.`
+    : recuperacao?.motivo ?? "Indicador ainda não carregado.";
+
   return (
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-kanban">
       <CabecalhoPainel
@@ -152,13 +169,24 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
 
       <NavegacaoCarteiras carteira={carteira} destino={caminho} />
 
-      <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" aria-label="Indicadores" data-testid="kpis-kanban">
+      <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-3" aria-label="Indicadores" data-testid="kpis-kanban">
         <Kpi icone={<KanbanSquare className="h-4 w-4" aria-hidden />} iconeCor="var(--brand-ink)" iconeBg="var(--brand-soft)" rotulo="casos vivos" valor={isLoading ? "…" : num(kpis?.casosVivos)} sub="no recorte" />
         <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(kpis?.vencidos ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-2)"} rotulo="contato vencido" valor={isLoading ? "…" : num(kpis?.vencidos)} valorCor={(kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : undefined} sub="passou da data" />
         <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor="var(--gated)" iconeBg="var(--gated-bg)" rotulo="para hoje" valor={isLoading ? "…" : num(kpis?.paraHoje)} sub="contato marcado" />
         {/* Follow-up: caso sem proxima acao vira divida perdida — o quadro conta quantos estao parados. */}
         <Kpi icone={<ClipboardList className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-2)"} rotulo="sem próxima ação" valor={isLoading ? "…" : num(kpis?.semProximaAcao)} valorCor={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger)" : undefined} sub="caso parado vira dívida perdida" />
         <Kpi icone={<HandCoins className="h-4 w-4" aria-hidden />} iconeCor="var(--money-neg)" iconeBg="var(--past-bg)" rotulo="em aberto" valor={isLoading ? "…" : brl(kpis?.emAberto)} valorCor={(kpis?.emAberto ?? 0) > 0 ? "var(--money-neg)" : undefined} sub="soma dos casos vivos" />
+        {/* Recuperado: o único indicador que não sai do quadro — ver o comentário em `recuperacao`. */}
+        <Kpi
+          icone={<TrendingUp className="h-4 w-4" aria-hidden />}
+          iconeCor={recuperacao?.base ? "var(--ok)" : "var(--text-muted)"}
+          iconeBg={recuperacao?.base ? "var(--ok-bg)" : "var(--surface-2)"}
+          rotulo="recuperado"
+          valor={carregandoRecuperacao ? "…" : recuperacao?.base ? brl(recuperacao.valor) : TRACO}
+          valorCor={recuperacao?.base && (recuperacao.valor ?? 0) > 0 ? "var(--ok)" : undefined}
+          sub={`${DIAS_DA_RECUPERACAO} dias · após contato · toda a carteira`}
+          titulo={tituloDaRecuperacao}
+        />
       </section>
 
       <div className="flex flex-wrap items-center gap-2" data-testid="filtros-kanban">

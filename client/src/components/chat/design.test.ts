@@ -172,11 +172,20 @@ describe("primeiros contatos automáticos", () => {
     expect(tela).toContain("A rodada corre a cada minuto");
   });
 
-  it("contatos de hoje: a rota devolve só a configuração, então é traço com motivo — nunca zero", () => {
+  /**
+   * Este caso já provou o contrário: enquanto a contagem não existia, a tela
+   * TINHA de mostrar traço. Agora ela existe (`GET
+   * /api/cobranca/indicadores/automacao`, contada pelo mesmo
+   * `contatosIniciadosNoDia` que o worker usa), e o que continua valendo é a
+   * regra de origem: quando a rota não tem de onde contar, vem nulo com motivo
+   * e a tela desenha traço — nunca zero.
+   */
+  it("contatos de hoje: número do worker quando existe, traço com motivo quando não", () => {
     expect(tela).toContain('data-testid="automacao-contatos-hoje"');
-    expect(tela).toContain("<Traco titulo=\"A rota de automação ainda não devolve quantos contatos o worker iniciou hoje\" />");
-    expect(tela).toContain("query.data?.limiteDiario");
-    expect(tela).not.toMatch(/contatosHoje\s*\?\?\s*0/);
+    expect(tela).toContain("indicador.data?.hoje ?? (");
+    expect(tela).toContain("indicador.data?.motivo ??");
+    expect(tela).toContain("indicador.data?.limiteDiario ??");
+    expect(tela).not.toMatch(/hoje\s*\?\?\s*0/);
   });
 });
 

@@ -40,6 +40,7 @@ import {
   TIPOS_DE_EVENTO,
   TIPOS_DE_NEGOCIACAO,
   arredondar,
+  avaliarPedidoDeAcordo,
   casoFechado,
   classificarDna,
   eixosDoQuadrante,
@@ -195,6 +196,27 @@ function exigirAdminDoProvedor(acao: string) {
 }
 
 /**
+ * A marca de EXCECAO de uma negociacao (politica de acordo, 0029), lida da
+ * linha do tempo do caso. `cobranca_negociacoes` NAO tem coluna de aprovacao:
+ * o registro da excecao e a NOTA que o POST grava com `metadata.exigeAprovacao`
+ * e o `negociacaoId` — imutavel, porque a proposta nao muda de faixa depois de
+ * criada. Uma coluna nova custaria migracao + backfill (e um segundo lugar
+ * onde a verdade poderia divergir) para guardar o que ja esta gravado.
+ *
+ * Devolve os motivos que a criacao registrou (lista possivelmente vazia)
+ * quando a negociacao nasceu como excecao, e `null` quando ela e comum.
+ */
+function pedidoDeAprovacaoPendente(eventos: readonly CobrancaEvento[], negociacaoId: number): string[] | null {
+  for (const evento of eventos) {
+    const m = evento.metadata as Record<string, unknown> | null;
+    if (!m || m.exigeAprovacao !== true) continue;
+    if (Number(m.negociacaoId) !== negociacaoId) continue;
+    return Array.isArray(m.motivos) ? m.motivos.map(String) : [];
+  }
+  return null;
+}
+
+/**
  * Quem pode por um responsavel num caso: o admin poe qualquer um; o operador
  * so pega o caso para si (da fila geral) ou o devolve a fila quando e dele.
  * Sem esta excecao o operador nao conseguiria "pegar" um caso sem pedir ao
@@ -346,6 +368,13 @@ export async function carregarPolitica(providerId: number): Promise<PoliticaCarr
     negociacao: linha.negociacao,
     encargos: linha.encargos,
     janelaContato: linha.janelaContato,
+    // `economia` e `acordo` ficavam de fora, e o efeito era mudo: o 360
+    // calculava a Economia com os custos padrao mesmo com o admin tendo
+    // confirmado os dele, e o acordo gravado nao chegava a lugar nenhum.
+    // A leitura tem de trazer a linha INTEIRA — o que a coluna guarda e o que
+    // vale. Linha antiga sem a coluna cai no default do Zod, como sempre.
+    economia: linha.economia,
+    acordo: linha.acordo,
     pausada: linha.pausada,
     pausadaMotivo: linha.pausadaMotivo,
   });
@@ -922,7 +951,11 @@ const PagarSchema = z.object({
   pagoEm: z.coerce.date().optional(),
 }).strict();
 
-const CHAVES_DA_POLITICA = ["etapas", "negociacao", "encargos", "janelaContato", "pausada", "pausadaMotivo"] as const;
+// `economia` estava faltando aqui desde a 0022: a tela de politica manda os
+// custos em todo PUT, e o corpo inteiro voltava 400 "campo desconhecido" —
+// nenhum provedor conseguia gravar custo nem pausa por essa tela. `acordo`
+// entra junto (0029).
+const CHAVES_DA_POLITICA = ["etapas", "negociacao", "encargos", "janelaContato", "economia", "acordo", "pausada", "pausadaMotivo"] as const;
 
 /**
  * `limite` e quantos casos a tela LISTA; os indicadores nao dependem dele
@@ -1718,6 +1751,25 @@ export function registerCobrancaRoutes(): Router {
       );
       if (!veredito.ok) return res.status(422).json({ message: veredito.violacoes[0], violacoes: veredito.violacoes });
 
+      // A politica de ACORDO (0029) mede a mesma proposta contra a faixa da
+      // CARTEIRA: dentro da faixa entra direto; entre a faixa e o teto de
+      // excecao entra, mas dependendo de um humano dizer sim; fora do teto de
+      // excecao nao entra. O 422 e o mesmo canal do envelope geral — a tela ja
+      // le `violacoes` de la, e inventar um 400 aqui faria a mesma recusa
+      // aparecer como falha generica.
+      const decisao = avaliarPedidoDeAcordo({
+        carteira: caso.carteira as Carteira,
+        diasAtraso: caso.cliente.diasAtraso,
+        valorOriginal,
+        valorNegociado: b.valorNegociado,
+        entrada,
+        parcelas: b.parcelas,
+      }, politica);
+      if (decisao.decisao === "recusado") {
+        return res.status(422).json({ message: decisao.violacoes[0], violacoes: decisao.violacoes });
+      }
+      const excecao = decisao.decisao === "excecao" ? decisao.motivos : null;
+
       // Quitacao e uma parcela so, vencendo no dia combinado (ou hoje): e o
       // que faz "pagar" fechar o caso pelo mesmo caminho do parcelamento.
       const primeiroVencimento = b.primeiroVencimento ?? hoje;
@@ -1737,7 +1789,10 @@ export function registerCobrancaRoutes(): Router {
           entrada,
           primeiroVencimento,
           criadoPorUserId: userId,
-          aceita: b.aceita === true,
+          // Proposta de EXCECAO nao nasce aceita, mesmo com a marca "o cliente
+          // ja aceitou": ela depende de aprovacao, e um caso em `acordo_ativo`
+          // diria que o acordo esta valendo. Fica proposta ate alguem aprovar.
+          aceita: b.aceita === true && excecao === null,
         }, parcelas);
       } catch (e) {
         // Duas propostas vivas seriam duas verdades sobre a mesma divida
@@ -1745,11 +1800,36 @@ export function registerCobrancaRoutes(): Router {
         if (conflitoDeCobranca(res, e)) return;
         throw e;
       }
+      // Nao ha coluna de aprovacao em `cobranca_negociacoes` (ver o relatorio):
+      // o pedido de aprovacao fica como NOTA na linha do tempo do caso, com os
+      // motivos e a faixa que ele estourou — e o operador ve na ficha. Esta
+      // nota nao e so registro: e ela que o PATCH le
+      // (`pedidoDeAprovacaoPendente`) para recusar o aceite de quem nao e
+      // admin. Mexer no `metadata` daqui muda o freio de la.
+      if (excecao) {
+        await storage.registrarEventoDeCobranca(providerId, {
+          casoId: id,
+          userId,
+          tipo: "nota",
+          notas: `Proposta #${criada.id} fora da faixa da politica: ${excecao.join(" ")} Cabe no teto de excecao e precisa da aprovacao de um administrador antes de valer como acordo.`,
+          metadata: {
+            exigeAprovacao: true,
+            negociacaoId: criada.id,
+            motivos: excecao,
+            faixa: decisao.faixa,
+            carteira: caso.carteira,
+          },
+        });
+      }
       logger.info(
-        { providerId, casoId: id, negociacaoId: criada.id, userId, tipo: b.tipo, parcelas: parcelas.length, aceita: b.aceita === true },
+        { providerId, casoId: id, negociacaoId: criada.id, userId, tipo: b.tipo, parcelas: parcelas.length, aceita: b.aceita === true, exigeAprovacao: excecao !== null },
         "COBRANCA negociacao registrada",
       );
-      res.status(201).json(negociacaoParaApi(criada, criada.parcelamento));
+      res.status(201).json({
+        ...negociacaoParaApi(criada, criada.parcelamento),
+        exigeAprovacao: excecao !== null,
+        motivosDaExcecao: excecao ?? [],
+      });
     } catch (e) {
       falha(res, e);
     }
@@ -1774,6 +1854,23 @@ export function registerCobrancaRoutes(): Router {
       if (!atual || (casoId !== undefined && atual.casoId !== casoId)) return res.status(404).json({ message: "Negociacao nao encontrada" });
       const transicao = transicaoDeNegociacao(atual.status as StatusDeNegociacao, status);
       if (!transicao.ok) return res.status(409).json({ message: transicao.motivo });
+
+      // O FREIO DA EXCECAO. A tela de politica promete que a proposta acima da
+      // faixa "entra, mas fica esperando um administrador aprovar" — e ate aqui
+      // era so texto: o mesmo operador que propos 15% onde a faixa da 5%
+      // aceitava no segundo seguinte, e o caso ia para `acordo_ativo`. Nao ha o
+      // que aprovar em recusar, quebrar ou cancelar: o freio e so na entrada
+      // do acordo (`aceita`), que e o unico status que faz o desconto valer.
+      if (status === "aceita" && !podeAdministrarOProvedor(req.session)) {
+        const motivos = pedidoDeAprovacaoPendente(await storage.listarEventosDoCaso(providerId, atual.casoId), id);
+        if (motivos) {
+          logger.info({ providerId, casoId: atual.casoId, negociacaoId: id, userId }, "COBRANCA aceite de excecao recusado: falta um admin");
+          return res.status(403).json({
+            message: "Esta proposta passou da faixa da politica de acordo: so um administrador do provedor pode aceita-la.",
+            motivos,
+          });
+        }
+      }
 
       const nova = await storage.atualizarStatusDaNegociacao(providerId, id, status, userId);
       if (!nova) return res.status(404).json({ message: "Negociacao nao encontrada" });

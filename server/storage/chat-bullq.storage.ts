@@ -45,6 +45,17 @@ export interface FollowUpDoEventoDoChat {
   proximoContatoEm: Date;
 }
 
+/** Uma linha do diario de envios do primeiro contato — ver `ultimosPrimeirosContatos`. */
+export interface EnvioDePrimeiroContato {
+  em: Date;
+  origem: OrigemDeConversa;
+  canal: string | null;
+  clienteId: number;
+  /** Cru; a rota mascara antes de responder. */
+  clienteNome: string;
+  resultado: string | null;
+}
+
 export interface NovaConversaDoChat {
   customerId: number;
   origem: OrigemDeConversa;
@@ -88,6 +99,71 @@ export class ChatBullqStorage {
       )),
     ]);
     return (cobranca[0]?.total ?? 0) + (equipamentos[0]?.total ?? 0);
+  }
+
+  /**
+   * O DIARIO DA AUTOMACAO: os ultimos contatos que SAIRAM, na mesma definicao
+   * que a cota do dia usa (`contatosIniciadosNoDia`, acima) — evento `contato`
+   * por whatsapp na cobranca, evento marcado `enviado` na recuperacao. Conversa
+   * reaproveitada nao aparece aqui porque nao existe como envio: nenhuma
+   * mensagem saiu.
+   *
+   * As duas fontes sao tabelas diferentes; sao duas consultas com o mesmo teto
+   * e a juncao e feita aqui, em ordem de tempo. `union all` no banco exigiria
+   * as duas com o mesmo formato de coluna e nao economizaria nada nesta escala.
+   *
+   * O NOME VAI CRU. Quem mascara e a rota (LGPD), como no resto do sistema —
+   * o storage entrega dado, a borda decide quanto dele aparece.
+   */
+  async ultimosPrimeirosContatos(providerId: number, limite = 20): Promise<EnvioDePrimeiroContato[]> {
+    const teto = Math.max(1, Math.min(Math.trunc(limite) || 20, 100));
+    const [cobranca, equipamentos] = await Promise.all([
+      db.select({
+        em: cobrancaEventos.ocorridoEm,
+        canal: cobrancaEventos.canal,
+        clienteId: customers.id,
+        clienteNome: customers.name,
+        resultado: cobrancaEventos.resultado,
+      })
+        .from(cobrancaEventos)
+        .innerJoin(customers, and(eq(customers.id, cobrancaEventos.customerId), eq(customers.providerId, providerId)))
+        .where(and(
+          eq(cobrancaEventos.providerId, providerId),
+          eq(cobrancaEventos.tipo, "contato"),
+          eq(cobrancaEventos.canal, "whatsapp"),
+        ))
+        .orderBy(desc(cobrancaEventos.ocorridoEm), desc(cobrancaEventos.id))
+        .limit(teto),
+      db.select({
+        em: equipmentRecoveryEvents.occurredAt,
+        canal: equipmentRecoveryEvents.channel,
+        clienteId: customers.id,
+        clienteNome: customers.name,
+        resultado: equipmentRecoveryEvents.result,
+      })
+        .from(equipmentRecoveryEvents)
+        .innerJoin(equipmentRecoveryCases, and(
+          eq(equipmentRecoveryCases.id, equipmentRecoveryEvents.caseId),
+          eq(equipmentRecoveryCases.providerId, providerId),
+        ))
+        .innerJoin(customers, and(eq(customers.id, equipmentRecoveryCases.customerId), eq(customers.providerId, providerId)))
+        .where(and(
+          eq(equipmentRecoveryEvents.providerId, providerId),
+          eq(equipmentRecoveryEvents.channel, "whatsapp"),
+          sql`${equipmentRecoveryEvents.metadata}->>'enviado' = 'true'`,
+        ))
+        .orderBy(desc(equipmentRecoveryEvents.occurredAt), desc(equipmentRecoveryEvents.id))
+        .limit(teto),
+    ]);
+
+    const linhas: EnvioDePrimeiroContato[] = [
+      ...cobranca.map(l => ({ ...l, origem: "cobranca" as const })),
+      ...equipamentos.map(l => ({ ...l, origem: "equipamentos" as const })),
+    ]
+      // Sem data nao ha o que ordenar nem o que mostrar: `occurred_em` e
+      // `ocorrido_em` tem default, mas a coluna aceita nulo.
+      .filter((l): l is EnvioDePrimeiroContato => l.em instanceof Date);
+    return linhas.sort((a, b) => b.em.getTime() - a.em.getTime()).slice(0, teto);
   }
 
   async candidatosAoPrimeiroContato(providerId: number) {

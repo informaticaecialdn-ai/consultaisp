@@ -9,7 +9,7 @@
  */
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "wouter";
-import { Box, RefreshCw, Wifi } from "lucide-react";
+import { Box, RefreshCw } from "lucide-react";
 import type { ContextoDoChat } from "@shared/cobranca/contexto-chat";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -28,6 +28,12 @@ import {
   useSkeletonAtrasado,
   type TomDeSelo,
 } from "@/components/cobranca/ui";
+import {
+  BlocoConexao,
+  formatarMac,
+  origemDoDado,
+  type ItemDeInventario,
+} from "@/components/cobranca/IdentificacaoTecnica";
 import { faixaDoScore } from "@/components/cobranca/formatacao";
 import type { DetalheChat } from "./tipos";
 
@@ -186,6 +192,26 @@ export function PerfilDoCliente({
   const atraso = p?.diasAtraso ?? c?.diasAtraso ?? null;
   const score = p?.ispScore ?? null;
   const faixa = score !== null ? faixaDoScore(score) : null;
+  // A conexão só existe quando o ERP respondeu AGORA: `conexoes` sai da leitura
+  // ao vivo, nunca da base. Se ele não respondeu, o selo diz "Base
+  // sincronizada" com a data do valor — nunca "dados reais".
+  const erpRespondeu = !!contexto && contexto.erp.status !== "indisponivel";
+  const origemDaConexao = origemDoDado({
+    aoVivo: erpRespondeu,
+    erpSource: contexto?.erp.fonte,
+    lidoEm: erpRespondeu ? contexto!.erp.atualizadoEm : (contexto?.erp.lidoEm ?? null),
+    motivo: contexto ? (contexto.erp.mensagem ?? "o ERP não respondeu nesta consulta") : "ainda não respondeu",
+    nota:
+      contexto && !contexto.erp.financeiroAoVivo
+        ? "Valor em aberto e faturas vêm da varredura, não desta leitura."
+        : null,
+  });
+  const inventario: ItemDeInventario[] = dados.equipamentos.map((e) => ({
+    id: e.id,
+    mac: e.mac,
+    serial: e.serial,
+    rotulo: [e.tipo, e.modelo ?? e.marca].filter(Boolean).join(" ") || `#${e.id}`,
+  }));
   const metricas: Array<{
     k: string;
     v: ReactNode;
@@ -380,74 +406,43 @@ export function PerfilDoCliente({
           )}
         </Linha>
       </dl>
-      <section
-        className="space-y-3 border-b border-[var(--border)] py-4"
-        aria-label="Conexão do cliente"
-      >
-        <h4 className="flex items-center gap-2 text-xs font-semibold">
-          <Wifi aria-hidden className="h-3.5 w-3.5" /> Conexão
-        </h4>
-        {contexto?.conexoes.length ? (
-          contexto.conexoes.map((a, i) => (
-            <div
-              key={`${a.login}-${i}`}
-              className="flex items-center justify-between gap-2 text-xs"
-            >
-              <div className="min-w-0">
-                <p className="break-all font-semibold">
-                  {a.login ?? "Login não informado"}
-                </p>
-                <p
-                  className={cn(
-                    "mt-1 break-all text-[10px] text-[var(--text-muted)]",
-                    NUM_CHAT,
-                  )}
-                >
-                  MAC {a.mac ?? <Traco titulo={MOTIVO_SEM_MAC} />}
-                  {a.ip ? ` · IP ${a.ip}` : ""}
-                </p>
-                {a.serial && (
-                  <p className={cn("text-[10px]", NUM_CHAT)}>Série {a.serial}</p>
-                )}
-              </div>
-              <SeloCobranca
-                tom={a.online === true ? "ok" : "neutro"}
-                titulo={
-                  a.online == null
-                    ? "O ERP não devolveu o estado da autenticação"
-                    : "Estado da autenticação na última consulta"
-                }
-                className="shrink-0"
-              >
-                {a.online === true
-                  ? "Online"
-                  : a.online === false
-                    ? "Offline"
-                    : "Sem leitura"}
-              </SeloCobranca>
-            </div>
-          ))
-        ) : (
-          <AguardeOuAviso
-            consultando={consultando}
-            aviso="ERP não informou login ou MAC nesta consulta."
-          />
-        )}
-        {dados.equipamentos.map((e) => (
-          <div key={e.id} className="text-[11px]">
-            <p>{[e.tipo, e.marca, e.modelo].filter(Boolean).join(" ")}</p>
-            <p
-              className={cn(
-                "break-all text-[10px] text-[var(--text-muted)]",
-                NUM_CHAT,
-              )}
-            >
-              Série {e.serial ?? <Traco titulo={MOTIVO_SEM_SERIE} />} · MAC{" "}
-              {e.mac ?? <Traco titulo={MOTIVO_SEM_MAC} />}
-            </p>
-          </div>
-        ))}
-      </section>
+      {/* CONEXÃO — o MESMO bloco do Cliente 360, não uma segunda versão dele. */}
+      <div className="border-b border-[var(--border)] py-4">
+        <BlocoConexao
+          denso
+          nivel="h4"
+          conexoes={contexto?.conexoes ?? []}
+          inventario={inventario}
+          origem={origemDaConexao}
+          statusContrato={p?.statusContrato}
+          testId="chat-bloco-conexao"
+          rodape={
+            dados.equipamentos.length ? (
+              <ul className="mt-3 space-y-1.5" aria-label="Inventário do cliente">
+                {dados.equipamentos.map((e) => (
+                  <li key={e.id} className="text-[11px]">
+                    <p>{[e.tipo, e.marca, e.modelo].filter(Boolean).join(" ")}</p>
+                    <p
+                      className={cn(
+                        "break-all text-[10px] text-[var(--text-muted)]",
+                        NUM_CHAT,
+                      )}
+                    >
+                      Série {e.serial ?? <Traco titulo={MOTIVO_SEM_SERIE} />} · MAC{" "}
+                      {formatarMac(e.mac) ?? <Traco titulo={MOTIVO_SEM_MAC} />}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <AguardeOuAviso
+                consultando={consultando}
+                aviso="Nenhum equipamento no inventário deste cliente."
+              />
+            )
+          }
+        />
+      </div>
       <section className="space-y-2 border-b border-[var(--border)] py-4">
         <h4 className="flex items-center gap-2 text-xs font-semibold">
           <Box aria-hidden className="h-3.5 w-3.5" /> Ordens em aberto

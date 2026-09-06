@@ -16,6 +16,12 @@ const banco = vi.hoisted(() => ({
   consultas: [] as { sql: string; params: unknown[]; method: string; dentroDaTransacao: boolean }[],
   linhas: new Map<string, Record<string, unknown>[]>(),
   vazias: [] as RegExp[],
+  /**
+   * Resposta sob medida para as consultas que devolvem coluna calculada — o
+   * `responder` abaixo so sabe montar linha a partir de coluna crua da tabela,
+   * e a leitura do diario de envios junta duas tabelas.
+   */
+  forcar: null as null | ((sql: string) => unknown[][] | null),
   dentro: false,
   db: null as any,
 }));
@@ -57,6 +63,8 @@ function colunasDevolvidas(sqlTexto: string): string[] | null {
 }
 
 function responder(sqlTexto: string): unknown[] {
+  const forcado = banco.forcar?.(sqlTexto);
+  if (forcado) return forcado;
   if (banco.vazias.some(r => r.test(sqlTexto))) return [];
   const alvo = tabelaAlvo(sqlTexto);
   const colunas = colunasDevolvidas(sqlTexto);
@@ -90,6 +98,7 @@ beforeEach(() => {
   banco.consultas.length = 0;
   banco.vazias.length = 0;
   banco.linhas.clear();
+  banco.forcar = null;
   banco.dentro = false;
   const proxy = drizzle(async (sqlTexto, params, method) => {
     banco.consultas.push({ sql: sqlTexto, params, method, dentroDaTransacao: banco.dentro });
@@ -237,6 +246,58 @@ describe("primeiro contato automático", () => {
     expect(cobranca.sql).toContain('"ultimo_contato_em" is null');
     expect(equipamentos.sql).toContain('"equipment_recovery_events"');
     expect(equipamentos.sql).toContain(`->>'enviado' = 'true'`);
+  });
+
+  /**
+   * O DIARIO que a tela de automacao mostra. Ele existe para responder "o robo
+   * esta trabalhando?" sem que ninguem precise abrir o banco — e por isso a
+   * definicao de envio TEM de ser a mesma da cota do dia: se o diario listasse
+   * conversa reaproveitada, o provedor veria cinco linhas e o contador diria
+   * dois, e nao teria como saber qual dos dois esta mentindo.
+   */
+  it("o diario lista os mesmos envios que a cota conta, dos dois lados, com o cliente do provedor", async () => {
+    banco.forcar = () => [];
+    await storage.ultimosPrimeirosContatos(PROVEDOR);
+    expect(banco.consultas).toHaveLength(2);
+    for (const c of banco.consultas) provaProviderId(c, PROVEDOR);
+
+    const cobranca = banco.consultas.find(c => c.sql.includes('"cobranca_eventos"'))!;
+    expect(cobranca.params).toContain("contato");
+    expect(cobranca.params).toContain("whatsapp");
+    // O nome sai do cliente DESTE provedor — a juncao carrega o provider_id.
+    expect(cobranca.sql).toContain('"customers"."provider_id" = $');
+    expect(cobranca.sql).toContain('order by "cobranca_eventos"."ocorrido_em" desc');
+
+    const equipamentos = banco.consultas.find(c => c.sql.includes('"equipment_recovery_events"'))!;
+    expect(equipamentos.sql).toContain(`->>'enviado' = 'true'`);
+    // O caso da recuperacao tambem e do provedor: sem isso, o nome viria de
+    // outra carteira por um id de caso adivinhado.
+    expect(equipamentos.sql).toContain('"equipment_recovery_cases"."provider_id" = $');
+    expect(banco.consultas.some(c => c.sql.includes('"chat_bullq_conversas"'))).toBe(false);
+  });
+
+  it("junta as duas frentes em ordem de tempo e respeita o teto pedido", async () => {
+    const linha = (dia: string, nome: string) => [new Date(`2026-09-${dia}T12:00:00Z`), "whatsapp", 42, nome, null];
+    banco.forcar = (sql: string) =>
+      sql.includes('"cobranca_eventos"')
+        ? [linha("01", "Ana Souza"), linha("05", "Bruno Lima")]
+        : [linha("03", "Carla Dias")];
+    const envios = await storage.ultimosPrimeirosContatos(PROVEDOR, 2);
+    expect(envios.map(e => e.clienteNome)).toEqual(["Bruno Lima", "Carla Dias"]);
+    expect(envios.map(e => e.origem)).toEqual(["cobranca", "equipamentos"]);
+    // O teto vai para o BANCO tambem, e nao so para o corte em memoria.
+    for (const c of banco.consultas) expect(c.params).toContain(2);
+  });
+
+  it("teto fora da faixa vira o padrao seguro, e envio sem data nao entra", async () => {
+    banco.forcar = (sql: string) =>
+      sql.includes('"cobranca_eventos"')
+        ? [[null, "whatsapp", 42, "Sem data", null], [new Date("2026-09-02T12:00:00Z"), "whatsapp", 43, "Com data", "falou"]]
+        : [];
+    const envios = await storage.ultimosPrimeirosContatos(PROVEDOR, 0);
+    expect(envios.map(e => e.clienteNome)).toEqual(["Com data"]);
+    expect(envios[0].resultado).toBe("falou");
+    expect(banco.consultas[0].params).toContain(20);
   });
 });
 

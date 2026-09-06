@@ -10,7 +10,7 @@
  *
  * Nada de React aqui: o módulo é importado pelos `.ts` puros e pelos testes.
  */
-import { POLITICA_PADRAO, ROTULO_STATUS_DE_CASO, type Economia, type Etapa, type MotivoSemEtapa } from "@shared/cobranca";
+import { POLITICA_PADRAO, ROTULO_CANAL, ROTULO_STATUS_DE_CASO, type Economia, type Etapa, type MotivoSemEtapa } from "@shared/cobranca";
 import type { EntradaDaFicha360, Ficha360 } from "@shared/cobranca";
 
 /** O que a rota leu para montar a ficha; o navegador remonta com o plano e a data do ERP ao vivo. */
@@ -729,4 +729,129 @@ export function lerKanban(resposta: unknown): RespostaDoKanban {
   const kpisCrus = r.kpis && typeof r.kpis === "object" ? (r.kpis as Record<string, unknown>) : null;
   const kpis: KpisDaFila | null = kpisCrus ? { casosVivos: numero(kpisCrus.casosVivos), paraHoje: numero(kpisCrus.paraHoje), vencidos: numero(kpisCrus.vencidos), agendados: numero(kpisCrus.agendados), emAberto: numero(kpisCrus.emAberto), semProximaAcao: numero(kpisCrus.semProximaAcao) } : null;
   return { colunas, kpis, total: numero(r.total), pausada: pausa.pausada, pausadaMotivo: pausa.motivo };
+}
+
+/* ── Indicadores: automação e recuperação (fase 3) ───────────────────── */
+
+export const API_INDICADOR_AUTOMACAO = "/api/cobranca/indicadores/automacao";
+export const API_INDICADOR_RECUPERACAO = "/api/cobranca/indicadores/recuperacao";
+/** O KPI do kanban olha os últimos `dias`; o período vai escrito na tela. */
+export const apiRecuperacao = (dias: number) => `${API_INDICADOR_RECUPERACAO}?dias=${dias}`;
+export const DIAS_DA_RECUPERACAO = 30;
+
+/** Uma linha do diário de envios do primeiro contato. O nome já vem mascarado. */
+export interface EnvioDoPrimeiroContato {
+  em: string;
+  origem: string;
+  canal: string | null;
+  cliente: string;
+  resultado: string | null;
+}
+
+/**
+ * O contador da automação. `hoje` e `limiteDiario` são `null` quando não há de
+ * onde contar (chat não provisionado, rota antiga) — a tela mostra "—" com o
+ * `motivo`, nunca zero.
+ */
+export interface AutomacaoDoPrimeiroContato {
+  provisionado: boolean;
+  ligada: boolean;
+  dia: string | null;
+  hoje: number | null;
+  limiteDiario: number | null;
+  motivo: string | null;
+  /** Teto por rodada e intervalo dela, ditos pelo servidor (o worker é a fonte). */
+  porRodada: number | null;
+  segundosEntreRodadas: number | null;
+  envios: EnvioDoPrimeiroContato[];
+}
+
+export function lerAutomacaoDoPrimeiroContato(resposta: unknown): AutomacaoDoPrimeiroContato {
+  const r = resposta && typeof resposta === "object" && !Array.isArray(resposta) ? (resposta as Record<string, unknown>) : {};
+  const envios = Array.isArray(r.envios) ? (r.envios as Array<Record<string, unknown>>) : [];
+  return {
+    provisionado: r.provisionado === true,
+    ligada: r.ligada === true,
+    dia: typeof r.dia === "string" ? r.dia : null,
+    hoje: numero(r.hoje),
+    limiteDiario: numero(r.limiteDiario),
+    motivo: typeof r.motivo === "string" && r.motivo ? r.motivo : null,
+    porRodada: numero(r.porRodada),
+    segundosEntreRodadas: numero(r.segundosEntreRodadas),
+    envios: envios
+      .filter(e => e && typeof e === "object" && typeof e.em === "string")
+      .map(e => ({
+        em: String(e.em),
+        origem: typeof e.origem === "string" ? e.origem : "cobranca",
+        canal: typeof e.canal === "string" && e.canal ? e.canal : null,
+        cliente: typeof e.cliente === "string" && e.cliente ? e.cliente : "—",
+        resultado: typeof e.resultado === "string" && e.resultado ? e.resultado : null,
+      })),
+  };
+}
+
+/**
+ * Quem conduziu o contato. O rótulo diz o que o dado permite afirmar: o
+ * assistente ESCREVEU a mensagem — pela rodada automática ou pelo botão do
+ * operador, que o banco não separa.
+ */
+export const ROTULO_ORIGEM_DO_CONTATO: Record<string, string> = {
+  assistente: "Assistente",
+  operador: "Operador",
+  indefinido: "Não identificado",
+};
+
+export interface RecorteDaRecuperacao {
+  chave: string;
+  rotulo: string;
+  valor: number;
+  faturas: number;
+  clientes: number;
+}
+
+/**
+ * O recuperado depois do contato. `base: false` = não há do que falar (nenhuma
+ * fatura do ERP, ou nenhuma varredura completa fechou fatura ainda): valores
+ * nulos e o `motivo` escrito, jamais R$ 0,00.
+ */
+export interface RecuperacaoDaCobranca {
+  base: boolean;
+  motivo: string | null;
+  dias: number | null;
+  janelaDias: number | null;
+  valor: number | null;
+  faturas: number | null;
+  clientes: number | null;
+  porOrigem: RecorteDaRecuperacao[];
+  porCanal: RecorteDaRecuperacao[];
+}
+
+function recorte(cru: unknown, rotulos: Record<string, string>): RecorteDaRecuperacao[] {
+  const lista = Array.isArray(cru) ? (cru as Array<Record<string, unknown>>) : [];
+  return lista
+    .filter(l => l && typeof l === "object" && typeof l.chave === "string")
+    .map(l => ({
+      chave: String(l.chave),
+      rotulo: rotulos[String(l.chave)] ?? String(l.chave),
+      valor: numero(l.valor) ?? 0,
+      faturas: numero(l.faturas) ?? 0,
+      clientes: numero(l.clientes) ?? 0,
+    }));
+}
+
+export function lerRecuperacao(resposta: unknown): RecuperacaoDaCobranca {
+  const r = resposta && typeof resposta === "object" && !Array.isArray(resposta) ? (resposta as Record<string, unknown>) : {};
+  const valor = numero(r.valor);
+  return {
+    // Sem valor não há base, mesmo que a rota diga que sim: o "—" é o padrão.
+    base: r.base === true && valor !== null,
+    motivo: typeof r.motivo === "string" && r.motivo ? r.motivo : null,
+    dias: numero(r.dias),
+    janelaDias: numero(r.janelaDias),
+    valor,
+    faturas: numero(r.faturas),
+    clientes: numero(r.clientes),
+    porOrigem: recorte(r.porOrigem, ROTULO_ORIGEM_DO_CONTATO),
+    porCanal: recorte(r.porCanal, ROTULO_CANAL),
+  };
 }

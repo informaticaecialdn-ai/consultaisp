@@ -10,6 +10,9 @@
  *
  * Só apresentação: nenhuma primitiva faz fetch nem aplica regra de negócio.
  */
+// `jsx: preserve` no tsconfig: fora do Vite (o vitest, que renderiza selo e
+// traço em SSR) o esbuild compila JSX para `React.createElement`.
+import * as React from "react";
 import { useEffect, useState, type ReactNode } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";

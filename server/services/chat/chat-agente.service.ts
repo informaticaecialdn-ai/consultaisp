@@ -6,8 +6,19 @@
  * cliente no WhatsApp: consulta o caso pelo telefone antes de falar de valor,
  * registra a promessa de pagamento que o cliente fez, e avisa quando passou
  * a bola ao atendente. Nada disso e decidido pelo agente: ele le o que a
- * regua e a politica do provedor ja decidiram (tom do DNA, teto de desconto,
- * maximo de parcelas) e fala dentro disso.
+ * regua e a politica do provedor ja decidiram (tom do DNA e as ofertas que a
+ * POLITICA DE ACORDO da carteira autoriza) e fala dentro disso.
+ *
+ * O QUE ELE PODE OFERECER NAO E O ENVELOPE GERAL. Ate 06/09/2026 a instrucao
+ * dizia "Pode oferecer ate 20% de desconto e ate 6x" lendo `politica.negociacao`
+ * — o TETO do provedor, nao o que a politica autoriza para AQUELE caso. Com
+ * `origemDaCobranca = "nao_definida"` (o estado em que todo provedor nasce, e o
+ * que a tela de politica afirma ao admin: "o sistema nao oferece desconto — nem
+ * no chat, nem no portal") nenhum desconto existe; e mesmo com origem definida
+ * quem manda e a faixa por dias de atraso da carteira — cliente ATIVO com 10
+ * dias de atraso paga integral, a vista. Por isso a instrucao agora sai de
+ * `ofertasDaPolitica`: as MESMAS ofertas concretas que o servidor autorizaria,
+ * em vez de um teto que ninguem honraria depois.
  *
  * Quem autentica e uma CHAVE POR PROVEDOR gerada aqui — o Consulta ISP guarda
  * so o SHA-256; a chave crua vive como header da tool no Chat BullQ. Toda
@@ -22,11 +33,15 @@ import { logger } from "../../logger";
 import { storage } from "../../storage";
 import { carregarPolitica, carteiraValida, classificarCliente, reguaParaHoje } from "../../routes/cobranca.routes";
 import { carteiraDoStatusErp } from "../../storage/cobranca.storage";
-import { DIRETIVA_POR_TOM, janelaDaEtapa, pct, prescrita, ROTULO_CANAL } from "@shared/cobranca";
+// `brl` e o do dominio (espaco comum, "R$ 1.234,56"), nao um `Intl` local: a
+// mesma frase mistura valor da divida e valor da oferta, e dois formatadores
+// diferentes na mesma linha (um deles com espaco insecavel) e ruido.
+import { ACORDO_PADRAO, brl, DIRETIVA_POR_TOM, janelaDaEtapa, ofertasDaPolitica, pct, prescrita, ROTULO_CANAL, rotuloDaFaixa } from "@shared/cobranca";
+import type { Acordo, Carteira, OfertasDaPolitica } from "@shared/cobranca";
 import { normalizarTelefoneParaChat } from "./chat-bullq.client";
+import { dataLocal } from "./chat-autonomia-politica";
 
 const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v) || 0);
-const brl = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
 
 /* ── A chave do agente ─────────────────────────────────────────────────── */
 
@@ -74,7 +89,27 @@ export interface CasoParaAgente {
     responsavel: string | null;
   } | null;
   tom: { quadrante: string | null; tom: string | null; diretiva: string | null } | null;
+  /**
+   * O ENVELOPE GERAL do provedor — o teto legal, nao o que o agente pode
+   * oferecer. Mantido no contrato porque o Chat BullQ ja o consome; quem diz o
+   * que oferecer e `acordo`, abaixo.
+   */
   politica: { descontoMaxPct: number; maxParcelas: number; entradaMinimaPct: number; saldoMinimoParcelar: number; multaPct: number; jurosMesPct: number } | null;
+  /**
+   * ADITIVO (06/09/2026): o que a POLITICA DE ACORDO da carteira do caso
+   * autoriza para ESTE atraso — origem da cobranca, faixa e as ofertas
+   * concretas. `null` quando nao ha divida a negociar (sem caso, quitado ou
+   * prescrito). E a unica fonte do que o agente pode propor.
+   */
+  acordo: {
+    origemDaCobranca: OfertasDaPolitica["origemDaCobranca"];
+    /** Por que estas ofertas e nao outras — a frase da propria politica. */
+    motivo: string;
+    faixa: { rotulo: string; descontoMaxPct: number; maxParcelas: number; entradaMinimaPct: number } | null;
+    ofertas: OfertasDaPolitica["ofertas"];
+    /** Ultima data que o devedor pode escolher para a primeira parcela. */
+    vencimentoMaximo: string;
+  } | null;
   promessaAberta: { data: string | null; valor: number | null; registradaEm: string } | null;
   /** De onde vem o valor em aberto e quando foi lido — aqui e sempre a varredura, nunca o ERP ao vivo. */
   valores?: { origem: "base_sincronizada"; lidoEm: string | null };
@@ -86,6 +121,51 @@ function primeiroNome(nome: string): string {
   return nome.trim().split(/\s+/)[0] || "cliente";
 }
 
+/** So existem duas carteiras na politica de acordo; qualquer outra coisa e ex-cliente, como em `carteiraValida`. */
+const carteiraDoAcordo = (valor: string): Carteira => (valor === "ativo" ? "ativo" : "ex_cliente");
+
+/**
+ * A politica de acordo gravada, ou o padrao. Linha legada (gravada antes da
+ * migracao 0029) nao tem a coluna, e o padrao ja e o conservador: origem
+ * `nao_definida` nas duas carteiras, isto e, NENHUM desconto. Cair no padrao
+ * aqui nunca afrouxa nada — so evita que uma linha antiga quebre a porta do
+ * agente.
+ */
+function acordoDaPolitica(politica: { acordo?: Acordo | null }): Acordo {
+  const gravado = politica.acordo;
+  if (!gravado?.ativo?.faixas || !gravado?.ex_cliente?.faixas) return ACORDO_PADRAO;
+  return gravado;
+}
+
+/**
+ * As ofertas do servidor, ditas ao agente. NUNCA cita um teto: cita o que a
+ * politica autoriza para este caso, e manda transferir tudo que passe disso.
+ * Com `origemDaCobranca = "nao_definida"` a frase e a mesma que a tela de
+ * politica afirma ao admin — nenhum desconto, so o integral pela segunda via.
+ */
+function frasesDoAcordo(r: OfertasDaPolitica, saldo: number): string {
+  const ondeFica = r.faixa ? `faixa ${rotuloDaFaixa(r.faixa)}` : "sem faixa aplicavel";
+  if (r.origemDaCobranca === "nao_definida") {
+    return `A politica de acordo desta carteira ainda NAO define onde a cobranca nasce, entao NAO ha desconto nem parcelamento a oferecer: so o valor integral de ${brl(saldo)}, pela segunda via do proprio ERP. NAO cite nenhum percentual nem numero de parcelas, nem o teto geral do provedor. Se o cliente pedir abatimento ou prazo, transfira ao atendente.`;
+  }
+  const aVista = r.ofertas.find(o => o.tipo === "a_vista");
+  const parcelado = r.ofertas.find(o => o.tipo === "parcelado");
+  if (!parcelado && (!aVista || aVista.descontoPct <= 0)) {
+    return `A politica de acordo NAO autoriza desconto nem parcelamento neste caso (${ondeFica}): ofereca o valor integral de ${brl(saldo)} a vista. NAO cite nenhum percentual nem numero de parcelas, nem o teto geral do provedor. Qualquer abatimento ou prazo, transfira ao atendente.`;
+  }
+  const linhas: string[] = [`A politica de acordo autoriza (${ondeFica}) SOMENTE estas ofertas:`];
+  if (aVista) {
+    linhas.push(aVista.descontoPct > 0
+      ? `a vista ${brl(aVista.valor)}, que e ${pct(aVista.descontoPct)} de desconto sobre ${brl(saldo)};`
+      : `a vista ${brl(aVista.valor)}, sem desconto;`);
+  }
+  if (parcelado) {
+    linhas.push(`ou ${parcelado.parcelas}x de ${brl(parcelado.valorParcela)}${parcelado.entrada > 0 ? ` com entrada de ${brl(parcelado.entrada)}` : ""}, total ${brl(parcelado.valor)}.`);
+  }
+  linhas.push(`Nao ofereca desconto, prazo ou parcela alem disso, e nao cite o teto geral do provedor; a primeira parcela nao pode passar de ${r.vencimentoMaximo}. Fora dessas ofertas, transfira ao atendente.`);
+  return linhas.join(" ");
+}
+
 /**
  * Le o caso do cliente pelo telefone. Sem cliente, sem caso ou sem divida, a
  * resposta e honesta (`encontrado: false`, ou caso nulo com a instrucao de
@@ -93,7 +173,7 @@ function primeiroNome(nome: string): string {
  */
 export async function casoParaAgente(providerId: number, telefone: string | null | undefined): Promise<CasoParaAgente> {
   const fone = normalizarTelefoneParaChat(telefone);
-  const semNada: CasoParaAgente = { ok: true, encontrado: false, cliente: null, caso: null, tom: null, politica: null, promessaAberta: null, instrucao: "Cliente nao encontrado pelo telefone. Nao cobre nada: pergunte se ele usa outro numero no cadastro e, se preciso, transfira ao atendente." };
+  const semNada: CasoParaAgente = { ok: true, encontrado: false, cliente: null, caso: null, tom: null, politica: null, acordo: null, promessaAberta: null, instrucao: "Cliente nao encontrado pelo telefone. Nao cobre nada: pergunte se ele usa outro numero no cadastro e, se preciso, transfira ao atendente." };
   if (!fone) return semNada;
 
   const cliente = await storage.getCustomerByPhoneDigits(providerId, fone);
@@ -155,6 +235,31 @@ export async function casoParaAgente(providerId: number, telefone: string | null
     ? `segundo a ultima leitura do ERP em ${dataDaLeitura}`
     : "segundo a ultima leitura do ERP (sem data registrada)";
 
+  /*
+   * O QUE O AGENTE PODE OFERECER — da politica de acordo DA CARTEIRA DESTE
+   * CASO, nunca do envelope geral. `ofertasDaPolitica` e pura e ja devolve as
+   * ofertas concretas que o servidor autorizaria; a instrucao so as traduz em
+   * portugues. Nao ha divida a negociar (quitado ou prescrito) => `null`.
+   */
+  const negociavel = dividaAtual > 0 && !prescrita(diasAtraso);
+  const ofertas = negociavel
+    ? ofertasDaPolitica(
+        { saldo: dividaAtual, diasAtraso, carteira: carteiraDoAcordo(carteira), hoje: dataLocal(hoje) },
+        { acordo: acordoDaPolitica(politica), negociacao: politica.negociacao },
+      )
+    : null;
+  const acordo: CasoParaAgente["acordo"] = ofertas
+    ? {
+        origemDaCobranca: ofertas.origemDaCobranca,
+        motivo: ofertas.motivo,
+        faixa: ofertas.faixa
+          ? { rotulo: rotuloDaFaixa(ofertas.faixa), descontoMaxPct: ofertas.faixa.descontoMaxPct, maxParcelas: ofertas.faixa.maxParcelas, entradaMinimaPct: ofertas.faixa.entradaMinimaPct }
+          : null,
+        ofertas: ofertas.ofertas,
+        vencimentoMaximo: ofertas.vencimentoMaximo,
+      }
+    : null;
+
   const partes: string[] = [];
   if (dividaAtual <= 0) partes.push("O cliente NAO tem divida vencida: nao cobre; agradeca e, se ele pedir algo, transfira ao atendente.");
   else if (prescrita(diasAtraso)) partes.push("A divida esta PRESCRITA (mais de cinco anos): nao cobre nem negocie; transfira ao atendente.");
@@ -163,7 +268,7 @@ export async function casoParaAgente(providerId: number, telefone: string | null
     partes.push("Esse valor pode ter mudado desde entao: se o cliente disser que ja pagou, ou questionar o valor, NAO insista e NAO repita o numero — transfira ao atendente.");
     if (regua.etapa) partes.push(`Etapa da regua "${regua.etapa.rotulo}": ${regua.etapa.acao}`);
     if (tom.diretiva) partes.push(`Tom: ${tom.diretiva}`);
-    partes.push(`Pode oferecer ate ${pct(politicaResumo.descontoMaxPct)} de desconto e ate ${politicaResumo.maxParcelas}x${politicaResumo.entradaMinimaPct > 0 ? ` com entrada minima de ${pct(politicaResumo.entradaMinimaPct)}` : ""}; abaixo de ${brl(politicaResumo.saldoMinimoParcelar)} so a vista. Fora disso, transfira ao atendente.`);
+    if (ofertas) partes.push(frasesDoAcordo(ofertas, dividaAtual));
     if (promessaAberta) partes.push(`Ja existe promessa de pagamento para ${promessaAberta.data ?? "data combinada"}: nao registre outra; so lembre com cordialidade.`);
     partes.push("Quando o cliente confirmar data e valor, registre a promessa. Nunca invente valor, boleto ou link.");
   }
@@ -190,7 +295,18 @@ export async function casoParaAgente(providerId: number, telefone: string | null
     // esta rota nao consulta o ERP ao vivo (ver a nota junto de `origemDoValor`).
     valores: { origem: "base_sincronizada" as const, lidoEm: lidoEm && Number.isFinite(lidoEm.getTime()) ? lidoEm.toISOString() : null },
     tom,
-    politica: politicaResumo,
+    /*
+     * O TETO GERAL SO SAI QUANDO NAO HA ACORDO A OFERECER.
+     *
+     * A revisao de 06/09/2026 fechou a frase que mandava o agente oferecer
+     * 20% e 6x ignorando a faixa da carteira, mas o mesmo numero continuava
+     * viajando neste campo, dentro do JSON que o modelo le — e numero no
+     * payload e numero que ele pode repetir ao cliente. Quando `acordo`
+     * responde (sempre que ha divida a negociar), o teto legal nao vai junto:
+     * o que se pode oferecer esta em `acordo.ofertas`, e so.
+     */
+    politica: acordo ? null : politicaResumo,
+    acordo,
     promessaAberta,
     instrucao: partes.join(" "),
   };

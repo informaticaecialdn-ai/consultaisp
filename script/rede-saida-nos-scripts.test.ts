@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const SCRIPTS_QUE_FALAM_COM_ERP = ["script/trigger-erp-sync.ts", "script/trigger-mk-sync.ts", "server/index.ts", "server/worker.ts"];
+const SCRIPTS_QUE_FALAM_COM_ERP = ["script/trigger-erp-sync.ts", "script/trigger-mk-sync.ts", "script/probe-mk-conexoes.ts", "server/index.ts", "server/worker.ts"];
 
 describe("saida por IPv4", () => {
   it.each(SCRIPTS_QUE_FALAM_COM_ERP)("%s chama preferirIPv4NaSaida() antes de qualquer rede", (arquivo) => {

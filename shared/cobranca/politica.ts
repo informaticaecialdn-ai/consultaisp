@@ -18,6 +18,7 @@
  */
 import { z } from "zod";
 import { ETAPAS_PADRAO, EtapasConfigSchema, type Etapa, resolverEtapas } from "./regua";
+import { ACORDO_PADRAO, AcordoSchema, clampAcordo, type Acordo } from "./acordo";
 import type { TipoDeNegociacao } from "./estados";
 
 /* ── Tetos legais ─────────────────────────────────────────────────────── */
@@ -139,6 +140,9 @@ export const POLITICA_PADRAO = {
     confirmado: false,
     precoPorPlano: {},
   } satisfies Economia,
+  // A política de ACORDO nasce com a origem da cobrança NÃO DEFINIDA (decisão
+  // do dono, 06/09/2026): sem ela nenhuma oferta com desconto é gerada.
+  acordo: ACORDO_PADRAO satisfies Acordo,
   pausada: false,
   pausadaMotivo: null as string | null,
 };
@@ -149,6 +153,7 @@ export const PoliticaSchema = z.object({
   encargos: EncargosSchema.default(POLITICA_PADRAO.encargos),
   janelaContato: JanelaContatoSchema.default(POLITICA_PADRAO.janelaContato),
   economia: EconomiaSchema.default(POLITICA_PADRAO.economia),
+  acordo: AcordoSchema.default(() => structuredClone(ACORDO_PADRAO)),
   pausada: z.boolean().default(false),
   pausadaMotivo: z.string().trim().max(300).nullable().default(null),
 });
@@ -221,6 +226,14 @@ export function clampPolitica(politica: Politica): PoliticaAjustada {
     ajustes.push(`Ciclo de ${p.economia.cicloMeses} meses reduzido a ${eco.cicloMeses.max} (dez anos).`);
     p.economia.cicloMeses = eco.cicloMeses.max;
   }
+  // A política de acordo vive DENTRO do envelope geral, e o envelope já foi
+  // puxado aos tetos legais acima — por isso o clamp do acordo vem por último:
+  // uma faixa de 12x contra um `maxParcelas` que acabou de cair a 6 tem de
+  // cair a 6 também, e não ao número que o admin digitou.
+  const acordo = clampAcordo(p.acordo, p.negociacao);
+  p.acordo = acordo.acordo;
+  ajustes.push(...acordo.ajustes);
+
   // A régua tem o próprio piso (Anatel) e é ajustada em resolverEtapas, que
   // toda leitura chama. Aqui só se garante que o JSON gravado é o que passou.
   return { politica: p, ajustes };

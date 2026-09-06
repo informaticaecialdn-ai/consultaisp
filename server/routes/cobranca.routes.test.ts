@@ -5,6 +5,7 @@ import {
   MOTIVO_CASO_FECHADO,
   MOTIVO_NEGATIVADO_NAO_VOLTA,
   MOTIVO_NEGOCIACAO_ENCERRADA,
+  ORIGEM_INDISPONIVEL,
   POLITICA_PADRAO,
   STATUS_DE_CASO,
   casoFechado,
@@ -972,11 +973,94 @@ describe("POST /api/cobranca/casos/:id/negociacoes", () => {
       descontoPct: "15.00", entrada: "0.00", parcelas: 1, valorParcela: "340.00", primeiroVencimento: parcelas[0].vencimento,
       status: "aceita", criadoPorUserId: 8, aceitaEm: new Date(), quebradaEm: null, createdAt: new Date(), updatedAt: new Date(), parcelamento: [],
     }));
-    const res = await json("POST", "/api/cobranca/casos/9/negociacoes", { tipo: "quitacao_desconto", valorNegociado: 340, aceita: true });
+    // 5% e o que a faixa de 31 a 60 dias da carteira ATIVA permite sem
+    // aprovacao (politica de acordo, 0029) — acima disso o caso vira excecao
+    // e nao nasce aceito, e este teste e sobre a parcela unica.
+    const res = await json("POST", "/api/cobranca/casos/9/negociacoes", { tipo: "quitacao_desconto", valorNegociado: 380, aceita: true });
     expect(res.status).toBe(201);
     const [, dados, parcelas] = storageMock.criarNegociacao.mock.calls[0] as any[];
-    expect(dados).toMatchObject({ descontoPct: 15, entrada: 0, aceita: true, primeiroVencimento: daquiADias(0) });
-    expect(parcelas).toEqual([{ numero: 1, valor: 340, vencimento: daquiADias(0) }]);
+    expect(dados).toMatchObject({ descontoPct: 5, entrada: 0, aceita: true, primeiroVencimento: daquiADias(0) });
+    expect(parcelas).toEqual([{ numero: 1, valor: 380, vencimento: daquiADias(0) }]);
+  });
+});
+
+/**
+ * A politica de ACORDO (0029) mede a proposta contra a faixa da CARTEIRA. O
+ * envelope geral (`negociacao`) continua sendo o teto intransponivel; entre a
+ * faixa e o teto de excecao a proposta entra, mas dependendo de alguem
+ * aprovar — e por isso NAO nasce aceita, mesmo com "o cliente ja aceitou".
+ */
+describe("POST negociacoes — a faixa da carteira", () => {
+  const negociacaoCriada = (extra: Record<string, unknown> = {}) => async (_p: number, dados: any, parcelas: any[]) => ({
+    id: 5, providerId: 42, casoId: 9, customerId: 1, tipo: dados.tipo, valorOriginal: "400.00",
+    valorNegociado: String(dados.valorNegociado), descontoPct: String(dados.descontoPct), entrada: String(dados.entrada ?? 0),
+    parcelas: parcelas.length, valorParcela: null, primeiroVencimento: parcelas[0]?.vencimento ?? null,
+    status: dados.aceita ? "aceita" : "proposta", criadoPorUserId: 8, aceitaEm: null, quebradaEm: null,
+    createdAt: new Date(), updatedAt: new Date(), parcelamento: [], ...extra,
+  });
+
+  it("dentro da faixa passa e nao deixa nota de aprovacao", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    storageMock.criarNegociacao.mockImplementationOnce(negociacaoCriada());
+    const res = await json("POST", "/api/cobranca/casos/9/negociacoes", { tipo: "quitacao_desconto", valorNegociado: 380 });
+    const body = await res.json();
+    expect(res.status).toBe(201);
+    expect(body.exigeAprovacao).toBe(false);
+    expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
+  });
+
+  it("acima da faixa e dentro do teto de excecao: entra como PROPOSTA, com nota pedindo aprovacao", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    storageMock.criarNegociacao.mockImplementationOnce(negociacaoCriada());
+    const res = await json("POST", "/api/cobranca/casos/9/negociacoes", { tipo: "quitacao_desconto", valorNegociado: 340, aceita: true });
+    const body = await res.json();
+    expect(res.status).toBe(201);
+    expect(body.exigeAprovacao).toBe(true);
+    expect(body.motivosDaExcecao[0]).toMatch(/Desconto de 15% acima dos 5% da faixa de 31 a 60 dias/);
+    // "o cliente ja aceitou" NAO fecha um acordo que depende de aprovacao
+    expect((storageMock.criarNegociacao.mock.calls[0] as any[])[1].aceita).toBe(false);
+    const [, evento] = storageMock.registrarEventoDeCobranca.mock.calls[0] as any[];
+    expect(evento).toMatchObject({ casoId: 9, tipo: "nota", userId: 8 });
+    expect(evento.metadata).toMatchObject({ exigeAprovacao: true, negociacaoId: 5, carteira: "ativo" });
+  });
+
+  it("acima do teto de excecao e 422, com o limite na frase e nada gravado", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    // O provedor apertou a excecao dos ativos a 10%: 15% passa da faixa (5%) e
+    // dela — e ainda cabe no envelope geral (20%), entao quem recusa e a faixa.
+    const acordo = structuredClone(POLITICA_PADRAO.acordo);
+    acordo.ativo.tetoDeExcecaoPct = 10;
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce({
+      id: 1, providerId: 42, etapas: [], negociacao: POLITICA_PADRAO.negociacao, encargos: POLITICA_PADRAO.encargos,
+      janelaContato: POLITICA_PADRAO.janelaContato, economia: POLITICA_PADRAO.economia, acordo,
+      pausada: false, pausadaMotivo: null, updatedAt: new Date(),
+    });
+    const res = await json("POST", "/api/cobranca/casos/9/negociacoes", { tipo: "quitacao_desconto", valorNegociado: 340 });
+    const body = await res.json();
+    expect(res.status).toBe(422);
+    expect(body.violacoes[0]).toMatch(/teto de exceção de 10% para clientes ativos/);
+    expect(storageMock.criarNegociacao).not.toHaveBeenCalled();
+    expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
+  });
+
+  it("a MESMA proposta passa na carteira de ex-clientes: a faixa e outra", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ carteira: "ex_cliente", cliente: { ...linhaCaso().cliente, diasAtraso: 200 } }));
+    storageMock.criarNegociacao.mockImplementationOnce(negociacaoCriada());
+    const res = await json("POST", "/api/cobranca/casos/9/negociacoes", { tipo: "quitacao_desconto", valorNegociado: 340 });
+    expect(res.status).toBe(201);
+    expect((await res.json()).exigeAprovacao).toBe(false);
+  });
+
+  it("o envelope geral continua vindo primeiro: 50% de desconto e a frase da politica, nao a da faixa", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ carteira: "ex_cliente" }));
+    const res = await json("POST", "/api/cobranca/casos/9/negociacoes", { tipo: "quitacao_desconto", valorNegociado: 200 });
+    expect(res.status).toBe(422);
+    expect((await res.json()).violacoes).toEqual(["Desconto de 50% excede o teto de 20% da política."]);
   });
 });
 
@@ -1024,6 +1108,72 @@ describe("PATCH /api/cobranca/negociacoes/:id", () => {
     expect(storageMock.obterCasoDeCobranca).toHaveBeenCalledWith(42, 9);
     expect(body.negociacao.status).toBe("aceita");
     expect(body.caso.status).toBe("acordo_ativo");
+  });
+});
+
+/**
+ * O FREIO DA EXCECAO. A tela de politica promete que a proposta acima da faixa
+ * "entra, mas fica esperando um administrador aprovar" — entao o operador que
+ * propos nao pode ser quem aceita. A marca da excecao e a nota que o POST
+ * grava (`metadata.exigeAprovacao`), lida da linha do tempo do caso.
+ */
+describe("PATCH negociacoes — aceitar uma proposta de EXCECAO", () => {
+  const notaDeExcecao = (negociacaoId = 3) => [{
+    id: 90, providerId: 42, casoId: 9, customerId: 1, userId: 8, tipo: "nota", canal: "sistema",
+    resultado: null, notas: "Proposta #3 fora da faixa da politica",
+    metadata: { exigeAprovacao: true, negociacaoId, motivos: ["Desconto de 15% acima dos 5% da faixa de 31 a 60 dias."], carteira: "ativo" },
+    ocorridoEm: new Date(), createdAt: new Date(),
+  }];
+  const aceitaDoStorage = {
+    id: 3, casoId: 9, customerId: 1, tipo: "quitacao_desconto", valorOriginal: "400.00", valorNegociado: "340.00",
+    descontoPct: "15.00", entrada: "0.00", parcelas: 1, valorParcela: "340.00", primeiroVencimento: "2026-10-01",
+    status: "aceita", criadoPorUserId: 8, aceitaEm: new Date(), quebradaEm: null, createdAt: new Date(), updatedAt: new Date(),
+  };
+
+  it("403 para o operador, com quem pode aprovar e o motivo da excecao — e nada muda no storage", async () => {
+    sessao = OPERADOR;
+    storageMock.obterNegociacao.mockResolvedValueOnce({ id: 3, casoId: 9, status: "proposta" });
+    storageMock.listarEventosDoCaso.mockResolvedValueOnce(notaDeExcecao() as any);
+    const res = await json("PATCH", "/api/cobranca/negociacoes/3", { casoId: 9, status: "aceita" });
+    const body = await res.json();
+    expect(res.status).toBe(403);
+    expect(body.message).toMatch(/administrador do provedor/);
+    expect(body.motivos[0]).toMatch(/Desconto de 15%/);
+    expect(storageMock.atualizarStatusDaNegociacao).not.toHaveBeenCalled();
+    expect(storageMock.listarEventosDoCaso).toHaveBeenCalledWith(42, 9);
+  });
+
+  it("o admin do provedor aceita a MESMA proposta, e a linha do tempo nem e consultada", async () => {
+    sessao = ADMIN;
+    storageMock.obterNegociacao.mockResolvedValueOnce({ id: 3, casoId: 9, status: "proposta" });
+    storageMock.atualizarStatusDaNegociacao.mockResolvedValueOnce(aceitaDoStorage);
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ status: "acordo_ativo" }));
+    const res = await json("PATCH", "/api/cobranca/negociacoes/3", { casoId: 9, status: "aceita" });
+    expect(res.status).toBe(200);
+    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 7);
+    expect(storageMock.listarEventosDoCaso).not.toHaveBeenCalled();
+  });
+
+  it("negociacao comum segue como antes: o operador aceita sozinho", async () => {
+    sessao = OPERADOR;
+    storageMock.obterNegociacao.mockResolvedValueOnce({ id: 3, casoId: 9, status: "proposta" });
+    // A linha do tempo tem nota de OUTRA negociacao — nao e desta proposta.
+    storageMock.listarEventosDoCaso.mockResolvedValueOnce(notaDeExcecao(4) as any);
+    storageMock.atualizarStatusDaNegociacao.mockResolvedValueOnce(aceitaDoStorage);
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ status: "acordo_ativo" }));
+    const res = await json("PATCH", "/api/cobranca/negociacoes/3", { casoId: 9, status: "aceita" });
+    expect(res.status).toBe(200);
+    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 8);
+  });
+
+  it("o freio e so na entrada do acordo: o operador ainda cancela a propria proposta de excecao", async () => {
+    sessao = OPERADOR;
+    storageMock.obterNegociacao.mockResolvedValueOnce({ id: 3, casoId: 9, status: "proposta" });
+    storageMock.atualizarStatusDaNegociacao.mockResolvedValueOnce({ ...aceitaDoStorage, status: "cancelada", aceitaEm: null });
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    const res = await json("PATCH", "/api/cobranca/negociacoes/3", { casoId: 9, status: "cancelada" });
+    expect(res.status).toBe(200);
+    expect(storageMock.listarEventosDoCaso).not.toHaveBeenCalled();
   });
 });
 
@@ -1426,6 +1576,80 @@ describe("PUT /api/cobranca/politica", () => {
       pausada: true, pausadaMotivo: "auditoria",
       negociacao: { maxParcelas: 12, entradaMinimaPct: 5, descontoMaxPct: 40, saldoMinimoParcelar: 50 },
     }));
+  });
+
+  /**
+   * A politica de ACORDO (0029) e a `economia` viajam no mesmo PUT. A
+   * `economia` estava FORA da lista de chaves aceitas: a tela de politica
+   * manda os custos em todo PUT, entao o corpo inteiro voltava 400 "campo
+   * desconhecido" — nem custo nem pausa gravavam por essa tela.
+   */
+  it("aceita `economia` e `acordo` no mesmo PUT — as duas sao parte da politica", async () => {
+    sessao = ADMIN;
+    const acordo = structuredClone(POLITICA_PADRAO.acordo);
+    acordo.ex_cliente.origemDaCobranca = "asaas";
+    const economia = { ...POLITICA_PADRAO.economia, cac: 180, confirmado: true };
+    const res = await json("PUT", "/api/cobranca/politica", { ...corpoValido, economia, acordo });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.politica.acordo.ex_cliente.origemDaCobranca).toBe("asaas");
+    expect(body.politica.economia).toMatchObject({ cac: 180, confirmado: true });
+    expect(storageMock.upsertPoliticaDeCobranca).toHaveBeenCalledWith(42, expect.objectContaining({
+      acordo: expect.objectContaining({ ex_cliente: expect.objectContaining({ origemDaCobranca: "asaas" }) }),
+      economia: expect.objectContaining({ cac: 180 }),
+    }));
+  });
+
+  /**
+   * A origem `erp` existe no vocabulario e o `<select>` a mostra desabilitada
+   * — mas quem RECUSA e o servidor, como no `naoImplementado` dos conectores.
+   * Sem isto um PUT por curl gravava `erp` e dali saiam ofertas com desconto
+   * para um canal onde nenhum conector escreve cobranca.
+   */
+  it("400 ao gravar origem indisponivel (`erp`), com a mesma frase da tela — e nada e gravado", async () => {
+    sessao = ADMIN;
+    const acordo = structuredClone(POLITICA_PADRAO.acordo);
+    acordo.ativo.origemDaCobranca = "erp" as never;
+    const res = await json("PUT", "/api/cobranca/politica", { ...corpoValido, acordo });
+    const body = await res.json();
+    expect(res.status).toBe(400);
+    expect(body.errors["acordo.ativo.origemDaCobranca"]).toEqual([ORIGEM_INDISPONIVEL.erp]);
+    expect(storageMock.upsertPoliticaDeCobranca).not.toHaveBeenCalled();
+  });
+
+  it("o acordo e puxado ao envelope geral, com a frase do porque", async () => {
+    sessao = ADMIN;
+    const acordo = structuredClone(POLITICA_PADRAO.acordo);
+    acordo.ex_cliente.faixas = [{ acimaDeDias: 0, ateDias: null, descontoMaxPct: 90, maxParcelas: 24, entradaMinimaPct: 20 }];
+    const res = await json("PUT", "/api/cobranca/politica", { ...corpoValido, acordo });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.politica.acordo.ex_cliente.faixas[0]).toMatchObject({ descontoMaxPct: 30, maxParcelas: 10 });
+    expect(body.ajustes.join(" ")).toMatch(/teto geral da negociação/);
+  });
+
+  it("400 quando as faixas do acordo deixam um atraso sem cobertura", async () => {
+    sessao = ADMIN;
+    const acordo = structuredClone(POLITICA_PADRAO.acordo);
+    acordo.ativo.faixas = [{ acimaDeDias: 0, ateDias: 30, descontoMaxPct: 0, maxParcelas: 1, entradaMinimaPct: 100 }];
+    const res = await json("PUT", "/api/cobranca/politica", { ...corpoValido, acordo });
+    expect(res.status).toBe(400);
+    expect((await res.json()).errors["acordo.ativo.faixas"][0]).toMatch(/acima de 30 dias/);
+    expect(storageMock.upsertPoliticaDeCobranca).not.toHaveBeenCalled();
+  });
+
+  it("a politica GRAVADA e lida inteira: os custos confirmados e o acordo do provedor chegam a tela", async () => {
+    sessao = OPERADOR;
+    const acordo = structuredClone(POLITICA_PADRAO.acordo);
+    acordo.ativo.origemDaCobranca = "manual";
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce({
+      id: 1, providerId: 42, etapas: [], negociacao: POLITICA_PADRAO.negociacao, encargos: POLITICA_PADRAO.encargos,
+      janelaContato: POLITICA_PADRAO.janelaContato, economia: { ...POLITICA_PADRAO.economia, cac: 199, confirmado: true },
+      acordo, pausada: false, pausadaMotivo: null, updatedAt: new Date(),
+    });
+    const body = await (await json("GET", "/api/cobranca/politica")).json();
+    expect(body.politica.economia).toMatchObject({ cac: 199, confirmado: true });
+    expect(body.politica.acordo.ativo.origemDaCobranca).toBe("manual");
   });
 
   it("GET devolve o padrao (configurada=false) quando o provedor nunca gravou", async () => {

@@ -172,7 +172,7 @@ export async function snapshotAoVivoDoCliente(
               faturasAbertas: numero(achado.overdueInvoicesCount),
               telefone: texto(achado.phone),
               email: texto(achado.email),
-              autenticacoes: (achado.autenticacoes ?? []).map(a => ({ login: texto(a.login), mac: normalizarMac(a.mac), ip: texto(a.ip), contrato: texto(a.contrato), serial: texto(a.serial), online: typeof a.online === "boolean" ? a.online : null, fonte: texto(a.fonte) ?? util.erpSource })),
+              autenticacoes: (achado.autenticacoes ?? []).map(a => ({ login: texto(a.login), mac: normalizarMac(a.mac), ip: texto(a.ip), contrato: texto(a.contrato), serial: texto(a.serial), online: typeof a.online === "boolean" ? a.online : null, bloqueada: typeof a.bloqueada === "boolean" ? a.bloqueada : null, fonte: texto(a.fonte) ?? util.erpSource })),
               faturas: achado.faturasAbertas?.map(f => ({ ref: f.ref, valor: f.valor, vencimento: f.vencimento, descricao: texto(f.descricao), ...(f.pagamento ? { pagamento: normalizarPagamento(f.pagamento) } : {}) })),
               equipamentos: (achado.equipmentDetails ?? []).map(e => ({
                 tipo: texto(e.type),

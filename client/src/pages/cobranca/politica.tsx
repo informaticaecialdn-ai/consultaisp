@@ -26,11 +26,16 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
-  CANAIS_HUMANOS, janelaDaEtapa, LIMITES_DA_ECONOMIA, PARCELAMENTO_POR_STATUS, PISO_AVISO_SUSPENSAO_DIAS, ROTULO_CANAL, rotuloDoDia,
-  STATUS_DE_PARCELAMENTO, TETOS_LEGAIS, type CanalHumano,
+  CANAIS_HUMANOS, CARTEIRAS, EXPLICACAO_ORIGEM_DA_COBRANCA, janelaDaEtapa, LIMITES_DA_ECONOMIA, ORIGEM_INDISPONIVEL, ORIGENS_DA_COBRANCA,
+  origemDisponivel, PARCELAMENTO_POR_STATUS, PISO_AVISO_SUSPENSAO_DIAS, ROTULO_CANAL, ROTULO_CARTEIRA_NO_ACORDO, ROTULO_ORIGEM_DA_COBRANCA,
+  rotuloDoDia, STATUS_DE_PARCELAMENTO, TETOS_LEGAIS, type CanalHumano, type OrigemDaCobranca,
 } from "@shared/cobranca";
 import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, CabecalhoPainel, Campo, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA } from "@/components/painel/ui";
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
+import {
+  acordoDoForm, adicionarFaixa, avisosDasFaixas, editarCarteira, editarFaixa, formDoAcordo, removerFaixa, rotulosDasFaixas,
+  type FormAcordo,
+} from "@/components/cobranca/acordo-form";
 import {
   adicionarPlano, confirmarCustos, corpoDoPut, editarCusto, editarEtapa, editarPlano, formDaPolitica, lerPolitica, lerRespostaDoPut, removerPlano, ROTULO_PARCELAMENTO_POR_STATUS,
   type FormPolitica,
@@ -92,21 +97,31 @@ export default function PoliticaPage() {
   const mostrarSkeleton = useSkeletonAtrasado(isLoading);
 
   const [form, setForm] = useState<FormPolitica | null>(null);
+  // A política de acordo tem estado próprio (0029): ela é por CARTEIRA e não
+  // cabe no `FormPolitica`, que é um objeto só. Viaja no mesmo PUT.
+  const [acordo, setAcordo] = useState<FormAcordo | null>(null);
   const [sujo, setSujo] = useState(false);
   // Hidrata quando a política chega; não sobrescreve o que o admin está editando.
-  useEffect(() => { if (gravada && !sujo) setForm(formDaPolitica(gravada)); }, [gravada]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (gravada && !sujo) {
+      setForm(formDaPolitica(gravada));
+      setAcordo(formDoAcordo(gravada.acordo));
+    }
+  }, [gravada]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Recebe o formulário como argumento: "Confirmar custos" grava o form já
   // confirmado sem esperar o estado do React virar.
   const gravar = useMutation({
-    mutationFn: async (f: FormPolitica) => {
+    mutationFn: async ({ f, a }: { f: FormPolitica; a: FormAcordo | null }) => {
       if (!gravada) throw new Error("A política ainda não carregou");
-      return (await apiRequest("PUT", API_POLITICA, corpoDoPut(f, gravada))).json();
+      const corpo = { ...corpoDoPut(f, gravada), ...(a ? { acordo: acordoDoForm(a, gravada.acordo) } : {}) };
+      return (await apiRequest("PUT", API_POLITICA, corpo)).json();
     },
     onSuccess: resposta => {
       const { politica, ajustes } = lerRespostaDoPut(resposta);
       setSujo(false);
       setForm(formDaPolitica(politica));
+      setAcordo(formDoAcordo(politica.acordo));
       invalidarCobranca();
       toast({ title: "Política gravada", description: ajustes.length ? `Ajustada aos tetos legais: ${ajustes.join(" ")}` : undefined });
     },
@@ -114,6 +129,8 @@ export default function PoliticaPage() {
   });
 
   const editar = (mudanca: (f: FormPolitica) => FormPolitica) => { setSujo(true); setForm(f => (f ? mudanca(f) : f)); };
+  const editarAcordo = (mudanca: (a: FormAcordo) => FormAcordo) => { setSujo(true); setAcordo(a => (a ? mudanca(a) : a)); };
+  const avisosDoAcordo = acordo && gravada ? avisosDasFaixas(acordo, gravada.acordo) : {};
   const travado = !podeAdministrar || gravar.isPending || !form;
   const caixa = cn(CONTROLE_CAMPO, MONO);
 
@@ -122,7 +139,7 @@ export default function PoliticaPage() {
     const confirmado = confirmarCustos(form);
     setForm(confirmado);
     setSujo(true);
-    gravar.mutate(confirmado);
+    gravar.mutate({ f: confirmado, a: acordo });
   };
 
   const custosConfirmados = form?.economia.confirmado === true;
@@ -159,7 +176,7 @@ export default function PoliticaPage() {
         acoes={
           <>
             <Link href={ROTA_REGUA} className={BOTAO_SECUNDARIO} data-testid="link-regua"><Route className="h-3.5 w-3.5" aria-hidden /> Ver a régua</Link>
-            <button type="button" className={BOTAO_MARCA} disabled={travado || !sujo} onClick={() => form && gravar.mutate(form)} data-testid="salvar-politica"><Save className="h-3.5 w-3.5" aria-hidden /> {gravar.isPending ? "Gravando…" : "Gravar política"}</button>
+            <button type="button" className={BOTAO_MARCA} disabled={travado || !sujo} onClick={() => form && gravar.mutate({ f: form, a: acordo })} data-testid="salvar-politica"><Save className="h-3.5 w-3.5" aria-hidden /> {gravar.isPending ? "Gravando…" : "Gravar política"}</button>
           </>
         }
       />
@@ -173,7 +190,7 @@ export default function PoliticaPage() {
       ) : mostrarSkeleton || !form ? (
         <div className="grid gap-3 lg:grid-cols-2" aria-busy>{[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[200px] rounded-lg" />)}</div>
       ) : (
-        <form className="flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!travado) gravar.mutate(form); }}>
+        <form className="flex flex-col gap-3" onSubmit={e => { e.preventDefault(); if (!travado) gravar.mutate({ f: form, a: acordo }); }}>
           <div className="grid gap-3 lg:grid-cols-2">
             <Cartao kicker="negociação" titulo="O envelope do funcionário" testId="cartao-negociacao">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -244,6 +261,119 @@ export default function PoliticaPage() {
               )}
             </Cartao>
           </div>
+
+          {/* A POLÍTICA DE ACORDO (0029). A origem da cobrança vem PRIMEIRO
+              porque é ela que liga tudo: sem ela o sistema não oferece
+              desconto nenhum — decisão do dono, 06/09/2026. */}
+          {acordo && gravada && (
+            <Cartao
+              kicker="acordo · o que o sistema pode oferecer sozinho"
+              titulo="Política de acordo, por carteira"
+              acoes={<span className="text-[11px] text-[var(--text-muted)]">o envelope acima é o teto: o acordo nunca passa dele</span>}
+              testId="cartao-acordo"
+            >
+              <p className="mb-3 text-[11.5px] leading-4 text-[var(--text-muted)]">
+                Cliente ativo e ex-cliente têm réguas separadas porque o risco e a conversa são outros. Dentro de cada carteira, o que se pode oferecer muda com os dias de atraso. O funcionário continua podendo propor além da faixa até o teto de exceção — a proposta entra, mas fica esperando um administrador aprovar.
+              </p>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {CARTEIRAS.map(carteira => {
+                  const c = acordo[carteira];
+                  const rotulos = rotulosDasFaixas(acordo, carteira, gravada.acordo);
+                  const semOrigem = c.origemDaCobranca === "nao_definida";
+                  return (
+                    <fieldset key={carteira} className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3" data-testid={`acordo-${carteira}`}>
+                      <legend className="px-1 font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{ROTULO_CARTEIRA_NO_ACORDO[carteira]}</legend>
+
+                      <Campo rotulo="onde a cobrança do acordo nasce">
+                        <select
+                          className={CONTROLE_CAMPO}
+                          disabled={travado}
+                          value={c.origemDaCobranca}
+                          onChange={e => editarAcordo(a => editarCarteira(a, carteira, { origemDaCobranca: e.target.value as OrigemDaCobranca }))}
+                          data-testid={`acordo-origem-${carteira}`}
+                        >
+                          {ORIGENS_DA_COBRANCA.map(o => (
+                            <option key={o} value={o} disabled={!origemDisponivel(o)}>
+                              {ROTULO_ORIGEM_DA_COBRANCA[o]}{origemDisponivel(o) ? "" : " — indisponível"}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="mt-1 block text-[10.5px] leading-4 text-[var(--text-faint)]">{EXPLICACAO_ORIGEM_DA_COBRANCA[c.origemDaCobranca]}</span>
+                        <span className="mt-1 inline-flex items-start gap-1 text-[10.5px] leading-4 text-[var(--text-faint)]">
+                          <Lock className="mt-[1px] h-3 w-3 flex-none" aria-hidden /> {ROTULO_ORIGEM_DA_COBRANCA.erp}: {ORIGEM_INDISPONIVEL.erp}
+                        </span>
+                      </Campo>
+
+                      {semOrigem && (
+                        <p className="mt-2 rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] px-2.5 py-1.5 text-[11px] leading-4 text-[var(--gated)]" data-testid={`acordo-sem-origem-${carteira}`}>
+                          Sem a origem escolhida, o sistema não oferece desconto — nem no chat, nem no portal. Só a segunda via do valor integral, pelo próprio ERP. As faixas abaixo ficam guardadas e passam a valer assim que houver origem.
+                        </p>
+                      )}
+
+                      <div className="mt-3 overflow-x-auto">
+                        <table className="w-full border-collapse text-[12px]">
+                          <thead>
+                            <tr>
+                              {["faixa", "até (dias)", "desconto %", "parcelas", "entrada %", ""].map(h => (
+                                <th key={h} className="border-b border-[var(--border)] px-1.5 py-1.5 text-left font-mono text-[9.5px] font-medium uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {c.faixas.map((f, i) => (
+                              <tr key={i} data-testid={`acordo-faixa-${carteira}-${i}`}>
+                                <td className={cn("border-b border-[var(--border-faint)] px-1.5 py-1.5 whitespace-nowrap text-[11px] text-[var(--text-2)]", MONO)}>{rotulos[i]}</td>
+                                <td className="border-b border-[var(--border-faint)] px-1.5 py-1.5">
+                                  <input type="number" min={1} className={cn(caixa, "w-[84px]")} disabled={travado || i === c.faixas.length - 1} placeholder="sem teto" value={f.ateDias} onChange={e => editarAcordo(a => editarFaixa(a, carteira, i, "ateDias", e.target.value))} aria-label="até quantos dias" data-testid={`acordo-ate-${carteira}-${i}`} />
+                                </td>
+                                <td className="border-b border-[var(--border-faint)] px-1.5 py-1.5">
+                                  <input type="number" min={0} max={100} step="0.5" className={cn(caixa, "w-[74px]")} disabled={travado} value={f.descontoMaxPct} onChange={e => editarAcordo(a => editarFaixa(a, carteira, i, "descontoMaxPct", e.target.value))} aria-label="desconto máximo" data-testid={`acordo-desconto-${carteira}-${i}`} />
+                                </td>
+                                <td className="border-b border-[var(--border-faint)] px-1.5 py-1.5">
+                                  <input type="number" min={1} max={TETOS_LEGAIS.maxParcelas} className={cn(caixa, "w-[68px]")} disabled={travado} value={f.maxParcelas} onChange={e => editarAcordo(a => editarFaixa(a, carteira, i, "maxParcelas", e.target.value))} aria-label="máximo de parcelas" data-testid={`acordo-parcelas-${carteira}-${i}`} />
+                                </td>
+                                <td className="border-b border-[var(--border-faint)] px-1.5 py-1.5">
+                                  <input type="number" min={0} max={100} step="0.5" className={cn(caixa, "w-[74px]")} disabled={travado} value={f.entradaMinimaPct} onChange={e => editarAcordo(a => editarFaixa(a, carteira, i, "entradaMinimaPct", e.target.value))} aria-label="entrada mínima" data-testid={`acordo-entrada-${carteira}-${i}`} />
+                                </td>
+                                <td className="border-b border-[var(--border-faint)] px-1.5 py-1.5">
+                                  {i < c.faixas.length - 1 && (
+                                    <button type="button" className={cn(BOTAO_SECUNDARIO, "h-9 w-9 px-0")} disabled={travado} onClick={() => editarAcordo(a => removerFaixa(a, carteira, i))} aria-label="remover faixa" data-testid={`acordo-remover-${carteira}-${i}`}>×</button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <button type="button" className={cn(BOTAO_SECUNDARIO, "mt-2 w-fit")} disabled={travado} onClick={() => editarAcordo(a => adicionarFaixa(a, carteira))} data-testid={`acordo-adicionar-${carteira}`}>+ adicionar faixa</button>
+
+                      {avisosDoAcordo[carteira] && (
+                        <ul className="mt-2 space-y-1 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-1.5 text-[11px] leading-4 text-[var(--danger)]" data-testid={`acordo-avisos-${carteira}`}>
+                          {avisosDoAcordo[carteira]?.map(aviso => <li key={aviso}>{aviso}</li>)}
+                        </ul>
+                      )}
+
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        <Campo rotulo="janela do vencimento (dias)">
+                          <input type="number" min={0} max={60} className={caixa} disabled={travado} value={c.janelaVencimentoDias} onChange={e => editarAcordo(a => editarCarteira(a, carteira, { janelaVencimentoDias: e.target.value }))} data-testid={`acordo-janela-${carteira}`} />
+                          <span className="mt-1 block text-[10.5px] leading-4 text-[var(--text-faint)]">o cliente escolhe a data da 1ª parcela dentro dessa janela</span>
+                        </Campo>
+                        <Campo rotulo="exceção · desconto até (%)">
+                          <input type="number" min={0} max={100} step="0.5" className={caixa} disabled={travado} value={c.tetoDeExcecaoPct} onChange={e => editarAcordo(a => editarCarteira(a, carteira, { tetoDeExcecaoPct: e.target.value }))} data-testid={`acordo-excecao-desconto-${carteira}`} />
+                        </Campo>
+                        <Campo rotulo="exceção · parcelas até">
+                          <input type="number" min={1} max={TETOS_LEGAIS.maxParcelas} className={caixa} disabled={travado} value={c.parcelasDeExcecao} onChange={e => editarAcordo(a => editarCarteira(a, carteira, { parcelasDeExcecao: e.target.value }))} data-testid={`acordo-excecao-parcelas-${carteira}`} />
+                        </Campo>
+                      </div>
+                      <p className="mt-2 text-[10.5px] leading-4 text-[var(--text-faint)]">
+                        Acima da faixa e até a exceção: a proposta entra como <b>proposta</b>, com uma nota no caso pedindo aprovação — nunca como acordo fechado. Acima da exceção, o sistema recusa e diz o limite.
+                      </p>
+                    </fieldset>
+                  );
+                })}
+              </div>
+            </Cartao>
+          )}
 
           <Cartao
             kicker="custos e economia · R24"

@@ -219,7 +219,7 @@ export interface PatchDeCaso {
 }
 
 export type PatchDePolitica = Partial<Pick<InsertCobrancaPolitica,
-  "etapas" | "negociacao" | "encargos" | "janelaContato" | "economia" | "pausada" | "pausadaMotivo"
+  "etapas" | "negociacao" | "encargos" | "janelaContato" | "economia" | "acordo" | "pausada" | "pausadaMotivo"
 >>;
 
 /**
@@ -510,6 +510,7 @@ export class CobrancaStorage {
     if (dados.encargos !== undefined) set.encargos = dados.encargos;
     if (dados.janelaContato !== undefined) set.janelaContato = dados.janelaContato;
     if (dados.economia !== undefined) set.economia = dados.economia;
+    if (dados.acordo !== undefined) set.acordo = dados.acordo;
     if (dados.pausada !== undefined) set.pausada = dados.pausada;
     if (dados.pausadaMotivo !== undefined) set.pausadaMotivo = dados.pausadaMotivo;
 

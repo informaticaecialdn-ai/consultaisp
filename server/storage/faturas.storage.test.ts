@@ -251,3 +251,120 @@ describe("clientesDoMes", () => {
     }
   });
 });
+
+/**
+ * `recuperacaoAposContato` — o KPI C6: quanto a cobranca trouxe de volta.
+ *
+ * O que precisa ficar provado aqui, porque nada disso e visivel na tela:
+ *
+ *   · sem fatura do ERP, ou sem nenhuma baixa, a resposta e "—" COM MOTIVO e
+ *     valores nulos — nunca R$ 0,00 (regra do dono, integridade do dado);
+ *   · so entra fatura `baixada_no_erp`, que so a varredura COMPLETA grava;
+ *   · o contato tem de ser do MESMO provedor, do MESMO cliente, dentro da
+ *     janela que antecede a baixa;
+ *   · cada fatura conta uma vez (ultimo toque), senao dois canais dobrariam o
+ *     mesmo dinheiro;
+ *   · provider_id em toda consulta.
+ */
+describe("recuperacaoAposContato", () => {
+  /** As tres consultas do caminho feliz, na ordem em que saem. */
+  const responderComBase = (linhas: { total?: unknown[][]; origem?: unknown[][]; canal?: unknown[][] }) => {
+    banco.responder = (sql: string) => {
+      if (sql.startsWith("select count(*) filter")) return [[10, 3]];
+      if (sql.endsWith('group by "origem"')) return linhas.origem ?? [];
+      if (sql.endsWith('group by "canal"')) return linhas.canal ?? [];
+      return linhas.total ?? [[0, 0, 0]];
+    };
+  };
+
+  it("sem fatura vinda do ERP: base falsa, motivo escrito, valores nulos", async () => {
+    banco.responder = () => [[0, 0]];
+    const r = await storage.recuperacaoAposContato(PROVEDOR, { hoje: HOJE });
+    expect(r.base).toBe(false);
+    expect(r.motivo).toMatch(/Nenhuma fatura veio do ERP/);
+    expect(r.valor).toBeNull();
+    expect(r.faturas).toBeNull();
+    expect(r.clientes).toBeNull();
+    expect(r.porOrigem).toEqual([]);
+    // Uma consulta so: sem base nao se pergunta mais nada ao banco.
+    expect(banco.consultas).toHaveLength(1);
+    conferirTenant(banco.consultas[0]);
+  });
+
+  it("com fatura do ERP mas nenhuma baixa: tambem e '—', e o motivo diz por que", async () => {
+    banco.responder = () => [[120, 0]];
+    const r = await storage.recuperacaoAposContato(PROVEDOR, { hoje: HOJE });
+    expect(r.base).toBe(false);
+    expect(r.motivo).toMatch(/varredura completa/);
+    expect(r.valor).toBeNull();
+    expect(banco.consultas).toHaveLength(1);
+  });
+
+  it("cruza baixa com contato: mesmo provedor, mesmo cliente, dentro da janela antes da baixa", async () => {
+    responderComBase({});
+    await storage.recuperacaoAposContato(PROVEDOR, { hoje: HOJE, dias: 30, janelaDias: 7 });
+    expect(banco.consultas).toHaveLength(4);
+    for (const c of banco.consultas) conferirTenant(c);
+
+    const q = banco.consultas[1];
+    // So a fatura que sumiu dos pendentes numa varredura completa.
+    expect(q.params).toContain("baixada_no_erp");
+    expect(q.sql).toContain('"invoices"."erp_source" is not null');
+    expect(q.sql).toContain('"invoices"."baixada_em" is not null');
+    // O contato e do mesmo cliente e do mesmo provedor.
+    expect(q.sql).toContain('"cobranca_eventos"."customer_id" = "invoices"."customer_id"');
+    expect(q.params).toContain("contato");
+    // A janela: contato ANTES da baixa e a no maximo `janelaDias` dela.
+    expect(q.sql).toContain('"cobranca_eventos"."ocorrido_em" <= "invoices"."baixada_em"');
+    expect(q.sql).toContain("make_interval(days => $");
+    expect(q.params).toContain(7);
+    // O periodo medido entra como data, e nao como texto.
+    const desde = new Date(HOJE.getTime() - 30 * 86_400_000);
+    expect(q.params.some(p => p instanceof Date && (p as Date).getTime() === desde.getTime())
+      || q.params.includes(desde.toISOString())).toBe(true);
+  });
+
+  it("ultimo toque: uma fatura conta uma vez, para o contato mais recente da janela", async () => {
+    responderComBase({});
+    await storage.recuperacaoAposContato(PROVEDOR, { hoje: HOJE });
+    const q = banco.consultas[1];
+    expect(q.sql).toContain('row_number() over (partition by "invoices"."id" order by "cobranca_eventos"."ocorrido_em" desc');
+    expect(q.sql).toContain('"pares" where "ordem" = $');
+  });
+
+  it("origem: mensagem da maquina e assistente; texto de gente com usuario e operador; o resto e indefinido", async () => {
+    responderComBase({});
+    await storage.recuperacaoAposContato(PROVEDOR, { hoje: HOJE });
+    const sql = banco.consultas[1].sql;
+    expect(sql).toContain("'agente_ia', 'template_aprovado'");
+    expect(sql).toContain("then 'assistente'");
+    expect(sql).toContain('when "cobranca_eventos"."user_id" is not null then \'operador\'');
+    expect(sql).toContain("else 'indefinido'");
+  });
+
+  it("devolve total, quebra por origem e quebra por canal, do maior valor para o menor", async () => {
+    responderComBase({
+      total: [[1234.5, 9, 6]],
+      origem: [["operador", 400, 3, 2], ["assistente", 834.5, 6, 4]],
+      canal: [["whatsapp", 900, 7, 5], ["telefone", 334.5, 2, 1]],
+    });
+    const r = await storage.recuperacaoAposContato(PROVEDOR, { hoje: HOJE, dias: 30 });
+    expect(r.base).toBe(true);
+    expect(r.motivo).toBeNull();
+    expect(r.valor).toBe(1234.5);
+    expect(r.faturas).toBe(9);
+    expect(r.clientes).toBe(6);
+    expect(r.dias).toBe(30);
+    expect(r.ate).toEqual(HOJE);
+    expect(r.porOrigem.map(x => x.chave)).toEqual(["assistente", "operador"]);
+    expect(r.porOrigem[0]).toEqual({ chave: "assistente", valor: 834.5, faturas: 6, clientes: 4 });
+    expect(r.porCanal.map(x => x.chave)).toEqual(["whatsapp", "telefone"]);
+  });
+
+  it("periodo e janela sao aparados: nada de 0 dia nem de ano inteiro por engano", async () => {
+    responderComBase({});
+    const r = await storage.recuperacaoAposContato(PROVEDOR, { hoje: HOJE, dias: 0, janelaDias: 9999 });
+    expect(r.dias).toBe(1);
+    expect(r.janelaDias).toBe(90);
+  });
+});

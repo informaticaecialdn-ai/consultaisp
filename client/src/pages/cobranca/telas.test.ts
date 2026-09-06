@@ -338,10 +338,30 @@ describe("política", () => {
     }
   });
 
-  it("o corpo do PUT sai de corpoDoPut, comparado com a política gravada; a mutação recebe o form", () => {
-    expect(f).toContain('apiRequest("PUT", API_POLITICA, corpoDoPut(f, gravada))');
+  it("o corpo do PUT sai de corpoDoPut mais o acordo, comparados com a política gravada; a mutação recebe os dois", () => {
+    // A política de acordo (0029) e por CARTEIRA e tem estado proprio na tela;
+    // ela viaja no MESMO PUT, senao gravar a pausa apagaria o acordo.
+    expect(f).toContain("corpoDoPut(f, gravada)");
+    expect(f).toContain("acordo: acordoDoForm(a, gravada.acordo)");
+    expect(f).toContain('apiRequest("PUT", API_POLITICA, corpo)');
     expect(f).toContain("lerRespostaDoPut(resposta)");
-    expect(f).toContain("gravar.mutate(form)");
+    expect(f).toContain("gravar.mutate({ f: form, a: acordo })");
+  });
+
+  it("a seção Acordo vem por carteira, com a ORIGEM da cobrança em primeiro lugar e o aviso de que sem ela não há desconto", () => {
+    expect(f).toContain('"cartao-acordo"');
+    expect(f).toContain("CARTEIRAS.map(carteira =>");
+    // a origem antes das faixas: e ela que liga o desconto
+    expect(f.indexOf("acordo-origem-")).toBeLessThan(f.indexOf("acordo-faixa-"));
+    expect(f).toContain("onde a cobrança do acordo nasce");
+    expect(f).toContain("acordo-sem-origem-");
+    expect(f).toContain("nem no chat, nem no portal");
+    // o ERP aparece desabilitado, com o motivo, em vez de sumir
+    expect(f).toContain("disabled={!origemDisponivel(o)}");
+    expect(f).toContain("ORIGEM_INDISPONIVEL.erp");
+    for (const id of ["acordo-ate-", "acordo-desconto-", "acordo-parcelas-", "acordo-entrada-", "acordo-janela-", "acordo-excecao-desconto-", "acordo-excecao-parcelas-", "acordo-avisos-"]) {
+      expect(f, id).toContain(id);
+    }
   });
 
   it("os tetos legais são mostrados por constante ao lado das caixas, em mono tabular", () => {
@@ -374,7 +394,7 @@ describe("política", () => {
     it("'Confirmar custos' marca confirmado e grava; sem confirmação, o selo '≈ parâmetros padrão'", () => {
       expect(f).toContain('"confirmar-custos"');
       expect(f).toContain("const confirmado = confirmarCustos(form)");
-      expect(f).toContain("gravar.mutate(confirmado)");
+      expect(f).toContain("gravar.mutate({ f: confirmado, a: acordo })");
       expect(f).toContain('"selo-parametros-padrao"');
       expect(f).toContain("≈ parâmetros padrão");
       expect(f).toContain('"selo-custos-confirmados"');

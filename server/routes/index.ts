@@ -29,6 +29,7 @@ import { registerCadastroRoutes } from "./cadastro.routes";
 import { registerPrecosRoutes } from "./precos.routes";
 import { registerSuporteAcessoRoutes } from "./suporte-acesso.routes";
 import { registerCobrancaRoutes } from "./cobranca.routes";
+import { registerCobrancaIndicadoresRoutes } from "./cobranca-indicadores.routes";
 import { registerChatBullqRoutes } from "./chat-bullq.routes";
 import { registerChatBullqAgenteRoutes } from "./chat-bullq-agente.routes";
 import { registerChatAutonomiaRoutes } from "./chat-autonomia.routes";
@@ -79,6 +80,10 @@ export async function registerRoutes(
   app.use(registerCadastroRoutes());
   app.use(registerPrecosRoutes());
   app.use(registerCobrancaRoutes());
+  // Os indicadores da cobranca (o que a automacao fez, quanto se recuperou).
+  // Router proprio: os caminhos sao `/api/cobranca/indicadores/*` e nenhuma
+  // rota do de cima usa parametro nessa posicao, entao a ordem e indiferente.
+  app.use(registerCobrancaIndicadoresRoutes());
   // A ponte com o Chat BullQ (chat com o cliente em cobranca e equipamentos).
   app.use(registerChatBullqRoutes());
   // As skills do agente de IA e o webhook de volta do Chat BullQ (sem sessao: chave e HMAC).

@@ -1342,6 +1342,41 @@ export interface EconomiaDaPolitica {
 }
 
 /**
+ * A POLITICA DE ACORDO, por carteira (migracao 0029, 06/09/2026). Quem valida,
+ * ordena as faixas e ajusta ao envelope geral e `AcordoSchema` em
+ * shared/cobranca/acordo.ts; aqui fica so o formato do JSONB.
+ *
+ * `origemDaCobranca` e um CAMPO porque foi decisao do dono ("fica na decisao
+ * do provedor"): asaas | erp | manual, e `nao_definida` enquanto ele nao
+ * escolher — e nesse estado NENHUMA oferta com desconto e gerada.
+ */
+export interface FaixaDeAcordoGravada {
+  /** Piso exclusivo. Opcional: inferido do `ateDias` da faixa anterior (0 na primeira). */
+  acimaDeDias?: number;
+  /** Teto inclusivo; null = a ultima faixa, sem teto. */
+  ateDias: number | null;
+  descontoMaxPct: number;
+  maxParcelas: number;
+  entradaMinimaPct: number;
+}
+
+export interface AcordoDaCarteiraGravado {
+  /** nao_definida | asaas | erp | manual. */
+  origemDaCobranca: string;
+  faixas: FaixaDeAcordoGravada[];
+  /** Em quantos dias a frente o devedor escolhe a primeira parcela (a janela do credor). */
+  janelaVencimentoDias: number;
+  /** O quanto alem da faixa um pedido pode ir e ainda ser levado a um humano aprovar. */
+  tetoDeExcecaoPct: number;
+  parcelasDeExcecao: number;
+}
+
+export interface AcordoDaPolitica {
+  ativo: AcordoDaCarteiraGravado;
+  ex_cliente: AcordoDaCarteiraGravado;
+}
+
+/**
  * Os DEFAULTS da politica, na coluna e no codigo, para uma linha criada so com
  * `pausada = true` (o botao de pausar a regua antes de configurar o resto)
  * nascer utilizavel.
@@ -1358,6 +1393,7 @@ export const POLITICA_DE_COBRANCA_PADRAO: {
   encargos: EncargosDaPolitica;
   janelaContato: JanelaDeContato;
   economia: EconomiaDaPolitica;
+  acordo: AcordoDaPolitica;
 } = {
   negociacao: { maxParcelas: 6, entradaMinimaPct: 20, descontoMaxPct: 20, saldoMinimoParcelar: 150 },
   encargos: { multaPct: 2, jurosMesPct: 1 },
@@ -1368,6 +1404,33 @@ export const POLITICA_DE_COBRANCA_PADRAO: {
     impostoReceitaPct: 0, cicloMeses: 36, confirmado: false,
     // Mensalidade por NOME de plano (o ARPU da Economia do cliente) — chave nova em 05/09/2026, migracao 0023.
     precoPorPlano: {},
+  },
+  // Politica de acordo (0029): a origem nasce NAO DEFINIDA nas duas carteiras.
+  // O cliente ativo em atraso recente paga o que deve (desconto 0, a vista); do
+  // ex-cliente se recupera o que der, sem passar do envelope geral (20% / 6x).
+  acordo: {
+    ativo: {
+      origemDaCobranca: "nao_definida",
+      faixas: [
+        { acimaDeDias: 0, ateDias: 30, descontoMaxPct: 0, maxParcelas: 1, entradaMinimaPct: 100 },
+        { acimaDeDias: 30, ateDias: 60, descontoMaxPct: 5, maxParcelas: 2, entradaMinimaPct: 50 },
+        { acimaDeDias: 60, ateDias: null, descontoMaxPct: 10, maxParcelas: 3, entradaMinimaPct: 30 },
+      ],
+      janelaVencimentoDias: 10,
+      tetoDeExcecaoPct: 20,
+      parcelasDeExcecao: 6,
+    },
+    ex_cliente: {
+      origemDaCobranca: "nao_definida",
+      faixas: [
+        { acimaDeDias: 0, ateDias: 90, descontoMaxPct: 10, maxParcelas: 3, entradaMinimaPct: 30 },
+        { acimaDeDias: 90, ateDias: 180, descontoMaxPct: 15, maxParcelas: 4, entradaMinimaPct: 25 },
+        { acimaDeDias: 180, ateDias: null, descontoMaxPct: 20, maxParcelas: 6, entradaMinimaPct: 20 },
+      ],
+      janelaVencimentoDias: 10,
+      tetoDeExcecaoPct: 20,
+      parcelasDeExcecao: 6,
+    },
   },
 };
 
@@ -1380,6 +1443,8 @@ export const cobrancaPolitica = pgTable("cobranca_politica", {
   encargos: jsonb("encargos").$type<EncargosDaPolitica>().notNull().default(POLITICA_DE_COBRANCA_PADRAO.encargos),
   janelaContato: jsonb("janela_contato").$type<JanelaDeContato>().notNull().default(POLITICA_DE_COBRANCA_PADRAO.janelaContato),
   economia: jsonb("economia").$type<EconomiaDaPolitica>().notNull().default(POLITICA_DE_COBRANCA_PADRAO.economia),
+  /** Politica de acordo por carteira (0029): origem da cobranca, faixas por atraso, janela e excecao. */
+  acordo: jsonb("acordo").$type<AcordoDaPolitica>().notNull().default(POLITICA_DE_COBRANCA_PADRAO.acordo),
   pausada: boolean("pausada").notNull().default(false),
   pausadaMotivo: text("pausada_motivo"),
   updatedAt: timestamp("updated_at").defaultNow(),

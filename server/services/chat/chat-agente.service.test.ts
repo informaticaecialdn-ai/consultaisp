@@ -12,7 +12,22 @@ vi.mock("../../db", () => ({ pool: {}, db: {} }));
 const log = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), fatal: vi.fn() }));
 vi.mock("../../logger", () => ({ logger: log }));
 
+/** Uma carteira de acordo que nao oferece nada — o padrao da 0029, para o lado que o teste nao esta medindo. */
+const ACORDO_INERTE = {
+  origemDaCobranca: "nao_definida",
+  janelaVencimentoDias: 10,
+  tetoDeExcecaoPct: 20,
+  parcelasDeExcecao: 6,
+  faixas: [{ acimaDeDias: 0, ateDias: null, descontoMaxPct: 0, maxParcelas: 1, entradaMinimaPct: 100 }],
+};
+
+const POLITICA_LEGADA = () => ({
+  negociacao: { maxParcelas: 6, entradaMinimaPct: 20, descontoMaxPct: 15, saldoMinimoParcelar: 150 },
+  encargos: { multaPct: 2, jurosMesPct: 1 },
+});
+
 const fake = vi.hoisted(() => ({
+  politica: undefined as any,
   integracao: undefined as any,
   cliente: undefined as any,
   casoVivo: undefined as any,
@@ -33,9 +48,12 @@ vi.mock("../../storage", () => ({
   },
 }));
 // As regras da cobranca vem da rota (exportadas de la); aqui sao substitutas com o mesmo contrato.
+// `fake.politica` comeca SEM `acordo` de proposito: e a linha legada, gravada
+// antes da migracao 0029, e o caminho tem de cair no padrao (origem nao
+// definida = nenhum desconto) em vez de quebrar.
 vi.mock("../../routes/cobranca.routes", () => ({
   carregarPolitica: vi.fn(async () => ({
-    politica: { negociacao: { maxParcelas: 6, entradaMinimaPct: 20, descontoMaxPct: 15, saldoMinimoParcelar: 150 }, encargos: { multaPct: 2, jurosMesPct: 1 } },
+    politica: fake.politica,
     etapas: [],
     configurada: true,
     updatedAt: null,
@@ -52,6 +70,7 @@ const CLIENTE = { id: 42, name: "Maria da Silva", phone: "(43) 99999-0000", city
 const DETALHE = { id: 10, status: "em_contato", carteira: "ativo", valorAtual: 189.9, responsavelNome: "Ana", cliente: { id: 42 } };
 
 beforeEach(() => {
+  fake.politica = POLITICA_LEGADA();
   fake.integracao = undefined;
   fake.cliente = CLIENTE;
   fake.casoVivo = { id: 10 };
@@ -90,7 +109,7 @@ describe("casoParaAgente", () => {
     expect(r.encontrado).toBe(false);
     expect(r.instrucao).toMatch(/Nao cobre nada/);
   });
-  it("cliente com caso vivo: numeros reais, etapa, tom, politica e a instrucao com teto de desconto e parcelas", async () => {
+  it("cliente com caso vivo: numeros reais, etapa, tom e o envelope geral preservado no contrato", async () => {
     const r = await casoParaAgente(6, "43999990000");
     expect(r.encontrado).toBe(true);
     expect(r.cliente).toMatchObject({ primeiroNome: "Maria", cidade: "Londrina", situacaoContrato: "ativo", clienteHaMeses: 30 });
@@ -98,14 +117,88 @@ describe("casoParaAgente", () => {
     expect(r.caso!.etapa).toMatchObject({ rotulo: "Negociação", acao: "Oferecer parcelamento com cordialidade.", canalSugerido: "WhatsApp" });
     expect(r.tom).toMatchObject({ quadrante: "B3", tom: "cuidado" });
     expect(r.tom!.diretiva).toBeTruthy();
-    expect(r.politica).toEqual({ descontoMaxPct: 15, maxParcelas: 6, entradaMinimaPct: 20, saldoMinimoParcelar: 150, multaPct: 2, jurosMesPct: 1 });
+    // O teto geral NAO viaja no payload quando ha acordo a oferecer: numero no
+    // JSON e numero que o modelo pode repetir ao cliente (revisao de 06/09/2026).
+    expect(r.politica).toBeNull();
+    expect(r.acordo).not.toBeNull();
     expect(r.instrucao).toContain("189,90");
     expect(r.instrucao).toContain("47 dias");
     expect(r.instrucao).toContain("Oferecer parcelamento");
-    expect(r.instrucao).toContain("15%");
-    expect(r.instrucao).toContain("6x");
-    expect(r.instrucao).toContain("entrada minima de 20%");
+    // O teto do ENVELOPE GERAL nunca vai para a instrucao: 15% e 6x sao o que o
+    // provedor pode no maximo, nao o que a politica de acordo autoriza aqui.
+    expect(r.instrucao).not.toContain("15%");
+    expect(r.instrucao).not.toContain("6x");
     expect(r.promessaAberta).toBeNull();
+  });
+
+  /*
+   * A POLITICA DE ACORDO manda no que o agente oferece — nao o envelope geral.
+   * Era o defeito de 06/09/2026: com origem `nao_definida` (o estado em que
+   * todo provedor nasce) a instrucao prometia "ate 15% de desconto e ate 6x"
+   * ao devedor, enquanto a tela de politica afirmava ao admin que o sistema
+   * nao oferece desconto nenhum, nem no chat.
+   */
+  describe("as ofertas vem da politica de acordo da carteira", () => {
+    const comAcordo = (carteira: "ativo" | "ex_cliente", acordo: any, negociacao?: any) => {
+      fake.politica = { ...POLITICA_LEGADA(), ...(negociacao ? { negociacao } : {}), acordo: { ativo: ACORDO_INERTE, ex_cliente: ACORDO_INERTE, [carteira]: acordo } };
+    };
+
+    it("ativo com 10 dias e origem nao definida: nenhum percentual de desconto, so o valor integral", async () => {
+      fake.cliente = { ...CLIENTE, maxDaysOverdue: 10 };
+      const r = await casoParaAgente(6, "43999990000");
+      expect(r.acordo).toMatchObject({ origemDaCobranca: "nao_definida" });
+      expect(r.acordo!.ofertas).toEqual([expect.objectContaining({ tipo: "a_vista", valor: 189.9, descontoPct: 0, parcelas: 1 })]);
+      expect(r.instrucao).toContain("NAO define onde a cobranca nasce");
+      expect(r.instrucao).toContain("valor integral de R$ 189,90");
+      expect(r.instrucao).toContain("segunda via do proprio ERP");
+      // Nenhum percentual em lugar nenhum da instrucao.
+      expect(r.instrucao).not.toMatch(/\d+(?:,\d+)?\s?%/);
+      expect(r.instrucao).not.toMatch(/\d+x/);
+    });
+
+    it("ex-cliente com 200 dias e faixa de 30%: cita 30%, nunca o teto geral", async () => {
+      fake.cliente = { ...CLIENTE, status: "cancelled", maxDaysOverdue: 200 };
+      fake.detalhe = { ...DETALHE, carteira: "ex_cliente" };
+      comAcordo(
+        "ex_cliente",
+        { origemDaCobranca: "manual", janelaVencimentoDias: 10, tetoDeExcecaoPct: 40, parcelasDeExcecao: 6, faixas: [{ acimaDeDias: 0, ateDias: null, descontoMaxPct: 30, maxParcelas: 1, entradaMinimaPct: 100 }] },
+        { maxParcelas: 6, entradaMinimaPct: 20, descontoMaxPct: 40, saldoMinimoParcelar: 150 },
+      );
+      const r = await casoParaAgente(6, "43999990000");
+      expect(r.acordo).toMatchObject({ origemDaCobranca: "manual", faixa: { descontoMaxPct: 30 } });
+      expect(r.instrucao).toContain("30%");
+      expect(r.instrucao).toContain("132,93"); // 189,90 - 30%
+      expect(r.instrucao).not.toContain("40%");
+      // O envelope geral continua no contrato, so nao manda mais na fala.
+      // Com acordo a oferecer, o teto geral nao viaja no payload (revisao de 06/09/2026).
+      expect(r.politica).toBeNull();
+    });
+
+    it("faixa com parcelamento: as parcelas sao as da faixa, com a entrada calculada", async () => {
+      fake.cliente = { ...CLIENTE, status: "cancelled", maxDaysOverdue: 200, totalOverdueAmount: "1000.00" };
+      fake.detalhe = { ...DETALHE, carteira: "ex_cliente" };
+      comAcordo("ex_cliente", { origemDaCobranca: "asaas", janelaVencimentoDias: 10, tetoDeExcecaoPct: 20, parcelasDeExcecao: 6, faixas: [{ acimaDeDias: 0, ateDias: null, descontoMaxPct: 10, maxParcelas: 3, entradaMinimaPct: 20 }] });
+      const r = await casoParaAgente(6, "43999990000");
+      expect(r.acordo!.ofertas.map(o => o.tipo)).toEqual(["a_vista", "parcelado"]);
+      expect(r.instrucao).toContain("a vista R$ 900,00");
+      expect(r.instrucao).toContain("3x de");
+      expect(r.instrucao).toContain("entrada de R$ 180,00");
+      expect(r.instrucao).toContain("transfira ao atendente");
+    });
+
+    it("politica legada, sem acordo gravado: cai no padrao (sem desconto) e nao quebra", async () => {
+      fake.politica = POLITICA_LEGADA(); // sem a coluna `acordo`
+      const r = await casoParaAgente(6, "43999990000");
+      expect(r.acordo).toMatchObject({ origemDaCobranca: "nao_definida" });
+      expect(r.instrucao).toContain("valor integral de R$ 189,90");
+    });
+
+    it("sem divida ou prescrito nao ha o que negociar: acordo nulo", async () => {
+      fake.cliente = { ...CLIENTE, totalOverdueAmount: "0", maxDaysOverdue: 0 };
+      expect((await casoParaAgente(6, "43999990000")).acordo).toBeNull();
+      fake.cliente = { ...CLIENTE, maxDaysOverdue: 5 * 365 + 10 };
+      expect((await casoParaAgente(6, "43999990000")).acordo).toBeNull();
+    });
   });
 
   it("o valor vai DATADO e com a ordem de transferir quem disser que pagou — esta rota nunca le o ERP ao vivo", async () => {

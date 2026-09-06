@@ -172,6 +172,24 @@ describe("validarPolitica — o que a rota recusa, em português", () => {
     expect(r.erros).toContain("janelaContato.horaFim: máximo 23");
   });
 
+  it("a política de acordo entra na política, com a origem não definida e o campo apontado quando quebra", () => {
+    const r = validarPolitica({});
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.politica.acordo.ativo.origemDaCobranca).toBe("nao_definida");
+    expect(r.politica.acordo.ex_cliente.faixas.at(-1)?.ateDias).toBeNull();
+
+    const origem = validarPolitica({ acordo: { ativo: { origemDaCobranca: "pix_do_zap" } } });
+    expect(origem.ok).toBe(false);
+    if (!origem.ok) expect(origem.erros[0]).toMatch(/^acordo\.ativo\.origemDaCobranca: valor inválido; aceitos: /);
+
+    const buraco = validarPolitica({
+      acordo: { ex_cliente: { faixas: [{ ateDias: 30, descontoMaxPct: 5, maxParcelas: 1, entradaMinimaPct: 20 }, { acimaDeDias: 90, ateDias: null, descontoMaxPct: 10, maxParcelas: 2, entradaMinimaPct: 20 }] } },
+    });
+    expect(buraco.ok).toBe(false);
+    if (!buraco.ok) expect(buraco.erros[0]).toBe("acordo.ex_cliente.faixas: nenhuma faixa cobre de 31 a 90 dias de atraso");
+  });
+
   it("etapa repetida e etapa desconhecida caem aqui, não em silêncio na leitura", () => {
     const repetida = validarPolitica({ etapas: [{ id: "lembrete_atraso" }, { id: "lembrete_atraso" }] });
     expect(repetida.ok).toBe(false);

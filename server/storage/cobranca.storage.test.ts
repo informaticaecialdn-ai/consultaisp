@@ -765,6 +765,32 @@ describe("politica", () => {
     expect(ins.params).toContain(JSON.stringify(economia));
   });
 
+  it("a politica de acordo (0029) e gravada como JSONB quando vem", async () => {
+    const acordo = structuredClone(POLITICA_DE_COBRANCA_PADRAO.acordo);
+    acordo.ex_cliente.origemDaCobranca = "asaas";
+    await storage.upsertPoliticaDeCobranca(PROVEDOR, { acordo });
+    const [ins] = inserts("cobranca_politica");
+    expect(ins.sql.slice(ins.sql.indexOf("do update set"))).toContain('"acordo"');
+    expect(ins.params).toContain(JSON.stringify(acordo));
+  });
+
+  it("as tres copias do default do acordo batem: schema, migracao 0029 e shared/cobranca/acordo.ts", async () => {
+    const { ACORDO_PADRAO } = await import("@shared/cobranca/acordo");
+    expect(POLITICA_DE_COBRANCA_PADRAO.acordo).toEqual(ACORDO_PADRAO);
+
+    const arquivos = fs.readdirSync(path.resolve(process.cwd(), "migrations")).filter(f => f.startsWith("0029"));
+    expect(arquivos).toEqual(["0029_politica_acordo.sql"]);
+    const m29 = fs.readFileSync(path.resolve(process.cwd(), "migrations/0029_politica_acordo.sql"), "utf8");
+    expect(m29).toContain("ADD COLUMN IF NOT EXISTS acordo JSONB NOT NULL");
+    expect(m29).toContain(`DEFAULT '${JSON.stringify(POLITICA_DE_COBRANCA_PADRAO.acordo)}'::jsonb`);
+    // O SET DEFAULT tambem carrega o valor atual: rodar de novo nao deixa duas verdades.
+    expect(m29).toContain(`ALTER COLUMN acordo SET DEFAULT '${JSON.stringify(POLITICA_DE_COBRANCA_PADRAO.acordo)}'::jsonb`);
+
+    const colunas = getTableColumns(cobrancaPolitica) as Record<string, { name: string; notNull: boolean }>;
+    expect(colunas.acordo?.name).toBe("acordo");
+    expect(colunas.acordo?.notNull).toBe(true);
+  });
+
   it("os defaults do schema sao os da migracao — 0021 para a fase 1, 0022 para a economia", () => {
     const m21 = fs.readFileSync(path.resolve(process.cwd(), "migrations/0021_cobranca.sql"), "utf8");
     expect(m21).toContain(`DEFAULT '${JSON.stringify(POLITICA_DE_COBRANCA_PADRAO.negociacao)}'::jsonb`);

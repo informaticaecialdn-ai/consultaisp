@@ -30,6 +30,7 @@ import { normalizarLocalidade } from "../../services/localidade.js";
 import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
 import type { FaturaAbertaDoErp } from "../types.js";
 import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
+import { conexoesDoMk, type AutenticacaoCliente, type LeituraDeConexoesMk } from "@shared/equipamentos/identificacao";
 
 // Token cache for MK auth
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
@@ -550,6 +551,9 @@ export class MkConnector implements ErpConnector {
       let faturasSemData = 0;
       // Conexao cortada: so o ESTADO, nunca uma divida inventada.
       let conexaoBloqueada = false;
+      // A identificacao da instalacao — login, MAC, serial da ONU — sai da
+      // MESMA leitura de conexoes, sem uma requisicao a mais.
+      let autenticacoes: AutenticacaoCliente[] | undefined;
       // A descricao da fatura e onde o equipamento retido aparece nesta
       // instalacao — ver equipamento-na-fatura.ts.
       const descricoesDeFatura: Array<string | null> = [];
@@ -705,7 +709,9 @@ export class MkConnector implements ErpConnector {
         // num bureau atraso inventado nega instalacao a quem nao deve. Quem diz
         // se ha debito e a fatura pendente; a conexao so diz se esta cortado,
         // que vira "suspenso" no contrato mais abaixo.
-        conexaoBloqueada = (await this.conexaoBloqueada(base, tokenAuth, String(cdCliente))) === true;
+        const conexoes = await this.lerConexoes(base, tokenAuth, String(cdCliente));
+        conexaoBloqueada = conexoes?.bloqueada === true;
+        autenticacoes = this.autenticacoesDe(conexoes);
       }
       if (faturasSemData > 0) {
         console.log(`[MK] ${faturasSemData} fatura(s) sem data de vencimento legivel ficaram fora da conta`);
@@ -832,6 +838,13 @@ export class MkConnector implements ErpConnector {
         hasUnreturnedEquipment: inventario.itens.length > 0 ? inventario.retidos > 0 : undefined,
         unreturnedEquipmentCount: inventario.itens.length > 0 ? inventario.retidos : undefined,
         equipmentDetails: inventario.itens.length > 0 ? inventario.itens : undefined,
+        // A ONU da conexao NAO vira equipmentDetails: aquela lista e de
+        // equipamento RETIDO (`inRecoveryProcess`), e a ONU de um cliente
+        // conectado esta em uso, nao retida. Somar as duas tiraria 15 pontos do
+        // score e acenderia "equipamento nao devolvido" para a carteira ativa
+        // inteira. O serial aparece na identificacao tecnica, que e onde ele
+        // significa o que e.
+        autenticacoes,
         erpSource: "mk",
       };
 
@@ -851,37 +864,49 @@ export class MkConnector implements ErpConnector {
   }
 
   /**
-   * Alguma conexao do cliente esta bloqueada? `null` quando o MK nao respondeu
-   * de forma legivel.
+   * A instalacao do cliente: quem autentica, com que MAC, e se esta cortada.
    *
-   * `WSMKConexoesPorCliente` devolve `Conexoes[]` com `bloqueada` ('Sim'/'Não')
-   * e `motivo_bloqueio`. E o que o Cobranca do Provedor.ai le para dizer
-   * "suspenso": a Situacao do cadastro so sabe Ativo/Inativo e o contrato
-   * continua "Ativo" enquanto esta cortado, entao sem isto todo devedor ativo
-   * do MK aparecia como "em cobranca", conectado ou nao.
+   * UMA leitura de `WSMKConexoesPorCliente` responde as duas perguntas, e por
+   * isso elas moram juntas. `null` quando o MK nao respondeu de forma legivel.
    *
-   * Bloqueio NAO e divida. A conexao pode estar bloqueada a pedido ou por
-   * outro motivo; quem diz se ha debito e a fatura pendente. Aqui so se le o
-   * estado do servico.
+   * O endpoint devolve `Conexoes[]` com `username`, `mac_address`, `contrato`,
+   * `tecnologia`, `bloqueada` ('Sim'/'Não') e `motivo_bloqueio` — conferido na
+   * NsLink em 06/09/2026 por `script/probe-mk-conexoes.ts`. Ate entao so o
+   * `bloqueada` era lido e o resto era jogado fora, e o MK era o unico dos tres
+   * ERPs sem identificacao tecnica no Cliente 360 (o IXC preenche pelo RADIUS,
+   * o SGP pelos servicos do contrato) — justamente o ERP do provedor de
+   * homologacao.
+   *
+   * O bloqueio e o que diz "suspenso": a Situacao do cadastro so sabe
+   * Ativo/Inativo e o contrato continua "Ativo" enquanto esta cortado, entao
+   * sem isto todo devedor ativo do MK aparecia como "em cobranca", conectado ou
+   * nao.
+   *
+   * Bloqueio NAO e divida (pode ser a pedido, fraude, outro motivo — quem diz
+   * se ha debito e a fatura pendente) e tambem NAO e sessao: o MK nao informa
+   * IP nem estado de sessao nesta release, entao `online` fica `null` e a tela
+   * mostra "—", nunca "offline".
    */
-  private async conexaoBloqueada(base: string, tokenAuth: string, cd: string): Promise<boolean | null> {
+  private async lerConexoes(base: string, tokenAuth: string, cd: string): Promise<LeituraDeConexoesMk | null> {
     try {
       const url = `${base}/mk/WSMKConexoesPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cd)}`;
       const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) });
       if (!resp.ok) return null;
-      const j: any = await resp.json().catch(() => null);
-      if (!j || typeof j !== "object") return null;
-      // Erro com HTTP 200 nao e "nenhuma conexao".
-      if (String(j.status ?? "").trim().toUpperCase() === "ERRO" || j.CODIGO_ERRO !== undefined) return null;
-      const conexoes: unknown = Array.isArray(j) ? j : (j.Conexoes ?? j.conexoes ?? j.registros ?? j.data);
-      if (!Array.isArray(conexoes)) return null;
-      return conexoes.some((c: any) => {
-        const b = String(c?.bloqueada ?? c?.Bloqueada ?? c?.bloqueado ?? c?.Bloqueado ?? c?.blocked ?? "").trim().toLowerCase();
-        return b === "sim" || b === "s" || b === "true" || b === "1";
-      });
+      const j: unknown = await resp.json().catch(() => null);
+      if (j === null || typeof j !== "object") return null;
+      return conexoesDoMk(j);
     } catch {
       return null;
     }
+  }
+
+  /**
+   * As autenticacoes que valem a pena mostrar. `undefined` quando o MK nao
+   * respondeu OU nao tem conexao cadastrada: lista vazia no payload seria a
+   * tela afirmando "este cliente nao tem MAC", que e outra coisa.
+   */
+  private autenticacoesDe(leitura: LeituraDeConexoesMk | null): AutenticacaoCliente[] | undefined {
+    return leitura && leitura.autenticacoes.length > 0 ? leitura.autenticacoes : undefined;
   }
 
   /**
@@ -1044,10 +1069,12 @@ export class MkConnector implements ErpConnector {
 
           // 3b. Cortado ou ainda conectado? So a conexao responde. Uma chamada
           // a mais, e so para quem deve — e a diferenca entre "em cobranca" e
-          // "suspenso" no mapa, que para quem cobra e a que importa.
-          if (contractStatus === "active") {
-            const bloqueada = await this.conexaoBloqueada(base, tokenAuth, cdPessoa);
-            if (bloqueada) contractStatus = "suspended";
+          // "suspenso" no mapa, que para quem cobra e a que importa. A mesma
+          // leitura traz login, MAC e serial da ONU da instalacao; quem cobra
+          // precisa identificar o servico tanto quanto o estado dele.
+          const conexoes = await this.lerConexoes(base, tokenAuth, cdPessoa);
+          if (contractStatus === "active" && conexoes?.bloqueada === true) {
+            contractStatus = "suspended";
           }
 
           // 4. Endereco de INSTALACAO — onde o servico foi montado, e o mesmo
@@ -1088,6 +1115,7 @@ export class MkConnector implements ErpConnector {
             contractStatus,
             contractPlan,
             contractStartDate,
+            autenticacoes: this.autenticacoesDe(conexoes),
             erpSource: "mk" as const,
           } as NormalizedErpCustomer;
         }),
@@ -1808,6 +1836,13 @@ export class MkConnector implements ErpConnector {
             totalOverdueAmount: 0,
             maxDaysOverdue: 0,
             overdueInvoicesCount: 0,
+            // Sem `autenticacoes` aqui de proposito: `WSMKConexoesPorCliente` e
+            // uma requisicao POR CLIENTE, e esta varredura passa pela carteira
+            // inteira (3.226 cadastros na NsLink). A identificacao da instalacao
+            // vem da leitura ao vivo (fetchCustomerByCpf, que e o que o Cliente
+            // 360 e o chat chamam) e dos inadimplentes (fetchDelinquents), onde
+            // a chamada ja acontecia. O campo nao e gravado em `customers`: ele
+            // vive na leitura ao vivo, entao ausencia aqui nao apaga nada.
             erpSource: "mk",
           };
         })
