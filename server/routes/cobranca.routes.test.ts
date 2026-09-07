@@ -113,7 +113,7 @@ vi.mock("../services/marca.service", () => ({
 const loggerMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock("../logger", () => ({ logger: loggerMock }));
 
-import { ispScoreReal, mascararDocumento, registerCobrancaRoutes } from "./cobranca.routes";
+import { documentoLegivel, ispScoreReal, registerCobrancaRoutes } from "./cobranca.routes";
 import { ErroDeCobranca } from "../storage/cobranca.storage";
 
 let server: Server;
@@ -223,11 +223,26 @@ const emDias = (dias: number) => new Date(Date.now() + dias * 24 * 60 * 60 * 100
 
 /* ── Mascara e score ─────────────────────────────────────────────────── */
 
-describe("mascararDocumento", () => {
-  it("CPF mostra os seis primeiros e os dois ultimos; CNPJ esconde o miolo e o DV", () => {
-    expect(mascararDocumento("123.456.789-01")).toBe("123.456.***-01");
-    expect(mascararDocumento("12345678000199")).toBe("12.345.***/0001-**");
-    expect(mascararDocumento("")).toBe("****");
+describe("documentoLegivel", () => {
+  /*
+   * Decisao do dono (06/09/2026): a carteira e do provedor, entao o documento
+   * do cliente DELE sai por extenso. Ate aqui saia "123.456.***-01" — e o
+   * operador nao conferia identidade ao telefone nem achava o cliente no ERP
+   * sem abrir outra tela. O que continua mascarado e o cliente de OUTRO
+   * provedor: 'lgpd-masking' na consulta e 'mascararDocumento' em
+   * services/bigdata-domicilio.ts, cada um com o proprio teste.
+   */
+  it("CPF e CNPJ saem pontuados, inteiros", () => {
+    expect(documentoLegivel("12345678901")).toBe("123.456.789-01");
+    expect(documentoLegivel("123.456.789-01")).toBe("123.456.789-01");
+    expect(documentoLegivel("12345678000199")).toBe("12.345.678/0001-99");
+  });
+
+  it("documento ausente ou incompleto nao vira pontuacao inventada", () => {
+    // 9 digitos pontuados como CPF seriam um documento que nao existe.
+    expect(documentoLegivel("123456789")).toBe("123456789");
+    expect(documentoLegivel(null)).toBe("");
+    expect(documentoLegivel("")).toBe("");
   });
 });
 
@@ -321,7 +336,7 @@ describe("GET /api/cobranca/carteira", () => {
     expect(storageMock.clientesAtivosEmDia).toHaveBeenCalledWith(42, { busca: "zel", bairro: "Centro" }, { offset: 0, limite: 49 });
     expect(body.itens.map((i: any) => i.customerId)).toEqual([1, 77]);
     const emDia = body.itens[1];
-    expect(emDia).toMatchObject({ nome: "Zelia Em Dia", dividaAtual: 0, diasAtraso: 0, caso: null, carteira: "ativo", documentoMascarado: expect.stringContaining("***") });
+    expect(emDia).toMatchObject({ nome: "Zelia Em Dia", dividaAtual: 0, diasAtraso: 0, caso: null, carteira: "ativo", documento: "987.654.321-00" });
     expect(body.total).toBe(1 + 546);
     expect(body.totais).toEqual({ casos: 1, semCaso: 0, emDia: 546 });
 
@@ -367,9 +382,9 @@ describe("GET /api/cobranca/carteira", () => {
     expect(body.total).toBe(2);
     expect(body.itens).toHaveLength(2);
     const [comCaso, semCaso] = body.itens;
-    // o documento sai mascarado e o cru nao viaja
-    expect(comCaso.documentoMascarado).toBe("123.456.***-01");
-    expect(JSON.stringify(body)).not.toContain("12345678901");
+    // o documento do cliente DO PROVEDOR sai por extenso, pontuado
+    expect(comCaso.documento).toBe("123.456.789-01");
+    expect(JSON.stringify(body)).not.toContain("documentoMascarado");
     // DNA calculado ao vivo das colunas de customers (2010 → fiel; 45 dias → oscila)
     expect(comCaso).toMatchObject({ customerId: 1, quadrante: "B3", tom: "cuidado", fidelidade: "fiel", confiabilidade: "oscila", ispScore: 720 });
     expect(comCaso.caso).toMatchObject({ id: 9, status: "aberto", etapa: "negociacao_recuperacao", responsavel: null });
@@ -488,7 +503,7 @@ describe("GET /api/cobranca/clientes/:customerId/360", () => {
     expect(storageMock.listarNegociacoesDoCaso).toHaveBeenCalledWith(42, 3);
 
     expect(body.cliente).toMatchObject({
-      id: 1, documento: "12345678901", documentoMascarado: "123.456.***-01", whatsapp: "5531999990000",
+      id: 1, documento: "123.456.789-01", whatsapp: "5531999990000",
       endereco: "Rua A, 10", plano: null, carteira: "ativo", dividaAtual: 400, diasAtraso: 45, ispScore: 720, riskTier: "low",
     });
     expect(body.dna).toMatchObject({ quadrante: "B3", abordagem: "cuidado", tom: "cuidado", historicoInsuficiente: true });
@@ -663,7 +678,7 @@ describe("POST /api/cobranca/casos", () => {
     }));
     expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledWith(42, expect.objectContaining({ casoId: 77, userId: 7, tipo: "nota" }));
     expect(body.id).toBe(77);
-    expect(body.cliente.cpfCnpj).toBe("123.456.***-01");
+    expect(body.cliente.cpfCnpj).toBe("123.456.789-01");
   });
 });
 
@@ -1372,7 +1387,7 @@ describe("GET /api/cobranca/fila", () => {
     expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, { responsavelUserId: null }, { pagina: 1, porPagina: 200 });
 
     expect(body.itens).toHaveLength(1);
-    expect(body.itens[0].cliente.cpfCnpj).toBe("123.456.***-01");
+    expect(body.itens[0].cliente.cpfCnpj).toBe("123.456.789-01");
     expect(body.itens[0]).toMatchObject({ id: 9, quadrante: "B3", tomSugerido: "cuidado" });
     expect(body.itens[0].diretiva).toMatch(/Bom cliente/);
     expect(JSON.stringify(body)).not.toContain("12345678901");
@@ -1495,7 +1510,7 @@ describe("GET /api/cobranca/kanban", () => {
 
     // o card e a linha da fila: documento mascarado, selo da regua e tom de agora
     const card = coluna("aberto").casos[0];
-    expect(card.cliente.cpfCnpj).toBe("123.456.***-01");
+    expect(card.cliente.cpfCnpj).toBe("123.456.789-01");
     expect(card.regua).toMatchObject({ etapa: "negociacao_recuperacao" });
     expect(card).toMatchObject({ quadrante: "B3", tomSugerido: "cuidado" });
     expect(JSON.stringify(body)).not.toContain("12345678901");
@@ -1868,10 +1883,10 @@ describe("GET /api/cobranca/casos/:id/detalhe", () => {
     expect(storageMock.listarNegociacoesDoCaso).toHaveBeenCalledWith(42, 9);
     expect(storageMock.listarNegociacoesDoCaso).toHaveBeenCalledTimes(1);
 
-    // LGPD: o documento em claro nao sai daqui.
-    expect(body.caso.cliente.cpfCnpj).toBe("123.456.***-01");
-    expect(body.caso.cliente.documentoMascarado).toBe("123.456.***-01");
-    expect(JSON.stringify(body)).not.toContain("12345678901");
+    // O documento do proprio cliente sai por extenso, pontuado (decisao de 06/09/2026).
+    expect(body.caso.cliente.cpfCnpj).toBe("123.456.789-01");
+    expect(body.caso.cliente.documento).toBe("123.456.789-01");
+    expect(JSON.stringify(body)).not.toContain("documentoMascarado");
     expect(JSON.stringify(body)).not.toContain("hash-secreto");
 
     // A divida diz de onde vem cada numero.

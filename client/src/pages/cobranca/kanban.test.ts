@@ -67,9 +67,10 @@ describe("a página do kanban", () => {
    * e o canal sugerido — tem de estar aqui antes de a fila sair.
    */
   it("o KPI de críticos vem do servidor, com o rótulo e a leitura da fila", () => {
-    expect(pagina).toContain('rotulo="críticos"');
-    expect(pagina).toContain('sub="prioridade crítica"');
-    expect(pagina).toContain('valor={isLoading ? "…" : num(kpis?.criticos)}');
+    expect(pagina).toContain('rotulo: "críticos"');
+    // o subtítulo do card virou `title` da célula, na faixa compacta
+    expect(pagina).toMatch(/prioridade crítica/);
+    expect(pagina).toContain('valor: isLoading ? "…" : num(kpis?.criticos)');
     // a rota conta na MESMA varredura dos outros indicadores
     expect(tipos).toContain("criticos: numero(kpisCrus.criticos)");
   });
@@ -284,7 +285,7 @@ describe("o fluxo do dia", () => {
 
   it("os dois números são mono tabular, como todo número do sistema", () => {
     expect(pagina).toMatch(/data-testid="fluxo-entraram"/);
-    const trechos = pagina.match(/font-mono text-\[16px\] font-medium tabular-nums/g) ?? [];
+    const trechos = pagina.match(/font-mono text-\[15px\] font-medium tabular-nums/g) ?? [];
     expect(trechos.length).toBe(2);
   });
 });
@@ -313,7 +314,8 @@ describe("os tokens do sistema, sem paleta crua do Tailwind", () => {
 
   it("o tempo na coluna e o fluxo do dia pintam por token", () => {
     expect(painel).toContain("tomDoTempoNaColuna(diasAqui)");
-    expect(pagina).toContain("var(--info-bg)");
     expect(pagina).toContain("var(--ok)");
+    expect(pagina).toContain("var(--danger)");
+    expect(pagina).toContain("var(--money-neg)");
   });
 });

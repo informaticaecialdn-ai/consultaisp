@@ -8,8 +8,9 @@
  *
  * Então o card diz QUATRO coisas e nada mais:
  *   1. o NOME do cliente;
- *   2. o DOCUMENTO — mascarado, como a rota o manda (LGPD; `mascararDocumento`
- *      em `server/routes/cobranca.routes.ts`), nunca em claro na listagem;
+ *   2. o DOCUMENTO por extenso — decisão do dono (06/09/2026): a carteira é do
+ *      provedor, e o operador confere identidade ao telefone por ele. O que
+ *      continua mascarado é o cliente de OUTRO provedor, no bureau;
  *   3. o VALOR VENCIDO com o ATRASO (D+N e a faixa);
  *   4. a FAIXA DO DIA, que é a ordem em que a coluna vem do servidor — sem ela
  *      o operador não sabe por que aquele card está na frente. Quando o caso
@@ -186,13 +187,35 @@ export function chaveDoCard(item: ItemDaFila): string {
   return `caso-${item.id}`;
 }
 
-/** A tela de atendimento da cobranca; ela abre uma conversa direto por `?conversa=`. */
+/** A tela de atendimento da cobranca: abre uma conversa por `?conversa=` e um caso por `?caso=`. */
 const ROTA_CHAT_COBRANCA = "/cobranca/chat";
+
+/**
+ * Para onde o botao de conversa leva. SEMPRE leva a algum lugar.
+ *
+ * Pedido do dono (06/09/2026, com o print do card): "a conversa nao esta
+ * ativa". Estava mesmo: quando o provedor ainda nao tinha numero de WhatsApp
+ * ligado, o botao virava um texto cinza inerte — e em producao NENHUM provedor
+ * tem (a integracao esta 'provisionado', sem canal). Um botao que nao vai a
+ * lugar nenhum nao explica nada; a tela de conversas explica.
+ *
+ * Com conversa aberta, vai para ela. Sem conversa, leva o CASO para a tela de
+ * conversas, que oferece iniciar — e, se o WhatsApp nao estiver conectado, diz
+ * exatamente isso e onde conectar. Navegar sempre da certo; e a mensagem que
+ * depende do canal.
+ */
+export function rotaDaConversaDoCaso(item: ItemDaFila): string {
+  const p = new URLSearchParams();
+  if (item.chat) p.set("conversa", item.chat.conversationId);
+  else p.set("caso", String(item.id));
+  p.set("carteira", item.carteira);
+  return `${ROTA_CHAT_COBRANCA}?${p}`;
+}
 
 const NUM = "font-mono tabular-nums";
 
 const TITULO_DO_DOCUMENTO =
-  "Documento mascarado: a listagem nunca mostra CPF/CNPJ em claro. O documento inteiro fica na ficha do cliente (360).";
+  "CPF/CNPJ do cliente, como está no cadastro do ERP. A carteira é do provedor: o documento sai por extenso para conferir identidade, achar o cliente no ERP e emitir segunda via.";
 
 export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
   item: ItemDaFila;
@@ -268,7 +291,7 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
             {cliente.nome}
           </p>
           <p className={cn(NUM, "truncate text-[10.5px] text-[var(--text-muted)]")} title={TITULO_DO_DOCUMENTO} data-testid={`card-documento-${item.id}`}>
-            {cliente.cpfCnpj}
+            {cliente.cpfCnpj || TRACO}
           </p>
           <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1" data-testid={`card-divida-${item.id}`}>
             <span className={cn(NUM, "text-[16px] font-semibold leading-none text-[var(--money-neg)]")}>{brl(item.valorAtual)}</span>
@@ -294,10 +317,8 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
         abrir o painel.
 
         A da conversa é pedido do dono (06/09/2026): "o card precisa ter botão
-        para ir para a conversa". Com conversa aberta, o botão LEVA até ela (a
-        tela de chat aceita `?conversa=`); sem conversa, ele INICIA — que é o
-        que o antigo "Enviar p/ cobrança" fazia. Antes disso o acesso à
-        conversa era um selo pequeno de status, fácil de não ver.
+        para ir para a conversa" e, no dia seguinte, "a conversa não está
+        ativa". Agora ela SEMPRE navega — ver `rotaDaConversaDoCaso`.
       */}
       {!overlay && (
         <div className="mt-2 grid grid-cols-2 gap-1.5">
@@ -309,35 +330,16 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
           >
             <PhoneCall className="h-3.5 w-3.5" aria-hidden /> Contato
           </button>
-          {item.chat ? (
-            <a
-              href={`${ROTA_CHAT_COBRANCA}?conversa=${encodeURIComponent(item.chat.conversationId)}&carteira=${item.carteira}`}
-              className={cn(BOTAO_SECUNDARIO, "text-[12px]")}
-              title={`Abrir a conversa deste cliente · ${item.chat.status.toLowerCase()}`}
-              data-testid={`card-conversa-${item.id}`}
-            >
-              <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> Conversa
-            </a>
-          ) : acoes.onEnviarParaChat ? (
-            <button
-              type="button"
-              className={cn(BOTAO_SECUNDARIO, "text-[12px]")}
-              disabled={acoes.enviandoParaChat === item.id}
-              title="Abre a conversa deste cliente no WhatsApp do provedor, com a mensagem da etapa da régua"
-              onClick={() => acoes.onEnviarParaChat?.(item)}
-              data-testid={`card-conversa-${item.id}`}
-            >
-              <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> {acoes.enviandoParaChat === item.id ? "Abrindo…" : "Conversa"}
-            </button>
-          ) : (
-            <span
-              className={cn(BOTAO_SECUNDARIO, "text-[12px] opacity-60")}
-              title="O chat do provedor ainda não está ligado: nenhum número de WhatsApp foi conectado no Painel do Provedor"
-              data-testid={`card-conversa-${item.id}`}
-            >
-              <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> Conversa
-            </span>
-          )}
+          <a
+            href={rotaDaConversaDoCaso(item)}
+            className={cn(BOTAO_SECUNDARIO, "text-[12px]")}
+            title={item.chat
+              ? `Abrir a conversa deste cliente · ${item.chat.status.toLowerCase()}`
+              : "Ainda não há conversa com este cliente. Abre a tela de conversas com o caso pronto para iniciar."}
+            data-testid={`card-conversa-${item.id}`}
+          >
+            <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> Conversa
+          </a>
         </div>
       )}
     </div>

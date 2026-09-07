@@ -178,7 +178,7 @@ export const BOTAO_SECUNDARIO = `inline-flex items-center justify-center gap-1.5
 
 /** Botao de marca (CTA cheio). Mesmos valores do botao "Comprar" do painel do
  *  provedor, mais a regra de alvo de toque. */
-export const BOTAO_MARCA = `inline-flex items-center justify-center gap-1.5 flex-none ${ALVO_CONTROLE} text-[12.5px] font-medium px-3 py-2 rounded bg-[var(--brand)] text-white hover:opacity-90 ${FOCO} motion-safe:transition-opacity active:scale-[0.97]`;
+export const BOTAO_MARCA = `inline-flex items-center justify-center gap-1.5 flex-none ${ALVO_CONTROLE} text-[12.5px] font-medium px-3 py-2 rounded bg-[var(--brand)] text-[var(--text-on-brand)] hover:opacity-90 ${FOCO} motion-safe:transition-opacity active:scale-[0.97]`;
 
 /** Icone de lucide-react. O pacote nao exporta o tipo, e o
  *  `ForwardRefExoticComponent` dele nao encaixa em `ComponentType<...>` — os dois

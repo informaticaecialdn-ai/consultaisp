@@ -264,10 +264,12 @@ describe("o painel é honesto sobre o que não tem", () => {
     expect(fonte).toMatch(/A identidade e o follow-up acima vêm do quadro/);
   });
 
-  it("o documento continua MASCARADO no painel — o inteiro só na ficha do cliente", () => {
+  it("o documento sai por extenso no painel, e sem documento vira traço", () => {
+    // Decisão do dono (06/09/2026): a carteira é do provedor — o "***" saiu.
     expect(fonte).toContain('data-testid="painel-documento"');
-    expect(fonte).toMatch(/nunca mostra CPF\/CNPJ em claro/);
-    expect(fonte).not.toContain("documento:");
+    expect(fonte).toMatch(/como está no cadastro do ERP/);
+    expect(fonte).toContain("{cliente.cpfCnpj || TRACO}");
+    expect(fonte).not.toMatch(/nunca mostra CPF\/CNPJ em claro/);
   });
 });
 

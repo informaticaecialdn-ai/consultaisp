@@ -60,8 +60,8 @@ describe("três colunas de verdade", () => {
   });
 
   it("abaixo de lg é uma coluna por vez, com caminho de volta", () => {
-    expect(fonte).toContain('selecionada ? "hidden lg:flex" : "flex"');
-    expect(fonte).toContain('!selecionada && "hidden lg:flex"');
+    expect(fonte).toContain('selecionada || casoDoLink ? "hidden lg:flex" : "flex"');
+    expect(fonte).toContain('!selecionada && !casoDoLink && "hidden lg:flex"');
     expect(fonte).toContain("Voltar às conversas");
     expect(fonte).toMatch(/text-xs lg:hidden/);
   });

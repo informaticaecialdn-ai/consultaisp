@@ -18,6 +18,7 @@ import type { ItemDaCarteira } from "./tipos";
 import { Avatar, BarraDeScore, PilulaAtraso, SeloCobranca, SeloErp, SeloQuadrante, SeloStatusCaso, Traco, type TomDeSelo } from "./ui";
 
 export const MOTIVO_SEM_PLANO = "O sync do ERP não traz o plano — fase 2";
+export const MOTIVO_SEM_DOCUMENTO = "O cadastro deste cliente no ERP não tem CPF/CNPJ.";
 export const MOTIVO_SEM_MRR = "O sync do ERP não traz o valor do plano (MRR) — fase 2";
 export const MOTIVO_SEM_PROPENSAO = "Propensão a pagar é um modelo a criar — nada inventado";
 export const MOTIVO_SEM_CREDITO = "Score de crédito externo (bureau) — não consultado para este cliente";
@@ -86,7 +87,7 @@ export function CardCliente({ item, etapas, hoje, onAbrir }: {
             {item.cidade ?? TRACO} · <span title={MOTIVO_SEM_PLANO}>{item.plano ?? TRACO}</span>
           </p>
         </div>
-        <span className={cn(NUM, "text-[11px] text-[var(--text-muted)]")}>{item.documentoMascarado}</span>
+        <span className={cn(NUM, "text-[11px] text-[var(--text-muted)]")}>{item.documento || <Traco titulo={MOTIVO_SEM_DOCUMENTO} />}</span>
       </div>
 
       {/* chips: situação + DNA + histórico */}
@@ -154,7 +155,7 @@ export function LinhaDoCliente({ item, etapas, hoje, onAbrir }: {
           </div>
         </div>
       </Td>
-      <Td num alinhamento="esquerda">{item.documentoMascarado}</Td>
+      <Td num alinhamento="esquerda">{item.documento || <Traco titulo={MOTIVO_SEM_DOCUMENTO} />}</Td>
       <Td><span title={MOTIVO_SEM_PLANO}>{item.plano ?? <Traco titulo={MOTIVO_SEM_PLANO} />}</span></Td>
       <Td num>{item.mrr != null ? brl(item.mrr) : <Traco titulo={MOTIVO_SEM_MRR} />}</Td>
       <Td num className={item.dividaAtual > 0 ? "text-[var(--money-neg)]" : "text-[var(--ok)]"}>{item.dividaAtual > 0 ? brl(item.dividaAtual) : "em dia"}</Td>

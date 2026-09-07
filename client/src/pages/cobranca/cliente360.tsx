@@ -336,7 +336,7 @@ export default function Cliente360Page() {
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--text-muted)]">
                   <span>{plano ? <b className="text-[var(--text-2)]">{plano}</b> : <Traco titulo={snapshot && !snapshot.ok ? snapshot.erro ?? "" : "plano vem do ERP ao vivo"} />}</span>
-                  <span className={NUM} title="Em claro só na ficha: aqui o operador confere a identidade" data-testid="documento-cliente">{cliente.documento ?? cliente.documentoMascarado}</span>
+                  <span className={NUM} title="CPF/CNPJ do cliente, como está no cadastro do ERP" data-testid="documento-cliente">{cliente.documento || TRACO}</span>
                   <span className={cn("inline-flex items-center gap-1", NUM)}>Tel. {cliente.telefone ?? DASH}{whatsapp && <LinkWhatsapp whatsapp={whatsapp} nome={cliente.nome}><MessageCircle className="h-3.5 w-3.5" aria-hidden /></LinkWhatsapp>}</span>
                   <span data-testid="tempo-de-casa">{exCliente ? "Adesão há" : "Cliente há"} {ficha.anosCliente !== null ? <b className={cn("text-[var(--text-2)]", NUM)}>{num(ficha.anosCliente)} {ficha.anosCliente === 1 ? "ano" : "anos"}</b> : <Traco titulo="Sem data de contrato no ERP" />}</span>
                   <span>Cidade <b className="text-[var(--text-2)]">{cliente.cidade ?? DASH}</b></span>

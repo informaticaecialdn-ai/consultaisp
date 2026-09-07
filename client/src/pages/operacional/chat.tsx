@@ -14,15 +14,18 @@
  * mostra o telefone e diz o porquê no `title`. Nada de prévia inventada nem de
  * zero no lugar de "não sei".
  */
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { MessageCircle, MessageSquare, Search, ArrowLeft } from "lucide-react";
+import { MessageCircle, MessageSquare, MessageSquarePlus, Plug, Search, ArrowLeft } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   ALVO_CONTROLE,
   ALVO_TEXTO,
+  AvisoNaoCarregou,
+  BOTAO_MARCA,
   DESABILITAVEL,
   FOCO,
   FOCO_INTERNO,
@@ -38,6 +41,14 @@ import {
 import { dataHoraBr } from "@/components/cobranca/formatacao";
 import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
 import { carteiraDaNavegacao } from "@/components/cobranca/carteiras";
+import {
+  API_CHAT_BULLQ,
+  apiConversaDoCaso,
+  apiEnviarCasoParaChat,
+  chatProntoParaEnviar,
+  lerIntegracaoDoChat,
+} from "@/components/cobranca/tipos";
+import { invalidarCobranca, mensagemDoErro } from "@/components/cobranca/ui";
 import { Atendimento } from "@/components/chat/Atendimento";
 import {
   AvatarChat,
@@ -163,6 +174,117 @@ function LinhaDaConversa({
   );
 }
 
+/**
+ * O caso que chegou pelo botão do card e ainda NÃO tem conversa.
+ *
+ * Pedido do dono (06/09/2026): "a conversa não está ativa". Ela não estava: em
+ * produção a integração do chat está `provisionado`, sem canal de WhatsApp
+ * ligado, e o botão do card virava um texto cinza. Agora o botão sempre navega
+ * até aqui, e é aqui que se diz o que falta — com o nome do estado e o caminho
+ * para resolver, em vez de um controle inerte.
+ *
+ * Iniciar a conversa é o mesmo `POST .../enviar` do quadro: abre no WhatsApp do
+ * provedor com a mensagem da etapa da régua e devolve a `conversationId`, para
+ * onde a tela navega em seguida.
+ */
+export const MOTIVO_CHAT_DESLIGADO =
+  "Esta instalação não tem o Chat BullQ configurado (CHAT_BULLQ_URL). Nenhuma conversa sai daqui enquanto isso.";
+export const MOTIVO_SEM_CANAL =
+  "O WhatsApp do provedor ainda não está conectado: sem um número pareado, não há de onde mandar a mensagem.";
+
+export function motivoDeNaoIniciar(integracao: ReturnType<typeof lerIntegracaoDoChat>): string | null {
+  if (!integracao) return null; // ainda carregando: não acusa o que não sabe
+  if (!integracao.ligado) return MOTIVO_CHAT_DESLIGADO;
+  if (!integracao.canal) return MOTIVO_SEM_CANAL;
+  if (integracao.status !== "ativo") {
+    return `A integração do chat está em "${integracao.status ?? "sem estado"}"${integracao.ultimoErro ? ` — ${integracao.ultimoErro}` : ""}.`;
+  }
+  return null;
+}
+
+function CasoSemConversa({
+  casoId,
+  carteira,
+  onAbrir,
+}: {
+  casoId: number;
+  carteira: string;
+  onAbrir: (conversationId: string) => void;
+}) {
+  const { toast } = useToast();
+  const { data: integracaoCrua } = useQuery<unknown>({
+    queryKey: [`${API_CHAT_BULLQ}/integracao`],
+    staleTime: 300_000,
+  });
+  const integracao = lerIntegracaoDoChat(integracaoCrua);
+  const pronto = chatProntoParaEnviar(integracao);
+  const impedimento = motivoDeNaoIniciar(integracao);
+
+  const iniciar = useMutation({
+    mutationFn: async () =>
+      (await apiRequest("POST", apiEnviarCasoParaChat(casoId), {})).json() as Promise<{
+        conversationId: string;
+        reaproveitada?: boolean;
+      }>,
+    onSuccess: (r) => {
+      invalidarCobranca();
+      toast({
+        title: r.reaproveitada ? "Conversa existente aberta" : "Primeiro contato enviado",
+      });
+      if (r.conversationId) onAbrir(r.conversationId);
+    },
+    onError: (erro: Error) =>
+      toast({
+        title: "Não foi possível iniciar a conversa",
+        description: mensagemDoErro(erro),
+        variant: "destructive",
+      }),
+  });
+
+  return (
+    <div
+      className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center"
+      data-testid="caso-sem-conversa"
+    >
+      <MessageSquarePlus aria-hidden className="h-8 w-8 text-[var(--text-muted)]" />
+      <p className="text-sm font-medium text-[var(--text)]">
+        O caso <span className={NUM_CHAT}>#{casoId}</span> ainda não tem conversa
+      </p>
+      <p className="max-w-sm text-xs text-[var(--text-muted)]">
+        O primeiro contato abre a conversa no WhatsApp do provedor com a mensagem da etapa
+        da régua. A partir daí a equipe continua por aqui.
+      </p>
+      <button
+        type="button"
+        className={cn(BOTAO_MARCA, DESABILITAVEL)}
+        disabled={!pronto || iniciar.isPending}
+        title={impedimento ?? "Envia o primeiro contato e abre a conversa"}
+        onClick={() => iniciar.mutate()}
+        data-testid="iniciar-conversa"
+      >
+        {iniciar.isPending ? "Iniciando…" : "Iniciar conversa"}
+      </button>
+      {impedimento && (
+        <p
+          className="max-w-sm rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2 text-left text-[11px] leading-5 text-[var(--text-2)]"
+          data-testid="motivo-sem-conversa"
+        >
+          <Plug aria-hidden className="mr-1 inline h-3 w-3 text-[var(--gated)]" />
+          {impedimento}{" "}
+          {integracao?.ligado && (
+            <Link href="/painel-provedor?tab=chat" className={cn(LINK_CHAT, "text-[11px]")}>
+              Conectar o WhatsApp →
+            </Link>
+          )}
+        </p>
+      )}
+      <Link href={`/cobranca/kanban?carteira=${carteira}`} className={cn(LINK_CHAT, "text-xs")}>
+        Voltar ao quadro →
+      </Link>
+    </div>
+  );
+}
+
 export default function ChatOperacional() {
   const [location, navegar] = useLocation();
   const search = useSearch();
@@ -171,6 +293,37 @@ export default function ChatOperacional() {
     : "cobranca";
   const carteira = carteiraDaNavegacao(location, search);
   const selecionada = new URLSearchParams(search).get("conversa");
+  /*
+   * `?caso=` é como o card do quadro chega aqui quando ainda não há conversa.
+   * A rota do caso responde 404 quando nenhuma foi aberta — que não é erro, é a
+   * resposta —, então a leitura mapeia 404 para `null` e a tela oferece iniciar.
+   */
+  const casoDoLink = origem === "cobranca" ? Number(new URLSearchParams(search).get("caso")) || null : null;
+  const conversaDoCaso = useQuery<{ conversationId: string } | null>({
+    queryKey: [apiConversaDoCaso(casoDoLink ?? 0)],
+    queryFn: async () => {
+      const r = await fetch(apiConversaDoCaso(casoDoLink!), { credentials: "include" });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    },
+    enabled: casoDoLink !== null && !selecionada,
+    staleTime: 15_000,
+  });
+  /*
+   * Caso já conversado: troca o `?caso=` pelo `?conversa=` e abre o atendimento.
+   *
+   * A guarda de `casoDoLink && !selecionada` não é decorativa: depois da troca
+   * o dado fica no cache do React Query, então `conversaEncontrada` continua
+   * preenchido. Sem ela, qualquer render que mudasse a identidade de `navegar`
+   * dispararia a navegação de novo, em cima da tela que o operador já está
+   * usando.
+   */
+  const conversaEncontrada = conversaDoCaso.data?.conversationId ?? null;
+  useEffect(() => {
+    if (!conversaEncontrada || !casoDoLink || selecionada) return;
+    navegar(rotaChat(origem, conversaEncontrada, carteira), { replace: true });
+  }, [conversaEncontrada, casoDoLink, selecionada, origem, carteira, navegar]);
   const [busca, setBusca] = useState("");
   const [status, setStatus] = useState("");
   const [pagina, setPagina] = useState(1);
@@ -231,7 +384,7 @@ export default function ChatOperacional() {
         <aside
           className={cn(
             "w-full shrink-0 flex-col border-r border-[var(--border)] lg:w-[320px] 2xl:w-[352px]",
-            selecionada ? "hidden lg:flex" : "flex",
+            selecionada || casoDoLink ? "hidden lg:flex" : "flex",
           )}
           aria-label="Fila de conversas"
         >
@@ -353,31 +506,50 @@ export default function ChatOperacional() {
         <div
           className={cn(
             "flex min-h-0 min-w-0 flex-1 flex-col",
-            !selecionada && "hidden lg:flex",
+            !selecionada && !casoDoLink && "hidden lg:flex",
           )}
         >
+          {/* Em tela estreita a fila fica escondida: sem esta volta, o caso é um beco. */}
+          {(selecionada || casoDoLink) && (
+            <button
+              type="button"
+              className={cn(
+                ALVO_CONTROLE,
+                FOCO,
+                "flex shrink-0 items-center gap-2 rounded p-2 text-xs lg:hidden",
+              )}
+              onClick={() => navegar(rotaChat(origem, undefined, carteira))}
+            >
+              <ArrowLeft aria-hidden className="h-3 w-3" />
+              Voltar às conversas
+            </button>
+          )}
           {selecionada ? (
-            <>
-              <button
-                type="button"
-                className={cn(
-                  ALVO_CONTROLE,
-                  FOCO,
-                  "flex shrink-0 items-center gap-2 rounded p-2 text-xs lg:hidden",
-                )}
-                onClick={() => navegar(rotaChat(origem, undefined, carteira))}
-              >
-                <ArrowLeft aria-hidden className="h-3 w-3" />
-                Voltar às conversas
-              </button>
-              <div className="min-h-0 flex-1">
-                <Atendimento
-                  key={`${origem}-${selecionada}`}
-                  conversationId={selecionada}
-                  origem={origem}
-                />
+            <div className="min-h-0 flex-1">
+              <Atendimento
+                key={`${origem}-${selecionada}`}
+                conversationId={selecionada}
+                origem={origem}
+              />
+            </div>
+          ) : casoDoLink ? (
+            conversaDoCaso.isPending ? (
+              <div className="flex h-full items-center justify-center p-8" aria-busy>
+                <LinhasSkeleton linhas={3} />
               </div>
-            </>
+            ) : conversaDoCaso.isError ? (
+              <div className="p-6">
+                <AvisoNaoCarregou aoTentarDeNovo={() => conversaDoCaso.refetch()} testId="erro-conversa-do-caso">
+                  Não foi possível saber se este caso já tem conversa: {mensagemDoErro(conversaDoCaso.error)}
+                </AvisoNaoCarregou>
+              </div>
+            ) : (
+              <CasoSemConversa
+                casoId={casoDoLink}
+                carteira={carteira}
+                onAbrir={(id) => navegar(rotaChat(origem, id, carteira), { replace: true })}
+              />
+            )
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center text-[var(--text-muted)]">
               <MessageSquare aria-hidden className="h-8 w-8" />

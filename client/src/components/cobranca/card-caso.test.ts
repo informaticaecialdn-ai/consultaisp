@@ -100,11 +100,19 @@ describe("o que FICOU no card", () => {
     expect(fonte).not.toContain("[-webkit-line-clamp:2]");
   });
 
-  it("o documento, mono tabular e MASCARADO — a listagem nunca mostra CPF em claro", () => {
+  it("o documento sai POR EXTENSO, mono tabular — a carteira é do provedor", () => {
+    /*
+     * Decisão do dono (06/09/2026): "os dados de cliente não devem estar
+     * ocultos e, sendo dados do provedor, não devem estar semi ocultos". O
+     * card mostrava "142.928.***-01" da própria base do provedor. Quem
+     * continua mascarado é o cliente de OUTRO provedor, no bureau.
+     */
     expect(fonte).toContain("card-documento-${item.id}");
-    expect(fonte).toContain("{cliente.cpfCnpj}");
+    expect(fonte).toContain("{cliente.cpfCnpj || TRACO}");
     expect(fonte).toContain("TITULO_DO_DOCUMENTO");
-    expect(fonte).toMatch(/Documento mascarado/);
+    expect(fonte).toMatch(/como está no cadastro do ERP/);
+    // e o "***" saiu do card
+    expect(fonte).not.toContain("mascararDocumento");
     expect(fonte).toContain('const NUM = "font-mono tabular-nums"');
   });
 
@@ -133,12 +141,24 @@ describe("o botão da conversa", () => {
   // Pedido do dono (06/09/2026): "o card precisa ter botao para ir para a conversa".
   it("com conversa aberta, LEVA até ela pela tela de atendimento", () => {
     expect(fonte).toContain("card-conversa-${item.id}");
-    expect(fonte).toContain("${ROTA_CHAT_COBRANCA}?conversa=");
+    expect(fonte).toContain('p.set("conversa", item.chat.conversationId)');
     expect(fonte).toContain("ROTA_CHAT_COBRANCA = \"/cobranca/chat\"");
   });
-  it("sem conversa, INICIA — e sem chat ligado o botão explica em vez de sumir", () => {
-    expect(fonte).toContain("acoes.onEnviarParaChat?.(item)");
-    expect(fonte).toContain("O chat do provedor ainda não está ligado");
+
+  /*
+   * Pedido do dono (06/09/2026): "a conversa não está ativa". Estava mesmo:
+   * sem canal de WhatsApp ligado — que é o estado de TODO provedor em produção
+   * hoje — o botão virava um <span> cinza. Um controle inerte não explica
+   * nada. Agora ele sempre navega, levando o CASO, e quem explica o que falta
+   * é a tela de conversas, que tem espaço para isso e o caminho para resolver.
+   */
+  it("sem conversa, leva o CASO para a tela de conversas — nunca fica inerte", () => {
+    expect(fonte).toContain('p.set("caso", String(item.id))');
+    expect(fonte).toContain("export function rotaDaConversaDoCaso");
+    // o botão é sempre um link, e não consulta mais o estado do chat
+    expect(fonte).toContain("href={rotaDaConversaDoCaso(item)}");
+    expect(fonte).not.toContain("acoes.onEnviarParaChat");
+    expect(fonte).not.toContain("O chat do provedor ainda não está ligado");
   });
   it("fica fora do corpo clicável, para não abrir o painel junto", () => {
     const acoes = fonte.slice(fonte.indexOf("As ações rápidas ficam FORA do corpo clicável"));

@@ -143,9 +143,16 @@ describe("o quinto indicador do kanban", () => {
     expect(tipos).toContain("export const DIAS_DA_RECUPERACAO = 30;");
   });
 
-  it("e um Kpi no mesmo estilo dos outros, com o periodo no subtitulo", () => {
-    expect(kanban).toContain('rotulo="recuperado"');
-    expect(kanban).toContain("sub={`${DIAS_DA_RECUPERACAO} dias · após contato · toda a carteira`}");
+  it("e uma celula da faixa, com o periodo e o escopo NO ROTULO", () => {
+    /*
+     * A faixa compacta (06/09/2026) trocou os cards por celulas de rotulo e
+     * numero, entao o subtitulo de cada card sumiu. Para este indicador isso
+     * importava: "recuperado" sozinho seria lido como recuperado DO QUADRO, e
+     * ele e da carteira inteira. O periodo e o escopo vieram para o rotulo, que
+     * fica sempre visivel; o resto da explicacao segue no title.
+     */
+    expect(kanban).toContain("rotulo: `recuperado ${DIAS_DA_RECUPERACAO}d · carteira`");
+    expect(kanban).toContain("titulo: tituloDaRecuperacao");
   });
 
   it("sem base, TRACO com o motivo no titulo — jamais R$ 0,00", () => {
@@ -160,7 +167,7 @@ describe("o quinto indicador do kanban", () => {
 
   it("nao mexeu nos quatro indicadores que ja existiam", () => {
     for (const rotulo of ["casos vivos", "contato vencido", "para hoje", "sem próxima ação", "em aberto"]) {
-      expect(kanban).toContain(`rotulo="${rotulo}"`);
+      expect(kanban).toContain(`rotulo: "${rotulo}"`);
     }
   });
 });

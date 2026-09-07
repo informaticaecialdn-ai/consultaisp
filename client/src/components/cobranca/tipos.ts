@@ -104,7 +104,8 @@ export interface ReguaDeHoje {
 export interface ItemDaCarteira {
   customerId: number;
   nome: string;
-  documentoMascarado: string;
+  /** Por extenso e pontuado: a carteira é do provedor (`documentoLegivel` na rota). */
+  documento: string;
   telefone?: string | null;
   cidade: string | null;
   bairro: string | null;
@@ -276,9 +277,8 @@ export interface EquipamentoDoCliente {
 export interface ClienteDo360 {
   id: number;
   nome: string;
-  /** Em claro só na ficha: é onde o operador confere a identidade. */
+  /** Por extenso e pontuado, como em toda a cobrança. */
   documento?: string;
-  documentoMascarado: string;
   telefone: string | null;
   /** Só dígitos com 55 na frente, quando a rota o deriva. */
   whatsapp: string | null;
@@ -424,6 +424,7 @@ export interface Cliente360 {
 export interface ClienteDaFila {
   id: number;
   nome: string;
+  /** Por extenso e pontuado: a carteira é do provedor (`documentoLegivel` na rota). */
   cpfCnpj: string;
   telefone: string | null;
   email: string | null;

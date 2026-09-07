@@ -543,9 +543,11 @@ describe("linguagem visual da cobrança inteira", () => {
     expect(f).toContain("tabular-nums");
   });
 
-  it("a carteira mostra o documento mascarado, nunca o cru", () => {
+  it("a carteira mostra o documento por extenso, e sem documento mostra o traço com o motivo", () => {
+    // Decisão do dono (06/09/2026): a carteira é do provedor; o "***" saiu.
     const card = componentes.find(([n]) => n === "CardCliente.tsx")![1];
-    expect(card).toContain("item.documentoMascarado");
+    expect(card).toContain("item.documento || <Traco titulo={MOTIVO_SEM_DOCUMENTO} />");
+    expect(card).not.toContain("documentoMascarado");
     expect(card).not.toContain("cpfCnpj");
   });
 });

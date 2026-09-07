@@ -345,10 +345,10 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
             <SheetDescription className="mt-0.5 text-[12px] text-[var(--text-muted)]">
               <span
                 className={NUM}
-                title="Documento mascarado: a cobrança nunca mostra CPF/CNPJ em claro fora da ficha do cliente."
+                title="CPF/CNPJ do cliente, como está no cadastro do ERP."
                 data-testid="painel-documento"
               >
-                {cliente.cpfCnpj}
+                {cliente.cpfCnpj || TRACO}
               </span>
               {lugar ? ` · ${lugar}` : ""}
             </SheetDescription>

@@ -273,16 +273,33 @@ function semVazios(query: Request["query"]): Record<string, unknown> {
 }
 
 /**
- * CPF "123.456.***-01"; CNPJ "12.345.*** / 0001-**" (sem o espaco). Mostra o
- * bastante para o operador reconhecer o cliente na lista e esconde o miolo
- * que faz o numero valer como documento. Diferente de `maskCpfCnpj`
- * (lgpd-masking), que e para o OUTRO provedor ver e esconde quase tudo.
+ * O documento do cliente DO PROPRIO PROVEDOR, por extenso e pontuado:
+ * "123.456.789-01" e "12.345.678/0001-99".
+ *
+ * Decisao do dono (06/09/2026, olhando o card do quadro): "os dados de cliente
+ * nao devem estar ocultos, e os dados do provedor nao devem estar semi
+ * ocultos". Ate aqui a cobranca mandava "123.456.***-01" — e escondia o
+ * provedor da PROPRIA base. A carteira e dele: o operador liga para essa
+ * pessoa, confere a identidade ao telefone, emite segunda via e procura o
+ * cliente no ERP pelo documento; com o miolo tapado, nao faz nenhuma das
+ * quatro coisas sem abrir outra tela.
+ *
+ * O QUE CONTINUA MASCARADO — e a fronteira que importa — e o que um provedor
+ * ve do cliente de OUTRO: `maskCpfCnpj` (server/utils/lgpd-masking.ts) no
+ * resultado da consulta e `mascararDocumento` em
+ * server/services/bigdata-domicilio.ts, para os co-residentes do CPF
+ * consultado, que nem clientes do provedor sao. Toda rota deste arquivo filtra
+ * por `provider_id`: o que sai por aqui ja e do dono da tela.
+ *
+ * Documento ausente ou malformado sai como veio (so os digitos), e vazio sai
+ * vazio — a tela mostra o traco. Inventar pontuacao sobre 9 digitos faria um
+ * CPF que nao existe.
  */
-export function mascararDocumento(doc: string | null | undefined): string {
+export function documentoLegivel(doc: string | null | undefined): string {
   const d = (doc ?? "").replace(/\D/g, "");
-  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.***-${d.slice(9)}`;
-  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.***/${d.slice(8, 12)}-**`;
-  return d.length > 4 ? d.slice(0, 4) + "*".repeat(d.length - 4) : "****";
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+  return d;
 }
 
 const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -506,21 +523,21 @@ function casoResumo(l: LinhaDaCarteira) {
   };
 }
 
-/** A linha da fila e do caso: o cliente inteiro, menos o documento em claro. */
-function clienteMascarado(c: LinhaDaCarteira["cliente"]) {
+/** A linha da fila e do caso: o cliente inteiro, com o documento por extenso. */
+function clienteDaCarteira(c: LinhaDaCarteira["cliente"]) {
   const { cpfCnpj, ...resto } = c;
-  const documentoMascarado = mascararDocumento(cpfCnpj);
-  return { ...resto, cpfCnpj: documentoMascarado, documentoMascarado };
+  const documento = documentoLegivel(cpfCnpj);
+  return { ...resto, cpfCnpj: documento, documento };
 }
 
 function casoParaApi(l: LinhaDaCarteira) {
-  return { ...casoDetalhe(l), cliente: clienteMascarado(l.cliente) };
+  return { ...casoDetalhe(l), cliente: clienteDaCarteira(l.cliente) };
 }
 
 interface ItemDaCarteira {
   customerId: number;
   nome: string;
-  documentoMascarado: string;
+  documento: string;
   telefone: string | null;
   cidade: string | null;
   bairro: string | null;
@@ -558,7 +575,7 @@ function montarItem(
   return {
     customerId: base.customerId,
     nome: base.nome,
-    documentoMascarado: mascararDocumento(base.cpfCnpj),
+    documento: documentoLegivel(base.cpfCnpj),
     telefone: base.telefone,
     cidade: base.cidade,
     bairro: base.bairro,
@@ -1476,9 +1493,8 @@ export function registerCobrancaRoutes(): Router {
         cliente: {
           id: cliente.id,
           nome: cliente.name,
-          // Completo so aqui: a ficha e onde o operador confere a identidade.
-          documento: cliente.cpfCnpj,
-          documentoMascarado: mascararDocumento(cliente.cpfCnpj),
+          // Pontuado, como em toda a cobranca: a carteira e do provedor.
+          documento: documentoLegivel(cliente.cpfCnpj),
           telefone: cliente.phone,
           whatsapp: whatsappDe(cliente.phone),
           email: cliente.email,
