@@ -323,3 +323,61 @@ describe("os tokens do sistema", () => {
     expect(fonte).toContain('const NUM = "font-mono tabular-nums"');
   });
 });
+
+describe("o cabeçalho do pop-up é o do Cliente 360", () => {
+  /*
+   * Pedido do dono (07/09/2026): "cabeçalho do pop-up fazer exatamente igual ao
+   * do cliente 360". As duas telas mostram o MESMO cliente, e mostravam-no de
+   * dois jeitos: a ficha com avatar, nome grande e a linha de identidade
+   * completa; o pop-up com um nome de 17px e uma linha de documento.
+   *
+   * O teste compara as duas fontes: cada medida do 360 tem de estar no pop-up.
+   * Não é preferência de estilo — é o pedido, e é o que impede as duas de
+   * divergirem de novo no próximo refactor de uma delas só.
+   */
+  const ficha360 = readFileSync(new URL("../../pages/cobranca/cliente360.tsx", import.meta.url), "utf8");
+
+  it("avatar grande, como na ficha", () => {
+    expect(fonte).toContain('<Avatar nome={cliente.nome} tamanho="lg" />');
+    expect(ficha360).toContain('<Avatar nome={cliente.nome} tamanho="lg" />');
+  });
+
+  it("o nome usa a MESMA escala das duas telas: 23px semibold com o tracking do token", () => {
+    const escala = 'text-[23px] font-semibold leading-tight tracking-[var(--track-tight)] text-[var(--text)]';
+    expect(fonte).toContain(escala);
+    expect(ficha360).toContain(escala);
+  });
+
+  it("a linha de identidade traz plano, documento, telefone com WhatsApp, tempo de casa e cidade", () => {
+    const linha = 'mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--text-muted)]';
+    expect(fonte).toContain(linha);
+    expect(ficha360).toContain(linha);
+    expect(fonte).toContain("<LinkWhatsapp whatsapp={whatsapp} nome={cliente.nome}>");
+    expect(fonte).toContain('data-testid="painel-tempo-de-casa"');
+    expect(fonte).toContain("Cidade <b");
+  });
+
+  it("o tempo de casa sai do MESMO cálculo da ficha, e não de uma segunda conta", () => {
+    expect(fonte).toContain("anosDeCliente(cliente.contractStartDate, hoje)");
+    expect(ficha360).toContain("ficha.anosCliente");
+  });
+
+  it("o cartão da fatura em aberto: número em 32px bold, como na ficha", () => {
+    const numero = 'mt-1 text-[32px] font-bold leading-none tracking-[-0.03em] text-[var(--money-neg)]';
+    expect(fonte).toContain(numero);
+    expect(ficha360).toContain(numero);
+    expect(fonte).toContain("<Kicker>Fatura em aberto</Kicker>");
+    expect(ficha360).toContain("<Kicker>Fatura em aberto</Kicker>");
+  });
+
+  it("sem dívida, os dois dizem a mesma coisa em vez de mostrar R$ 0,00", () => {
+    expect(fonte).toMatch(/Sem débitos · em dia/);
+    expect(ficha360).toMatch(/Sem débitos · em dia/);
+  });
+
+  it("o que o pop-up não tem vira traço COM motivo, nunca enfeite", () => {
+    // O plano e a data de contrato vêm do sync; quando não vieram, o traço diz.
+    expect(fonte).toContain('<Traco titulo="O sync do ERP não guarda o plano do cliente" />');
+    expect(fonte).toContain('<Traco titulo="Sem data de contrato no ERP" />');
+  });
+});

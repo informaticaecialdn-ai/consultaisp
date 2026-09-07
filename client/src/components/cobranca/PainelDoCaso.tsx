@@ -37,7 +37,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { brl, Kicker, num, TRACO } from "@/components/localizacao/ui";
 import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, FOCO, Td, Th, TabelaPainel } from "@/components/painel/ui";
-import { ROTULO_CANAL, ROTULO_STATUS_DE_NEGOCIACAO, ROTULO_STATUS_DE_PARCELA, ROTULO_TIPO_DE_NEGOCIACAO, type Etapa, type StatusDeNegociacao, type StatusDeParcela, type TipoDeNegociacao } from "@shared/cobranca";
+import { anosDeCliente, ROTULO_CANAL, ROTULO_STATUS_DE_NEGOCIACAO, ROTULO_STATUS_DE_PARCELA, ROTULO_TIPO_DE_NEGOCIACAO, type Etapa, type StatusDeNegociacao, type StatusDeParcela, type TipoDeNegociacao } from "@shared/cobranca";
 import {
   casoFechado, diasNoStatusDoCaso, etapaDoCard, MOTIVO_SEM_TEMPO_NA_COLUNA,
   resumoDoAcordo, textoDaFaixaDoDia, textoDoTempoNaColuna, TOM_DA_FAIXA_DO_DIA, vencimentoMaisAntigo,
@@ -55,7 +55,7 @@ import {
   type FaturaDoCaso, type ItemDaFila, type NegociacaoDeCobranca,
 } from "./tipos";
 import {
-  GRADE_LINHAS, Linha, LinkWhatsapp, mensagemDoErro, PilulaAtraso, SeloCarteira, SeloCobranca,
+  Avatar, GRADE_LINHAS, Linha, LinkWhatsapp, mensagemDoErro, PilulaAtraso, SeloCarteira, SeloCobranca,
   SeloErp, SeloPrioridade, SeloQuadrante, SeloTom, Traco, useSkeletonAtrasado, type TomDeSelo,
 } from "./ui";
 
@@ -340,6 +340,8 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
   const parado = item.proximoContatoEm === null && !fechado;
   const diasAqui = diasNoStatusDoCaso(item, hoje);
   const lugar = [cliente.bairro, cliente.cidade].filter(Boolean).join(" · ");
+  // O mesmo cálculo do 360 (`ficha.anosCliente`), sobre a data que o sync guarda.
+  const anosDeCasa = anosDeCliente(cliente.contractStartDate, hoje);
 
   // A dívida: o bloco da rota vence; sem ele, o agregado do sync que o quadro já traz.
   const divida = detalhe?.divida ?? null;
@@ -367,44 +369,51 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
   return (
     <>
       <DialogHeader className="flex-none space-y-0 border-b border-[var(--border)] px-5 py-4 text-left" data-testid="painel-identidade">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <Kicker>caso #{item.id} · {rotuloDoStatusDeCaso(item.status)}</Kicker>
-            <DialogTitle className="mt-1 text-[17px] font-semibold leading-tight tracking-[var(--track-tight)] text-[var(--text)]">{cliente.nome}</DialogTitle>
-            <DialogDescription className="mt-0.5 text-[12px] text-[var(--text-muted)]">
-              <span
-                className={NUM}
-                title="CPF/CNPJ do cliente, como está no cadastro do ERP."
-                data-testid="painel-documento"
-              >
-                {cliente.cpfCnpj || TRACO}
-              </span>
-              {lugar ? ` · ${lugar}` : ""}
+        {/*
+          O CABEÇALHO É O DO CLIENTE 360 (pedido do dono, 07/09/2026:
+          "cabeçalho do pop-up fazer exatamente igual ao do cliente 360").
+
+          A mesma composição, na mesma ordem e com as mesmas medidas: avatar
+          grande, nome em 23px, a linha de identidade (plano · documento ·
+          telefone com WhatsApp · tempo de casa · cidade), a fileira de selos e,
+          à direita, o cartão da fatura em aberto com o número em 32px.
+
+          O que o pop-up NÃO tem é o que a ficha calcula com o ERP ao vivo — e
+          nesses casos vale a regra da casa: traço com o motivo, nunca um valor
+          de enfeite. O plano e a data de contrato vêm do sync; quando o sync
+          não os trouxe, o traço diz isso.
+        */}
+        <div className="flex flex-wrap items-start gap-4">
+          <Avatar nome={cliente.nome} tamanho="lg" />
+          <div className="min-w-[260px] flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <DialogTitle className="text-[23px] font-semibold leading-tight tracking-[var(--track-tight)] text-[var(--text)]">{cliente.nome}</DialogTitle>
+              <Kicker>caso #{item.id} · {rotuloDoStatusDeCaso(item.status)}</Kicker>
+            </div>
+            <DialogDescription asChild>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--text-muted)]">
+                <span>
+                  {cliente.plano
+                    ? <b className="text-[var(--text-2)]">{cliente.plano}</b>
+                    : <Traco titulo="O sync do ERP não guarda o plano do cliente" />}
+                </span>
+                <span className={NUM} title="CPF/CNPJ do cliente, como está no cadastro do ERP." data-testid="painel-documento">
+                  {cliente.cpfCnpj || TRACO}
+                </span>
+                <span className={cn("inline-flex items-center gap-1", NUM)}>
+                  Tel. {cliente.telefone ?? TRACO}
+                  {whatsapp && <LinkWhatsapp whatsapp={whatsapp} nome={cliente.nome}><MessageCircle className="h-3.5 w-3.5" aria-hidden /></LinkWhatsapp>}
+                </span>
+                <span data-testid="painel-tempo-de-casa">
+                  {item.carteira === "ex_cliente" ? "Adesão há" : "Cliente há"}{" "}
+                  {anosDeCasa !== null
+                    ? <b className={cn("text-[var(--text-2)]", NUM)}>{num(anosDeCasa)} {anosDeCasa === 1 ? "ano" : "anos"}</b>
+                    : <Traco titulo="Sem data de contrato no ERP" />}
+                </span>
+                <span>Cidade <b className="text-[var(--text-2)]">{cliente.cidade ?? TRACO}</b></span>
+              </div>
             </DialogDescription>
-          </div>
-          <div className="flex-none text-right">
-            <p className={cn(NUM, "text-[26px] font-light leading-none tracking-[-0.028em] text-[var(--money-neg)]")} data-testid="painel-valor">{brl(total)}</p>
-            <p className="mt-[7px]"><PilulaAtraso dias={diasAtraso} testId="painel-atraso" /></p>
-          </div>
-          {/*
-            O × do handoff. O DialogContent monta um por conta própria, escondido
-            no wrapper (`[&>button]:hidden`): dois × na mesma linha confundem, e
-            este carrega o `painel-fechar` que a suíte conhece.
-          */}
-          <button
-            type="button"
-            aria-label="Fechar"
-            className={cn(
-              "grid h-[30px] w-[30px] flex-none place-items-center rounded border border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text-2)] hover:bg-[var(--surface-2)]",
-              FOCO,
-            )}
-            onClick={onFechar}
-            data-testid="painel-fechar"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-        <div className="mt-1 flex flex-wrap items-center gap-1">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <SeloErp status={cliente.statusErp} />
           <SeloCarteira carteira={item.carteira} />
           <SeloPrioridade prioridade={item.prioridade} />
@@ -435,6 +444,39 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
               <SeloCobranca tom="info" className="normal-case tracking-normal"><MessageSquareShare className="h-3 w-3" aria-hidden /> chat · {item.chat.status.toLowerCase()}</SeloCobranca>
             </a>
           )}
+            </div>
+          </div>
+
+          {/* O cartão da fatura em aberto — o mesmo do 360, com o número em 32px. */}
+          <div className="min-w-[210px] flex-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5" data-testid="painel-card-divida">
+            <Kicker>Fatura em aberto</Kicker>
+            {total > 0 ? (
+              <>
+                <p className={cn(NUM, "mt-1 text-[32px] font-bold leading-none tracking-[-0.03em] text-[var(--money-neg)]")} data-testid="painel-valor">{brl(total)}</p>
+                <p className="mt-1.5"><PilulaAtraso dias={diasAtraso} testId="painel-atraso" /></p>
+              </>
+            ) : (
+              <p className="mt-1 text-[15px] font-semibold leading-[1.35] text-[var(--ok)]" data-testid="painel-valor">Sem débitos · em dia</p>
+            )}
+          </div>
+
+          {/*
+            O × do handoff. O DialogContent monta um por conta própria, escondido
+            no wrapper (`[&>button]:hidden`): dois × na mesma linha confundem, e
+            este carrega o `painel-fechar` que a suíte conhece.
+          */}
+          <button
+            type="button"
+            aria-label="Fechar"
+            className={cn(
+              "grid h-[30px] w-[30px] flex-none place-items-center rounded border border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text-2)] hover:bg-[var(--surface-2)]",
+              FOCO,
+            )}
+            onClick={onFechar}
+            data-testid="painel-fechar"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
         </div>
       </DialogHeader>
 
