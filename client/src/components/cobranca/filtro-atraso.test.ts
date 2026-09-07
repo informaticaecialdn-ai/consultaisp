@@ -45,12 +45,12 @@ describe("a faixa entra e sai da URL", () => {
   });
 
   it("escreve a faixa preservando os outros parâmetros, e a limpa quando é 'todas'", () => {
-    expect(urlComAtraso("/cobranca/kanban", "?carteira=ex_cliente", "mais-90"))
-      .toBe("/cobranca/kanban?carteira=ex_cliente&atraso=mais-90");
-    expect(urlComAtraso("/cobranca/kanban", "?carteira=ativo&atraso=8-15", ""))
-      .toBe("/cobranca/kanban?carteira=ativo");
+    expect(urlComAtraso("/cobranca/esteira", "?carteira=ex_cliente", "mais-90"))
+      .toBe("/cobranca/esteira?carteira=ex_cliente&atraso=mais-90");
+    expect(urlComAtraso("/cobranca/esteira", "?carteira=ativo&atraso=8-15", ""))
+      .toBe("/cobranca/esteira?carteira=ativo");
     // Sem nenhum parâmetro sobra a URL limpa — a que se compartilha.
-    expect(urlComAtraso("/cobranca/kanban", "?atraso=ate-7", "")).toBe("/cobranca/kanban");
+    expect(urlComAtraso("/cobranca/esteira", "?atraso=ate-7", "")).toBe("/cobranca/esteira");
   });
 
   it("trocar de faixa larga a página: página 3 de outro recorte não quer dizer nada", () => {
@@ -59,7 +59,7 @@ describe("a faixa entra e sai da URL", () => {
 
   it("ida e volta: toda faixa sobrevive ao par escrever/ler", () => {
     for (const faixa of FAIXAS_DE_ATRASO) {
-      const url = urlComAtraso("/cobranca/kanban", "?carteira=ativo", faixa);
+      const url = urlComAtraso("/cobranca/esteira", "?carteira=ativo", faixa);
       expect(atrasoDaUrl(url.slice(url.indexOf("?"))), faixa).toBe(faixa);
       expect(url).toContain(`${PARAMETRO_ATRASO}=${faixa}`);
     }
@@ -76,7 +76,7 @@ describe("valor inválido na URL é ignorado, nunca derruba a tela", () => {
   });
 
   it("faixa torta não é escrita na URL nem selecionada na pílula", () => {
-    expect(urlComAtraso("/cobranca/kanban", "?atraso=mais-90", "todos" as never)).toBe("/cobranca/kanban");
+    expect(urlComAtraso("/cobranca/esteira", "?atraso=mais-90", "todos" as never)).toBe("/cobranca/esteira");
     // A pílula cai em "todas": quem está selecionado é a opção vazia, nenhuma faixa.
     const html = renderizar(createElement(FiltroDeAtraso, { valor: "todos", onChange: () => {} }));
     expect(html).toContain('<option value="" selected');
@@ -89,9 +89,9 @@ describe("valor inválido na URL é ignorado, nunca derruba a tela", () => {
       const { atraso } = useFiltroDeAtraso();
       return createElement("i", { "data-atraso": atraso });
     }
-    const comFaixa = renderizar(createElement(Router, { ssrPath: "/cobranca/kanban", ssrSearch: "atraso=16-30" }, createElement(Sonda)));
+    const comFaixa = renderizar(createElement(Router, { ssrPath: "/cobranca/esteira", ssrSearch: "atraso=16-30" }, createElement(Sonda)));
     expect(comFaixa).toContain('data-atraso="16-30"');
-    const comLixo = renderizar(createElement(Router, { ssrPath: "/cobranca/kanban", ssrSearch: "atraso=xpto" }, createElement(Sonda)));
+    const comLixo = renderizar(createElement(Router, { ssrPath: "/cobranca/esteira", ssrSearch: "atraso=xpto" }, createElement(Sonda)));
     expect(comLixo).toContain("<i");
     expect(comLixo).not.toContain("xpto");
   });

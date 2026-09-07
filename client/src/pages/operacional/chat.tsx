@@ -278,7 +278,7 @@ function CasoSemConversa({
           )}
         </p>
       )}
-      <Link href={`/cobranca/kanban?carteira=${carteira}`} className={cn(LINK_CHAT, "text-xs")}>
+      <Link href={`/cobranca/esteira?carteira=${carteira}`} className={cn(LINK_CHAT, "text-xs")}>
         Voltar ao quadro →
       </Link>
     </div>
@@ -369,13 +369,13 @@ export default function ChatOperacional() {
         <Link
           href={
             origem === "cobranca"
-              ? `/cobranca/kanban?carteira=${carteira}`
+              ? `/cobranca/esteira?carteira=${carteira}`
               : "/recuperacao"
           }
           className={cn(LINK_CHAT, "text-xs")}
         >
           {origem === "cobranca"
-            ? "Abrir quadro de cobrança"
+            ? "Abrir a esteira de cobrança"
             : "Abrir recuperação"}{" "}
           →
         </Link>

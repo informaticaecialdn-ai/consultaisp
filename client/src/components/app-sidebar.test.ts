@@ -70,8 +70,8 @@ describe("itemDeRevendaAtivo", () => {
 
 describe("navegação independente das carteiras", () => {
   it.each([
-    ["/cobranca/kanban", "ativo"],
-    ["/cobranca/kanban", "ex_cliente"],
+    ["/cobranca/esteira", "ativo"],
+    ["/cobranca/esteira", "ex_cliente"],
     ["/cobranca/regua", "ativo"],
     ["/cobranca/regua", "ex_cliente"],
   ])("%s destaca somente a operação da carteira %s", (rota, carteira) => {
@@ -81,8 +81,8 @@ describe("navegação independente das carteiras", () => {
   });
 
   it("links antigos sem carteira destacam a operação de clientes ativos", () => {
-    expect(itemDeProvedorAtivo("/cobranca/kanban?carteira=ativo", "/cobranca/kanban")).toBe(true);
-    expect(itemDeProvedorAtivo("/cobranca/kanban?carteira=ex_cliente", "/cobranca/kanban")).toBe(false);
+    expect(itemDeProvedorAtivo("/cobranca/esteira?carteira=ativo", "/cobranca/esteira")).toBe(true);
+    expect(itemDeProvedorAtivo("/cobranca/esteira?carteira=ex_cliente", "/cobranca/esteira")).toBe(false);
   });
 
   it("a ficha destaca a visão geral da carteira de origem", () => {
@@ -106,11 +106,11 @@ describe("navegação independente das carteiras", () => {
     const exClientes = grupo.itens.find(i => i.label === "Ex-Clientes")!;
     expect(ativos.filhos?.map(i => i.url)).toEqual([
       "/cobranca/ativos?carteira=ativo",
-      "/cobranca/kanban?carteira=ativo", "/cobranca/regua?carteira=ativo",
+      "/cobranca/esteira?carteira=ativo", "/cobranca/regua?carteira=ativo",
     ]);
     expect(exClientes.filhos?.map(i => i.url)).toEqual([
       "/cobranca/ex-clientes?carteira=ex_cliente",
-      "/cobranca/kanban?carteira=ex_cliente", "/cobranca/regua?carteira=ex_cliente",
+      "/cobranca/esteira?carteira=ex_cliente", "/cobranca/regua?carteira=ex_cliente",
     ]);
     for (const menu of [ativos, exClientes]) {
       expect(menu.filhos?.some(i => i.url.startsWith("/cobranca/fila"))).toBe(false);

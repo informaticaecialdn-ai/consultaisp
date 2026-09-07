@@ -196,8 +196,11 @@ describe("o quadro", () => {
 describe("fiação", () => {
   it("o App carrega a página e a rota é só de provedor", () => {
     expect(app).toContain('lazy(pagina(() => import("@/pages/cobranca/kanban")))');
-    expect(app).toContain('<Route path="/cobranca/kanban" component={CobrancaKanbanPage} />');
-    expect(app).toMatch(/"\/cobranca\/fila",\s*"\/cobranca\/kanban"/);
+    expect(app).toContain('<Route path="/cobranca/esteira" component={CobrancaKanbanPage} />');
+    // O endereço antigo continua na lista de propósito: a guarda roda ANTES do
+    // redirecionamento, e sem ele um papel sem provedor o atravessaria.
+    expect(app).toMatch(/"\/cobranca\/esteira",\s*"\/cobranca\/kanban"/);
+    expect(app).toContain('<Route path="/cobranca/kanban"><RedirecionarEsteira /></Route>');
   });
 
   /**
@@ -205,7 +208,7 @@ describe("fiação", () => {
    * unico destino de trabalho de cada carteira.
    */
   it("cada carteira tem seu Kanban, e a fila nao voltou ao menu", () => {
-    for (const c of ["ativo", "ex_cliente"]) expect(sidebar).toContain(`caminhoNaCarteira("/cobranca/kanban", "${c}")`);
+    for (const c of ["ativo", "ex_cliente"]) expect(sidebar).toContain(`caminhoNaCarteira("/cobranca/esteira", "${c}")`);
     for (const menu of ["ativos", "ex-clientes"]) {
       expect(sidebar).toContain(`testId: "link-cobranca-${menu}-kanban"`);
       expect(sidebar).not.toContain(`testId: "link-cobranca-${menu}-fila"`);
@@ -223,7 +226,7 @@ describe("fiação", () => {
    */
   it("a carteira abre o quadro, e o endereco antigo da fila so redireciona", () => {
     expect(carteira).toContain('data-testid="link-kanban"');
-    expect(carteira).toContain("ROTA_KANBAN");
+    expect(carteira).toContain("ROTA_ESTEIRA");
     expect(app).toContain('<Route path="/cobranca/fila"><RedirecionarFila /></Route>');
     expect(app).not.toContain('import("@/pages/cobranca/fila")');
   });

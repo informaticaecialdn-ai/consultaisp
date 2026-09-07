@@ -716,7 +716,28 @@ export function lerIntegracaoDoChat(resposta: unknown): IntegracaoDoChat | null 
 
 /** O chat esta pronto para mandar mensagem: ligado nesta instalacao e com o numero do provedor ativo. */
 export const chatProntoParaEnviar = (i: IntegracaoDoChat | null | undefined): boolean => !!i && i.ligado && i.status === "ativo" && !!i.canal;
-export const ROTA_KANBAN = "/cobranca/kanban";
+/**
+ * A ESTEIRA DE COBRANÇA — o quadro onde o operador trabalha o dia.
+ *
+ * Chamava-se "Kanban" até 07/09/2026, quando o dono pediu "um nome que
+ * represente o módulo". Kanban é o FORMATO (colunas com cards, que se
+ * arrasta); esteira é o que a tela É — cada coluna um posto, cada posto com
+ * um verbo, e o caso andando até sair. A palavra é do próprio dono, de
+ * 06/09: "o kanban precisa ser uma esteira de resolução da cobrança". O
+ * título da página já dizia "Esteira de cobrança"; agora o menu e o endereço
+ * dizem o mesmo.
+ *
+ * O endereço antigo `/cobranca/kanban` continua roteado como
+ * redirecionamento — link salvo e favorito não podem dar em página vazia.
+ *
+ * A API continua em `/api/cobranca/kanban` (`API_KANBAN`): renomear rota de
+ * servidor quebra integração de quem já a consome, e o nome dela não aparece
+ * para ninguém.
+ */
+export const ROTA_ESTEIRA = "/cobranca/esteira";
+
+/** O endereço anterior da esteira. Só o redirecionamento aponta para cá. */
+export const ROTA_KANBAN_ANTIGA = "/cobranca/kanban";
 
 /** Uma coluna do quadro: o status, os casos que a rota mandou e o total do recorte. */
 export interface ColunaDoKanban {

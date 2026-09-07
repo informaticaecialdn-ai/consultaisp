@@ -1,7 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
 import { caminhoNaCarteira, carteiraDaNavegacao, retornoDaCarteira } from "@/components/cobranca/carteiras";
-import { ROTA_POLITICA } from "@/components/cobranca/tipos";
+import { ROTA_ESTEIRA, ROTA_POLITICA } from "@/components/cobranca/tipos";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -31,10 +31,16 @@ function RedirecionarCarteira() {
  * carteira, com o resto do recorte que vier na URL. Sem isto, cada um desses
  * caminhos daria em "pagina nao encontrada".
  */
+/** O endereço antigo da esteira, com a carteira e os filtros preservados. */
+function RedirecionarEsteira() {
+  const search = useSearch();
+  return <Redirect to={`${ROTA_ESTEIRA}${search ? `?${search}` : ""}`} replace />;
+}
+
 function RedirecionarFila() {
   const search = useSearch();
   const carteira = carteiraDaNavegacao("/cobranca/fila", search);
-  return <Redirect to={caminhoNaCarteira(`/cobranca/kanban${search ? `?${search}` : ""}`, carteira)} />;
+  return <Redirect to={caminhoNaCarteira(`${ROTA_ESTEIRA}${search ? `?${search}` : ""}`, carteira)} />;
 }
 
 // Auth
@@ -133,7 +139,10 @@ function Router() {
         <Route path="/cobranca/cliente/:id" component={CobrancaCliente360Page} />
         {/* A fila do dia saiu; o endereco dela leva ao quadro da mesma carteira. */}
         <Route path="/cobranca/fila"><RedirecionarFila /></Route>
-        <Route path="/cobranca/kanban" component={CobrancaKanbanPage} />
+        {/* A esteira. O endereço antigo (`/cobranca/kanban`) redireciona: o nome
+            mudou em 07/09/2026, os favoritos não. */}
+        <Route path="/cobranca/esteira" component={CobrancaKanbanPage} />
+        <Route path="/cobranca/kanban"><RedirecionarEsteira /></Route>
         <Route path="/cobranca/regua" component={CobrancaReguaPage} />
         {/* A politica de cobranca virou aba do Painel do Provedor (06/09/2026,
             pedido do dono). O endereco antigo redireciona: link salvo, favorito
@@ -174,7 +183,7 @@ export const PROVIDER_ONLY_PATHS = [
   // `/cobranca/fila` e `/cobranca/politica` so redirecionam, e continuam aqui de
   // proposito: a guarda roda ANTES do desvio, e sem eles um papel sem provedor
   // atravessaria o redirecionamento ate a tela de destino.
-  "/cobranca", "/cobranca/fila", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica",
+  "/cobranca", "/cobranca/fila", "/cobranca/esteira", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica",
   // Faltava desde que a tela nasceu: ela le `provider` da sessao e chama
   // `/api/regional/my-cidades`, que sem provedor nao responde nada. Ficava de
   // fora da lista por esquecimento, nao por decisao — e agora ha um segundo

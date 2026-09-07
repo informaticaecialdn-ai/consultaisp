@@ -27,7 +27,7 @@ function renderizarSidebar(caminho: string) {
 
 describe("menus de cobrança renderizados", () => {
   it("expõe dois controles nativos nomeados e abre o menu da operação atual", () => {
-    const html = renderizarSidebar("/cobranca/kanban?carteira=ex_cliente");
+    const html = renderizarSidebar("/cobranca/esteira?carteira=ex_cliente");
     const menus = [...html.matchAll(/<details\b([^>]*)>([\s\S]*?)<\/details>/g)];
     expect(menus).toHaveLength(2);
     expect(menus[0][1]).toContain('data-testid="menu-cobranca-ativos"');
@@ -38,7 +38,7 @@ describe("menus de cobrança renderizados", () => {
     expect(menus[1][2]).toMatch(/<summary\b[^>]*>[\s\S]*?<span[^>]*>Ex-Clientes<\/span>[\s\S]*?<\/summary>/);
     const selecionados = html.match(/<a\b[^>]*aria-current="page"[^>]*>/g) ?? [];
     expect(selecionados).toHaveLength(1);
-    expect(selecionados[0]).toContain('href="/cobranca/kanban?carteira=ex_cliente"');
+    expect(selecionados[0]).toContain('href="/cobranca/esteira?carteira=ex_cliente"');
   });
 
   it("Conversas mantém a carteira atual e aparece antes dos dois menus", () => {
@@ -55,8 +55,8 @@ describe("menus de cobrança renderizados", () => {
 
   it("permite escolher qualquer carteira ao entrar de fora da cobrança", () => {
     const html = renderizarSidebar("/creditos");
-    expect(html).toContain('href="/cobranca/kanban?carteira=ativo"');
-    expect(html).toContain('href="/cobranca/kanban?carteira=ex_cliente"');
+    expect(html).toContain('href="/cobranca/esteira?carteira=ativo"');
+    expect(html).toContain('href="/cobranca/esteira?carteira=ex_cliente"');
     // A fila do dia saiu do menu em 06/09/2026 — o quadro e o unico lugar do dia.
     expect(html).not.toContain("/cobranca/fila");
     expect(html).not.toContain("Fila do dia");

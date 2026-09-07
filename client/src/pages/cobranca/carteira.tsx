@@ -31,7 +31,7 @@ import {
   OPCOES_STATUS, POR_PAGINA, queryDaCarteira, temFiltros, totalDePaginas, type FiltrosDaCarteira, type GrupoDoMes, type OpcaoDeFiltro, type VisaoDaCarteira,
 } from "@/components/cobranca/filtros";
 import {
-  API_CARTEIRA, API_CARTEIRA_MES, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_KANBAN, ROTA_REGUA, rotaDoCliente,
+  API_CARTEIRA, API_CARTEIRA_MES, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_ESTEIRA, ROTA_REGUA, rotaDoCliente,
   type RespostaDaCarteira, type RespostaDaRegua, type RespostaDoMes,
 } from "@/components/cobranca/tipos";
 import { caminhoNaCarteira } from "@/components/cobranca/carteiras";
@@ -300,7 +300,7 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
         acoes={
           <>
             {/* A fila do dia saiu (06/09/2026): o trabalho do dia inteiro acontece no quadro. */}
-            <Link href={caminhoNaCarteira(ROTA_KANBAN, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-kanban"><KanbanSquare className="h-3.5 w-3.5" aria-hidden /> Kanban</Link>
+            <Link href={caminhoNaCarteira(ROTA_ESTEIRA, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-kanban"><KanbanSquare className="h-3.5 w-3.5" aria-hidden /> Esteira</Link>
             <Link href={caminhoNaCarteira(ROTA_REGUA, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-regua"><Route className="h-3.5 w-3.5" aria-hidden /> Régua e DNA</Link>
           </>
         }

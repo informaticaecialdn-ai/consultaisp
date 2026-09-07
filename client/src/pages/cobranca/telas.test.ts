@@ -14,7 +14,7 @@ import { existsSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { PROVIDER_ONLY_PATHS, desvioDeRevenda, ehRotaDeCobranca, ehRotaDeProvedor } from "../../App";
 import { NAV_PROVEDOR, itemDeProvedorAtivo } from "../../components/app-sidebar";
-import { ROTA_POLITICA } from "../../components/cobranca/tipos";
+import { ROTA_ESTEIRA, ROTA_POLITICA } from "../../components/cobranca/tipos";
 
 const raiz = join(__dirname, "..", "..");
 const ler = (relativo: string) => readFileSync(join(raiz, relativo), "utf8");
@@ -44,7 +44,7 @@ describe("rotas da cobrança em App.tsx", () => {
     ["/cobranca/ativos", "pages/cobranca/carteira"],
     ["/cobranca/ex-clientes", "pages/cobranca/carteira"],
     ["/cobranca/cliente/:id", "pages/cobranca/cliente360"],
-    ["/cobranca/kanban", "pages/cobranca/kanban"],
+    ["/cobranca/esteira", "pages/cobranca/kanban"],
     ["/cobranca/regua", "pages/cobranca/regua"],
   ];
 
@@ -58,7 +58,7 @@ describe("rotas da cobrança em App.tsx", () => {
   it("as telas fixas estão na lista de provedor; a ficha entra pelo prefixo", () => {
     // `/cobranca` e `/cobranca/fila` so redirecionam, e ficam na lista de
     // proposito: a guarda roda ANTES do desvio.
-    for (const rota of ["/cobranca", "/cobranca/fila", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica"]) {
+    for (const rota of ["/cobranca", "/cobranca/fila", "/cobranca/esteira", "/cobranca/regua", "/cobranca/politica"]) {
       expect(PROVIDER_ONLY_PATHS).toContain(rota);
     }
     expect(ehRotaDeCobranca("/cobranca/cliente/42")).toBe(true);
@@ -85,7 +85,7 @@ describe("rotas da cobrança em App.tsx", () => {
     it("/cobranca/fila redireciona para o Kanban da MESMA carteira, com o resto do recorte", () => {
       expect(app).toContain('<Route path="/cobranca/fila"><RedirecionarFila /></Route>');
       expect(app).toContain('const carteira = carteiraDaNavegacao("/cobranca/fila", search);');
-      expect(app).toContain('caminhoNaCarteira(`/cobranca/kanban${search ? `?${search}` : ""}`, carteira)');
+      expect(app).toContain('caminhoNaCarteira(`${ROTA_ESTEIRA}${search ? `?${search}` : ""}`, carteira)');
     });
 
     it("nenhuma tela importa a fila, e nenhum link do produto aponta para ela", () => {
@@ -139,14 +139,14 @@ describe("o grupo Cobrança na barra lateral", () => {
     expect(app).toContain('<Route path="/cobranca"><RedirecionarCarteira /></Route>');
   });
 
-  const urls = ["/", "/cobranca", "/cobranca/ativos", "/cobranca/ex-clientes", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica", "/creditos"];
+  const urls = ["/", "/cobranca", "/cobranca/ativos", "/cobranca/ex-clientes", "/cobranca/esteira", "/cobranca/regua", "/cobranca/politica", "/creditos"];
   const acesos = (caminho: string) => urls.filter(u => itemDeProvedorAtivo(u, caminho));
 
   it("cada tela acende um item só, inclusive nos links antigos", () => {
     expect(acesos("/cobranca")).toEqual(["/cobranca/ativos"]);
     expect(acesos("/cobranca/ativos")).toEqual(["/cobranca/ativos"]);
     expect(acesos("/cobranca/ex-clientes")).toEqual(["/cobranca/ex-clientes"]);
-    expect(acesos("/cobranca/kanban")).toEqual(["/cobranca/kanban"]);
+    expect(acesos("/cobranca/esteira")).toEqual(["/cobranca/esteira"]);
     expect(acesos("/cobranca/regua")).toEqual(["/cobranca/regua"]);
     expect(acesos("/cobranca/politica")).toEqual(["/cobranca/politica"]);
   });
@@ -641,5 +641,43 @@ describe("o link com ?tab= troca a aba mesmo já dentro do painel", () => {
   it("o efeito da aba escuta o caminho E a query", () => {
     expect(painel).toContain("const search = useSearch();");
     expect(painel).toContain("}, [location, search]);");
+  });
+});
+
+describe("o módulo se chama Esteira, e não Kanban", () => {
+  /*
+   * Pedido do dono (07/09/2026): "mudar o nome Kanban para um nome que
+   * represente o módulo da esteira".
+   *
+   * Kanban é o FORMATO — colunas com cards que se arrastam. Esteira é o que a
+   * tela É: cada coluna um posto, cada posto com um verbo, e o caso andando até
+   * sair. A palavra é do próprio dono, de 06/09: "o kanban precisa ser uma
+   * esteira de resolução da cobrança". O título da página já dizia "Esteira de
+   * cobrança" — o menu e o endereço é que ainda diziam outra coisa.
+   */
+  it("o menu diz Esteira nas duas carteiras, e não Kanban", () => {
+    const itens = NAV_PROVEDOR.flatMap(g => g.itens).flatMap(i => [i, ...(i.filhos ?? [])]);
+    const daEsteira = itens.filter(i => i.url?.includes("/cobranca/esteira"));
+    expect(daEsteira).toHaveLength(2);
+    for (const i of daEsteira) expect(i.label).toBe("Esteira");
+    expect(itens.every(i => i.label !== "Kanban")).toBe(true);
+  });
+
+  it("o endereço é /cobranca/esteira, e o antigo redireciona com o recorte junto", () => {
+    expect(ROTA_ESTEIRA).toBe("/cobranca/esteira");
+    expect(app).toContain('<Route path="/cobranca/esteira" component={CobrancaKanbanPage} />');
+    expect(app).toContain('<Route path="/cobranca/kanban"><RedirecionarEsteira /></Route>');
+    // A query vai junto: quem salvou o link com carteira e filtros não os perde.
+    expect(app).toContain('<Redirect to={`${ROTA_ESTEIRA}${search ? `?${search}` : ""}`} replace />');
+  });
+
+  it("os dois endereços seguem sob a guarda de provedor — ela roda ANTES do desvio", () => {
+    expect(PROVIDER_ONLY_PATHS).toContain("/cobranca/esteira");
+    expect(PROVIDER_ONLY_PATHS).toContain("/cobranca/kanban");
+  });
+
+  it("a API não mudou de nome: renomear rota de servidor quebra integração alheia", () => {
+    const tipos = ler("components/cobranca/tipos.ts");
+    expect(tipos).toContain('export const API_KANBAN = "/api/cobranca/kanban"');
   });
 });

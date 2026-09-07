@@ -39,7 +39,7 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
     onSuccess: (r: { canalOk?: boolean; integracao?: { ultimoErro?: string | null } }) => {
       queryClient.invalidateQueries({ queryKey: [CHAVE_INTEGRACAO] });
       setCanal(c => ({ ...c, token: "", webhookSecret: "" }));
-      if (r.canalOk) toast({ title: "WhatsApp ligado ao chat", description: "O kanban e o 360 já oferecem \"Enviar para cobrança\"." });
+      if (r.canalOk) toast({ title: "WhatsApp ligado ao chat", description: "A esteira e o 360 já oferecem \"Enviar para cobrança\"." });
       else toast({ title: "Canal salvo; falta confirmar a conexão", description: r.integracao?.ultimoErro ?? "Use Verificar conexão ou pareie o número pelo QR.", variant: "destructive" });
     },
     onError: (erro: Error) => toast({ title: "Não foi possível ligar o número", description: mensagemDoErro(erro), variant: "destructive" }),

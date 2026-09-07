@@ -9,7 +9,7 @@ describe("contexto das carteiras", () => {
   // `/cobranca/fila` nao tem mais tela: e o `RedirecionarFila` do App que le a
   // carteira dali para mandar o link antigo ao quadro certo.
   it("o endereco antigo da fila, o quadro e a ficha recuperam a carteira da URL; entrada sem contexto abre ativos", () => {
-    for (const rota of ["/cobranca/fila", "/cobranca/kanban", "/cobranca/cliente/10"]) {
+    for (const rota of ["/cobranca/fila", "/cobranca/esteira", "/cobranca/cliente/10"]) {
       expect(carteiraDaNavegacao(rota, "carteira=ex_cliente")).toBe("ex_cliente");
       expect(carteiraDaNavegacao(rota, "")).toBe("ativo");
     }

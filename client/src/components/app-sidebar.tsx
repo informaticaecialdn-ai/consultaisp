@@ -451,7 +451,7 @@ export const NAV_PROVEDOR: Array<{
         label: "Clientes Ativos", url: "/cobranca/ativos", Icone: Users, testId: "menu-cobranca-ativos",
         filhos: [
           { label: "Visão geral", url: caminhoNaCarteira("/cobranca/ativos", "ativo"), Icone: Wallet, testId: "link-cobranca-ativos" },
-          { label: "Kanban", url: caminhoNaCarteira("/cobranca/kanban", "ativo"), Icone: Kanban, testId: "link-cobranca-ativos-kanban" },
+          { label: "Esteira", url: caminhoNaCarteira("/cobranca/esteira", "ativo"), Icone: Kanban, testId: "link-cobranca-ativos-kanban" },
           { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ativo"), Icone: Route, testId: "link-cobranca-ativos-regua" },
         ],
       },
@@ -459,7 +459,7 @@ export const NAV_PROVEDOR: Array<{
         label: "Ex-Clientes", url: "/cobranca/ex-clientes", Icone: UserX, testId: "menu-cobranca-ex-clientes",
         filhos: [
           { label: "Visão geral", url: caminhoNaCarteira("/cobranca/ex-clientes", "ex_cliente"), Icone: Wallet, testId: "link-cobranca-ex-clientes" },
-          { label: "Kanban", url: caminhoNaCarteira("/cobranca/kanban", "ex_cliente"), Icone: Kanban, testId: "link-cobranca-ex-clientes-kanban" },
+          { label: "Esteira", url: caminhoNaCarteira("/cobranca/esteira", "ex_cliente"), Icone: Kanban, testId: "link-cobranca-ex-clientes-kanban" },
           { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ex_cliente"), Icone: Route, testId: "link-cobranca-ex-clientes-regua" },
         ],
       },
