@@ -118,6 +118,28 @@ export function economiaDoForm(form: FormEconomia, gravada: EconomiaDaPolitica):
 }
 
 /**
+ * Algum custo foi DIGITADO na tela?
+ *
+ * Lê o texto do formulário, não o que está gravado: o botão "Confirmar
+ * custos" precisa acompanhar o que o admin acabou de escrever. Espelha
+ * `custosInformados` de shared/cobranca/politica.ts, e pelo mesmo motivo —
+ * zero não é um custo, é o campo em branco, e confirmar tudo zerado poria um
+ * selo "confirmado" sobre margem de 100% e payback de zero mês.
+ *
+ * `equipamentoResidual` e `cicloMeses` ficam de fora: residual zero é
+ * resposta legítima e o ciclo já nasce com 36 meses declarados.
+ */
+export function algumCustoPreenchido(form: FormEconomia): boolean {
+  const numero = (t: string) => {
+    const v = Number(String(t ?? "").replace(",", "."));
+    return Number.isFinite(v) ? v : 0;
+  };
+  return CAMPOS_DE_CUSTO
+    .filter(c => c !== "equipamentoResidual" && c !== "cicloMeses")
+    .some(c => numero(form[c]) > 0);
+}
+
+/**
  * As linhas da tabela → o mapa gravado. Linha sem nome ou sem preço válido
  * (vazio, lixo, zero, negativo) não entra: plano sem preço é Economia
  * PENDENTE no 360, nunca um chute. Nome repetido: a última linha vence.

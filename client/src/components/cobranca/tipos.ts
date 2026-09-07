@@ -1052,3 +1052,29 @@ export function lerDetalheDoCaso(resposta: unknown): DetalheDoCaso {
     negociacoes: Array.isArray(r.negociacoes) ? (r.negociacoes as NegociacaoDeCobranca[]) : null,
   };
 }
+
+/**
+ * A COBERTURA da mensalidade — quantos clientes vivos já têm de onde tirar o
+ * ARPU. Vem junto de `GET /api/cobranca/politica` e é mostrada na própria tela
+ * onde a Economia se configura: sem ela o provedor preenche os custos e só
+ * descobre se funcionou abrindo cliente por cliente no 360.
+ *
+ * Ausente = a rota não contou (falha isolada); a tela some com a linha em vez
+ * de escrever zero, que diria "nenhum cliente tem mensalidade".
+ */
+export interface CoberturaDaMensalidade {
+  ativos: number;
+  comMensalidade: number;
+  comDataDeContrato: number;
+}
+
+export function lerCoberturaDaMensalidade(resposta: unknown): CoberturaDaMensalidade | null {
+  if (!resposta || typeof resposta !== "object") return null;
+  const c = (resposta as Record<string, unknown>).cobertura;
+  if (!c || typeof c !== "object") return null;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.trunc(v) : null);
+  const ativos = n((c as Record<string, unknown>).ativos);
+  const comMensalidade = n((c as Record<string, unknown>).comMensalidade);
+  if (ativos === null || comMensalidade === null) return null;
+  return { ativos, comMensalidade, comDataDeContrato: n((c as Record<string, unknown>).comDataDeContrato) ?? comMensalidade };
+}

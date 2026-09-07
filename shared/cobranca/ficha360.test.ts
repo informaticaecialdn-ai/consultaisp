@@ -93,8 +93,9 @@ describe("montarFicha360", () => {
   it("o ERP não informou o plano: Economia PENDENTE, e a razão dívida/ticket não penaliza o financeiro", () => {
     const f = montarFicha360({ ...base, plano: null });
     expect(f.economia).toBeNull();
-    expect(f.economiaPendente).toMatch(/sem ARPU real do plano/);
+    expect(f.economiaPendente).toMatch(/não tem fatura vinda do ERP/);
     expect(f.valorMensal).toBeNull();
+    expect(f.origemDoValorMensal).toBeNull();
     expect(f.scores.health_detalhe.financeiro).toBe(60); // sem a penalidade de razão
     expect(f.scores.propensao_detalhe!.fatores.find(x => x.factor === "valorVsTicket")!.hadData).toBe(false);
     expect(f.resumo).not.toContain("LTV");
@@ -139,5 +140,66 @@ describe("montarFicha360", () => {
   it("situação real vence a pessoa: status desconhecido cai na carteira", () => {
     expect(montarFicha360({ ...base, statusErp: "whatever", carteira: "ex_cliente" }).situacaoReal).toBe("ex-cliente");
     expect(montarFicha360({ ...base, statusErp: null, carteira: null }).situacaoReal).toBeNull();
+  });
+});
+
+/*
+ * A segunda fonte de ARPU e o gate dos custos (06/09/2026).
+ *
+ * A Economia ficava PENDENTE para a base inteira porque o ARPU tinha um
+ * caminho so — nome do plano casado com um preco digitado a mao — e esse
+ * caminho esta cortado dos dois lados: `customers` nao guarda o plano e o
+ * mapa de precos nasce vazio. O valor que o provedor cobra esta nas faturas
+ * do ERP desde a migracao 0027, e e de la que ele passa a sair.
+ */
+describe("a mensalidade lida das faturas", () => {
+  const COM_FATURA = { ...base, plano: null, mensalidadeObservada: { valor: 129.9, concordam: 3, faturas: 4 } };
+
+  it("sem preço de plano, a mensalidade das faturas vira o ARPU — e a ficha diz de onde veio", () => {
+    const f = montarFicha360(COM_FATURA);
+    expect(f.valorMensal).toBe(129.9);
+    expect(f.origemDoValorMensal).toBe("faturas_do_erp");
+    expect(f.economia).not.toBeNull();
+    expect(f.economia!.arpu).toBe(129.9);
+    expect(f.economiaPendente).toBeNull();
+  });
+
+  it("o preço CADASTRADO vence a leitura: configuração do admin ganha de observação", () => {
+    const f = montarFicha360({ ...COM_FATURA, plano: "Fibra 300" });
+    expect(f.valorMensal).toBe(100); // o preço da tabela do fixture
+    expect(f.origemDoValorMensal).toBe("plano_cadastrado");
+  });
+
+  it("valor zero ou negativo nas faturas não vira ARPU", () => {
+    for (const valor of [0, -10]) {
+      const f = montarFicha360({ ...base, plano: null, mensalidadeObservada: { valor, concordam: 1, faturas: 1 } });
+      expect(f.valorMensal).toBeNull();
+      expect(f.origemDoValorMensal).toBeNull();
+    }
+  });
+});
+
+describe("custos zerados não viram número bonito e falso", () => {
+  const SEM_CUSTO = { ...POLITICA_PADRAO.economia, precoPorPlano: { "Fibra 300": 100 } };
+
+  it("com todos os custos em branco a Economia é PENDENTE, e o motivo diz o que preencher", () => {
+    const f = montarFicha360({ ...base, plano: "Fibra 300", economia: SEM_CUSTO });
+    // O que NAO pode acontecer: margem = 100% do ARPU e payback = 0 mês.
+    expect(f.economia).toBeNull();
+    expect(f.economiaPendente).toMatch(/faltam os custos do provedor/);
+    // Mas a mensalidade é dado real e continua na ficha, para a tela mostrar.
+    expect(f.valorMensal).toBe(100);
+    expect(f.origemDoValorMensal).toBe("plano_cadastrado");
+  });
+
+  it("um custo informado já basta: o provedor não precisa preencher os nove", () => {
+    const f = montarFicha360({ ...base, plano: "Fibra 300", economia: { ...SEM_CUSTO, opexLink: 12 } });
+    expect(f.economia).not.toBeNull();
+    expect(f.economiaPendente).toBeNull();
+  });
+
+  it("o gate do ARPU vem ANTES do dos custos: sem mensalidade, é dela que a tela fala", () => {
+    const f = montarFicha360({ ...base, plano: null, economia: { ...POLITICA_PADRAO.economia } });
+    expect(f.economiaPendente).toMatch(/sem mensalidade/);
   });
 });

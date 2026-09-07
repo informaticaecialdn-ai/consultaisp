@@ -30,20 +30,32 @@ import {
   origemDisponivel, PARCELAMENTO_POR_STATUS, PISO_AVISO_SUSPENSAO_DIAS, ROTULO_CANAL, ROTULO_CARTEIRA_NO_ACORDO, ROTULO_ORIGEM_DA_COBRANCA,
   rotuloDoDia, STATUS_DE_PARCELAMENTO, TETOS_LEGAIS, type CanalHumano, type OrigemDaCobranca,
 } from "@shared/cobranca";
-import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, CabecalhoPainel, Campo, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA } from "@/components/painel/ui";
+import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, CabecalhoPainel, Campo, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA, DESABILITAVEL } from "@/components/painel/ui";
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import {
   acordoDoForm, adicionarFaixa, avisosDasFaixas, editarCarteira, editarFaixa, formDoAcordo, removerFaixa, rotulosDasFaixas,
   type FormAcordo,
 } from "@/components/cobranca/acordo-form";
 import {
-  adicionarPlano, confirmarCustos, corpoDoPut, editarCusto, editarEtapa, editarPlano, formDaPolitica, lerPolitica, lerRespostaDoPut, removerPlano, ROTULO_PARCELAMENTO_POR_STATUS,
+  adicionarPlano, algumCustoPreenchido, confirmarCustos, corpoDoPut, editarCusto, editarEtapa, editarPlano, formDaPolitica, lerPolitica, lerRespostaDoPut, removerPlano, ROTULO_PARCELAMENTO_POR_STATUS,
   type FormPolitica,
 } from "@/components/cobranca/politica-form";
-import { API_EQUIPE, API_POLITICA, CICLO_MESES_PADRAO, lerEquipe, ROTA_REGUA, type CampoDeCusto } from "@/components/cobranca/tipos";
+import { API_EQUIPE, API_POLITICA, CICLO_MESES_PADRAO, lerCoberturaDaMensalidade, lerEquipe, ROTA_REGUA, type CampoDeCusto } from "@/components/cobranca/tipos";
 import { Cartao, descricaoDoErro, invalidarCobranca, mensagemDoErro, SeloCobranca, SeloFase2, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
 const MONO = "font-mono tabular-nums";
+const NUM_POLITICA = MONO;
+
+/**
+ * Por que "Confirmar custos" fica travado com tudo em branco.
+ *
+ * Zero nao e um custo: e o campo vazio. E as formulas aceitam zero de bom
+ * grado — com OPEX zero a margem de contribuicao vira 100% da mensalidade e o
+ * payback vira zero mes. Confirmar isso poria um selo verde "confirmado" em
+ * cima de um numero que o provedor nunca informou.
+ */
+export const MOTIVO_SEM_CUSTO =
+  "Informe ao menos um custo antes de confirmar: com todos zerados a margem sairia como 100% da mensalidade e o payback, como zero mês.";
 
 /** Número de dado dentro de uma frase: sempre mono tabular (DESIGN_SYSTEM §2). */
 function N({ children }: { children: ReactNode }) {
@@ -143,6 +155,10 @@ export default function PoliticaPage() {
   };
 
   const custosConfirmados = form?.economia.confirmado === true;
+  // O que o admin tem NA TELA agora — nao o que esta gravado: o botao precisa
+  // acompanhar o que ele acabou de digitar.
+  const custoPreenchido = !!form && algumCustoPreenchido(form.economia);
+  const cobertura = useMemo(() => lerCoberturaDaMensalidade(politicaCrua), [politicaCrua]);
   const aVista = STATUS_DE_PARCELAMENTO.filter(s => !PARCELAMENTO_POR_STATUS[s]).map(s => ROTULO_PARCELAMENTO_POR_STATUS[s]);
   const parcela = STATUS_DE_PARCELAMENTO.filter(s => PARCELAMENTO_POR_STATUS[s]).map(s => ROTULO_PARCELAMENTO_POR_STATUS[s]);
 
@@ -384,15 +400,36 @@ export default function PoliticaPage() {
               ) : (
                 <>
                   <SeloCobranca tom="gated" className="normal-case tracking-normal" testId="selo-parametros-padrao" titulo="A Economia do cliente é calculada com os parâmetros vigentes (padrão) — confirme os custos do seu provedor para o 360 tirar o selo">≈ parâmetros padrão</SeloCobranca>
-                  <button type="button" className={BOTAO_SECUNDARIO} disabled={travado} onClick={confirmar} data-testid="confirmar-custos"><BadgeCheck className="h-3.5 w-3.5" aria-hidden /> Confirmar custos</button>
+                  <button
+                    type="button"
+                    className={cn(BOTAO_SECUNDARIO, DESABILITAVEL)}
+                    disabled={travado || !custoPreenchido}
+                    title={custoPreenchido ? "Grava a política atestando que estes são os custos do seu provedor" : MOTIVO_SEM_CUSTO}
+                    onClick={confirmar}
+                    data-testid="confirmar-custos"
+                  ><BadgeCheck className="h-3.5 w-3.5" aria-hidden /> Confirmar custos</button>
                 </>
               )
             }
             testId="cartao-economia"
           >
             <p className="mb-3 text-[11.5px] leading-4 text-[var(--text-muted)]">
-              Por assinante. OPEX é o que sai da margem todo mês; CAC e CAPEX são pagos uma vez e voltam pela margem — isso é o payback. O ARPU (mensalidade) vem do contrato de cada cliente, não daqui. Sem confirmação, o 360 mostra a Economia com o selo "≈ parâmetros padrão".
+              Por assinante. OPEX é o que sai da margem todo mês; CAC e CAPEX são pagos uma vez e voltam pela margem — isso é o payback. A mensalidade (ARPU) não vem daqui: o 360 a lê das faturas que a varredura trouxe do ERP, e o preço por plano abaixo, quando cadastrado, tem preferência sobre ela.
             </p>
+            {!custoPreenchido && (
+              <p className="mb-3 rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2 text-[11.5px] leading-4 text-[var(--text-2)]" data-testid="aviso-sem-custo">
+                <b className="font-semibold">É isto que falta para a Economia aparecer no 360.</b> Enquanto os custos estiverem em branco, a ficha mostra a mensalidade do cliente e deixa margem, payback, LTV e LTV:CAC como “—”. Preencher com zero não resolve: com custo zero a margem seria 100% da mensalidade e o payback, zero mês.
+              </p>
+            )}
+            {cobertura && (
+              <p className="mb-3 text-[11.5px] leading-4 text-[var(--text-muted)]" data-testid="cobertura-mensalidade">
+                Mensalidade legível hoje: <b className={cn(NUM_POLITICA, "text-[var(--text)]")}>{cobertura.comMensalidade.toLocaleString("pt-BR")}</b> de{" "}
+                <b className={cn(NUM_POLITICA, "text-[var(--text)]")}>{cobertura.ativos.toLocaleString("pt-BR")}</b> clientes com contrato vivo têm fatura vinda do ERP
+                {cobertura.comMensalidade > cobertura.comDataDeContrato && (
+                  <> — destes, <b className={cn(NUM_POLITICA, "text-[var(--text)]")}>{(cobertura.comMensalidade - cobertura.comDataDeContrato).toLocaleString("pt-BR")}</b> ainda não têm data de contrato, e o 360 deles fica pendente por isso</>
+                )}.
+              </p>
+            )}
             <div className="grid gap-4 lg:grid-cols-[2fr_1.5fr_1fr]">
               <fieldset className="min-w-0">
                 <legend className="mb-2 font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">opex · operação mensal por assinante</legend>
@@ -416,7 +453,7 @@ export default function PoliticaPage() {
                 preço fica PENDENTE lá, com o motivo — nunca um chute. */}
             <fieldset className="mt-4 min-w-0 border-t border-[var(--border)] pt-3" id="economia" data-testid="planos-precos">
               <legend className="mb-1 font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">planos · mensalidade por nome do plano (ARPU)</legend>
-              <p className="mb-2 text-[11px] leading-4 text-[var(--text-muted)]">Escreva o nome exatamente como o ERP o devolve (a ficha mostra o nome que veio). O 360 casa sem diferenciar maiúsculas, acentos ou espaços.</p>
+              <p className="mb-2 text-[11px] leading-4 text-[var(--text-muted)]">Opcional. Escreva o nome exatamente como o ERP o devolve (a ficha mostra o nome que veio); o 360 casa sem diferenciar maiúsculas, acentos ou espaços. Onde houver preço aqui, ele vence a mensalidade lida das faturas.</p>
               <div className="flex flex-col gap-2">
                 {form.economia.planos.map((p, i) => (
                   <div key={i} className="grid grid-cols-[minmax(0,1fr)_140px_36px] items-center gap-2" data-testid={`plano-${i}`}>
@@ -425,7 +462,7 @@ export default function PoliticaPage() {
                     <button type="button" className={cn(BOTAO_SECUNDARIO, "h-9 w-9 px-0")} disabled={travado} onClick={() => editar(f => removerPlano(f, i))} aria-label="remover plano" data-testid={`plano-remover-${i}`}>×</button>
                   </div>
                 ))}
-                {form.economia.planos.length === 0 && <p className="text-[11.5px] text-[var(--text-faint)]">nenhum plano cadastrado — a Economia do cliente fica PENDENTE no 360 até haver a mensalidade do plano dele.</p>}
+                {form.economia.planos.length === 0 && <p className="text-[11.5px] text-[var(--text-faint)]">nenhum plano cadastrado — o 360 usa a mensalidade lida das faturas do ERP de cada cliente. Cadastre aqui só se quiser que o número venha da sua tabela de preços.</p>}
                 <button type="button" className={cn(BOTAO_SECUNDARIO, "w-fit")} disabled={travado} onClick={() => editar(adicionarPlano)} data-testid="adicionar-plano">+ adicionar plano</button>
               </div>
             </fieldset>

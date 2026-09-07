@@ -75,14 +75,63 @@ function Pill({ tone, title, children, compact }: { tone: Tom360; title?: string
   return <SeloCobranca tom={TOM[tone]} titulo={title} className={cn("normal-case tracking-normal", compact && "px-1.5 py-0.5")}>{children}</SeloCobranca>;
 }
 
-/** O `<Pendente>` do Provedor.ai: texto fixo, motivo no title. */
+/**
+ * O `<Pendente>` do Provedor.ai — mas com o motivo NA TELA.
+ *
+ * Ate 06/09/2026 o motivo vivia so no atributo `title`, e o dono abriu o 360,
+ * viu oito campos com "—" e um selo dizendo "PENDENTE · R24", e concluiu
+ * "falta a configuracao" sem ter como saber QUAL. Tooltip nao sobrevive a um
+ * print, a um celular nem a um leitor de tela — e aqui ha espaco de sobra.
+ * O selo continua; ao lado dele vai a frase.
+ */
 function Pendente({ motivo, ext }: { motivo: string; ext?: string }) {
   return (
-    <SeloCobranca tom="gated" titulo={motivo + (ext ? ` · ${ext}` : "")} className="normal-case tracking-normal">
-      <CircleDashed className="h-3 w-3" aria-hidden /> PENDENTE{ext ? ` · ${ext}` : ""}
-    </SeloCobranca>
+    <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <SeloCobranca tom="gated" titulo={motivo + (ext ? ` · ${ext}` : "")} className="normal-case tracking-normal">
+        <CircleDashed className="h-3 w-3" aria-hidden /> PENDENTE{ext ? ` · ${ext}` : ""}
+      </SeloCobranca>
+      <span className="text-[11px] leading-4 text-[var(--text-2)]" data-testid="motivo-pendente">{motivo}</span>
+    </span>
   );
 }
+
+/**
+ * De onde saiu a mensalidade. O numero e o mesmo; o credito que ele merece,
+ * nao: um preco que o admin cadastrou e configuracao, e um valor lido das
+ * faturas do ERP e observacao. A tela diz qual dos dois esta olhando.
+ */
+export type OrigemDoValor = "plano_cadastrado" | "faturas_do_erp";
+export interface EvidenciaDaMensalidade { valor: number; concordam: number; faturas: number }
+
+/**
+ * O rótulo do ARPU com a FORÇA da evidência.
+ *
+ * Medido na produção em 06/09/2026: entre cinco clientes ativos do MK, quatro
+ * deram R$ 99,90 / 79,90 / 109,90 / 89,90 — mensalidade clássica de ISP — e um
+ * deu R$ 636,40 com UMA fatura só, que é dívida acumulada e não mensalidade.
+ * O número é o que o ERP cobrou nos dois casos; o que muda é o quanto ele
+ * prova — e no MK 93% dos clientes têm uma fatura só, então exigir duas
+ * concordantes custaria a carteira inteira. A tela diz de quantas faturas o
+ * número saiu, e quem está ao telefone julga.
+ */
+export function rotuloDaMensalidade(origem: OrigemDoValor | null, e: EvidenciaDaMensalidade | null): string {
+  if (origem === "plano_cadastrado") return "preço do plano cadastrado";
+  if (origem !== "faturas_do_erp") return "mensalidade do plano";
+  if (!e) return "lida das faturas do ERP";
+  if (e.concordam >= 2) return `mesmo valor em ${e.concordam} de ${e.faturas} faturas`;
+  return e.faturas === 1 ? "lida de 1 fatura só" : `1 de ${e.faturas} faturas · valores diferentes`;
+}
+
+export const ORIGEM_DO_VALOR: Record<"plano_cadastrado" | "faturas_do_erp", { rotulo: string; titulo: string }> = {
+  plano_cadastrado: {
+    rotulo: "preço do plano",
+    titulo: "Mensalidade do preço por plano cadastrado em Política > Economia.",
+  },
+  faturas_do_erp: {
+    rotulo: "lida das faturas",
+    titulo: "Mensalidade lida das faturas que a varredura trouxe do ERP: o valor que mais se repete. Cadastre o preço do plano em Política > Economia para o número vir da sua tabela.",
+  },
+};
 
 /** O `<ACriar>` do Provedor.ai: sem backend ainda. */
 function ACriar({ oque }: { oque: string }) {
@@ -201,6 +250,8 @@ export default function Cliente360Page() {
     });
   }, [data, vivo, politica, hoje]);
 
+  // De quantas faturas a mensalidade saiu — viaja junto no `fichaEntrada`.
+  const evidenciaDaMensalidade = data?.fichaEntrada?.mensalidadeObservada ?? null;
   const plano = vivo?.plano ?? cliente?.plano ?? null;
   const contractStartDate = cliente?.contractStartDate ?? vivo?.contractStartDate ?? null;
   const equipamentos = useMemo(() => unirEquipamentos(data?.equipamentos ?? [], snapshot), [data?.equipamentos, snapshot]);
@@ -366,7 +417,7 @@ export default function Cliente360Page() {
               <ScoreMini score={ficha.scores.credito} band={ficha.scores.credito_band} />
 
               {/* 1c · Economia do cliente · R24 */}
-              <EconomiaMini economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} />
+              <EconomiaMini economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} />
             </div>
 
             {/* 1d · Endereço */}
@@ -609,7 +660,7 @@ export default function Cliente360Page() {
           </div>
 
           {/* 5 · R24 */}
-          <SecaoR24 economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} politicaConfirmada={!!politica?.economia.confirmado} />
+          <SecaoR24 economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} politicaConfirmada={!!politica?.economia.confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} evidencia={evidenciaDaMensalidade} />
 
           {/* 6 · Transversal */}
           <Transversal data={data!} />
@@ -672,7 +723,12 @@ function ScoreMini({ score, band }: { score: number | null; band: string | null 
   );
 }
 
-function EconomiaMini({ economia, pendente, exCliente, confirmado }: { economia: EconomiaLedger | null; pendente: string | null; exCliente: boolean; confirmado: boolean }) {
+function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, origem }: {
+  economia: EconomiaLedger | null; pendente: string | null; exCliente: boolean; confirmado: boolean;
+  /** A mensalidade, que EXISTE antes dos custos — e por isso aparece antes deles. */
+  valorMensal: number | null;
+  origem: "plano_cadastrado" | "faturas_do_erp" | null;
+}) {
   const kpis: Array<{ k: string; v: string; cor?: string }> = economia
     ? [
         { k: "MRR", v: money(economia.arpu) },
@@ -682,7 +738,11 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado }: { economia:
         { k: "LTV projetado", v: money(economia.ltv_receita) },
         { k: "LTV:CAC", v: economia.ltv_cac !== null ? `${economia.ltv_cac.toLocaleString("pt-BR")}×` : DASH, cor: economia.ltv_cac !== null && economia.ltv_cac >= 3 ? "var(--ok)" : "var(--gated)" },
       ]
-    : ["MRR", "Margem bruta", "Payback", "LTV realizado", "LTV projetado", "LTV:CAC"].map(k => ({ k, v: DASH }));
+    // Sem os custos nao ha ledger — mas o MRR e dado do ERP e nao depende
+    // deles. Apagar o unico numero verdadeiro junto com os que faltam seria
+    // esconder o que a tela sabe.
+    : ["MRR", "Margem bruta", "Payback", "LTV realizado", "LTV projetado", "LTV:CAC"]
+        .map(k => ({ k, v: k === "MRR" && valorMensal !== null ? money(valorMensal) : DASH, cor: k === "MRR" && valorMensal !== null ? "var(--text)" : undefined }));
   return (
     <div className="min-w-[280px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5" data-testid="card-economia">
       <div className="flex items-center justify-between gap-2">
@@ -695,7 +755,7 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado }: { economia:
       {economia && !confirmado && <p className="mt-1"><SeloCobranca tom="gated" className="normal-case tracking-normal"><Sparkles className="h-3 w-3" aria-hidden /> ≈ parâmetros padrão</SeloCobranca></p>}
       <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 border-t border-[var(--border)] pt-2">
         {kpis.map(x => (
-          <div key={x.k}><span className="block font-mono text-[9.5px] font-semibold uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{x.k}</span><span className={cn(NUM, "text-[13px] font-semibold")} style={{ color: economia ? x.cor : "var(--text-muted)" }}>{x.v}</span></div>
+          <div key={x.k} title={x.k === "MRR" && origem ? ORIGEM_DO_VALOR[origem].titulo : undefined}><span className="block font-mono text-[9.5px] font-semibold uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{x.k}</span><span className={cn(NUM, "text-[13px] font-semibold")} style={{ color: x.cor ?? (economia ? undefined : "var(--text-muted)") }}>{x.v}</span></div>
         ))}
       </div>
       {economia && economia.perda_se_cancelar > 0 && (
@@ -746,7 +806,30 @@ const FIN_CUSTO: Array<{ cat: EconomiaLedger["opex_breakdown"][number]["categori
   { cat: "impostos_receita", rotulo: "Impostos s/ receita", cor: "var(--text-faint)" },
 ];
 
-function SecaoR24({ economia, pendente, exCliente, confirmado, politicaConfirmada }: { economia: EconomiaLedger | null; pendente: string | null; exCliente: boolean; confirmado: boolean; politicaConfirmada: boolean }) {
+/**
+ * O que o botao do cabecalho do R24 oferece, conforme o que FALTA.
+ *
+ * Ele dizia "Confirmar custos" sempre — inclusive quando os custos ja estavam
+ * confirmados e o que faltava era outra coisa, e inclusive quando nao havia
+ * nada a confirmar porque o problema era do ERP. Botao que promete o passo
+ * errado gasta a paciencia de quem clica.
+ */
+export function acaoDoPendente(pendente: string | null, confirmado: boolean): { rotulo: string; leva: boolean } {
+  if (pendente && /custos do provedor/.test(pendente)) return { rotulo: "Informar os custos", leva: true };
+  if (pendente && /preço cadastrado|mensalidade/.test(pendente)) return { rotulo: "Cadastrar preço do plano", leva: true };
+  // Sem preço nem custo faltando, o que resta e do ERP (data de contrato,
+  // contrato cancelado, ex-cliente sem historico): a Politica nao resolve.
+  if (pendente) return { rotulo: "", leva: false };
+  return { rotulo: confirmado ? "" : "Confirmar custos", leva: !confirmado };
+}
+
+function SecaoR24({ economia, pendente, exCliente, confirmado, politicaConfirmada, valorMensal, origem, evidencia }: {
+  economia: EconomiaLedger | null; pendente: string | null; exCliente: boolean; confirmado: boolean; politicaConfirmada: boolean;
+  valorMensal: number | null;
+  origem: OrigemDoValor | null;
+  /** De quantas faturas o valor saiu — a força da leitura, quando ela é a fonte. */
+  evidencia: EvidenciaDaMensalidade | null;
+}) {
   const [mesSim, setMesSim] = useState<number | null>(null);
   const e = economia;
   const ciclo = e?.ciclo_meses ?? 84;
@@ -768,8 +851,9 @@ function SecaoR24({ economia, pendente, exCliente, confirmado, politicaConfirmad
     return { yOf, xOf, y0: yOf(0), be: e.payback_meses };
   })() : null;
 
+  const acao = acaoDoPendente(pendente, confirmado);
   const stats: Array<{ k: string; s: string; v: string; tone?: "pos" | "neg" }> = [
-    { k: "ARPU · mensalidade", s: "mensalidade do plano", v: e ? money(e.arpu) : DASH },
+    { k: "ARPU · mensalidade", s: rotuloDaMensalidade(origem, evidencia), v: e ? money(e.arpu) : valorMensal !== null ? money(valorMensal) : DASH },
     { k: "CAC · aquisição", s: "custo de adquirir o cliente", v: e ? money(e.cac) : DASH },
     { k: "CAPEX · instalação", s: "equipamento + instalação", v: e ? money(e.capex) : DASH },
     { k: "OPEX · custo de servir/mês", s: "rede + suporte + impostos", v: e ? money(e.opex_mes) : DASH },
@@ -789,9 +873,9 @@ function SecaoR24({ economia, pendente, exCliente, confirmado, politicaConfirmad
           {!e && pendente && <Pendente motivo={pendente} ext={exCliente ? undefined : "R24"} />}
           {e?.ciclo_encerrado && <SeloCobranca tom="neutro" className="normal-case tracking-normal">ciclo encerrado · 100% realizado</SeloCobranca>}
           {e && confirmado ? <SeloCobranca tom="ok" className="normal-case tracking-normal">confirmado</SeloCobranca> : (
-            <span title="números calculados com os parâmetros vigentes (padrão) — confirme os custos do seu provedor na política de cobrança" className="inline-flex items-center gap-2">
-              {!politicaConfirmada && <SeloCobranca tom="gated" className="normal-case tracking-normal"><Sparkles className="h-3 w-3" aria-hidden /> ≈ parâmetros padrão</SeloCobranca>}
-              <Link href={`${ROTA_POLITICA}#economia`} className={cn(BOTAO_SECUNDARIO, "h-8 text-[11.5px]")}><Settings className="h-3.5 w-3.5" aria-hidden /> Confirmar custos</Link>
+            <span className="inline-flex items-center gap-2">
+              {e && !politicaConfirmada && <SeloCobranca tom="gated" titulo="números calculados com os parâmetros vigentes (padrão) — confirme os custos do seu provedor na política de cobrança" className="normal-case tracking-normal"><Sparkles className="h-3 w-3" aria-hidden /> ≈ parâmetros padrão</SeloCobranca>}
+              {acao.leva && <Link href={`${ROTA_POLITICA}#economia`} className={cn(BOTAO_SECUNDARIO, "h-8 text-[11.5px]")} data-testid="r24-ir-para-politica"><Settings className="h-3.5 w-3.5" aria-hidden /> {acao.rotulo}</Link>}
             </span>
           )}
         </span>

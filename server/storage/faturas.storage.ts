@@ -122,6 +122,57 @@ export interface FaturaDoCliente {
   baixadaEm: Date | null;
 }
 
+/**
+ * A MENSALIDADE que o ERP cobra deste cliente, LIDA das faturas dele.
+ *
+ * Por que existe (06/09/2026). A Economia do cliente (R24) no 360 mostrava
+ * tudo "—" para toda a base, e o motivo era um so: sem ARPU nao ha calculo. O
+ * ARPU vinha de UM caminho — o nome do plano casado com um preco que o admin
+ * digitasse em Politica > Economia — e esse caminho esta cortado dos dois
+ * lados: `customers` nao guarda o plano (o `contractPlan` do conector e
+ * descartado no upsert) e o mapa de precos nasce vazio.
+ *
+ * Mas o valor esta no banco desde a migracao 0027: as faturas do ERP, fatura a
+ * fatura, com o valor que o provedor REALMENTE cobra deste assinante. E o
+ * mesmo recurso que o Provedor.ai usa quando o ERP nao expoe o preco do plano
+ * (`sync/faturas.ts`, semeadura por MODA do valor faturado).
+ *
+ * A regra e a MODA — o valor que mais se repete —, e nao a media nem a maior:
+ * a media sobe com multa, juros e servico avulso; a maior pega o acordo
+ * inteiro numa fatura so. O valor que se repete mes a mes e a mensalidade.
+ * Empate na contagem: vence o mais recente.
+ *
+ * Nada disso e chute, e por isso a leitura devolve a EVIDENCIA junto
+ * (quantas faturas foram olhadas, quantas concordam): a tela mostra de onde o
+ * numero saiu, e o preco cadastrado pelo admin sempre vence este aqui.
+ */
+export interface MensalidadeDoCliente {
+  /** O valor que mais se repete nas faturas do ERP. */
+  valor: number;
+  /** Quantas faturas trazem esse mesmo valor. */
+  concordam: number;
+  /** Quantas faturas do ERP foram olhadas. */
+  faturas: number;
+  /** O vencimento mais recente entre as que concordam — a idade da evidencia. */
+  maisRecente: Date | null;
+}
+
+/**
+ * Quantos clientes do provedor tem mensalidade legivel — o sinal de prontidao
+ * da Economia, mostrado na propria tela onde ela se configura.
+ *
+ * Sem isto o provedor configura no escuro: preenche os custos e so descobre
+ * se funcionou abrindo cliente por cliente no 360.
+ */
+export interface CoberturaDaMensalidade {
+  /** Clientes com contrato vivo (ativo ou suspenso). */
+  ativos: number;
+  /** Destes, quantos tem ao menos uma fatura vinda da varredura do ERP. */
+  comMensalidade: number;
+  /** Destes, quantos tambem tem data de contrato — o outro insumo do calculo. */
+  comDataDeContrato: number;
+}
+
 export interface FaturasDoCliente {
   linhas: FaturaDoCliente[];
   /** Quantas existem, mesmo que `linhas` tenha parado no teto. */
@@ -527,6 +578,83 @@ export class FaturasStorage {
       vencidas: a?.vencidas ?? 0,
       valorVencido: a?.valorVencido ?? 0,
       vencimentoMaisAntigo: a?.vencimentoMaisAntigo ?? null,
+    };
+  }
+
+  /**
+   * A mensalidade observada nas faturas do ERP deste cliente — ver
+   * `MensalidadeDoCliente`. `null` quando o cliente nao tem NENHUMA fatura
+   * vinda da varredura: sem fatura nao ha valor, e a ficha diz isso em vez de
+   * inventar um.
+   *
+   * So faturas do ERP (`erp_source is not null`): a linha de import CSV foi
+   * digitada por alguem e nao prova o que o provedor cobra hoje. Todos os
+   * status entram — a fatura de meses atras, ja baixada, e justamente a que
+   * prova a recorrencia.
+   */
+  /**
+   * A cobertura da mensalidade na carteira viva. Uma consulta agregada, nunca
+   * N+1: em producao a maior carteira tem 29 mil clientes.
+   */
+  async coberturaDaMensalidade(providerId: number): Promise<CoberturaDaMensalidade> {
+    const temFatura = sql`exists (
+      select 1 from ${invoices}
+      where ${invoices.customerId} = ${customers.id}
+        and ${invoices.providerId} = ${providerId}
+        and ${invoices.erpSource} is not null
+    )`;
+    const [linha] = await db.select({
+        ativos: sql<number>`count(*)`.mapWith(Number),
+        comMensalidade: sql<number>`count(*) filter (where ${temFatura})`.mapWith(Number),
+        comDataDeContrato: sql<number>`count(*) filter (where ${temFatura} and ${customers.contractStartDate} is not null)`.mapWith(Number),
+      })
+      .from(customers)
+      .where(and(
+        eq(customers.providerId, providerId),
+        inArray(customers.status, [...STATUS_DE_CLIENTE_ATUAL]),
+      ));
+    return {
+      ativos: linha?.ativos ?? 0,
+      comMensalidade: linha?.comMensalidade ?? 0,
+      comDataDeContrato: linha?.comDataDeContrato ?? 0,
+    };
+  }
+
+  async mensalidadeDoCliente(providerId: number, customerId: number): Promise<MensalidadeDoCliente | null> {
+    const linhas = await db.select({
+        valor: invoices.value,
+        n: sql<number>`count(*)`.mapWith(Number),
+        maisRecente: sql<Date | null>`max(${invoices.dueDate})`.mapWith(invoices.dueDate),
+      })
+      .from(invoices)
+      .where(and(
+        eq(invoices.providerId, providerId),
+        eq(invoices.customerId, customerId),
+        isNotNull(invoices.erpSource),
+      ))
+      .groupBy(invoices.value)
+      // A MODA: mais repeticoes primeiro; empate, o vencimento mais novo.
+      .orderBy(desc(sql`count(*)`), desc(sql`max(${invoices.dueDate})`))
+      .limit(1);
+
+    const moda = linhas[0];
+    if (!moda) return null;
+    const valor = Number(moda.valor ?? 0);
+    if (!Number.isFinite(valor) || valor <= 0) return null;
+
+    const [contagem] = await db.select({ total: sql<number>`count(*)`.mapWith(Number) })
+      .from(invoices)
+      .where(and(
+        eq(invoices.providerId, providerId),
+        eq(invoices.customerId, customerId),
+        isNotNull(invoices.erpSource),
+      ));
+
+    return {
+      valor: Math.round(valor * 100) / 100,
+      concordam: moda.n,
+      faturas: contagem?.total ?? moda.n,
+      maisRecente: moda.maisRecente ?? null,
     };
   }
 

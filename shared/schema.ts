@@ -423,6 +423,13 @@ export const invoices = pgTable("invoices", {
     .where(sql`erp_ref IS NOT NULL`),
   // O resumo do mes pergunta "faturas deste provedor vencendo em [de, ate)".
   index("idx_invoices_provider_due").on(t.providerId, t.dueDate),
+  // A Economia do cliente (R24) le a mensalidade das faturas DAQUELE cliente, e
+  // a tela de Politica conta a cobertura disso na carteira inteira. Sem este
+  // indice a contagem levava 38 segundos em producao (46 mil faturas, 13 mil
+  // clientes vivos): o EXISTS por cliente virava varredura sequencial. Ver a
+  // migracao 0031. `provider_id` lidera porque toda consulta filtra por
+  // provedor antes de tudo.
+  index("idx_invoices_provider_customer").on(t.providerId, t.customerId),
 ]);
 
 export const equipment = pgTable("equipment", {

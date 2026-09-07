@@ -24,7 +24,7 @@ import type {
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
 import type { FaturaAbertaDoErp } from "../erp/types";
-import { FaturasStorage, type FaturasDoCliente, type GrupoDoMes, type ResumoDoMes } from "./faturas.storage";
+import { FaturasStorage, type CoberturaDaMensalidade, type FaturasDoCliente, type GrupoDoMes, type MensalidadeDoCliente, type ResumoDoMes } from "./faturas.storage";
 
 import { UsersStorage } from "./users.storage";
 import { ProvidersStorage, type ProviderWithStats } from "./providers.storage";
@@ -361,6 +361,10 @@ export interface IStorage {
   resumoDoMes(providerId: number, mes: string, hoje: Date): Promise<ResumoDoMes>;
   clientesDoMes(providerId: number, mes: string, grupo: GrupoDoMes, opcoes?: { hoje?: Date; limite?: number }): Promise<number[]>;
   faturasDoCliente(providerId: number, customerId: number, opcoes?: { limite?: number; hoje?: Date }): Promise<FaturasDoCliente>;
+  /** A mensalidade lida das faturas do ERP — a fonte de ARPU da Economia do 360. */
+  mensalidadeDoCliente(providerId: number, customerId: number): Promise<MensalidadeDoCliente | null>;
+  /** Quantos clientes vivos tem mensalidade legivel — o sinal de prontidao da Economia. */
+  coberturaDaMensalidade(providerId: number): Promise<CoberturaDaMensalidade>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -671,6 +675,8 @@ class DatabaseStorage implements IStorage {
   recuperacaoAposContato = (...args: Parameters<FaturasStorage["recuperacaoAposContato"]>) => this._faturas.recuperacaoAposContato(...args);
   clientesDoMes = (providerId: number, mes: string, grupo: GrupoDoMes, opcoes?: { hoje?: Date; limite?: number }) => this._faturas.clientesDoMes(providerId, mes, grupo, opcoes);
   faturasDoCliente = (providerId: number, customerId: number, opcoes?: { limite?: number; hoje?: Date }) => this._faturas.faturasDoCliente(providerId, customerId, opcoes);
+  mensalidadeDoCliente = (providerId: number, customerId: number) => this._faturas.mensalidadeDoCliente(providerId, customerId);
+  coberturaDaMensalidade = (providerId: number) => this._faturas.coberturaDaMensalidade(providerId);
 }
 
 export const storage = new DatabaseStorage();

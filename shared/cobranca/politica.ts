@@ -111,6 +111,27 @@ export const EconomiaSchema = z.object({
 });
 export type Economia = z.infer<typeof EconomiaSchema>;
 
+/**
+ * O provedor chegou a informar os custos dele?
+ *
+ * `POLITICA_PADRAO.economia` nasce com TUDO zerado, e zero não é um custo
+ * plausível — é o campo em branco. A diferença importa porque as fórmulas
+ * aceitam zero de bom grado e produzem um resultado bonito e falso: com OPEX
+ * zero a margem de contribuição é 100% do ARPU, com investimento zero o
+ * payback é 0 mês, e o 360 anunciaria que todo assinante se paga no dia da
+ * instalação. Preferimos "—" com o motivo.
+ *
+ * `equipamentoResidual` e `cicloMeses` ficam FORA da conta de propósito:
+ * residual zero é uma resposta legítima (equipamento que não volta valendo
+ * nada) e o ciclo já nasce com 36 meses, que é um padrão declarado e não um
+ * campo em branco.
+ */
+export function custosInformados(e: Economia | null | undefined): boolean {
+  if (!e) return false;
+  return e.cac > 0 || e.capexInstalacao > 0 || e.opexLink > 0 || e.opexRedePop > 0
+    || e.opexSuporte > 0 || e.opexManutencaoNoc > 0 || e.impostoReceitaPct > 0;
+}
+
 export const POLITICA_PADRAO = {
   /** Vazio = catálogo padrão inteiro (`ETAPAS_PADRAO`); aqui vão só as mudanças do provedor. */
   etapas: [] as z.infer<typeof EtapasConfigSchema>,

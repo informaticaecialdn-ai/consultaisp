@@ -1408,7 +1408,7 @@ export function registerCobrancaRoutes(): Router {
       // inteiro so o proprio cliente (ou um CNPJ que o contenha) volta, e o
       // filtro por id abaixo tira o resto.
       const digitos = cliente.cpfCnpj.replace(/\D/g, "");
-      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente] = await Promise.all([
+      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade] = await Promise.all([
         carregarPolitica(providerId),
         storage.listarCasosDeCobranca(providerId, { status: "todos", busca: digitos.length >= 3 ? digitos : cliente.name }, { pagina: 1, porPagina: 200 }),
         storage.listarEventosDoCliente(providerId, customerId),
@@ -1420,6 +1420,12 @@ export function registerCobrancaRoutes(): Router {
         // Falha aqui nao derruba a ficha: ela abre com o que o banco tem.
         storage.getRecentConsultationsForDocument(digitos, 90).catch(() => []),
         storage.getAlertsByCustomer(customerId).catch(() => []),
+        // O ARPU da Economia (R24): a mensalidade que o ERP cobra deste
+        // assinante, lida das faturas gravadas pela varredura. Ate 06/09/2026 o
+        // unico caminho era o preco por plano digitado a mao, e como o sync nao
+        // guarda o nome do plano a Economia ficava PENDENTE para a base
+        // inteira. Falha aqui nao derruba a ficha — ela so volta a "—".
+        storage.mensalidadeDoCliente(providerId, customerId).catch(() => null),
       ]);
       const ha30d = new Date(hoje.getTime() - 30 * 86_400_000);
       const deOutros = consultasRecentes.filter(c => c.providerId !== providerId);
@@ -1474,6 +1480,9 @@ export function registerCobrancaRoutes(): Router {
         contractStartDate: cliente.contractStartDate,
         cortadoEm: cliente.cortadoEm,
         plano: null,
+        // Vai no `fichaEntrada` que o navegador remonta: sem ela, a remontagem
+        // com o plano ao vivo perderia o ARPU que o servidor ja tinha.
+        mensalidadeObservada: mensalidade ? { valor: mensalidade.valor, concordam: mensalidade.concordam, faturas: mensalidade.faturas } : null,
         ispScore: numOuNull(cliente.ispScore),
         riskTier: cliente.riskTier,
         dividaAtual,
@@ -1563,9 +1572,12 @@ export function registerCobrancaRoutes(): Router {
         // O que a ficha do Provedor.ai tem e esta base nao: nomeado, nao
         // fabricado. A tela mostra "—" pela ausencia da chave, e isto diz por que.
         pendentes: [
-          { campo: "plano", motivo: "customers nao guarda o plano do cliente" },
-          { campo: "faturas", motivo: "o sync grava agregados; fatura a fatura e a fase 2" },
-          { campo: "historicoPagamento", motivo: "sem fatura paga nao ha historico de pontualidade" },
+          { campo: "plano", motivo: "customers nao guarda o plano do cliente: o contractPlan que o conector traz e descartado no upsert" },
+          // Corrigido em 06/09/2026: a linha dizia "o sync grava agregados;
+          // fatura a fatura e a fase 2", e isso deixou de ser verdade com a
+          // migracao 0027 — a varredura grava fatura a fatura desde 05/09.
+          // Texto errado aqui engana quem depurar a ficha.
+          { campo: "historicoPagamento", motivo: "o ERP nao confirma pagamento: a fatura que some dos pendentes e baixa provavel, nao recibo" },
           { campo: "vulneravel", motivo: "nao ha coluna de vulnerabilidade (Lei 14.181)" },
         ],
       });
@@ -2349,8 +2361,15 @@ export function registerCobrancaRoutes(): Router {
   router.get("/api/cobranca/politica", requireAuth, requireProvider, async (req, res) => {
     const providerId = providerDaSessao(req);
     try {
-      const { politica, etapas, configurada, updatedAt } = await carregarPolitica(providerId);
-      res.json({ politica, etapas, configurada, updatedAt, tetos: TETOS_LEGAIS });
+      const [{ politica, etapas, configurada, updatedAt }, cobertura] = await Promise.all([
+        carregarPolitica(providerId),
+        // O sinal de prontidao da Economia, na propria tela onde ela se
+        // configura: sem ele o provedor preenche os custos e so descobre se
+        // funcionou abrindo cliente por cliente no 360. Falha aqui nao derruba
+        // a politica — a tela so nao mostra a contagem.
+        storage.coberturaDaMensalidade(providerId).catch(() => null),
+      ]);
+      res.json({ politica, etapas, configurada, updatedAt, tetos: TETOS_LEGAIS, cobertura });
     } catch (e) {
       falha(res, e);
     }

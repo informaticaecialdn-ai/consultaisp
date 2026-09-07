@@ -13,7 +13,7 @@
  * o do Provedor.ai: ARPU real (preço do plano cadastrado) e mês atual
  * conhecido; senão `null`, e a tela mostra PENDENTE com o motivo.
  */
-import type { Economia } from "./politica";
+import { custosInformados, type Economia } from "./politica";
 import { computeEconomiaLedger, mesesEntre, precoDoPlano, type EconomiaLedger } from "./economia";
 import {
   anosDeCliente, classificarSeloPagamento, computeHealthScore, computePropensao, deriveFinancialScore, deriveRelationshipScore,
@@ -41,6 +41,20 @@ export interface EntradaDaFicha360 {
   comunicacoes30d: number;
   totalComunicacoes: number;
   economia: Economia | null;
+  /**
+   * A mensalidade LIDA das faturas do ERP deste cliente — a segunda fonte de
+   * ARPU, e na prática a que funciona (06/09/2026).
+   *
+   * A primeira é o preço por plano cadastrado na política, e ela depende de
+   * duas coisas que hoje não existem: o nome do plano no banco (`customers`
+   * não o guarda) e alguém ter digitado o preço daquele nome. Enquanto isso,
+   * o valor que o provedor de fato cobra deste assinante está gravado nas
+   * faturas desde a migração 0027.
+   *
+   * O preço cadastrado VENCE esta leitura: configuração explícita do admin
+   * ganha de valor observado. Ausente aqui = o cliente não tem fatura do ERP.
+   */
+  mensalidadeObservada?: { valor: number; concordam: number; faturas: number } | null;
   /** Histórico de pagamento sincronizado, quando existir (fase 2). */
   historicoPagamento: { pagas: number; recebido: number; pct_em_dia: number } | null;
 }
@@ -67,6 +81,12 @@ export interface Ficha360 {
   economia: EconomiaLedger | null;
   /** Por que a Economia não saiu — o `motivo` do <Pendente> do Provedor.ai. */
   economiaPendente: string | null;
+  /**
+   * De onde saiu `valorMensal`. A tela precisa dizer isso: um número lido das
+   * faturas e um número que o admin cadastrou merecem crédito diferente.
+   * `null` quando não há mensalidade nenhuma.
+   */
+  origemDoValorMensal: "plano_cadastrado" | "faturas_do_erp" | null;
   resumo: string | null;
 }
 
@@ -84,7 +104,12 @@ export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
   const fim = cicloVivo ? e.hoje : (dataOuNull(e.cortadoEm) ?? e.hoje);
   const mesesCliente = mesesEntre(e.contractStartDate, fim);
   const anosCliente = anosDeCliente(e.contractStartDate, fim);
-  const valorMensal = precoDoPlano(e.economia?.precoPorPlano, e.plano);
+  // Preço cadastrado primeiro (o admin mandou), mensalidade observada depois.
+  const precoCadastrado = precoDoPlano(e.economia?.precoPorPlano, e.plano);
+  const observada = e.mensalidadeObservada && e.mensalidadeObservada.valor > 0 ? e.mensalidadeObservada.valor : null;
+  const valorMensal = precoCadastrado ?? observada;
+  const origemDoValorMensal: Ficha360["origemDoValorMensal"] =
+    precoCadastrado !== null ? "plano_cadastrado" : observada !== null ? "faturas_do_erp" : null;
   const faturasAbertas = e.faturasAbertas ?? (e.dividaAtual > 0 ? 1 : 0);
 
   const selo = classificarSeloPagamento({
@@ -127,8 +152,12 @@ export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
     economiaPendente = "cliente sem contrato ativo (cancelado no ERP) — ciclo encerrado; nenhum número de assinatura é projetado";
   } else if (valorMensal === null) {
     economiaPendente = e.plano
-      ? `sem preço cadastrado para o plano "${e.plano}" (Política > Economia > preço por plano)`
-      : "sem ARPU real do plano — o ERP não informou o plano do cliente";
+      ? `sem mensalidade: o plano "${e.plano}" não tem preço cadastrado e este cliente não tem fatura vinda do ERP`
+      : "sem mensalidade: este cliente não tem fatura vinda do ERP, e o plano dele não chegou do sync";
+  } else if (!custosInformados(e.economia)) {
+    // Chega DEPOIS do ARPU de propósito: o ARPU é dado do ERP e o provedor não
+    // tem o que fazer se faltar; os custos são a configuração que ele preenche.
+    economiaPendente = "faltam os custos do provedor: CAC, instalação e o custo mensal de servir um assinante (Política > Economia)";
   } else if (mesesCliente === null) {
     economiaPendente = "sem data de contrato — o ERP não informou quando o cliente aderiu";
   } else {
@@ -182,6 +211,7 @@ export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
     prescricao,
     economia,
     economiaPendente,
+    origemDoValorMensal,
     resumo,
   };
 }

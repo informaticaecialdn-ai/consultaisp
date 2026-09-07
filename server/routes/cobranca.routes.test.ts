@@ -65,6 +65,10 @@ const storageMock = vi.hoisted(() => ({
   faturasDoCliente: vi.fn(async (): Promise<any> => ({
     linhas: [], total: 0, limite: 200, doErp: 0, vencidas: 0, valorVencido: 0, vencimentoMaisAntigo: null,
   })),
+  // O ARPU da Economia (R24): a mensalidade lida das faturas do ERP. Sem
+  // fatura gravada o padrao e `null`, que e o caso do cliente do fixture.
+  mensalidadeDoCliente: vi.fn(async (): Promise<any> => null),
+  coberturaDaMensalidade: vi.fn(async (): Promise<any> => ({ ativos: 0, comMensalidade: 0, comDataDeContrato: 0 })),
   resumoDoMes: vi.fn(async (): Promise<any> => ({
     mes: "2026-09", base: false, faturado: 0, recebido: 0, recebidoConfirmado: false, emConciliacao: 0, inadimplente: 0, numInadimplentes: 0,
     aVencer: 0, numAVencer: 0, semFatura: 0, clientes: { emDia: 0, inadimplentes: 0 }, atualizadoEm: null,
