@@ -40,12 +40,14 @@ import { BOTAO_SECUNDARIO } from "@/components/painel/ui";
 import { ROTULO_STATUS_DE_CASO, type StatusDeCaso } from "@shared/cobranca/estados";
 import type { Etapa } from "@shared/cobranca";
 import { CardCaso, CardCasoArrastavel, chaveDoCard, type AcoesDoCard } from "./CardCaso";
+import { ListaDeCasos } from "./ListaDeCasos";
 import { PainelDoCaso } from "./PainelDoCaso";
-import { avaliarMovimentoDeCaso, COLUNAS_RECOLHIDAS, contarGargalosDaColuna, COR_DO_TOM, tituloDoMovimento, tomDaColunaDoKanban, verboDaColuna, type MovimentoDeCaso } from "./movimentos-cobranca";
+import { avaliarMovimentoDeCaso, BORDA_DO_TOM, COLUNAS_RECOLHIDAS, contarGargalosDaColuna, COR_DO_TOM, FUNDO_DO_TOM, tituloDoMovimento, tomDaColunaDoKanban, verboDaColuna, type MovimentoDeCaso } from "./movimentos-cobranca";
 import { API_CASOS, type ColunaDoKanban, type ItemDaFila, type RespostaDoKanban } from "./tipos";
 import { invalidarCobranca, mensagemDoErro, SeloCobranca } from "./ui";
 
-export const LARGURA_COLUNA_COBRANCA = 300;
+/** 296px é a largura do handoff (07/09/2026); era 300. */
+export const LARGURA_COLUNA_COBRANCA = 296;
 
 const ehStatus = (id: UniqueIdentifier | undefined): id is StatusDeCaso =>
   typeof id === "string" && id in ROTULO_STATUS_DE_CASO;
@@ -148,6 +150,11 @@ function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
   // vermelho negativado, vinho cancelamento. Coluna fechada fica apagada.
   const tom = tomDaColunaDoKanban(coluna.status);
   const corDoTom = COR_DO_TOM[tom];
+  // O cabeçalho TINGIDO no tom do posto (handoff, 07/09/2026): é o que faz o
+  // operador distinguir as colunas de relance. Coluna fechada não tinge — ela
+  // não é posto de trabalho, é arquivo dos últimos 30 dias.
+  const fundoDoCabecalho = coluna.fechada ? "var(--surface-3)" : FUNDO_DO_TOM[tom];
+  const bordaDoCabecalho = coluna.fechada ? "var(--border)" : BORDA_DO_TOM[tom];
   const verbo = coluna.fechada ? null : verboDaColuna(coluna.status);
   return (
     <section
@@ -156,15 +163,16 @@ function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
       data-coluna={coluna.status}
       data-tom={tom}
       data-aceita={cardAtivo ? String(aceita) : undefined}
-      className="flex max-h-full flex-none flex-col overflow-hidden rounded-lg"
-      style={{ width: LARGURA_COLUNA_COBRANCA, background: coluna.fechada ? "var(--surface-2)" : "var(--bg)", boxShadow: anel, borderTop: `3px solid ${coluna.fechada ? "var(--border-strong)" : corDoTom}`, opacity: recusa && !isOver ? 0.75 : 1, transition: "box-shadow .15s, opacity .15s" }}
+      className="flex max-h-full flex-none flex-col overflow-hidden rounded-[10px]"
+      style={{ width: LARGURA_COLUNA_COBRANCA, background: "var(--surface-2)", boxShadow: anel, borderTop: `3px solid ${coluna.fechada ? "var(--border-strong)" : corDoTom}`, opacity: recusa && !isOver ? 0.75 : 1, transition: "box-shadow .15s, opacity .15s" }}
     >
-      <header className="flex items-baseline justify-between gap-2 px-3 pb-2 pt-3">
+      <header
+        className="flex items-baseline justify-between gap-2 px-3 pb-2.5 pt-3"
+        style={{ background: fundoDoCabecalho, borderBottom: `1px solid ${bordaDoCabecalho}` }}
+      >
         <div className="min-w-0">
-          <h2 className="flex items-center gap-1.5 truncate text-[13px] font-medium tracking-[-0.01em] text-[var(--text)]">
-            <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ background: coluna.fechada ? "var(--border-strong)" : corDoTom }} aria-hidden />
-            {coluna.rotulo}
-          </h2>
+          {/* O ponto colorido saiu: o cabeçalho inteiro já está no tom do posto. */}
+          <h2 className="truncate text-[13px] font-semibold tracking-[-0.01em] text-[var(--text)]">{coluna.rotulo}</h2>
           {/* O VERBO do posto: o que se faz aqui para o caso sair. Coluna de desfecho não tem — o caso já saiu da esteira. */}
           {verbo && (
             <p className="text-[10.5px] leading-4 text-[var(--text-muted)]" title={`Para o caso sair de "${coluna.rotulo}": ${verbo}.`} data-testid={`coluna-verbo-${coluna.status}`}>
@@ -175,12 +183,12 @@ function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
           {coluna.truncado && <p className="text-[10px] text-[var(--text-faint)]" style={MONO}>mostrando {num(coluna.casos.length)} de {num(coluna.total)}</p>}
         </div>
         <div className="flex-none text-right" style={MONO}>
-          <p className="text-[13px] font-medium tabular-nums" style={{ color: coluna.fechada || coluna.total === 0 ? "var(--text-muted)" : corDoTom }}>{num(coluna.total)}</p>
-          <p className="text-[10px] tabular-nums text-[var(--text-muted)]">{brl(valor)}</p>
+          <p className="text-[15px] font-medium leading-none tabular-nums" style={{ color: coluna.fechada || coluna.total === 0 ? "var(--text-muted)" : corDoTom }}>{num(coluna.total)}</p>
+          <p className="mt-1.5 text-[10.5px] tabular-nums text-[var(--text-faint)]">{brl(valor)}</p>
         </div>
       </header>
       {!coluna.fechada && <GargalosDaColuna coluna={coluna} hoje={hoje} />}
-      <div className="flex min-h-[120px] flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2" role="list" aria-label={`Casos em ${coluna.rotulo}`}>
+      <div className="flex min-h-[120px] flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2.5 pt-1" role="list" aria-label={`Casos em ${coluna.rotulo}`}>
         {coluna.casos.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] px-3 py-6 text-center">
             <Inbox className="h-5 w-5 text-[var(--text-faint)]" aria-hidden />
@@ -192,8 +200,16 @@ function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
   );
 }
 
-export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdministrar, acoes, onNegociar, onCancelar }: {
+export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdministrar, acoes, onNegociar, onCancelar, visao = "quadro" }: {
   quadro: RespostaDoKanban;
+  /**
+   * QUADRO ou LISTA (handoff de design, 07/09/2026). A lista mora AQUI, e não
+   * na página, de propósito: o painel do caso, as ações e o recorte já vivem
+   * neste componente, e duplicá-los na página faria duas fontes de verdade
+   * para a mesma tela. O que a lista não tem é arrasto — arrastar é gesto de
+   * quadro —, então o DndContext só envolve as colunas.
+   */
+  visao?: "quadro" | "lista";
   /** A queryKey do quadro — é nela que o otimismo escreve e desfaz. */
   chaveDaQuery: unknown[];
   etapas: readonly Etapa[] | undefined;
@@ -284,25 +300,30 @@ export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdminis
 
   return (
     <div className="flex flex-col gap-2" data-testid="kanban-cobranca">
-      <div className="flex items-center justify-end">
+      {/* Encerrados é assunto de QUADRO: a lista já diz no rodapé que não os traz. */}
+      <div className={cn("items-center justify-end", visao === "lista" ? "hidden" : "flex")}>
         <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8 text-[11.5px]")} onClick={() => setMostrarRecolhidas(v => !v)} data-testid="botao-recolhidas">
           {mostrarRecolhidas ? "Ocultar encerrados" : `Encerrados (${num(recolhidasTotal)})`}
         </button>
       </div>
+      {visao === "lista" ? (
+        <ListaDeCasos quadro={quadro} etapas={etapas} hoje={hoje} onAbrir={setCasoNoPainel} />
+      ) : (
       <DndContext sensors={sensores} collisionDetection={detectarColisao} accessibility={{ announcements: anuncios }} onDragStart={aoComecar} onDragEnd={aoSoltar} onDragCancel={() => setCardAtivo(null)}>
         <div className="flex gap-3 overflow-x-auto pb-2" data-testid="colunas-kanban">
           {visiveis.map(coluna => (
             <Coluna key={coluna.status} coluna={coluna} cardAtivo={cardAtivo} hoje={hoje} podeAdministrar={podeAdministrar}>
               {coluna.casos.map(item => (
-                <CardCasoArrastavel key={item.id} item={item} hoje={hoje} acoes={acoesComPainel} ocupado={ocupadoId === item.id} />
+                <CardCasoArrastavel key={item.id} item={item} hoje={hoje} acoes={acoesComPainel} ocupado={ocupadoId === item.id} etapas={etapas} />
               ))}
             </Coluna>
           ))}
         </div>
         <DragOverlay dropAnimation={null}>
-          {cardAtivo && <div style={{ width: LARGURA_COLUNA_COBRANCA - 16 }}><CardCaso item={cardAtivo} hoje={hoje} acoes={acoes} overlay /></div>}
+          {cardAtivo && <div style={{ width: LARGURA_COLUNA_COBRANCA - 16 }}><CardCaso item={cardAtivo} hoje={hoje} acoes={acoes} etapas={etapas} overlay /></div>}
         </DragOverlay>
       </DndContext>
+      )}
 
       {/* O painel do caso: a dívida inteira, todos os boletos e o histórico. */}
       <PainelDoCaso

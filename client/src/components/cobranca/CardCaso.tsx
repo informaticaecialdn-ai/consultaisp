@@ -31,12 +31,13 @@
  */
 import type { KeyboardEvent } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { GripVertical, MessageSquareShare, PhoneCall } from "lucide-react";
+import { GripVertical, Handshake, MessageSquareShare, PhoneCall, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brl, TRACO } from "@/components/localizacao/ui";
 import { BOTAO_SECUNDARIO, FOCO } from "@/components/painel/ui";
 import { etapaParaAtraso, etapaPorId, ROTULO_MOTIVO_SEM_ETAPA, type Carteira, type Etapa, type EtapaId, type MotivoSemEtapa } from "@shared/cobranca";
 import { dataCivilBr, proximoContato, type UrgenciaDoContato } from "./formatacao";
+import { COR_DO_TOM, tomDaColunaDoKanban } from "./movimentos-cobranca";
 import type { ItemDaFila, NegociacaoResumo } from "./tipos";
 import { PilulaAtraso, SeloCobranca, type TomDeSelo } from "./ui";
 
@@ -187,6 +188,45 @@ export function chaveDoCard(item: ItemDaFila): string {
   return `caso-${item.id}`;
 }
 
+/**
+ * A AÇÃO RÁPIDA de cada posto (handoff de design, 07/09/2026): o botão do card
+ * é o verbo da coluna, e não o mesmo "Contato" em toda parte.
+ *
+ * `acordo_ativo` é o único que não age no card: dar baixa numa parcela exige
+ * saber QUAL parcela, e o card não as carrega. O botão abre o caso, que é onde
+ * as parcelas estão — e o `title` diz isso antes do clique, em vez de prometer
+ * uma baixa que não acontece ali.
+ */
+export type AcaoRapida = "contato" | "propor" | "aceite" | "parcelas";
+
+export const ACAO_RAPIDA_DA_COLUNA: Record<string, AcaoRapida> = {
+  aberto: "contato",
+  em_contato: "propor",
+  negociando: "aceite",
+  acordo_ativo: "parcelas",
+};
+
+export const ROTULO_DA_ACAO_RAPIDA: Record<AcaoRapida, { rotulo: string; titulo: string }> = {
+  contato: { rotulo: "Contato", titulo: "Registrar um contato com o cliente e marcar a próxima ação" },
+  propor: { rotulo: "Propor", titulo: "Propor um acordo dentro do que a política autoriza" },
+  aceite: { rotulo: "Aceite", titulo: "Registrar que o cliente aceitou o acordo" },
+  parcelas: { rotulo: "Parcelas", titulo: "Abrir o caso para ver as parcelas do acordo — a baixa é feita na ficha do cliente" },
+};
+
+export function acaoRapidaDoCaso(status: string): AcaoRapida {
+  return ACAO_RAPIDA_DA_COLUNA[status] ?? "contato";
+}
+
+/** A ETAPA e o PASSO do poço. `passo`: o follow-up escrito vence a ação da régua. */
+export function passoDoCaso(item: ItemDaFila, etapa: Etapa | null): string | null {
+  const escrito = item.proximaAcao?.trim();
+  if (escrito) return escrito;
+  return etapa?.acao?.trim() || null;
+}
+
+export const MOTIVO_SEM_PASSO_NO_CARD =
+  "Sem próxima ação: nem o caso tem follow-up escrito, nem a etapa da régua traz a ação. Caso parado vira dívida perdida.";
+
 /** A tela de atendimento da cobranca: abre uma conversa por `?conversa=` e um caso por `?caso=`. */
 const ROTA_CHAT_COBRANCA = "/cobranca/chat";
 
@@ -217,10 +257,12 @@ const NUM = "font-mono tabular-nums";
 const TITULO_DO_DOCUMENTO =
   "CPF/CNPJ do cliente, como está no cadastro do ERP. A carteira é do provedor: o documento sai por extenso para conferir identidade, achar o cliente no ERP e emitir segunda via.";
 
-export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
+export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca, etapas }: {
   item: ItemDaFila;
   hoje: Date;
   acoes: AcoesDoCard;
+  /** As etapas da régua, para o poço dizer em que ponto o caso está. */
+  etapas?: readonly Etapa[];
   ocupado?: boolean;
   /** Renderizado dentro do DragOverlay: sem alça, sem clique e sem botão. */
   overlay?: boolean;
@@ -229,15 +271,22 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
   const { cliente } = item;
   const contato = proximoContato(item.proximoContatoEm, hoje);
   const fechado = casoFechado(item.status);
+  // A faixa de 3px no tom da COLUNA: no quadro ela agrupa; arrastado, o card
+  // leva a cor de onde veio, e o operador sabe o que está movendo.
+  const tomDaColuna = COR_DO_TOM[tomDaColunaDoKanban(item.status)];
+  const { etapa, motivo: motivoDaEtapa } = etapaDoCard(item, etapas);
+  const passo = passoDoCaso(item, etapa);
+  const acao = ROTULO_DA_ACAO_RAPIDA[acaoRapidaDoCaso(item.status)];
   const abrir = !overlay && acoes.onAbrir ? () => acoes.onAbrir?.(item) : null;
 
   return (
     <div
       className={cn(
-        "rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 text-[12px]",
+        "rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 pb-2 pt-2.5 text-[12px]",
         overlay && "shadow-[0_0_0_1px_var(--brand),0_12px_32px_-14px_rgba(20,19,26,.35)]",
         ocupado && "opacity-60",
       )}
+      style={{ borderLeft: `3px solid ${tomDaColuna}` }}
       data-testid={`card-caso-${item.id}`}
     >
       <div className="flex items-start gap-1.5">
@@ -283,32 +332,49 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
             : {})}
           data-testid={`card-abrir-${item.id}`}
         >
-          <p
-            className="truncate text-[12.5px] font-semibold leading-4 text-[var(--text)]"
-            title={cliente.nome}
-            data-testid={`card-nome-${item.id}`}
-          >
-            {cliente.nome}
-          </p>
-          <p className={cn(NUM, "truncate text-[10.5px] text-[var(--text-muted)]")} title={TITULO_DO_DOCUMENTO} data-testid={`card-documento-${item.id}`}>
-            {cliente.cpfCnpj || TRACO}
-          </p>
-          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1" data-testid={`card-divida-${item.id}`}>
-            <span className={cn(NUM, "text-[16px] font-semibold leading-none text-[var(--money-neg)]")}>{brl(item.valorAtual)}</span>
-            <PilulaAtraso dias={cliente.diasAtraso} />
-          </div>
-          {!fechado && (
-            <div className="mt-1.5">
-              <SeloCobranca
-                tom={TOM_DA_FAIXA_DO_DIA[contato.urgencia]}
-                titulo={TITULO_DA_FAIXA_DO_DIA[contato.urgencia]}
-                className="normal-case tracking-normal"
-                testId={`card-faixa-do-dia-${item.id}`}
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p
+                className="truncate text-[12.5px] font-semibold leading-[1.25] text-[var(--text)]"
+                title={cliente.nome}
+                data-testid={`card-nome-${item.id}`}
               >
-                {textoDaFaixaDoDia(contato.urgencia, contato.texto)}
-              </SeloCobranca>
+                {cliente.nome}
+              </p>
+              <p className={cn(NUM, "mt-px truncate text-[10.5px] text-[var(--text-muted)]")} title={TITULO_DO_DOCUMENTO} data-testid={`card-documento-${item.id}`}>
+                {cliente.cpfCnpj || TRACO}
+              </p>
             </div>
+            <div className="flex-none text-right" data-testid={`card-divida-${item.id}`}>
+              <p className={cn(NUM, "text-[15px] font-semibold leading-none text-[var(--money-neg)]")}>{brl(item.valorAtual)}</p>
+              <p className="mt-1"><PilulaAtraso dias={cliente.diasAtraso} /></p>
+            </div>
+          </div>
+
+          {/*
+            O POÇO da etapa e do passo (handoff de design, 07/09/2026).
+
+            Os dois SAÍRAM do card em 06/09, quando o dono disse "o card está
+            muito grande", e foram para o painel. O desenho os traz de volta —
+            mas num poço de duas linhas, e não nos dois selos soltos de antes.
+            A diferença é que agora eles respondem à pergunta do operador em uma
+            olhada: em que ponto da régua este caso está, e o que fazer nele.
+            O painel continua com o resto (canal sugerido, follow-up com dono e
+            data, tempo na coluna).
+          */}
+          {!fechado && (
+            <dl className="mt-2 grid grid-cols-[50px_1fr] gap-x-2 gap-y-1 rounded-md border border-[var(--border-faint)] bg-[var(--surface-2)] px-2.5 py-2" data-testid={`card-poco-${item.id}`}>
+              <dt className={cn(NUM, "text-[9.5px] font-semibold uppercase leading-[1.4] tracking-[var(--track-wide)] text-[var(--text-faint)]")}>etapa</dt>
+              <dd className="m-0 truncate text-[11.5px] leading-[1.4] text-[var(--text-2)]" title={etapa?.rotulo ?? motivoDaEtapa ?? undefined} data-testid={`card-etapa-${item.id}`}>
+                {etapa?.rotulo ?? motivoDaEtapa ?? TRACO}
+              </dd>
+              <dt className={cn(NUM, "text-[9.5px] font-semibold uppercase leading-[1.4] tracking-[var(--track-wide)] text-[var(--text-faint)]")}>passo</dt>
+              <dd className="m-0 text-[11.5px] font-medium leading-[1.4] text-[var(--text)]" data-testid={`card-passo-${item.id}`}>
+                {passo ?? <span className="font-normal text-[var(--text-faint)]" title={MOTIVO_SEM_PASSO_NO_CARD}>{TRACO}</span>}
+              </dd>
+            </dl>
           )}
+
         </div>
       </div>
 
@@ -321,18 +387,39 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
         ativa". Agora ela SEMPRE navega — ver `rotaDaConversaDoCaso`.
       */}
       {!overlay && (
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <div className="mt-2 flex items-center gap-1.5">
+          {!fechado && (
+            <SeloCobranca
+              tom={TOM_DA_FAIXA_DO_DIA[contato.urgencia]}
+              titulo={TITULO_DA_FAIXA_DO_DIA[contato.urgencia]}
+              className="normal-case tracking-normal"
+              testId={`card-faixa-do-dia-${item.id}`}
+            >
+              {textoDaFaixaDoDia(contato.urgencia, contato.texto)}
+            </SeloCobranca>
+          )}
+          <span className="ml-auto" aria-hidden />
           <button
             type="button"
-            className={cn(BOTAO_SECUNDARIO, "text-[12px]")}
-            onClick={() => acoes.onContato(item)}
+            className={cn(BOTAO_SECUNDARIO, "h-7 px-2.5 text-[11.5px]")}
+            title={acao.titulo}
+            onClick={() => {
+              const qual = acaoRapidaDoCaso(item.status);
+              if (qual === "contato") return acoes.onContato(item);
+              if (qual === "parcelas") return acoes.onAbrir?.(item) ?? acoes.onContato(item);
+              // propor e aceite são o mesmo diálogo; o verbo muda com a coluna.
+              return acoes.onNegociar?.(item) ?? acoes.onContato(item);
+            }}
             data-testid={`card-contato-${item.id}`}
           >
-            <PhoneCall className="h-3.5 w-3.5" aria-hidden /> Contato
+            {acaoRapidaDoCaso(item.status) === "contato" ? <PhoneCall className="h-3.5 w-3.5" aria-hidden />
+              : acaoRapidaDoCaso(item.status) === "parcelas" ? <Wallet className="h-3.5 w-3.5" aria-hidden />
+              : <Handshake className="h-3.5 w-3.5" aria-hidden />}
+            {acao.rotulo}
           </button>
           <a
             href={rotaDaConversaDoCaso(item)}
-            className={cn(BOTAO_SECUNDARIO, "text-[12px]")}
+            className={cn(BOTAO_SECUNDARIO, "h-7 px-2.5 text-[11.5px]")}
             title={item.chat
               ? `Abrir a conversa deste cliente · ${item.chat.status.toLowerCase()}`
               : "Ainda não há conversa com este cliente. Abre a tela de conversas com o caso pronto para iniciar."}
@@ -346,8 +433,8 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
   );
 }
 
-export function CardCasoArrastavel({ item, hoje, acoes, ocupado }: {
-  item: ItemDaFila; hoje: Date; acoes: AcoesDoCard; ocupado?: boolean;
+export function CardCasoArrastavel({ item, hoje, acoes, ocupado, etapas }: {
+  item: ItemDaFila; hoje: Date; acoes: AcoesDoCard; ocupado?: boolean; etapas?: readonly Etapa[];
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({
     id: chaveDoCard(item),
@@ -361,6 +448,7 @@ export function CardCasoArrastavel({ item, hoje, acoes, ocupado }: {
         hoje={hoje}
         acoes={acoes}
         ocupado={ocupado}
+        etapas={etapas}
         alca={{ ref: setActivatorNodeRef, listeners: listeners as Record<string, unknown> | undefined, atributos: attributes as unknown as Record<string, unknown> }}
       />
     </article>

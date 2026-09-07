@@ -32,6 +32,8 @@ import {
   type Carteira,
   type FaixaDeAtraso,
 } from "@shared/cobranca";
+import { cn } from "@/lib/utils";
+import { FOCO } from "@/components/painel/ui";
 import { FiltroPilula } from "./ui";
 import type { OpcaoDeFiltro } from "./filtros";
 
@@ -164,5 +166,66 @@ export function FiltroDeAtraso({ valor, onChange, contagens, carteira, testId = 
       rotuloVazio="Todas as faixas"
       testId={testId}
     />
+  );
+}
+
+/* ── As pílulas ──────────────────────────────────────────────────────── */
+
+/**
+ * As SEIS faixas abertas em pílulas, uma ao lado da outra — o que o handoff de
+ * design pede (07/09/2026) no lugar do chip com `<select>` dentro.
+ *
+ * A diferença não é só de aparência: com o `<select>` o operador precisava
+ * abrir para saber quais faixas existiam, e a faixa ligada aparecia abreviada
+ * ("31–60d") sem as vizinhas por perto. Aberto, o recorte inteiro se lê de
+ * relance e trocar de faixa é um clique em vez de três.
+ *
+ * É um GRUPO DE RÁDIO de verdade (`role="radiogroup"` + `aria-checked`), e não
+ * uma fileira de botões: as seis são mutuamente exclusivas, e é assim que o
+ * leitor de tela anuncia "1 de 6". Clicar na faixa ligada desliga — o caminho
+ * de volta para "todas" sem um sétimo controle.
+ *
+ * O vocabulário continua vindo de `LIMITES_DA_FAIXA_DE_ATRASO`: rótulo, motivo
+ * e o aviso do teto em ex-clientes. Esta função não decide nada sobre dias.
+ */
+export function PilulasDeAtraso({ valor, onChange, contagens, carteira, testId = "filtro-atraso" }: {
+  valor: string;
+  onChange: (valor: string) => void;
+  contagens?: ContagensPorFaixa | null;
+  carteira?: Carteira;
+  testId?: string;
+}) {
+  const selecionada: AtrasoSelecionado = faixaDeAtrasoValida(valor) ? valor : "";
+  return (
+    <span className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Faixa de atraso" data-testid={testId}>
+      <span className="font-mono text-[10px] font-semibold uppercase leading-none tracking-[var(--track-wide)] text-[var(--text-faint)]">
+        atraso
+      </span>
+      {opcoesDeAtraso({ contagens, carteira }).map(o => {
+        const ativa = o.valor === selecionada;
+        return (
+          <button
+            key={o.valor}
+            type="button"
+            role="radio"
+            aria-checked={ativa}
+            title={o.titulo}
+            // Clicar na ligada desliga: é o caminho de volta para "todas".
+            onClick={() => onChange(ativa ? "" : o.valor)}
+            className={cn(
+              "inline-flex min-h-[28px] items-center rounded-[14px] border px-2.5 font-mono text-[11.5px] font-medium leading-none tabular-nums",
+              FOCO,
+              "motion-safe:transition-colors",
+              ativa
+                ? "border-[var(--brand)] bg-[var(--brand-soft)] text-[var(--brand-ink)]"
+                : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--surface-3)]",
+            )}
+            data-testid={`${testId}-${o.valor}`}
+          >
+            {o.rotulo}
+          </button>
+        );
+      })}
+    </span>
   );
 }

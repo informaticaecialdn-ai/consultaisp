@@ -109,7 +109,14 @@ export function tomDaColunaDoKanban(status: string): TomDeSelo {
   return TOM_DA_COLUNA[status] ?? "neutro";
 }
 
-/** A cor de cada tom, para a borda da coluna e a contagem — os mesmos tokens dos selos. */
+/**
+ * A cor de cada tom, para a borda da coluna, a contagem e a faixa do card.
+ *
+ * `neutro` e --text-2 e nao --text-faint desde o handoff de 07/09/2026: a
+ * coluna "A contatar" e deliberadamente NEUTRO ESCURO. O desenho explica por
+ * que — azul e lilas no mesmo quadro ficaram indistinguiveis, e a separacao
+ * passou a ser por VALOR, nao por matiz. Um cinza claro ali sumiria.
+ */
 export const COR_DO_TOM: Record<TomDeSelo, string> = {
   ok: "var(--ok)",
   gated: "var(--gated)",
@@ -117,7 +124,36 @@ export const COR_DO_TOM: Record<TomDeSelo, string> = {
   danger: "var(--danger)",
   info: "var(--info)",
   marca: "var(--brand)",
-  neutro: "var(--text-faint)",
+  neutro: "var(--text-2)",
+};
+
+/**
+ * O FUNDO TINGIDO do cabecalho da coluna, e a linha que o fecha por baixo
+ * (handoff de 07/09/2026). E o que faz o operador distinguir as colunas de
+ * relance e saber de onde um card veio — a mesma escala do card, que leva uma
+ * faixa de 3px no tom da coluna de origem.
+ *
+ * O neutro usa as superficies (--surface-3 / --border-strong) porque nao ha
+ * par semantico para ele: "a contatar" nao e bom nem ruim, e so o comeco.
+ */
+export const FUNDO_DO_TOM: Record<TomDeSelo, string> = {
+  ok: "var(--ok-bg)",
+  gated: "var(--gated-bg)",
+  past: "var(--past-bg)",
+  danger: "var(--danger-bg)",
+  info: "var(--info-bg)",
+  marca: "var(--brand-soft)",
+  neutro: "var(--surface-3)",
+};
+
+export const BORDA_DO_TOM: Record<TomDeSelo, string> = {
+  ok: "var(--ok-border)",
+  gated: "var(--gated-border)",
+  past: "var(--past-border)",
+  danger: "var(--danger-border)",
+  info: "var(--info-border)",
+  marca: "var(--brand)",
+  neutro: "var(--border-strong)",
 };
 
 /**

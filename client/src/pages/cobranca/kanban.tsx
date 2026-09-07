@@ -34,7 +34,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { carteiraDaNavegacao, caminhoNaCarteira, retornoDaCarteira, NOME_DA_CARTEIRA } from "@/components/cobranca/carteiras";
 import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
-import { FiltroDeAtraso } from "@/components/cobranca/filtro-atraso";
+import { PilulasDeAtraso } from "@/components/cobranca/filtro-atraso";
 import { KanbanSquare, Pause, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -43,7 +43,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { ETAPA_IDS, type Carteira, type EtapaId } from "@shared/cobranca";
 import { brl, num, Segmentado, TRACO } from "@/components/localizacao/ui";
-import { AvisoNaoCarregou, BOTAO_SECUNDARIO, CabecalhoPainel, CONTROLE_CAMPO, EstadoVazio } from "@/components/painel/ui";
+import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, CabecalhoPainel, CONTROLE_CAMPO, EstadoVazio } from "@/components/painel/ui";
 import { FaixaDeIndicadores } from "@/components/cobranca/FaixaDeIndicadores";
 import { KanbanCobranca } from "@/components/cobranca/KanbanCobranca";
 import { DialogoContato, type AlvoDoContato } from "@/components/cobranca/DialogoContato";
@@ -63,6 +63,24 @@ const OPCOES_ESCOPO: Array<{ k: Escopo; rotulo: string }> = [
   { k: "eu", rotulo: "Minha fila" },
   { k: "todos", rotulo: "Toda a equipe" },
   { k: "geral", rotulo: "Fila geral" },
+];
+
+/** O rótulo do recorte, para o indicador não dizer "minha fila" com o quadro em outro escopo. */
+export function rotuloDoEscopo(escopo: Escopo): string {
+  return (OPCOES_ESCOPO.find(o => o.k === escopo)?.rotulo ?? "recorte").toLowerCase();
+}
+
+/**
+ * QUADRO ou LISTA — as duas visões do MESMO recorte (handoff de design,
+ * 07/09/2026). O quadro é para trabalhar caso a caso e arrastar; a lista é
+ * para varrer muitos de uma vez, comparar e achar. Nenhuma das duas busca
+ * dado próprio: as duas leem a mesma resposta do kanban, com os mesmos
+ * filtros, para o total do rodapé valer nas duas.
+ */
+type Visao = "quadro" | "lista";
+const OPCOES_VISAO: Array<{ k: Visao; rotulo: string }> = [
+  { k: "quadro", rotulo: "Quadro" },
+  { k: "lista", rotulo: "Lista" },
 ];
 
 /** A query string do quadro — só o que a rota aceita, e nada vazio. */
@@ -101,18 +119,31 @@ const TITULO_DO_FLUXO_DO_DIA =
  * próprio conteúdo — as outras sete são rótulo e valor.
  */
 export function FluxoDoDia({ kpis, carregando }: { kpis: KpisDaFila | null; carregando: boolean }) {
-  const temFluxo = typeof kpis?.entraramHoje === "number" || typeof kpis?.resolvidosHoje === "number";
   const valor = (n: number | null | undefined) => (carregando ? "…" : typeof n === "number" ? num(n) : TRACO);
   return (
-    <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10px] leading-none text-[var(--text-muted)]" data-testid="fluxo-do-dia">
-      <span>
-        <b className="font-mono text-[15px] font-medium tabular-nums text-[var(--text)]" data-testid="fluxo-entraram">{valor(kpis?.entraramHoje)}</b> entraram
-      </span>
-      <span>
-        <b className="font-mono text-[15px] font-medium tabular-nums" style={{ color: temFluxo && (kpis?.resolvidosHoje ?? 0) > 0 ? "var(--ok)" : "var(--text)" }} data-testid="fluxo-resolvidos">{valor(kpis?.resolvidosHoje)}</b> saíram
-      </span>
-    </p>
+    <span data-testid="fluxo-do-dia">
+      <b className="font-mono font-medium tabular-nums text-[var(--text-2)]" data-testid="fluxo-entraram">{valor(kpis?.entraramHoje)}</b> entraram
+      {" · "}
+      <b className="font-mono font-medium tabular-nums text-[var(--text-2)]" data-testid="fluxo-resolvidos">{valor(kpis?.resolvidosHoje)}</b> saíram hoje
+    </span>
   );
+}
+
+/**
+ * TRAVADOS AGORA: os casos que não andam — contato vencido mais os que estão
+ * sem próxima ação marcada. As duas condições são disjuntas por construção no
+ * servidor (uma exige data de próximo contato, a outra exige a ausência dela),
+ * então a soma não conta ninguém duas vezes.
+ *
+ * Devolve `null` se QUALQUER uma das duas faltar. Somar com `?? 0` mostraria
+ * só os vencidos com o rótulo de travados — um número menor que o real,
+ * apresentado como se fosse o total.
+ */
+export function travadosAgora(kpis: KpisDaFila | null): number | null {
+  const a = kpis?.vencidos;
+  const b = kpis?.semProximaAcao;
+  if (typeof a !== "number" || typeof b !== "number") return null;
+  return a + b;
 }
 
 /** O `title` da célula do fluxo: qual dos dois silêncios é o de agora. */
@@ -136,6 +167,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   const hoje = useMemo(() => new Date(), []);
 
   const [escopo, setEscopo] = useState<Escopo>("eu");
+  const [visao, setVisao] = useState<Visao>("quadro");
   const [etapa, setEtapa] = useState("");
   // A faixa de atraso do dono (ate 7 · 8-15 · 16-30 · 31-60 · 61-90 · +90).
   const [atraso, setAtraso] = useState("");
@@ -221,12 +253,23 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   return (
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-kanban">
       <CabecalhoPainel
-        titulo={`Kanban · ${NOME_DA_CARTEIRA[carteira]}`}
-        descricao="A esteira da cobrança: cada coluna diz o que fazer ali para o caso sair. Clique num card para ver a dívida inteira, os boletos e o histórico."
+        titulo="Esteira de cobrança"
+        descricao={`Cada coluna diz o que fazer ali para o caso sair. ${NOME_DA_CARTEIRA[carteira]} · a ordem de cada coluna é a ordem do dia.`}
         acoes={
           <div className="flex flex-wrap items-center gap-2">
+            <Segmentado opcoes={OPCOES_VISAO} valor={visao} onChange={setVisao} rotulo="Visão do quadro" />
             <Segmentado opcoes={OPCOES_ESCOPO} valor={escopo} onChange={setEscopo} rotulo="Escopo do quadro" />
-            <Link href={retornoDaCarteira(carteira)} className={BOTAO_SECUNDARIO} data-testid="link-carteira">Carteira</Link>
+            {/* O caso nasce a partir de um CLIENTE, e quem escolhe o cliente é a
+                carteira — por isso o botão leva até lá em vez de abrir um diálogo
+                sem cliente. O title diz isso antes do clique. */}
+            <Link
+              href={retornoDaCarteira(carteira)}
+              className={BOTAO_MARCA}
+              title="Escolha o cliente na carteira para abrir o caso"
+              data-testid="link-carteira"
+            >
+              Abrir caso
+            </Link>
           </div>
         }
       />
@@ -234,38 +277,73 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
       <NavegacaoCarteiras carteira={carteira} destino={caminho} />
 
       {/*
-        Os oito indicadores numa TIRA (pedido do dono, 06/09/2026: "melhorar
-        essas informações, toma metade da tela"). Nada saiu: o que era card de
-        76px com ícone virou célula de rótulo e número. O `sub` de cada card
-        virou `title`, porque explicação não precisa ocupar linha permanente.
+        QUATRO cartões com número herói (handoff de design, 07/09/2026). Vieram
+        de oito células de uma tira, que por sua vez vieram de oito cards — o
+        dono pediu as duas reduções, nesta ordem. Cada número traz agora uma
+        linha de APOIO permanente dizendo de onde ele sai; na tira isso era
+        `title`, e explicação em tooltip não sobrevive a print nem a celular.
+
+        `para hoje` e `críticos` saíram da tira: o desenho tem quatro slots, e
+        os dois continuam na tela onde valem mais — "para hoje" é a faixa do dia
+        no card, e a prioridade crítica sobe dentro de cada coluna na ordem do
+        dia. Nenhum dos dois some do produto.
       */}
       <FaixaDeIndicadores
         rotulo="Indicadores"
         testId="kpis-kanban"
         itens={[
-          { chave: "vivos", rotulo: "casos vivos", valor: isLoading ? "…" : num(kpis?.casosVivos), titulo: "Casos vivos no recorte do quadro." },
-          { chave: "vencidos", rotulo: "contato vencido", valor: isLoading ? "…" : num(kpis?.vencidos), cor: (kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : undefined, titulo: "Passou da data marcada de contato." },
-          { chave: "hoje", rotulo: "para hoje", valor: isLoading ? "…" : num(kpis?.paraHoje), cor: (kpis?.paraHoje ?? 0) > 0 ? "var(--gated)" : undefined, titulo: "Contato marcado para hoje." },
-          // Críticos: o indicador que só a fila tinha. Prioridade crítica no MESMO recorte do quadro.
-          { chave: "criticos", rotulo: "críticos", valor: isLoading ? "…" : num(kpis?.criticos), cor: (kpis?.criticos ?? 0) > 0 ? "var(--danger)" : undefined, titulo: "Casos de prioridade crítica no recorte." },
-          // Follow-up: caso sem proxima acao vira divida perdida — o quadro conta quantos estao parados.
-          { chave: "parados", rotulo: "sem próxima ação", valor: isLoading ? "…" : num(kpis?.semProximaAcao), cor: (kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger)" : undefined, titulo: "Caso vivo sem data de próximo contato: está parado, e parado vira dívida perdida." },
-          { chave: "aberto", rotulo: "em aberto", valor: isLoading ? "…" : brl(kpis?.emAberto), cor: (kpis?.emAberto ?? 0) > 0 ? "var(--money-neg)" : undefined, titulo: "Soma dos casos vivos do recorte." },
-          // Recuperado: o único indicador que não sai do quadro — ver o comentário em `recuperacao`.
+          {
+            chave: "aberto",
+            // O rótulo segue o RECORTE: dizer "minha fila" com o quadro em
+            // "toda a equipe" seria rotular o número errado.
+            rotulo: `em aberto · ${rotuloDoEscopo(escopo)}`,
+            valor: isLoading ? "…" : brl(kpis?.emAberto),
+            cor: (kpis?.emAberto ?? 0) > 0 ? "var(--money-neg)" : undefined,
+            tom: "var(--money-neg)",
+            apoio: "soma dos casos vivos do recorte",
+            titulo: "Soma do valor em aberto dos casos vivos do recorte do quadro.",
+          },
+          {
+            chave: "vivos",
+            rotulo: "casos vivos",
+            valor: isLoading ? "…" : num(kpis?.casosVivos),
+            tom: "var(--brand)",
+            apoio: <FluxoDoDia kpis={kpis} carregando={isLoading} />,
+            titulo: tituloDoFluxoDoDia(kpis),
+          },
+          {
+            chave: "travados",
+            rotulo: "travados agora",
+            valor: isLoading ? "…" : num(travadosAgora(kpis)),
+            cor: (travadosAgora(kpis) ?? 0) > 0 ? "var(--danger)" : undefined,
+            tom: "var(--danger)",
+            apoio: isLoading
+              ? "…"
+              : <>
+                  <b className="font-mono font-medium tabular-nums text-[var(--text-2)]">{num(kpis?.vencidos)}</b> contato vencido
+                  {" · "}
+                  <b className="font-mono font-medium tabular-nums text-[var(--text-2)]">{num(kpis?.semProximaAcao)}</b> sem próxima ação
+                </>,
+            titulo: "Casos que não andam: os que passaram da data de contato mais os que estão sem próxima ação marcada. As duas condições não se sobrepõem.",
+          },
           {
             chave: "recuperado",
-            // O periodo e o escopo ficam NO ROTULO: sem eles, "recuperado" seria
-            // lido como recuperado do quadro, e este numero e da carteira inteira.
             rotulo: `recuperado ${DIAS_DA_RECUPERACAO}d · carteira`,
             valor: carregandoRecuperacao ? "…" : recuperacao?.base ? brl(recuperacao.valor) : TRACO,
             cor: recuperacao?.base && (recuperacao.valor ?? 0) > 0 ? "var(--ok)" : undefined,
+            tom: "var(--ok)",
+            apoio: recuperacao?.base
+              ? <><b className="font-mono font-medium tabular-nums text-[var(--text-2)]">{num(recuperacao.faturas)}</b> faturas baixadas após contato</>
+              : recuperacao?.motivo ?? "…",
             titulo: tituloDaRecuperacao,
           },
-          { chave: "fluxo", rotulo: "fluxo de hoje", valorNode: <FluxoDoDia kpis={kpis} carregando={isLoading} />, titulo: tituloDoFluxoDoDia(kpis) },
         ]}
       />
 
-      <div className="flex flex-wrap items-center gap-2" data-testid="filtros-kanban">
+      <div
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
+        data-testid="filtros-kanban"
+      >
         <label className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-faint)]" aria-hidden />
           <input
@@ -279,7 +357,8 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
             data-testid="busca-kanban"
           />
         </label>
-        <FiltroDeAtraso valor={atraso} onChange={setAtraso} carteira={carteira} />
+        <span className="h-5 w-px bg-[var(--border)]" aria-hidden />
+        <PilulasDeAtraso valor={atraso} onChange={setAtraso} carteira={carteira} />
         <select className={cn(CONTROLE_CAMPO, "w-auto")} value={etapa} onChange={e => setEtapa(e.target.value)} aria-label="Etapa da régua" data-testid="filtro-etapa">
           <option value="">Todas as etapas</option>
           {(regua?.etapas ?? []).map(e => <option key={e.id} value={e.id}>{e.rotulo}</option>)}
@@ -287,11 +366,10 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
         </select>
 
         {(etapa || atraso || busca) && (
-          <button type="button" className={cn(BOTAO_SECUNDARIO, "h-9")} onClick={() => { setEtapa(""); setAtraso(""); setBusca(""); setBuscaDigitada(""); }} data-testid="limpar-filtros-kanban">Limpar</button>
+          <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8")} onClick={() => { setEtapa(""); setAtraso(""); setBusca(""); setBuscaDigitada(""); }} data-testid="limpar-filtros-kanban">Limpar</button>
         )}
-        {quadro.total !== null && <span className="ml-auto font-mono text-[11px] tabular-nums text-[var(--text-muted)]">{num(quadro.total)} casos no quadro</span>}
+        {quadro.total !== null && <span className="ml-auto font-mono text-[11.5px] tabular-nums text-[var(--text-muted)]">{num(quadro.total)} casos no quadro</span>}
       </div>
-
       {quadro.pausada && (
         <p className="flex items-center gap-2 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--text-2)]" data-testid="aviso-pausada">
           <Pause className="h-3.5 w-3.5 text-[var(--danger)]" aria-hidden />
@@ -309,6 +387,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
         </div>
       ) : (
         <KanbanCobranca
+          visao={visao}
           quadro={quadro}
           chaveDaQuery={chaveDoQuadro}
           etapas={regua?.etapas}

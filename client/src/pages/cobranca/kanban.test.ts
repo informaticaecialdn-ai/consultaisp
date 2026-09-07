@@ -56,7 +56,7 @@ describe("a página do kanban", () => {
     expect(pagina).toContain("kpis?.casosVivos");
     expect(pagina).toContain("kpis?.vencidos");
     expect(pagina).toContain("kpis?.emAberto");
-    expect(pagina).toContain("kpis?.criticos");
+    expect(pagina).toContain("kpis?.semProximaAcao");
     // Contar na página seria `num(itens.length)`, `itens.filter(...)`, `itens.reduce(...)` — como a fila faz.
     expect(pagina).not.toMatch(/num\(itens\.length\)|itens\.filter|itens\.reduce/);
   });
@@ -66,13 +66,18 @@ describe("a página do kanban", () => {
    * 06/09/2026): o que só a fila entregava — a ordem do dia, o KPI de críticos
    * e o canal sugerido — tem de estar aqui antes de a fila sair.
    */
-  it("o KPI de críticos vem do servidor, com o rótulo e a leitura da fila", () => {
-    expect(pagina).toContain('rotulo: "críticos"');
-    // o subtítulo do card virou `title` da célula, na faixa compacta
-    expect(pagina).toMatch(/prioridade crítica/);
-    expect(pagina).toContain('valor: isLoading ? "…" : num(kpis?.criticos)');
-    // a rota conta na MESMA varredura dos outros indicadores
+  it("o indicador de TRAVADOS soma duas contagens do servidor, e nenhuma delas é contada aqui", () => {
+    /*
+     * O handoff de 07/09/2026 levou a tira de oito células para quatro cartões.
+     * "críticos" e "para hoje" saíram dela — seguem no produto, na ordem da
+     * coluna e na faixa do dia do card (ver faixa-indicadores.test.ts). No lugar
+     * entrou "travados agora", que é `vencidos + semProximaAcao`.
+     */
+    expect(pagina).toContain('rotulo: "travados agora"');
+    expect(pagina).toContain("num(travadosAgora(kpis))");
+    // as duas parcelas continuam vindo da MESMA varredura da rota
     expect(tipos).toContain("criticos: numero(kpisCrus.criticos)");
+    expect(tipos).toContain("semProximaAcao: numero(kpisCrus.semProximaAcao)");
   });
 
   it("diz que a coluna vem na ordem do dia, e a ordem é do servidor", () => {
@@ -152,8 +157,14 @@ describe("o quadro", () => {
     expect(card).toContain("card-divida-${item.id}");
     expect(card).toContain("card-faixa-do-dia-${item.id}");
     expect(card).toContain("TOM_DA_FAIXA_DO_DIA[contato.urgencia]");
-    // a etapa da régua e o canal sugerido são do PAINEL agora
-    expect(card).not.toContain("card-etapa-${item.id}");
+    /*
+     * A ETAPA voltou ao card no handoff de 07/09/2026, num poço de duas linhas
+     * (etapa + passo) — ela tinha saído em 06/09, quando o dono disse que o card
+     * estava grande demais. O CANAL sugerido continua só no painel: ele é
+     * detalhe de execução do contato, não sinal de varredura.
+     */
+    expect(card).toContain("card-etapa-${item.id}");
+    expect(card).toContain("card-passo-${item.id}");
     expect(card).not.toContain("card-canal-${item.id}");
     expect(painel).toContain("etapaDoCard(item, etapas)");
     expect(painel).toContain('data-testid="painel-etapa"');
@@ -285,8 +296,10 @@ describe("o fluxo do dia", () => {
 
   it("os dois números são mono tabular, como todo número do sistema", () => {
     expect(pagina).toMatch(/data-testid="fluxo-entraram"/);
-    const trechos = pagina.match(/font-mono text-\[15px\] font-medium tabular-nums/g) ?? [];
-    expect(trechos.length).toBe(2);
+    // Na linha de apoio o número herda o tamanho do parágrafo (11.5px); o que
+    // não pode faltar é o mono tabular — é ele que alinha os dois números.
+    const trechos = pagina.match(/font-mono font-medium tabular-nums/g) ?? [];
+    expect(trechos.length).toBeGreaterThanOrEqual(2);
   });
 });
 

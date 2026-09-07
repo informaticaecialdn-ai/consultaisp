@@ -165,10 +165,15 @@ describe("o quinto indicador do kanban", () => {
     expect(kanban).toContain("tituloDaRecuperacao");
   });
 
-  it("nao mexeu nos quatro indicadores que ja existiam", () => {
-    for (const rotulo of ["casos vivos", "contato vencido", "para hoje", "sem próxima ação", "em aberto"]) {
+  it("nao mexeu nos outros indicadores do quadro", () => {
+    // O handoff de 07/09/2026 levou a tira de oito celulas para QUATRO
+    // cartoes: "contato vencido" e "sem proxima acao" viraram a linha de
+    // apoio de "travados agora", e "para hoje" e "criticos" sairam da tira
+    // (seguem no card e na ordem da coluna). Ver faixa-indicadores.test.ts.
+    for (const rotulo of ["casos vivos", "travados agora"]) {
       expect(kanban).toContain(`rotulo: "${rotulo}"`);
     }
+    expect(kanban).toContain("em aberto · ${rotuloDoEscopo(escopo)}");
   });
 });
 

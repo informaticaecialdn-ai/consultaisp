@@ -191,8 +191,12 @@ describe("o que SAIU do card e foi para o painel", () => {
     });
   }
 
-  it("o card cabe em poucas linhas: nome, documento, valor+atraso, faixa do dia e um botão", () => {
-    // Um bloco identificável por linha do card — o card antigo tinha treze.
+  it("o card diz seis coisas: quem, quanto, em que ponto, o que fazer, a faixa do dia e as duas ações", () => {
+    /*
+     * O handoff de 07/09/2026 devolveu ao card a ETAPA e o PASSO, que tinham
+     * saído em 06/09 ("o card está muito grande") — mas num POÇO de duas
+     * linhas, e não nos selos soltos de antes. O resto continua no painel.
+     */
     const blocos = Array.from(new Set((fonte.match(/`card-[a-z0-9-]+-\$\{item\.id\}`/g) ?? []).map(s => s.slice(1, -"-${item.id}`".length))));
     expect(blocos.sort()).toEqual([
       "card-abrir",      // o corpo clicável
@@ -203,8 +207,11 @@ describe("o que SAIU do card e foi para o painel", () => {
       "card-conversa",   // ação rápida: leva à conversa (pedido do dono)
       "card-divida",     // valor + atraso
       "card-documento",
+      "card-etapa",      // o poço: em que ponto da régua o caso está
       "card-faixa-do-dia",
       "card-nome",
+      "card-passo",      // o poço: o que fazer agora
+      "card-poco",
     ]);
   });
 });

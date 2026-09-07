@@ -11,7 +11,7 @@ import { STATUS_DE_CASO } from "@shared/cobranca/estados";
 import {
   acaoPrincipalDoCard, avaliarMovimentoDeCaso, COLUNAS_DESFECHO, COLUNAS_RECOLHIDAS, COLUNAS_VIVAS, contarGargalosDaColuna,
   CORTES_DO_TEMPO_NA_COLUNA, ORDEM_DO_QUADRO, rotuloDoBotaoDeAcordo, tomDoTempoNaColuna, VERBO_DA_COLUNA, verboDaColuna,
-  MOTIVO_ACORDO_NASCE_DO_ACEITE, MOTIVO_CASO_FECHADO, MOTIVO_MESMA_COLUNA, MOTIVO_SO_ADMIN, tituloDoMovimento, COR_DO_TOM, tomDaColunaDoKanban, tomDaEtapaDaRegua , destinoDoBotaoDeAcordo} from "./movimentos-cobranca";
+  MOTIVO_ACORDO_NASCE_DO_ACEITE, MOTIVO_CASO_FECHADO, MOTIVO_MESMA_COLUNA, MOTIVO_SO_ADMIN, tituloDoMovimento, BORDA_DO_TOM, COR_DO_TOM, FUNDO_DO_TOM, tomDaColunaDoKanban, tomDaEtapaDaRegua , destinoDoBotaoDeAcordo} from "./movimentos-cobranca";
 
 const caso = (status: string) => ({ id: 1, status, valorAtual: 100 });
 const operador = { podeAdministrar: false };
@@ -112,7 +112,11 @@ describe("cores do funil", () => {
     expect(tomDaEtapaDaRegua(null)).toBe("marca");
   });
   it("todo tom tem uma cor de token, nunca hex nem paleta do Tailwind", () => {
-    for (const cor of Object.values(COR_DO_TOM)) expect(cor).toMatch(/^var\(--[a-z-]+\)$/);
+    // `--text-2` tem dígito: o neutro das colunas escureceu no handoff de
+    // 07/09/2026 ("A contatar" é neutro ESCURO, e não azul-lilás).
+    for (const mapa of [COR_DO_TOM, FUNDO_DO_TOM, BORDA_DO_TOM]) {
+      for (const cor of Object.values(mapa)) expect(cor).toMatch(/^var\(--[a-z0-9-]+\)$/);
+    }
   });
 });
 
