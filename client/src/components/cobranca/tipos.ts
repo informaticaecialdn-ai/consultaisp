@@ -55,7 +55,15 @@ export const ROTA_CARTEIRA_EX = "/cobranca/ex-clientes";
  */
 export const ROTA_FILA = "/cobranca/fila";
 export const ROTA_REGUA = "/cobranca/regua";
-export const ROTA_POLITICA = "/cobranca/politica";
+/**
+ * A politica de cobranca mora no Painel do Provedor desde 06/09/2026 (pedido do
+ * dono: "mover politica de cobranca para painel do provedor"). O endereco antigo
+ * `/cobranca/politica` continua roteado como redirecionamento para ca.
+ *
+ * Quem manda o admin para os CUSTOS acrescenta `#economia` — a aba rola ate a
+ * fieldset. E o caso do botao do 360 quando a Economia do cliente esta pendente.
+ */
+export const ROTA_POLITICA = "/painel-provedor?tab=cobranca";
 export const rotaDoCliente = (customerId: number, carteira?: string) => `/cobranca/cliente/${customerId}${carteira === "ativo" || carteira === "ex_cliente" ? `?carteira=${carteira}` : ""}`;
 
 export const API_CARTEIRA = "/api/cobranca/carteira";

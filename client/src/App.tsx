@@ -1,6 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
 import { caminhoNaCarteira, carteiraDaNavegacao, retornoDaCarteira } from "@/components/cobranca/carteiras";
+import { ROTA_POLITICA } from "@/components/cobranca/tipos";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -59,7 +60,6 @@ const CobrancaCarteiraPage = lazy(pagina(() => import("@/pages/cobranca/carteira
 const CobrancaCliente360Page = lazy(pagina(() => import("@/pages/cobranca/cliente360")));
 const CobrancaKanbanPage = lazy(pagina(() => import("@/pages/cobranca/kanban")));
 const CobrancaReguaPage = lazy(pagina(() => import("@/pages/cobranca/regua")));
-const CobrancaPoliticaPage = lazy(pagina(() => import("@/pages/cobranca/politica")));
 
 // Financeiro
 const NfsePage = lazy(pagina(() => import("@/pages/financeiro/nfse")));
@@ -135,7 +135,11 @@ function Router() {
         <Route path="/cobranca/fila"><RedirecionarFila /></Route>
         <Route path="/cobranca/kanban" component={CobrancaKanbanPage} />
         <Route path="/cobranca/regua" component={CobrancaReguaPage} />
-        <Route path="/cobranca/politica" component={CobrancaPoliticaPage} />
+        {/* A politica de cobranca virou aba do Painel do Provedor (06/09/2026,
+            pedido do dono). O endereco antigo redireciona: link salvo, favorito
+            e mensagem antiga nao podem dar em pagina vazia. A ancora #economia
+            do botao do 360 viaja junto. */}
+        <Route path="/cobranca/politica"><Redirect to={ROTA_POLITICA} replace /></Route>
         <Route path="/administracao" component={AdministracaoPage} />
         <Route path="/painel-provedor" component={PainelProvedorPage} />
         <Route path="/admin-sistema" component={AdminSistemaPage} />
@@ -167,9 +171,9 @@ export const PROVIDER_ONLY_PATHS = [
   "/benchmark-regional",
   // A cobranca. `/cobranca/cliente/:id` nao cabe numa lista de caminho exato —
   // e coberta por `ehRotaDeCobranca`, abaixo, pelo prefixo. `/cobranca` e
-  // `/cobranca/fila` so redirecionam, e continuam aqui de proposito: a guarda
-  // roda ANTES do desvio, e sem eles um papel sem provedor atravessaria o
-  // redirecionamento ate a tela do quadro.
+  // `/cobranca/fila` e `/cobranca/politica` so redirecionam, e continuam aqui de
+  // proposito: a guarda roda ANTES do desvio, e sem eles um papel sem provedor
+  // atravessaria o redirecionamento ate a tela de destino.
   "/cobranca", "/cobranca/fila", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica",
   // Faltava desde que a tela nasceu: ela le `provider` da sessao e chama
   // `/api/regional/my-cidades`, que sem provedor nao responde nada. Ficava de

@@ -1,5 +1,6 @@
 /**
- * O formulário da POLÍTICA DE ACORDO (a seção "Acordo" de /cobranca/politica).
+ * O formulário da POLÍTICA DE ACORDO (a seção "Acordo" da aba Cobrança do
+ * Painel do Provedor — era /cobranca/politica até 06/09/2026).
  *
  * Mesma divisão do resto da tela: número vive como TEXTO na caixa e vira
  * número na saída; caixa vazia ou com lixo cai no valor gravado, nunca em

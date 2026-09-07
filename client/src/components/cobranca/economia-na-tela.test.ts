@@ -30,7 +30,8 @@ import { rotuloDaMensalidade } from "../../pages/cobranca/cliente360";
 
 const ler = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 const ficha360 = ler("../../pages/cobranca/cliente360.tsx");
-const politica = ler("../../pages/cobranca/politica.tsx");
+// A politica virou aba do Painel do Provedor em 06/09/2026.
+const politica = ler("../painel/AbaCobranca.tsx");
 
 describe("o motivo do PENDENTE vai para a tela, não para o tooltip", () => {
   it("o selo continua, e ao lado dele o motivo em texto", () => {

@@ -1,5 +1,5 @@
 /**
- * /cobranca/politica — o que o provedor configura: tetos de negociação,
+ * Painel do Provedor > aba Cobrança — o que o provedor configura: tetos de negociação,
  * encargos, janela de contato, os custos da Economia do cliente (R24), as
  * etapas da régua (janela, ação, canal, responsável, ligada) e a pausa.
  *
@@ -15,6 +15,20 @@
  * rotulados como estimativa. Mudar um custo desconfirma.
  *
  * Só admin grava; operador vê tudo desabilitado com o aviso.
+ *
+ * MUDOU DE CASA em 06/09/2026, a pedido do dono ("mover política de cobrança
+ * para painel do provedor"). Era a página /cobranca/politica, no submenu de
+ * Cobrança; virou aba do Painel do Provedor, que é onde mora todo o resto da
+ * configuração do provedor — empresa, usuários, integração de ERP, chat,
+ * anti-fraude. O endereço antigo continua roteado como REDIRECIONAMENTO
+ * (link salvo, favorito e mensagem antiga não podem dar em página vazia), e
+ * `ROTA_POLITICA` passou a apontar para cá, então a régua e o botão do 360
+ * seguem sozinhos.
+ *
+ * A âncora #economia importa: o 360 manda o admin direto para os custos
+ * quando a Economia do cliente está pendente por falta deles. Dentro de uma
+ * aba o navegador não rola sozinho — a aba nem existia no DOM quando o hash
+ * foi lido —, então a rolagem é feita aqui, no primeiro render com o form.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -97,7 +111,7 @@ const IMPOSTO_E_CICLO: CaixaDeCusto[] = [
 
 const testIdDoCusto = (campo: CampoDeCusto) => `politica-economia-${campo.replace(/[A-Z]/g, l => `-${l.toLowerCase()}`)}`;
 
-export default function PoliticaPage() {
+export function AbaCobranca() {
   const { toast } = useToast();
   const { user, personificando } = useAuth();
   const podeAdministrar = podeAdministrarCobranca(user, personificando);
@@ -159,6 +173,32 @@ export default function PoliticaPage() {
   // acompanhar o que ele acabou de digitar.
   const custoPreenchido = !!form && algumCustoPreenchido(form.economia);
   const cobertura = useMemo(() => lerCoberturaDaMensalidade(politicaCrua), [politicaCrua]);
+
+  /*
+   * `#economia`: o botão do 360 manda o admin direto para os custos quando a
+   * Economia do cliente está pendente por falta deles. Dentro de uma aba o
+   * navegador não rola sozinho — quando ele leu o hash, nem a aba nem a
+   * fieldset existiam no DOM. Então rola aqui, no primeiro render em que o
+   * formulário já está montado, e só uma vez: rolar de novo a cada render
+   * arrancaria a página de baixo de quem está digitando.
+   */
+  const [ancoraAtendida, setAncoraAtendida] = useState(false);
+  useEffect(() => {
+    if (ancoraAtendida || !form || window.location.hash !== "#economia") return;
+    setAncoraAtendida(true);
+    /*
+     * LIMPA o hash depois de atendê-lo. O `<TabsContent>` do Radix DESMONTA a
+     * aba inativa (não é `display:none`), então `ancoraAtendida` morre quando
+     * o admin troca de aba — e o hash, que vive na URL, sobrevive. Sem esta
+     * limpeza, cada volta à aba Cobrança arrancaria a tela de volta para os
+     * custos, inclusive no meio de uma edição em outro cartão.
+     */
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    // Espera o layout da aba assentar antes de medir a posição.
+    requestAnimationFrame(() => {
+      document.getElementById("economia")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [form, ancoraAtendida]);
   const aVista = STATUS_DE_PARCELAMENTO.filter(s => !PARCELAMENTO_POR_STATUS[s]).map(s => ROTULO_PARCELAMENTO_POR_STATUS[s]);
   const parcela = STATUS_DE_PARCELAMENTO.filter(s => PARCELAMENTO_POR_STATUS[s]).map(s => ROTULO_PARCELAMENTO_POR_STATUS[s]);
 
@@ -184,9 +224,10 @@ export default function PoliticaPage() {
   );
 
   return (
-    <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-politica">
+    <div className="flex flex-col gap-4" data-testid="cobranca-politica">
       <CabecalhoPainel
         titulo="Política de cobrança"
+        nivel="h2"
         descricao="O envelope que o funcionário pode negociar, os encargos, a janela de contato, os custos da Economia do cliente e as etapas da régua. Os tetos legais valem acima de tudo: o servidor ajusta o que passar deles."
         testIdTitulo="titulo-politica"
         acoes={

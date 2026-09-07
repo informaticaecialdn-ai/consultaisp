@@ -46,8 +46,11 @@ describe("menus de cobrança renderizados", () => {
     const conversa = html.match(/<a\b[^>]*data-testid="link-cobranca-chat"[^>]*>/)?.[0];
     expect(conversa).toContain('href="/cobranca/chat?carteira=ex_cliente"');
     expect(html.indexOf('data-testid="link-cobranca-chat"')).toBeLessThan(html.indexOf('data-testid="menu-cobranca-ativos"'));
-    const politica = html.match(/<a\b[^>]*data-testid="link-cobranca-politica"[^>]*>/)?.[0];
-    expect(politica).toContain('href="/cobranca/politica"');
+    // A Política saiu do menu de Cobrança em 06/09/2026 (pedido do dono): ela é
+    // configuração do PROVEDOR e virou aba do Painel do Provedor, com o resto
+    // dela. Quem trabalha o dia chega pela régua e pelo botão do 360.
+    expect(html).not.toContain("link-cobranca-politica");
+    expect(html).not.toContain("/cobranca/politica");
   });
 
   it("permite escolher qualquer carteira ao entrar de fora da cobrança", () => {

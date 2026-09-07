@@ -14,6 +14,7 @@ import { existsSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { PROVIDER_ONLY_PATHS, desvioDeRevenda, ehRotaDeCobranca, ehRotaDeProvedor } from "../../App";
 import { NAV_PROVEDOR, itemDeProvedorAtivo } from "../../components/app-sidebar";
+import { ROTA_POLITICA } from "../../components/cobranca/tipos";
 
 const raiz = join(__dirname, "..", "..");
 const ler = (relativo: string) => readFileSync(join(raiz, relativo), "utf8");
@@ -25,7 +26,9 @@ const PAGINAS = {
   carteira: executavel(ler("pages/cobranca/carteira.tsx")),
   cliente360: executavel(ler("pages/cobranca/cliente360.tsx")),
   regua: executavel(ler("pages/cobranca/regua.tsx")),
-  politica: executavel(ler("pages/cobranca/politica.tsx")),
+  // A politica de cobranca virou ABA do Painel do Provedor em 06/09/2026
+  // (pedido do dono). O conteudo e o mesmo; a casa e outra.
+  politica: executavel(ler("components/painel/AbaCobranca.tsx")),
 };
 const app = executavel(ler("App.tsx"));
 
@@ -43,7 +46,6 @@ describe("rotas da cobrança em App.tsx", () => {
     ["/cobranca/cliente/:id", "pages/cobranca/cliente360"],
     ["/cobranca/kanban", "pages/cobranca/kanban"],
     ["/cobranca/regua", "pages/cobranca/regua"],
-    ["/cobranca/politica", "pages/cobranca/politica"],
   ];
 
   it.each(ROTAS)("%s abre %s, carregada com pagina() como as outras", (rota, modulo) => {
@@ -122,9 +124,11 @@ describe("o grupo Cobrança na barra lateral", () => {
     expect(principal).toBeGreaterThan(-1);
     expect(cobranca).toBeGreaterThan(principal);
     expect(financeiro).toBeGreaterThan(cobranca);
-    expect(grupoCobranca.itens.map(i => i.label)).toEqual(["Conversas", "Clientes Ativos", "Ex-Clientes", "Política"]);
+    // A Politica saiu daqui em 06/09/2026 (pedido do dono): virou aba do Painel
+    // do Provedor, com o resto da configuracao do provedor.
+    expect(grupoCobranca.itens.map(i => i.label)).toEqual(["Conversas", "Clientes Ativos", "Ex-Clientes"]);
     expect(grupoCobranca.itens[0].url).toBe("/cobranca/chat");
-    expect(grupoCobranca.itens.at(-1)?.url).toBe("/cobranca/politica");
+    expect(grupoCobranca.itens.every(i => i.url !== "/cobranca/politica")).toBe(true);
   });
 
   it("todo item do menu tem rota em App.tsx", () => {
@@ -432,13 +436,14 @@ describe("as quatro telas e os diálogos importam sem erro", () => {
   // dá erro de tipo quando o símbolo existe com outro valor. Importar de
   // verdade é a prova mais barata que existe sem DOM.
   it.each([
-    "../../pages/cobranca/carteira.tsx",
-    "../../pages/cobranca/cliente360.tsx",
-    "../../pages/cobranca/regua.tsx",
-    "../../pages/cobranca/politica.tsx",
-  ])("%s", async modulo => {
-    const m = (await import(/* @vite-ignore */ modulo)) as { default: unknown };
-    expect(typeof m.default).toBe("function");
+    ["../../pages/cobranca/carteira.tsx", "default"],
+    ["../../pages/cobranca/cliente360.tsx", "default"],
+    ["../../pages/cobranca/regua.tsx", "default"],
+    // A politica virou ABA: e export nomeado, nao pagina com default.
+    ["../../components/painel/AbaCobranca.tsx", "AbaCobranca"],
+  ])("%s", async (modulo, exportado) => {
+    const m = (await import(/* @vite-ignore */ modulo)) as Record<string, unknown>;
+    expect(typeof m[exportado]).toBe("function");
   }, 20_000); // Importar a árvore inteira de shadcn/lucide num Windows frio passa dos 5 s padrão.
 });
 
@@ -549,5 +554,92 @@ describe("linguagem visual da cobrança inteira", () => {
     expect(card).toContain("item.documento || <Traco titulo={MOTIVO_SEM_DOCUMENTO} />");
     expect(card).not.toContain("documentoMascarado");
     expect(card).not.toContain("cpfCnpj");
+  });
+});
+
+/* ── A política mudou de casa ────────────────────────────────────────── */
+
+describe("a política de cobrança mora no Painel do Provedor", () => {
+  /*
+   * Pedido do dono (06/09/2026): "mover política de cobrança para painel do
+   * provedor". Ela era a página /cobranca/politica, no submenu de Cobrança, e
+   * virou aba do painel — que é onde já mora todo o resto da configuração do
+   * provedor: empresa, usuários, ERP, chat, anti-fraude.
+   *
+   * A mudança de casa cria três costuras que quebram CALADAS:
+   *   1. o endereço antigo, que está em favorito e em mensagem antiga;
+   *   2. os links de dentro do produto (a régua e o botão do 360), que passam
+   *      por `ROTA_POLITICA`;
+   *   3. a âncora #economia, que o 360 usa para levar o admin direto aos
+   *      custos — e que dentro de uma aba o navegador não resolve sozinho.
+   */
+  const painel = executavel(ler("pages/provedor/painel-provedor.tsx"));
+
+  it("o endereço antigo redireciona, e continua sob a guarda de provedor", () => {
+    expect(app).toContain('<Route path="/cobranca/politica"><Redirect to={ROTA_POLITICA} replace /></Route>');
+    // A guarda roda ANTES do desvio: sem isso um papel sem provedor
+    // atravessaria o redirecionamento até a tela de destino.
+    expect(PROVIDER_ONLY_PATHS).toContain("/cobranca/politica");
+    // E a página não existe mais como rota carregada.
+    expect(app).not.toContain('import("@/pages/cobranca/politica")');
+  });
+
+  it("`ROTA_POLITICA` aponta para a aba, então régua e 360 seguem sozinhos", () => {
+    expect(ROTA_POLITICA).toBe("/painel-provedor?tab=cobranca");
+    expect(PAGINAS.regua).toContain("href={ROTA_POLITICA}");
+    expect(PAGINAS.cliente360).toContain("href={`${ROTA_POLITICA}#economia`}");
+  });
+
+  it("o painel tem a aba, e ela renderiza a política", () => {
+    expect(painel).toContain('<TabsTrigger value="cobranca"');
+    expect(painel).toContain('data-testid="tab-cobranca"');
+    expect(painel).toContain("<AbaCobranca />");
+  });
+
+  it("a aba rola até #economia — dentro de uma aba o navegador não faz isso", () => {
+    // O hash foi lido quando nem a aba nem a fieldset existiam no DOM.
+    expect(PAGINAS.politica).toContain('window.location.hash !== "#economia"');
+    expect(PAGINAS.politica).toContain('document.getElementById("economia")?.scrollIntoView');
+    // Uma vez só: rolar a cada render arrancaria a página de quem digita.
+    expect(PAGINAS.politica).toContain("setAncoraAtendida(true)");
+    // E o destino existe.
+    expect(PAGINAS.politica).toContain('id="economia"');
+  });
+
+  it("o título da aba é h2: o h1 da tela é o nome do provedor", () => {
+    // Dois h1 na mesma tela quebram a hierarquia para leitor de tela e
+    // empilham dois títulos grandes para quem enxerga. AbaAntiFraude já usa h2.
+    expect(PAGINAS.politica).toContain(`nivel="h2"`);
+    expect(painel).toContain(`data-testid="text-painel-title"`);
+  });
+
+  it("a âncora é limpa depois de atendida — a aba desmonta e o hash não", () => {
+    // O TabsContent do Radix DESMONTA a aba inativa, então o estado que marca
+    // "já rolei" morre; o hash, que vive na URL, sobrevive. Sem a limpeza,
+    // cada volta à aba arrancaria a tela de volta para os custos.
+    expect(PAGINAS.politica).toContain("window.history.replaceState(null, \"\", window.location.pathname + window.location.search)");
+  });
+
+  it("a aba não carrega o padding de página — ela vive dentro do painel", () => {
+    expect(PAGINAS.politica).toContain('className="flex flex-col gap-4" data-testid="cobranca-politica"');
+    expect(PAGINAS.politica).not.toContain("p-4 lg:p-6");
+  });
+});
+
+describe("o link com ?tab= troca a aba mesmo já dentro do painel", () => {
+  /*
+   * `useLocation` do wouter devolve o pathname PURO, sem a query. Com o efeito
+   * dependendo só dele, ir de `/painel-provedor?tab=chat` para
+   * `?tab=cobranca` não mudava `location` — o efeito não rodava e a aba
+   * continuava a mesma, com a URL dizendo outra coisa.
+   *
+   * Passou a importar quando a política virou aba: mais links de dentro do
+   * produto passaram a apontar para o painel com a aba escolhida.
+   */
+  const painel = executavel(ler("pages/provedor/painel-provedor.tsx"));
+
+  it("o efeito da aba escuta o caminho E a query", () => {
+    expect(painel).toContain("const search = useSearch();");
+    expect(painel).toContain("}, [location, search]);");
   });
 });

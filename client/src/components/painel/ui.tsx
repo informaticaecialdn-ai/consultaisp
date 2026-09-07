@@ -196,6 +196,7 @@ export function CabecalhoPainel({
   acoes,
   testId,
   testIdTitulo,
+  nivel = "h1",
 }: {
   titulo: React.ReactNode;
   descricao?: React.ReactNode;
@@ -203,16 +204,24 @@ export function CabecalhoPainel({
   acoes?: React.ReactNode;
   testId?: string;
   testIdTitulo?: string;
+  /**
+   * O nivel do titulo. `h1` para quem E a pagina; `h2` para quem vive DENTRO
+   * de outra — o caso das abas do Painel do Provedor, onde o `h1` ja e o nome
+   * do provedor. Dois `h1` na mesma tela quebram a hierarquia para leitor de
+   * tela e empilham dois titulos grandes para quem enxerga.
+   */
+  nivel?: "h1" | "h2";
 }) {
+  const Titulo = nivel;
   return (
     <div className="flex items-start justify-between gap-4 flex-wrap" data-testid={testId}>
       <div>
-        <h1
+        <Titulo
           className="text-[19px] font-medium tracking-[-0.02em] text-[var(--text)] leading-tight"
           data-testid={testIdTitulo}
         >
           {titulo}
-        </h1>
+        </Titulo>
         {descricao != null && (
           <p className="text-[13px] text-[var(--text-muted)] mt-0.5">{descricao}</p>
         )}

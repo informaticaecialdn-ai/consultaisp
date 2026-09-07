@@ -30,7 +30,6 @@ import {
   Users,
   Wallet,
   Route,
-  Scale,
   UserX,
   ChevronRight,
 } from "lucide-react";
@@ -464,7 +463,11 @@ export const NAV_PROVEDOR: Array<{
           { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ex_cliente"), Icone: Route, testId: "link-cobranca-ex-clientes-regua" },
         ],
       },
-      { label: "Política",    url: "/cobranca/politica", Icone: Scale,    testId: "link-cobranca-politica" },
+      // A Política saiu daqui em 06/09/2026 (pedido do dono: "mover política de
+      // cobrança para painel do provedor"). Ela é configuração do PROVEDOR, e
+      // agora mora com as outras — empresa, usuários, ERP, chat, anti-fraude —
+      // na aba Cobrança do Painel do Provedor. Quem trabalha o dia chega nela
+      // pela régua e pelo botão do 360; o endereço antigo redireciona.
     ],
   },
   {
