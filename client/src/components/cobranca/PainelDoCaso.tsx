@@ -20,23 +20,23 @@
  * lista vazia (então a tela diz que o ERP não devolveu fatura nenhuma). Em
  * nenhum dos dois casos aparece "R$ 0,00", que significaria "não deve nada".
  *
- * O molde é o `DrawerCaso` da recuperação de equipamentos: um `Sheet` à
+ * POP-UP CENTRAL (handoff de design, 07/09/2026): era uma gaveta lateral, e
  * direita, o item vindo do quadro mais recente (o pai o resolve pela chave, e
  * o painel nunca fica atrás do quadro) e a busca do detalhe por TanStack
  * Query. Fecha com Esc (o Radix cuida) e pelo botão "Fechar".
  */
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   CalendarClock, ClipboardList, FileText, Handshake, History, Hourglass,
-  MessageCircle, MessageSquareShare, PhoneCall, Route, UserRound, Wallet,
+  MessageCircle, MessageSquareShare, PhoneCall, Route, UserRound, Wallet, X,
 } from "lucide-react";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { brl, Kicker, num, TRACO } from "@/components/localizacao/ui";
-import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, Td, Th, TabelaPainel } from "@/components/painel/ui";
+import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, FOCO, Td, Th, TabelaPainel } from "@/components/painel/ui";
 import { ROTULO_CANAL, ROTULO_STATUS_DE_NEGOCIACAO, ROTULO_STATUS_DE_PARCELA, ROTULO_TIPO_DE_NEGOCIACAO, type Etapa, type StatusDeNegociacao, type StatusDeParcela, type TipoDeNegociacao } from "@shared/cobranca";
 import {
   casoFechado, diasNoStatusDoCaso, etapaDoCard, MOTIVO_SEM_TEMPO_NA_COLUNA,
@@ -60,6 +60,13 @@ import {
 } from "./ui";
 
 const NUM = "font-mono tabular-nums";
+
+/** As duas abas do pop-up (handoff de design, 07/09/2026). */
+export type AbaDoCaso = "cobranca" | "negociacao";
+export const ABAS_DO_CASO: Array<{ k: AbaDoCaso; rotulo: string }> = [
+  { k: "cobranca", rotulo: "Dívida e boletos" },
+  { k: "negociacao", rotulo: "Negociação" },
+];
 
 /* ── Faturas: o que cada situação PODE afirmar ───────────────────────── */
 
@@ -274,8 +281,24 @@ export function PainelDoCaso({ item, etapas, hoje, aberto, onFechar, acoes }: {
   const mostrarSkeleton = useSkeletonAtrasado(pendente);
 
   return (
-    <Sheet open={aberto} onOpenChange={o => { if (!o) onFechar(); }}>
-      <SheetContent side="right" className="w-full overflow-y-auto p-0 sm:max-w-[640px]" data-testid="painel-do-caso">
+    <Dialog open={aberto} onOpenChange={o => { if (!o) onFechar(); }}>
+      {/*
+        `max-w-[900px]` SEM prefixo de breakpoint: o `max-w-lg` da base do
+        DialogContent também é sem prefixo, e o tailwind-merge só substitui a
+        classe quando o prefixo bate — com `sm:max-w-[900px]` a caixa ficaria
+        em 32rem abaixo do `sm`.
+
+        `[&>button]:hidden` esconde o × que o DialogContent monta sozinho: o
+        desenho tem o dele no cabeçalho, e os dois juntos seriam dois × na
+        mesma linha.
+
+        `100dvh` e não `100vh`: no Safari do iPhone a barra de endereço estoura
+        o `vh` e o rodapé do pop-up fica embaixo dela.
+      */}
+      <DialogContent
+        className="flex max-h-[calc(100dvh-48px)] w-full max-w-[900px] flex-col gap-0 overflow-hidden rounded-[12px] border-[var(--border)] bg-[var(--surface)] p-0 shadow-[0_24px_64px_-20px_rgba(20,19,26,.45)] [&>button]:hidden"
+        data-testid="painel-do-caso"
+      >
         {item && (
           <ConteudoDoPainel
             item={item}
@@ -290,8 +313,8 @@ export function PainelDoCaso({ item, etapas, hoje, aberto, onFechar, acoes }: {
             aoTentarDeNovo={() => refetch()}
           />
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -334,15 +357,21 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
   // repetir o que ele já fez. O contato continua ali, como secundário.
   const acordoEhPrincipal = ofereceAcordo && acaoPrincipalDoCard(item.status) === "acordo";
   const podePegar = item.responsavelUserId === null && acoes.onPegar !== undefined;
+  /*
+   * A aba do pop-up. Volta para "cobranca" a cada CASO — trocar de caso com a
+   * aba de negociação aberta mostraria a proposta do cliente anterior.
+   */
+  const [aba, setAba] = useState<AbaDoCaso>("cobranca");
+  useEffect(() => { setAba("cobranca"); }, [item.id]);
 
   return (
     <>
-      <SheetHeader className="border-b border-[var(--border)] px-5 py-4 pr-12 text-left" data-testid="painel-identidade">
+      <DialogHeader className="flex-none space-y-0 border-b border-[var(--border)] px-5 py-4 text-left" data-testid="painel-identidade">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <Kicker>caso #{item.id} · {rotuloDoStatusDeCaso(item.status)}</Kicker>
-            <SheetTitle className="mt-1 text-[16px] font-medium leading-tight tracking-[var(--track-tight)] text-[var(--text)]">{cliente.nome}</SheetTitle>
-            <SheetDescription className="mt-0.5 text-[12px] text-[var(--text-muted)]">
+            <DialogTitle className="mt-1 text-[17px] font-semibold leading-tight tracking-[var(--track-tight)] text-[var(--text)]">{cliente.nome}</DialogTitle>
+            <DialogDescription className="mt-0.5 text-[12px] text-[var(--text-muted)]">
               <span
                 className={NUM}
                 title="CPF/CNPJ do cliente, como está no cadastro do ERP."
@@ -351,12 +380,29 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
                 {cliente.cpfCnpj || TRACO}
               </span>
               {lugar ? ` · ${lugar}` : ""}
-            </SheetDescription>
+            </DialogDescription>
           </div>
           <div className="flex-none text-right">
-            <p className={cn(NUM, "text-[24px] font-light leading-none tracking-[-0.028em] text-[var(--money-neg)]")} data-testid="painel-valor">{brl(total)}</p>
-            <p className="mt-1"><PilulaAtraso dias={diasAtraso} testId="painel-atraso" /></p>
+            <p className={cn(NUM, "text-[26px] font-light leading-none tracking-[-0.028em] text-[var(--money-neg)]")} data-testid="painel-valor">{brl(total)}</p>
+            <p className="mt-[7px]"><PilulaAtraso dias={diasAtraso} testId="painel-atraso" /></p>
           </div>
+          {/*
+            O × do handoff. O DialogContent monta um por conta própria, escondido
+            no wrapper (`[&>button]:hidden`): dois × na mesma linha confundem, e
+            este carrega o `painel-fechar` que a suíte conhece.
+          */}
+          <button
+            type="button"
+            aria-label="Fechar"
+            className={cn(
+              "grid h-[30px] w-[30px] flex-none place-items-center rounded border border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text-2)] hover:bg-[var(--surface-2)]",
+              FOCO,
+            )}
+            onClick={onFechar}
+            data-testid="painel-fechar"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-1">
           <SeloErp status={cliente.statusErp} />
@@ -390,10 +436,34 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
             </a>
           )}
         </div>
-      </SheetHeader>
+      </DialogHeader>
 
-      {/* AÇÕES — as que saíram do card, no alto para não exigir rolagem */}
-      <div className="flex flex-wrap gap-2 border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-3" data-testid="painel-acoes">
+      {/*
+        A BARRA DE AÇÕES do handoff: o segmentado das duas abas à esquerda, e
+        as ações que saíram do card à direita, no alto para não exigir rolagem.
+      */}
+      <div className="flex flex-none flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-[11px]" data-testid="painel-acoes">
+        <span className="flex gap-0.5 rounded-md bg-[var(--surface-inset)] p-[3px]" role="tablist" aria-label="Abas do caso">
+          {ABAS_DO_CASO.map(a => (
+            <button
+              key={a.k}
+              type="button"
+              role="tab"
+              aria-selected={aba === a.k}
+              className={cn(
+                "min-h-[30px] rounded px-3 text-[12.5px] font-medium",
+                FOCO,
+                aba === a.k
+                  ? "bg-[var(--surface)] text-[var(--text)] shadow-[0_0_0_1px_var(--border)]"
+                  : "text-[var(--text-muted)] hover:text-[var(--text-2)]",
+              )}
+              onClick={() => setAba(a.k)}
+              data-testid={`painel-aba-${a.k}`}
+            >
+              {a.rotulo}
+            </button>
+          ))}
+        </span>
         <button type="button" className={acordoEhPrincipal ? BOTAO_SECUNDARIO : BOTAO_MARCA} onClick={() => acoes.onContato(item)} data-testid="painel-contato">
           <PhoneCall className="h-3.5 w-3.5" aria-hidden /> Registrar contato
         </button>
@@ -438,6 +508,11 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
         <button type="button" className={cn(BOTAO_SECUNDARIO, "ml-auto")} onClick={onFechar} data-testid="painel-fechar">Fechar</button>
       </div>
 
+      <div className="min-h-0 flex-1 overflow-y-auto" data-testid="painel-corpo">
+      {aba === "negociacao" ? (
+        <SecaoDeNegociacao item={item} acoes={acoes} detalhe={detalhe} onFechar={onFechar} />
+      ) : (
+      <>
       {erro && (
         <div className="px-5 pt-4">
           <AvisoNaoCarregou aoTentarDeNovo={aoTentarDeNovo} testId="painel-erro">
@@ -562,6 +637,84 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
           <LinhaDoTempo eventos={detalhe.eventos} testId="painel-linha-do-tempo" />
         )}
       </Secao>
+      </>
+      )}
+      </div>
     </>
+  );
+}
+
+/**
+ * A aba de NEGOCIAÇÃO do pop-up (handoff de design, 07/09/2026).
+ *
+ * Ela mostra o que JÁ EXISTE de acordo neste caso e leva ao formulário. O
+ * formulário em si continua no `DialogoNegociacao`, e por um motivo de tela:
+ * dois diálogos do Radix empilhados somam dois overlays e escurecem a tela em
+ * dobro. Então o botão FECHA o pop-up e abre a negociação — um de cada vez.
+ *
+ * Trazer o formulário para dentro desta aba é o passo seguinte, e exige
+ * extrair o corpo do `DialogoNegociacao` num componente que os dois montem.
+ */
+function SecaoDeNegociacao({ item, acoes, detalhe, onFechar }: {
+  item: ItemDaFila;
+  acoes: AcoesDoCard;
+  detalhe: ReturnType<typeof lerDetalheDoCaso> | null;
+  onFechar: () => void;
+}) {
+  const rotulo = rotuloDoBotaoDeAcordo(item.status);
+  const naFicha = destinoDoBotaoDeAcordo(item.status) === "ficha";
+  const fechado = casoFechado(item.status);
+
+  return (
+    <div data-testid="painel-negociacao">
+      <Secao kicker="acordos deste caso" icone={<Handshake className="h-3.5 w-3.5" aria-hidden />} testId="painel-acordos">
+        {detalhe === null || detalhe.negociacoes === null ? (
+          <BlocoAusente motivo={MOTIVO_SEM_ACORDOS} testId="painel-acordos-ausente" />
+        ) : detalhe.negociacoes.length === 0 ? (
+          <p className="text-[11.5px] text-[var(--text-muted)]" data-testid="painel-acordos-vazio">Nenhum acordo proposto neste caso.</p>
+        ) : (
+          <div className="space-y-2">{detalhe.negociacoes.map(n => <CartaoDeAcordo key={n.id} n={n} />)}</div>
+        )}
+      </Secao>
+
+      <Secao kicker="propor um acordo" icone={<Handshake className="h-3.5 w-3.5" aria-hidden />} testId="painel-propor">
+        {fechado || rotulo === null ? (
+          <p className="text-[11.5px] text-[var(--text-muted)]">
+            Este caso já saiu da esteira: não há acordo a propor.
+          </p>
+        ) : (
+          <>
+            <p className="mb-3 text-[11.5px] leading-4 text-[var(--text-muted)]">
+              O que a política autoriza para este caso — teto de desconto, máximo de parcelas e entrada
+              mínima — é calculado na hora, a partir da carteira e dos dias de atraso. A caixa de
+              negociação abre com o total da dívida preenchido.
+            </p>
+            {naFicha ? (
+              <Link
+                href={rotaDoCliente(item.cliente.id, item.carteira)}
+                className={BOTAO_MARCA}
+                title="O aceite se registra na ficha do cliente, sobre a proposta que já existe"
+                data-testid="painel-acordo"
+              >
+                <Handshake className="h-3.5 w-3.5" aria-hidden /> {rotulo}
+              </Link>
+            ) : (
+              <button
+                type="button"
+                className={BOTAO_MARCA}
+                // Fecha o pop-up ANTES de abrir a negociação: dois diálogos do
+                // Radix empilhados somam dois overlays.
+                onClick={() => { onFechar(); acoes.onNegociar?.(item); }}
+                disabled={acoes.onNegociar === undefined}
+                title={acoes.onNegociar === undefined ? "Esta tela não oferece negociação" : `O que tira o caso desta coluna: ${verboDaColuna(item.status) ?? "concluir"}`}
+                data-testid="painel-acordo"
+              >
+                <Handshake className="h-3.5 w-3.5" aria-hidden /> {rotulo}
+              </button>
+            )}
+          </>
+        )}
+      </Secao>
+    </div>
   );
 }

@@ -352,25 +352,31 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca, etapas }: 
           </div>
 
           {/*
-            O POÇO da etapa e do passo (handoff de design, 07/09/2026).
+            A ETAPA da régua, em uma linha (pedido do dono, 07/09/2026:
+            "deixar só etapa").
 
-            Os dois SAÍRAM do card em 06/09, quando o dono disse "o card está
-            muito grande", e foram para o painel. O desenho os traz de volta —
-            mas num poço de duas linhas, e não nos dois selos soltos de antes.
-            A diferença é que agora eles respondem à pergunta do operador em uma
-            olhada: em que ponto da régua este caso está, e o que fazer nele.
-            O painel continua com o resto (canal sugerido, follow-up com dono e
-            data, tempo na coluna).
+            O poço nasceu com duas linhas — etapa e passo —, e o PASSO estourou o
+            card: a ação da régua é um parágrafo inteiro ("Notificar formalmente
+            que o serviço será suspenso e registrar a data da notificação. A
+            suspensão só pode acontecer 15 dias depois de o aviso ser entregue"),
+            e ela é a MESMA para todos os casos da etapa. Repetida em cada card,
+            empurrava o resto para fora da tela e não distinguia caso nenhum.
+
+            A etapa sozinha responde o que o operador pergunta ao escanear a
+            coluna: em que ponto da régua este caso está. O passo por extenso
+            continua no painel, que abre no clique e tem espaço para ele.
           */}
           {!fechado && (
-            <dl className="mt-2 grid grid-cols-[50px_1fr] gap-x-2 gap-y-1 rounded-md border border-[var(--border-faint)] bg-[var(--surface-2)] px-2.5 py-2" data-testid={`card-poco-${item.id}`}>
-              <dt className={cn(NUM, "text-[9.5px] font-semibold uppercase leading-[1.4] tracking-[var(--track-wide)] text-[var(--text-faint)]")}>etapa</dt>
-              <dd className="m-0 truncate text-[11.5px] leading-[1.4] text-[var(--text-2)]" title={etapa?.rotulo ?? motivoDaEtapa ?? undefined} data-testid={`card-etapa-${item.id}`}>
+            <dl className="mt-2 flex items-baseline gap-2 overflow-hidden rounded-md border border-[var(--border-faint)] bg-[var(--surface-2)] px-2.5 py-1.5" data-testid={`card-poco-${item.id}`}>
+              <dt className={cn(NUM, "flex-none text-[9.5px] font-semibold uppercase leading-[1.4] tracking-[var(--track-wide)] text-[var(--text-faint)]")}>etapa</dt>
+              <dd
+                className="m-0 min-w-0 flex-1 truncate text-[11.5px] leading-[1.4] text-[var(--text-2)]"
+                // O passo por extenso vive no title: quem quiser a ação inteira
+                // passa o mouse, e quem só escaneia a coluna não paga por ela.
+                title={passo ? `${etapa?.rotulo ?? motivoDaEtapa ?? "Etapa"} — ${passo}` : etapa?.rotulo ?? motivoDaEtapa ?? MOTIVO_SEM_PASSO_NO_CARD}
+                data-testid={`card-etapa-${item.id}`}
+              >
                 {etapa?.rotulo ?? motivoDaEtapa ?? TRACO}
-              </dd>
-              <dt className={cn(NUM, "text-[9.5px] font-semibold uppercase leading-[1.4] tracking-[var(--track-wide)] text-[var(--text-faint)]")}>passo</dt>
-              <dd className="m-0 text-[11.5px] font-medium leading-[1.4] text-[var(--text)]" data-testid={`card-passo-${item.id}`}>
-                {passo ?? <span className="font-normal text-[var(--text-faint)]" title={MOTIVO_SEM_PASSO_NO_CARD}>{TRACO}</span>}
               </dd>
             </dl>
           )}
@@ -385,23 +391,30 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca, etapas }: 
         A da conversa é pedido do dono (06/09/2026): "o card precisa ter botão
         para ir para a conversa" e, no dia seguinte, "a conversa não está
         ativa". Agora ela SEMPRE navega — ver `rotaDaConversaDoCaso`.
+
+        O SELO E OS BOTÕES EM LINHAS SEPARADAS (pedido do dono, 07/09/2026:
+        "arrumar o card que está cortando"). Na mesma linha, o selo da faixa do
+        dia mais dois botões passavam dos 296px da coluna e o segundo botão saía
+        cortado pela borda — botão pela metade não se clica e nem se lê. Duas
+        linhas, com os botões numa grade de dois, é o rodapé que a versão
+        anterior já tinha e que cabe em qualquer largura de rótulo.
       */}
       {!overlay && (
-        <div className="mt-2 flex items-center gap-1.5">
+        <div className="mt-2 flex flex-col gap-1.5">
           {!fechado && (
             <SeloCobranca
               tom={TOM_DA_FAIXA_DO_DIA[contato.urgencia]}
               titulo={TITULO_DA_FAIXA_DO_DIA[contato.urgencia]}
-              className="normal-case tracking-normal"
+              className="w-fit normal-case tracking-normal"
               testId={`card-faixa-do-dia-${item.id}`}
             >
               {textoDaFaixaDoDia(contato.urgencia, contato.texto)}
             </SeloCobranca>
           )}
-          <span className="ml-auto" aria-hidden />
+          <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
-            className={cn(BOTAO_SECUNDARIO, "h-7 px-2.5 text-[11.5px]")}
+            className={cn(BOTAO_SECUNDARIO, "h-7 min-w-0 px-2 text-[11.5px]")}
             title={acao.titulo}
             onClick={() => {
               const qual = acaoRapidaDoCaso(item.status);
@@ -412,21 +425,22 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca, etapas }: 
             }}
             data-testid={`card-contato-${item.id}`}
           >
-            {acaoRapidaDoCaso(item.status) === "contato" ? <PhoneCall className="h-3.5 w-3.5" aria-hidden />
-              : acaoRapidaDoCaso(item.status) === "parcelas" ? <Wallet className="h-3.5 w-3.5" aria-hidden />
-              : <Handshake className="h-3.5 w-3.5" aria-hidden />}
-            {acao.rotulo}
+            {acaoRapidaDoCaso(item.status) === "contato" ? <PhoneCall className="h-3.5 w-3.5 flex-none" aria-hidden />
+              : acaoRapidaDoCaso(item.status) === "parcelas" ? <Wallet className="h-3.5 w-3.5 flex-none" aria-hidden />
+              : <Handshake className="h-3.5 w-3.5 flex-none" aria-hidden />}
+            <span className="truncate">{acao.rotulo}</span>
           </button>
           <a
             href={rotaDaConversaDoCaso(item)}
-            className={cn(BOTAO_SECUNDARIO, "h-7 px-2.5 text-[11.5px]")}
+            className={cn(BOTAO_SECUNDARIO, "h-7 min-w-0 px-2 text-[11.5px]")}
             title={item.chat
               ? `Abrir a conversa deste cliente · ${item.chat.status.toLowerCase()}`
               : "Ainda não há conversa com este cliente. Abre a tela de conversas com o caso pronto para iniciar."}
             data-testid={`card-conversa-${item.id}`}
           >
-            <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> Conversa
+            <MessageSquareShare className="h-3.5 w-3.5 flex-none" aria-hidden /> <span className="truncate">Conversa</span>
           </a>
+          </div>
         </div>
       )}
     </div>

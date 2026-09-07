@@ -221,9 +221,28 @@ describe("o painel, pelo fonte", () => {
     expect(fonte).toContain("acoes.onNegociar !== undefined");
   });
 
-  it("fecha com Esc (Radix) e pelo botão", () => {
-    expect(fonte).toContain("<Sheet open={aberto} onOpenChange={o => { if (!o) onFechar(); }}>");
-    expect(fonte).toContain('onClick={onFechar} data-testid="painel-fechar"');
+  it("fecha com Esc (Radix), pelo × do cabeçalho e pelo clique no overlay", () => {
+    // Virou POP-UP CENTRAL no handoff de design de 07/09/2026: era um Sheet
+    // lateral de 640px, e agora é um Dialog de 900px no meio da tela.
+    expect(fonte).toContain("<Dialog open={aberto} onOpenChange={o => { if (!o) onFechar(); }}>");
+    expect(fonte).toContain('data-testid="painel-fechar"');
+    // O × que o DialogContent monta sozinho fica escondido: o do cabeçalho é o
+    // do desenho, e dois × na mesma linha confundem.
+    expect(fonte).toContain("[&>button]:hidden");
+  });
+
+  it("o pop-up tem as duas abas do handoff, e volta para a primeira a cada caso", () => {
+    // Trocar de caso com a aba de negociação aberta mostraria a proposta do
+    // cliente anterior — e é sobre desconto que ela fala.
+    expect(fonte).toContain("painel-aba-${a.k}");
+    expect(fonte).toContain('{ k: "cobranca", rotulo: "Dívida e boletos" }');
+    expect(fonte).toContain('{ k: "negociacao", rotulo: "Negociação" }');
+    expect(fonte).toContain('useEffect(() => { setAba("cobranca"); }, [item.id]);');
+  });
+
+  it("a negociação não empilha dois diálogos: o pop-up fecha antes de abrir a caixa", () => {
+    // Dois overlays do Radix somados escurecem a tela em dobro.
+    expect(fonte).toContain("onClick={() => { onFechar(); acoes.onNegociar?.(item); }}");
   });
 });
 

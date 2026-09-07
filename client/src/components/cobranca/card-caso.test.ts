@@ -191,7 +191,7 @@ describe("o que SAIU do card e foi para o painel", () => {
     });
   }
 
-  it("o card diz seis coisas: quem, quanto, em que ponto, o que fazer, a faixa do dia e as duas ações", () => {
+  it("o card diz cinco coisas: quem, quanto, em que ponto da régua, a faixa do dia e as duas ações", () => {
     /*
      * O handoff de 07/09/2026 devolveu ao card a ETAPA e o PASSO, que tinham
      * saído em 06/09 ("o card está muito grande") — mas num POÇO de duas
@@ -210,7 +210,6 @@ describe("o que SAIU do card e foi para o painel", () => {
       "card-etapa",      // o poço: em que ponto da régua o caso está
       "card-faixa-do-dia",
       "card-nome",
-      "card-passo",      // o poço: o que fazer agora
       "card-poco",
     ]);
   });

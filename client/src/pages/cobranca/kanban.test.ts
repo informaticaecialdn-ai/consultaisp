@@ -164,7 +164,9 @@ describe("o quadro", () => {
      * detalhe de execução do contato, não sinal de varredura.
      */
     expect(card).toContain("card-etapa-${item.id}");
-    expect(card).toContain("card-passo-${item.id}");
+    // O PASSO saiu de novo em 07/09: a acao da regua e um paragrafo, igual para
+    // todos os casos da etapa, e estourava o card. Ele vive no title e no painel.
+    expect(card).not.toContain("card-passo-${item.id}");
     expect(card).not.toContain("card-canal-${item.id}");
     expect(painel).toContain("etapaDoCard(item, etapas)");
     expect(painel).toContain('data-testid="painel-etapa"');

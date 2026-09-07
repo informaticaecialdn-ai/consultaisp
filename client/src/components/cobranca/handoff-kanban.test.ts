@@ -96,16 +96,22 @@ describe("o card", () => {
     expect(card).toContain("style={{ borderLeft: `3px solid ${tomDaColuna}` }}");
   });
 
-  it("o poço da etapa e do passo: grade de 50px, raio 6px, fundo --surface-2", () => {
-    expect(card).toContain("grid-cols-[50px_1fr]");
+  it("o poço traz SÓ a etapa, numa linha — raio 6px, fundo --surface-2", () => {
+    /*
+     * Pedido do dono (07/09/2026): "deixar só etapa". O PASSO era a ação da
+     * régua por extenso — um parágrafo inteiro, e o MESMO para todos os casos
+     * da mesma etapa. Repetido em cada card, empurrava o resto para fora da
+     * tela sem distinguir caso nenhum. Ele continua no `title` e no painel.
+     */
     expect(card).toContain("rounded-md border border-[var(--border-faint)] bg-[var(--surface-2)]");
     expect(card).toContain("card-poco-${item.id}");
+    expect(card).toContain("card-etapa-${item.id}");
+    expect(card).not.toContain("card-passo-${item.id}");
   });
 
-  it("o rótulo do poço é mono 9.5px em caixa alta; o passo tem peso e o topo não", () => {
+  it("o rótulo do poço é mono 9.5px em caixa alta, e a etapa 11.5px", () => {
     expect(card).toContain('text-[9.5px] font-semibold uppercase leading-[1.4] tracking-[var(--track-wide)]');
     expect(card).toContain('text-[11.5px] leading-[1.4] text-[var(--text-2)]');
-    expect(card).toContain('text-[11.5px] font-medium leading-[1.4] text-[var(--text)]');
   });
 
   it("o valor fica à direita, mono 15px, e o atraso embaixo dele", () => {
