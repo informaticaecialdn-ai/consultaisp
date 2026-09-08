@@ -2,6 +2,32 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **ESTADO EM 08/09/2026 — apurado task a task contra o codigo, nao pela caixinha.**
+> As 11 tasks foram conferidas por varredura (21 agentes, cada veredito de "pronto" refutado
+> por um segundo leitor abrindo os arquivos). Resultado:
+>
+> - **Tasks 1 a 9: PRONTAS.** Cada uma com o codigo no lugar que o plano indicou, os
+>   consumidores ligados e — o ponto que mais derruba "pronto" neste repo — a delegacao na
+>   fachada `DatabaseStorage` conferida uma a uma.
+> - **Task 10: fechada em 08/09/2026.** Faltava so o Step 3, o aviso de capacidade do ERP.
+>   Ele morava na tela de importacao de equipamentos, que acabou com a importacao manual;
+>   voltou para `/equipamentos`, com a regra em `shared/equipamentos/capacidade.ts`.
+> - **Task 11: OBSOLETA.** Era uma edicao dentro de `bulkImportEquipment`. A importacao
+>   manual foi removida em 08/09/2026 por decisao do dono ("os dados tem que vir dos ERPs"),
+>   e a remocao esta travada por `server/sem-importacao-manual.test.ts`. O PROPOSITO da task
+>   (recalcular o agregado depois de escrever equipamento) esta cumprido nos caminhos que
+>   ficaram: `recalculateCustomerEquipmentAggregate` roda no POST, no PATCH e no sync.
+>
+> **O que a spec pedia e ainda NAO foi feito** (nao e task deste plano, e passivo de dado):
+> `customers.equipment_count` e `equipment_estimated_value` ainda tem DEFAULT `1` e `290`
+> no schema, e **32.214 dos 33.239 clientes de producao carregam esses numeros inventados** —
+> exatamente o que a spec denunciou ("o sistema presume que todo cliente tem um equipamento de
+> R$290. Esse numero falso ja alimenta o calculo de prejuizo do Anti-Fraude"). O codigo parou de
+> gravar; as linhas antigas ficaram e o DEFAULT segue cunhando novas. Corrigir mexe em
+> `shared/schema.ts` e em 32 mil linhas: **pede sim explicito do dono**.
+>
+> O baseline de typecheck citado abaixo ("112 erros") esta velho: hoje sao 60.
+
 **Goal:** Fazer o Consulta ISP enxergar equipamento não devolvido — puxando do ERP quando existir, aceitando planilha e formulário quando não, e expondo isso na consulta de crédito dentro da política LGPD que já existe.
 
 **Architecture:** O contrato já existe ponta a ponta (mascaramento preserva os campos, score pune a não-devolução, IXC produz `equipmentDetails`), mas nenhum consumidor lê o que o conector produz. O plano liga esse encanamento: uma função pura decide o que o sync faz com cada aparelho, o `EquipmentStorage` executa, o agregado em `customers` alimenta a consulta em rede, e a tela de gestão cobre o caso de ERP sem comodato.

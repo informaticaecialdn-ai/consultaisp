@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 // Data civil (rescisão, prazo) sai em UTC: no fuso do navegador mostrava o dia anterior.
 import { dataBr, deInputDataHora, paraInputDataHora } from "@/components/recuperacao/datas";
 import {
@@ -13,6 +13,7 @@ import {
   Kanban,
   Package,
   Pencil,
+  PlugZap,
   Plus,
   Search,
   ShieldCheck,
@@ -29,7 +30,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { capacidadeDeEquipamento, type ConectorDoCatalogo, type IntegracaoDoProvedor } from "@shared/equipamentos/capacidade";
 
 type Equipamento = {
   id: number;
@@ -240,11 +243,16 @@ export default function EquipamentosPage() {
   const { data: equipamentos = [], isLoading: loadingEquipment } = useQuery<Equipamento[]>({ queryKey: ["/api/equipment"] });
   const { data: clientes = [], isLoading: loadingCustomers } = useQuery<Cliente[]>({ queryKey: ["/api/customers"] });
   const { data: casos = [], isLoading: loadingCases } = useQuery<CasoRecuperacao[]>({ queryKey: ["/api/equipment/recovery-cases"] });
+  // De onde vem o aparelho: so IXC e SGP trazem comodato. Sem isto, quem esta em
+  // MK/Hubsoft/Voalle/RBX ve a lista vazia e conclui que a integracao quebrou.
+  const { data: integracoes = [] } = useQuery<IntegracaoDoProvedor[]>({ queryKey: ["/api/provider/erp-integrations"], staleTime: 300_000, retry: false });
+  const { data: conectores = [] } = useQuery<ConectorDoCatalogo[]>({ queryKey: ["/api/erp-connectors"], staleTime: 300_000, retry: false });
   const { data: eventos = [], isLoading: loadingEvents } = useQuery<EventoRecuperacao[]>({
     queryKey: [`/api/equipment/recovery-cases/${casoSelecionado?.id}/events`],
     enabled: !!casoSelecionado,
   });
 
+  const capacidade = useMemo(() => capacidadeDeEquipamento(integracoes, conectores), [integracoes, conectores]);
   const clientePorId = useMemo(() => new Map(clientes.map(cliente => [cliente.id, cliente])), [clientes]);
   const casoAbertoPorEquipamento = useMemo(() => new Map(
     casos.filter(item => !item.closedAt).map(item => [item.equipmentId, item]),
@@ -408,6 +416,33 @@ export default function EquipamentosPage() {
         </div>
       </header>
 
+      <section
+        className={cn(
+          "flex items-start gap-3 rounded-lg border px-4 py-3",
+          capacidade.origem === "erp_traz_equipamento"
+            ? "border-[var(--border)] bg-[var(--surface-2)]"
+            : "border-[var(--info-border)] bg-[var(--info-bg)]",
+        )}
+        data-testid="equipamentos-origem"
+      >
+        <PlugZap
+          className={cn("mt-0.5 h-4 w-4 flex-none",
+            capacidade.origem === "erp_traz_equipamento" ? "text-[var(--text-muted)]" : "text-[var(--info)]")}
+          aria-hidden
+        />
+        <p className="text-[12.5px] leading-5 text-[var(--text-2)]">
+          {capacidade.aviso}
+          {capacidade.origem !== "erp_traz_equipamento" && (
+            <>
+              {" "}
+              <Link href="/painel-provedor?tab=integracao" className="underline underline-offset-2">
+                Ver a integração do meu ERP
+              </Link>
+            </>
+          )}
+        </p>
+      </section>
+
       <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-5">
         <Kpi label="Patrimônio" value={String(equipamentos.length)} detail="itens cadastrados" />
         <Kpi label="Retirada pendente" value={String(pendentes.length)} detail="não inclui comodato ativo" />
@@ -464,7 +499,7 @@ export default function EquipamentosPage() {
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-6 py-12 text-center">
               <Package className="mx-auto h-8 w-8 text-[var(--text-faint)]" />
               <h2 className="mt-4 text-[15px] font-medium text-[var(--text)]">Nenhum equipamento encontrado</h2>
-              <p className="mx-auto mt-2 max-w-[48ch] text-[13px] text-[var(--text-muted)]">Cadastre o patrimônio individualmente ou importe uma planilha com o CPF/CNPJ do responsável.</p>
+              <p className="mx-auto mt-2 max-w-[48ch] text-[13px] text-[var(--text-muted)]">{capacidade.aviso}</p>
               <Button className="mt-5 min-h-11" onClick={() => abrirCadastro()}><Plus className="mr-1.5 h-4 w-4" /> Cadastrar equipamento</Button>
             </div>
           ) : (
