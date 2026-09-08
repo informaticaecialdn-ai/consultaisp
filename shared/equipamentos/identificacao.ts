@@ -17,6 +17,26 @@ export interface AutenticacaoCliente {
    * outro.
    */
   bloqueada?: boolean | null;
+  /**
+   * Id da conexão no ERP. É a chave estável para reconhecer a MESMA conexão
+   * entre uma varredura e a seguinte — sem ela, só dá para casar por login ou
+   * MAC, que são justamente os campos que mudam quando o assinante troca de
+   * aparelho.
+   */
+  conexaoId?: string | null;
+  /**
+   * Quando esta autenticação foi cadastrada no ERP. `null` quando o ERP não diz.
+   *
+   * É o critério de desempate do cruzamento com a OLT (regra do dono,
+   * 08/09/2026): quando o mesmo aparelho aparece em dois clientes, fica o de
+   * cadastro mais recente — porque o caso comum é o provedor ter reaproveitado
+   * a ONU de um cancelado num assinante novo, e o vínculo velho ter ficado para
+   * trás no ERP.
+   *
+   * Data civil, sem hora: o MK devolve `AAAA-MM-DD`. Comparar como texto ISO
+   * ordena certo e não inventa fuso.
+   */
+  cadastradaEm?: string | null;
 }
 
 export function normalizarMac(v: unknown): string | null {
@@ -40,6 +60,18 @@ const objeto = (v: unknown): Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v)
     ? (v as Record<string, unknown>)
     : {};
+/**
+ * Data CIVIL em ISO (`AAAA-MM-DD`), do jeito que o ERP mandou — sem virar
+ * `Date`. É critério de desempate e vai ser comparada com outra data do mesmo
+ * ERP: transformar em `Date` só acrescentaria fuso a uma data que não tem hora,
+ * e o texto ISO já ordena certo. Aceita `AAAA-MM-DD` com ou sem hora colada
+ * atrás, e recusa o resto em vez de adivinhar dia/mês.
+ */
+const dataCivil = (v: unknown): string | null => {
+  const s = texto(v);
+  const m = s && /^(\d{4}-\d{2}-\d{2})(?:[T ]|$)/.exec(s);
+  return m ? m[1] : null;
+};
 
 /** Usa apenas os campos efetivamente devolvidos. Serviço sem login continua visível pelo MAC. */
 export function autenticacoesDoSgp(
@@ -177,6 +209,12 @@ export function conexoesDoMk(corpo: unknown): LeituraDeConexoesMk | null {
       // responde por ele. Sem campo explícito, fica "não informado".
       online: simNao(c.online ?? c.conectado ?? c.Online),
       bloqueada,
+      // Os dois campos que o MK já mandava e este parser descartava. Sem eles a
+      // regra de desempate do cruzamento com a OLT ("fica o cadastro de
+      // autenticação mais recente") não tem por onde ser aplicada, e não há
+      // chave estável para reconhecer a mesma conexão na varredura seguinte.
+      conexaoId: texto(c.codconexao ?? c.cod_conexao ?? c.cd_conexao ?? c.id_conexao),
+      cadastradaEm: dataCivil(c.cadastro ?? c.data_cadastro ?? c.dt_cadastro),
       fonte: "mk",
     });
   }

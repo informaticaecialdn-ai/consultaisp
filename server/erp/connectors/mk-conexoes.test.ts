@@ -100,7 +100,7 @@ describe("consulta ao vivo — a instalacao do cliente", () => {
     const r = await new MkConnector().fetchCustomerByCpf!(CONFIG, cpfValido(1));
 
     expect(r.customers[0].autenticacoes).toEqual([
-      { login: "ALCLFC65623D-000", mac: "64DBF7ED1D24", ip: null, contrato: "1958", serial: "ALCLFC65623D", online: null, bloqueada: false, fonte: "mk" },
+      { login: "ALCLFC65623D-000", mac: "64DBF7ED1D24", ip: null, contrato: "1958", serial: "ALCLFC65623D", online: null, bloqueada: false, conexaoId: "2721", cadastradaEm: "2025-12-27", fonte: "mk" },
     ]);
     // O bloqueio e a identificacao saem do MESMO fetch — nao uma requisicao por leitura.
     expect(chamadasDeConexao()).toBe(1);
@@ -158,7 +158,7 @@ describe("varredura de inadimplentes — a instalacao vai junto", () => {
 
     expect(r.customers).toHaveLength(1);
     expect(r.customers[0].autenticacoes).toEqual([
-      { login: "ALCLFC65623D-000", mac: "64DBF7ED1D24", ip: null, contrato: "1958", serial: "ALCLFC65623D", online: null, bloqueada: false, fonte: "mk" },
+      { login: "ALCLFC65623D-000", mac: "64DBF7ED1D24", ip: null, contrato: "1958", serial: "ALCLFC65623D", online: null, bloqueada: false, conexaoId: "2721", cadastradaEm: "2025-12-27", fonte: "mk" },
     ]);
     expect(chamadasDeConexao()).toBe(1);
   });

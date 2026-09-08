@@ -65,8 +65,8 @@ describe("conexões do MK — a identificação da instalação", () => {
   it("lê login, MAC e contrato da resposta real, e não inventa IP nem sessão", () => {
     const r = conexoesDoMk({ CodigoPessoa: 194, Nome: "Fulano", status: "OK", Conexoes: [FTTH, WIRELESS] });
     expect(r?.autenticacoes).toEqual([
-      { login: "ALCLFC65623D-000", mac: "64DBF7ED1D24", ip: null, contrato: null, serial: "ALCLFC65623D", online: null, bloqueada: false, fonte: "mk" },
-      { login: "assinante@provedor.com", mac: "AABBCCDDEE01", ip: null, contrato: "1958", serial: null, online: null, bloqueada: true, fonte: "mk" },
+      { login: "ALCLFC65623D-000", mac: "64DBF7ED1D24", ip: null, contrato: null, serial: "ALCLFC65623D", online: null, bloqueada: false, conexaoId: "2721", cadastradaEm: "2025-12-27", fonte: "mk" },
+      { login: "assinante@provedor.com", mac: "AABBCCDDEE01", ip: null, contrato: "1958", serial: null, online: null, bloqueada: true, conexaoId: "1819", cadastradaEm: "2024-07-22", fonte: "mk" },
     ]);
     // O endereço postal da conexão nunca pode ser lido como IP.
     expect(JSON.stringify(r)).not.toContain("Rua Exemplo");
@@ -85,7 +85,7 @@ describe("conexões do MK — a identificação da instalação", () => {
 
   it("aceita nomes alternativos de outra release sem exigir os da NsLink", () => {
     const r = conexoesDoMk([{ login: "outro.login", mac: "aabb.ccdd.ee02", ip: "100.64.0.9", codcontrato: 7, bloqueado: true, online: "Sim", numero_serie: "ztez1234" }]);
-    expect(r?.autenticacoes[0]).toEqual({ login: "outro.login", mac: "AABBCCDDEE02", ip: "100.64.0.9", contrato: "7", serial: "ZTEZ1234", online: true, bloqueada: true, fonte: "mk" });
+    expect(r?.autenticacoes[0]).toEqual({ login: "outro.login", mac: "AABBCCDDEE02", ip: "100.64.0.9", contrato: "7", serial: "ZTEZ1234", online: true, bloqueada: true, conexaoId: null, cadastradaEm: null, fonte: "mk" });
   });
 
   it("erro com HTTP 200 não é 'nenhuma conexão' — é leitura sem resposta", () => {
@@ -102,7 +102,7 @@ describe("conexões do MK — a identificação da instalação", () => {
   it("MAC malformado vira ausência, e a conexão só some se não sobrar identificador", () => {
     const comLogin = conexoesDoMk({ Conexoes: [{ username: "so.login", mac_address: "00:00:00:00:00:00" }] });
     expect(comLogin?.autenticacoes).toEqual([
-      { login: "so.login", mac: null, ip: null, contrato: null, serial: null, online: null, bloqueada: null, fonte: "mk" },
+      { login: "so.login", mac: null, ip: null, contrato: null, serial: null, online: null, bloqueada: null, conexaoId: null, cadastradaEm: null, fonte: "mk" },
     ]);
     expect(conexoesDoMk({ Conexoes: [{ codconexao: 9, mac_address: "zz:zz", bloqueada: "Sim" }] }))
       .toEqual({ autenticacoes: [], bloqueada: true });
@@ -114,5 +114,50 @@ describe("conexões do MK — a identificação da instalação", () => {
     expect(serialDeOnuMk("ALCLFC65623D", "Wireless")).toBeNull();
     expect(serialDeOnuMk("fulano@provedor.com", "Ftth")).toBeNull();
     expect(serialDeOnuMk("cesar.filho2", "Ftth")).toBeNull();
+  });
+});
+
+/**
+ * Os dois campos que o MK já mandava e o parser descartava.
+ *
+ * A regra do dono para o cruzamento com a OLT (08/09/2026) é "se o MAC estiver
+ * em dois clientes, fica o do cadastro de autenticação mais recente". Sem
+ * `cadastradaEm` não há como aplicá-la; sem `conexaoId` não há chave estável
+ * para reconhecer a mesma conexão na varredura seguinte — login e MAC são
+ * justamente o que muda quando o assinante troca de aparelho.
+ */
+describe("o que a regra de desempate precisa", () => {
+  it("lê a data de cadastro e o id da conexão do MK", () => {
+    const r = conexoesDoMk({ Conexoes: [FTTH, WIRELESS] })!;
+    expect(r.autenticacoes[0]).toMatchObject({ conexaoId: "2721", cadastradaEm: "2025-12-27" });
+    expect(r.autenticacoes[1]).toMatchObject({ conexaoId: "1819", cadastradaEm: "2024-07-22" });
+  });
+
+  it("a data ordena como texto ISO — o mais recente ganha sem virar Date", () => {
+    const r = conexoesDoMk({ Conexoes: [WIRELESS, FTTH] })!;
+    const maisRecente = [...r.autenticacoes]
+      .sort((a, b) => String(b.cadastradaEm ?? "").localeCompare(String(a.cadastradaEm ?? "")))[0];
+    expect(maisRecente.cadastradaEm).toBe("2025-12-27");
+  });
+
+  it("data ilegível vira null em vez de adivinhar dia e mês", () => {
+    const r = conexoesDoMk({ Conexoes: [{ ...FTTH, cadastro: "27/12/2025" }] })!;
+    expect(r.autenticacoes[0].cadastradaEm).toBeNull();
+  });
+
+  it("aceita data com hora colada, que outras releases mandam", () => {
+    const r = conexoesDoMk({ Conexoes: [{ ...FTTH, cadastro: "2025-12-27T10:30:00" }] })!;
+    expect(r.autenticacoes[0].cadastradaEm).toBe("2025-12-27");
+  });
+
+  it("id numérico vira texto — a chave é identificador, não número para somar", () => {
+    const r = conexoesDoMk({ Conexoes: [{ ...FTTH, codconexao: 2721 }] })!;
+    expect(r.autenticacoes[0].conexaoId).toBe("2721");
+  });
+
+  it("conexão sem os dois campos continua válida — ausência não derruba a leitura", () => {
+    const r = conexoesDoMk({ Conexoes: [{ username: "joao", mac_address: "aa:bb:cc:dd:ee:01" }] })!;
+    expect(r.autenticacoes[0]).toMatchObject({ conexaoId: null, cadastradaEm: null });
+    expect(r.autenticacoes[0].mac).toBe("AABBCCDDEE01");
   });
 });
