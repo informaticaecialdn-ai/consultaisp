@@ -1,18 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import Papa from "papaparse";
 // Data civil (rescisão, prazo) sai em UTC: no fuso do navegador mostrava o dia anterior.
 import { dataBr, deInputDataHora, paraInputDataHora } from "@/components/recuperacao/datas";
 import {
   AlertTriangle,
   Archive,
   CalendarClock,
-  CheckCircle2,
   ChevronRight,
   ClipboardCheck,
-  Download,
-  FileUp,
   History,
   Kanban,
   Package,
@@ -220,19 +216,6 @@ function Kpi({ label, value, detail, alert }: { label: string; value: string; de
   );
 }
 
-function downloadTemplate() {
-  const content = [
-    "cpf_cnpj,nome_cliente,tipo,marca,modelo,numero_serie,mac,status,valor",
-    "12345678901,Cliente Exemplo,ONU/ONT,Intelbras,ONU 110,SN123456,AA:BB:CC:DD:EE:FF,em_comodato,290.00",
-  ].join("\n");
-  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "modelo-equipamentos.csv";
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 export default function EquipamentosPage() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -253,10 +236,6 @@ export default function EquipamentosPage() {
   const [agenda, setAgenda] = useState({ scheduledAt: "", collectionMethod: "retirada" });
   const [tentativa, setTentativa] = useState({ channel: "whatsapp", result: "sem_resposta", occurredAt: hojeInput(), notes: "" });
   const [validacao, setValidacao] = useState({ proofReference: "", customerNotifiedAt: "", notificationProtocol: "" });
-  const [importDialog, setImportDialog] = useState(() => new URLSearchParams(window.location.search).get("importar") === "1");
-  const [importRows, setImportRows] = useState<Record<string, string>[]>([]);
-  const [importError, setImportError] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: equipamentos = [], isLoading: loadingEquipment } = useQuery<Equipamento[]>({ queryKey: ["/api/equipment"] });
   const { data: clientes = [], isLoading: loadingCustomers } = useQuery<Cliente[]>({ queryKey: ["/api/customers"] });
@@ -356,21 +335,6 @@ export default function EquipamentosPage() {
     onError: (error: Error) => toast({ title: "Sinal ainda não pode ser publicado", description: error.message, variant: "destructive" }),
   });
 
-  const importar = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/import/equipment", { rows: importRows });
-      return response.json();
-    },
-    onSuccess: (result: { imported: number }) => {
-      invalidateAll();
-      setImportDialog(false);
-      setImportRows([]);
-      setImportError("");
-      toast({ title: `${result.imported} equipamento(s) importado(s)` });
-    },
-    onError: (error: Error) => toast({ title: "Importação não concluída", description: error.message, variant: "destructive" }),
-  });
-
   useEffect(() => {
     if (!casoSelecionado) return;
     setStatusCaso(casoSelecionado.status);
@@ -430,24 +394,6 @@ export default function EquipamentosPage() {
     setDetalheDialog(true);
   };
 
-  const parseCsv = (file?: File) => {
-    if (!file) return;
-    setImportError("");
-    Papa.parse<Record<string, string>>(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: result => {
-        if (result.errors.length) {
-          setImportError(`O arquivo contém erro na linha ${result.errors[0].row ? result.errors[0].row + 1 : 1}.`);
-          setImportRows([]);
-          return;
-        }
-        setImportRows(result.data);
-      },
-      error: () => setImportError("Não foi possível ler o arquivo CSV."),
-    });
-  };
-
   return (
     <div className="space-y-4 p-4 lg:p-6" data-testid="equipamentos-page">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -456,9 +402,6 @@ export default function EquipamentosPage() {
           <p className="mt-1 text-[13px] text-[var(--text-muted)]">Patrimônio em comodato, recuperação após rescisão e ocorrência validada na Consulta ISP.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="min-h-11" onClick={() => setImportDialog(true)}>
-            <FileUp className="mr-1.5 h-4 w-4" /> Importar planilha
-          </Button>
           <Button className="min-h-11" onClick={() => abrirCadastro()} data-testid="botao-cadastrar-equipamento">
             <Plus className="mr-1.5 h-4 w-4" /> Cadastrar equipamento
           </Button>
@@ -667,18 +610,6 @@ export default function EquipamentosPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={importDialog} onOpenChange={setImportDialog}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader><DialogTitle>Importar equipamentos</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] px-6 py-8 text-center"><FileUp className="mx-auto h-7 w-7 text-[var(--text-faint)]" /><p className="mt-3 text-[13px] font-medium text-[var(--text)]">Selecione uma planilha CSV</p><p className="mt-1 text-[11px] text-[var(--text-muted)]">CPF/CNPJ e tipo são obrigatórios. O lote é validado antes da gravação.</p><input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={event => parseCsv(event.target.files?.[0])} /><Button variant="outline" className="mt-4 min-h-11" onClick={() => fileInputRef.current?.click()}>Selecionar arquivo</Button></div>
-            {importError && <div className="rounded bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--danger)]">{importError}</div>}
-            {importRows.length > 0 && <div className="flex items-center gap-2 rounded bg-[var(--ok-bg)] px-3 py-2 text-[12px] text-[var(--ok)]"><CheckCircle2 className="h-4 w-4" /> {importRows.length} linha(s) pronta(s) para validação.</div>}
-            <button type="button" onClick={downloadTemplate} className={`flex min-h-11 items-center gap-2 text-[12px] font-medium text-[var(--brand)] ${FOCO}`}><Download className="h-4 w-4" /> Baixar modelo CSV</button>
-          </div>
-          <DialogFooter><Button variant="ghost" className="min-h-11" onClick={() => setImportDialog(false)}>Cancelar</Button><Button className="min-h-11" disabled={importRows.length === 0 || importar.isPending} onClick={() => importar.mutate()}>{importar.isPending ? "Importando..." : "Importar equipamentos"}</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

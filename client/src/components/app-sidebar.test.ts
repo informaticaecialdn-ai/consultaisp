@@ -136,12 +136,13 @@ describe("navegação independente das carteiras", () => {
   });
 
   /**
-   * "Gestão" acabou no mesmo dia: a Importação saiu do menu e o Painel do
-   * Provedor foi para Configurações, que é o que ele é. A Importação continua
-   * ROTEADA e alcançável pelo atalho do Dashboard — este teste trava as duas
-   * pontas, para o item não voltar por descuido nem a página virar órfã.
+   * "Gestão" acabou em 07/09/2026: o Painel do Provedor foi para Configurações,
+   * que é o que ele é, e a Importação saiu do menu. No dia seguinte a
+   * importação manual acabou inteira — a trava disso vive em
+   * `sem-importacao-manual.test.ts`, que cobre servidor e client de uma vez.
+   * Aqui fica só o que é do MENU.
    */
-  it("Importação sai do menu mas segue alcançável; o Painel mora em Configurações", () => {
+  it("o Painel mora em Configurações e não sobrou item de Importação", () => {
     const itens = NAV_PROVEDOR.flatMap(g => g.itens);
     expect(itens.some(i => i.url === "/importacao")).toBe(false);
     expect(NAV_PROVEDOR.some(g => g.grupo === "Gestão")).toBe(false);
@@ -150,15 +151,5 @@ describe("navegação independente das carteiras", () => {
     expect(configuracoes.itens.map(i => i.url)).toEqual([
       "/painel-provedor", "/configuracoes/regionalizacao",
     ]);
-
-    // A porta que sobrou: o atalho do Dashboard. Se ele sair, a Importação fica
-    // sem nenhum caminho dentro do produto.
-    const dashboard = readFileSync(new URL("../pages/provedor/dashboard.tsx", import.meta.url), "utf8");
-    expect(dashboard).toContain('url: "/importacao"');
-    // E a rota continua de pé, com a guarda cobrindo.
-    const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
-    expect(app).toContain('<Route path="/importacao" component={ImportacaoPage} />');
-    expect(app.slice(app.indexOf("PROVIDER_ONLY_PATHS = ["), app.indexOf("PROVIDER_ONLY_PATHS = [") + 1400))
-      .toContain('"/importacao"');
   });
 });

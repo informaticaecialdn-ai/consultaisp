@@ -29,7 +29,7 @@ Você é o desenvolvedor principal do **Consulta ISP** — um SaaS multi-tenant 
 | Framer Motion | 11 | Animações |
 | Lucide React + React Icons | — | Ícones |
 | date-fns | 3 | Datas |
-| PapaParse | 5 | Parsing CSV |
+| ~~PapaParse~~ | — | Saiu do client em 08/09/2026 com a importação manual. Continua no `package.json`. |
 | cmdk | 1 | Command palette |
 | embla-carousel-react | 8 | Carrosséis |
 | vaul | 1 | Drawers |
@@ -500,7 +500,7 @@ interface ErpCustomer {
 /inadimplentes             → Lista de Inadimplentes
 /mapa-calor                → Mapa de Calor (Leaflet + heat)
 /creditos                  → Compra de Créditos (ISP/SPC)
-/importacao                → Importação de Dados (clientes, faturas, equipamentos via CSV)
+/importacao                → tela que EXPLICA o fim da importação manual (08/09/2026). Não importa nada.
 /importacao-equipamentos   → Importação de Equipamentos
 /administracao             → Administração do Provedor
 /painel-provedor           → Painel Provedor (abas: info, sócios, docs KYC, subdomínio, usuários, créditos)
@@ -526,10 +526,26 @@ POST login, POST register, GET check-subdomain, GET verify-email, POST resend-ve
 
 ### Dashboard/Dados (requireAuth)
 GET dashboard/stats, dashboard/defaulters, customers, inadimplentes, invoices, equipment, contracts, defaulters
-POST customers
+// NAO existe POST customers: removida em 08/09/2026 com a importacao manual. Era
+// rota de escrita SEM tela, SEM validacao (`{...req.body}` direto no storage) e
+// SEM checagem de papel — qualquer operador `user` fabricava cliente por curl.
 
-### Importação (requireAuth)
-POST import/customers, import/invoices, import/equipment
+### Importação — NAO EXISTE MAIS (08/09/2026)
+Decisao do dono: "tirar qq possibilidade de importacao na mao... os dados tem que
+vir dos ERPs". `POST /api/import/{customers,invoices,equipment}`, o
+`ImportStorage` inteiro e a tela `/importacao` foram **removidos**, nao
+escondidos. Cliente, fatura e contrato entram por um caminho so: `upsertFromErp`
+e `upsertFaturasDoErp`, chamados pela varredura em `server/services/erp-sync.service.ts`.
+
+A razao e o produto: o que este sistema guarda alimenta o SCORE DA REDE, o numero
+que OUTRO provedor consulta antes de instalar. Linha digitada ou colada de
+planilha entra nesse calculo sem que ninguem consiga conferir a origem. Por isso o
+corte e de CAMINHO, nao de tela — botao escondido continua sendo curl.
+
+`/importacao` e `/importacao-equipamentos` seguem roteados para uma tela que
+explica a mudanca (favorito nao pode cair em pagina vazia). A trava contra a volta
+esta em `server/sem-importacao-manual.test.ts`, que le o FONTE de `server/` e
+`client/src/` inteiros.
 
 ### Consultas (requireAuth)
 GET/POST isp-consultations   // NAO existe rota de lote — nunca foi construida
@@ -539,7 +555,10 @@ GET/POST spc-consultations
 GET anti-fraud/alerts, PATCH alerts/:id/status, GET customer-risk, GET migradores, GET/PUT anti-fraud/rules (regras + canais do provedor; PUT só admin)
 
 ### Equipamentos (requireAuth)
-GET/POST/PATCH/DELETE equipamentos, POST equipamentos/import
+GET/POST/PATCH/DELETE equipment  // o cadastro unitario continua: so IXC e SGP declaram
+                                 // `supportsEquipment`, entao provedor em MK, Hubsoft,
+                                 // Voalle ou RBX nao tem outro caminho para registrar a ONU
+                                 // retida. NAO existe mais `POST equipamentos/import`.
 
 ### Provedor Config (requireAuth)
 GET/PATCH provider/profile, provider/settings, provider/notification-settings
@@ -742,11 +761,11 @@ POST/GET public/visitor-chat/*
 3. **Controle de Equipamentos** — Registro, rastreamento, status
 4. **Consulta por Endereço** — Cruza CEP + número independente do CPF
 5. **Consulta SPC** — Negativação integrada
-6. **Integração ERP** — IXC, MK Solutions, SGP, Hubsoft, RBX ISP, Voalle (+ CSV)
-7. **Consulta em Lote** — Até 500 CPFs via CSV
+6. **Integração ERP** — IXC, MK Solutions, SGP, Hubsoft, RBX ISP, Voalle. A ÚNICA porta de entrada de dado.
+7. ~~Consulta em Lote via CSV~~ — nunca existiu rota de lote; e a importação por CSV acabou em 08/09/2026
 
 ### Planos na Landing (versão mais recente)
-- **Gratuito R$0:** 30 créditos ISP, anti-fraude básico, CSV, 1 usuário
+- **Gratuito R$0:** 30 créditos ISP, anti-fraude básico, integração com o ERP, 1 usuário
 - **Básico R$149/mês:** 200 ISP + 50 SPC/mês, WhatsApp, 1 ERP, 3 usuários
 - **Profissional R$349/mês:** 500 ISP + 150 SPC/mês, todos ERPs, lote 500 CPFs, ilimitado
 

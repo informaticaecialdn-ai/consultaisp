@@ -364,7 +364,7 @@ export default function LandingPage() {
               </div>
               <p className="text-xs text-[var(--color-muted)] mb-6">Para conhecer a plataforma</p>
               <ul className="space-y-2.5 mb-6 flex-1">
-                {[fraseCreditosFree,"Consultas ilimitadas na sua base","Anti-fraude basico","Importacao via CSV"].map(f => (
+                {[fraseCreditosFree,"Consultas ilimitadas na sua base","Anti-fraude basico","Integracao com o seu ERP"].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
@@ -509,7 +509,6 @@ export default function LandingPage() {
                     ["Anti-fraude — alerta de migração","yes","no","no","yes"],
                     ["Controle de equipamentos em comodato","yes","no","no","no"],
                     ["Consulta SPC/Serasa integrada","yes","yes","no","no"],
-                    ["Importação via planilha CSV","yes","no","no","yes"],
                     ["Integração ERP (IXC, SGP, MK)","yes","no","yes","yes"],
                     ["Plano gratuito disponível","yes","no","no","yes"],
                   ].map((row,i) => (

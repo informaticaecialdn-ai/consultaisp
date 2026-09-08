@@ -42,17 +42,19 @@ export function registerDashboardRoutes(): Router {
     }
   });
 
-  router.post("/api/customers", requireAuth, requireProvider, async (req, res) => {
-    try {
-      const customer = await storage.createCustomer({
-        ...req.body,
-        providerId: req.session.providerId!,
-      });
-      return res.json(customer);
-    } catch (error: any) {
-      return res.status(500).json({ message: getSafeErrorMessage(error) });
-    }
-  });
+  /*
+   * NAO EXISTE `POST /api/customers`. Removida em 08/09/2026, com a importacao
+   * manual (decisao do dono: "os dados tem que vir dos ERPs").
+   *
+   * Era o pior buraco do mapa: rota de escrita SEM TELA que a chamasse, sem
+   * validacao nenhuma (`{...req.body, providerId}` direto no `createCustomer`)
+   * e sem checagem de papel — qualquer operador `user` fabricava cliente por
+   * curl, com o campo que quisesse. E cliente inventado nao fica so aqui: ele
+   * entra no score da rede, que e o produto.
+   *
+   * Cliente entra pelo `upsertFromErp` da varredura (`server/services/erp-sync.service.ts`),
+   * e por mais lugar nenhum.
+   */
 
   router.get("/api/defaulters", requireAuth, requireProvider, async (req, res) => {
     try {

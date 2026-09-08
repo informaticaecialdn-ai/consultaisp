@@ -5,7 +5,6 @@ import { sessionMiddleware } from "../auth";
 // Import all 15 route modules
 import { registerAuthRoutes } from "./auth.routes";
 import { registerDashboardRoutes } from "./dashboard.routes";
-import { registerImportRoutes } from "./import.routes";
 import { registerConsultasRoutes } from "./consultas.routes";
 import { registerAntiFraudeRoutes } from "./antifraude.routes";
 import { registerEquipamentosRoutes } from "./equipamentos.routes";
@@ -53,7 +52,6 @@ export async function registerRoutes(
   // Mount all domain routers
   app.use(registerAuthRoutes());
   app.use(registerDashboardRoutes());
-  app.use(registerImportRoutes());
   app.use(registerConsultasRoutes());
   app.use(registerAntiFraudeRoutes());
   app.use(registerEquipamentosRoutes());

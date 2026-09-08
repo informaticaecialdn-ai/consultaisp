@@ -64,7 +64,7 @@ const AntiFraudePage = lazy(pagina(() => import("@/pages/consulta/anti-fraude"))
 // Operacional
 const InadimplentesPage = lazy(pagina(() => import("@/pages/operacional/inadimplentes")));
 const LocalizacaoPage = lazy(pagina(() => import("@/pages/operacional/localizacao")));
-const ImportacaoPage = lazy(pagina(() => import("@/pages/operacional/importacao")));
+const ImportacaoEncerradaPage = lazy(pagina(() => import("@/pages/operacional/importacao-encerrada")));
 const EquipamentosPage = lazy(pagina(() => import("@/pages/operacional/equipamentos")));
 const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperacao")));
 const ChatOperacionalPage = lazy(pagina(() => import("@/pages/operacional/chat")));
@@ -135,8 +135,12 @@ function Router() {
         <Route path="/localizacao" component={LocalizacaoPage} />
         <Route path="/creditos" component={CreditosPage} />
         <Route path="/nfse" component={NfsePage} />
-        <Route path="/importacao" component={ImportacaoPage} />
-        <Route path="/importacao-equipamentos"><Redirect to="/equipamentos?importar=1" /></Route>
+        {/* A importacao manual acabou em 08/09/2026 (decisao do dono: os dados
+            tem que vir dos ERPs). Os dois enderecos continuam roteados, e a tela
+            explica a mudanca em vez de sumir: quem tem favorito ou link salvo
+            nao pode cair em pagina vazia. */}
+        <Route path="/importacao" component={ImportacaoEncerradaPage} />
+        <Route path="/importacao-equipamentos"><Redirect to="/importacao" replace /></Route>
         <Route path="/equipamentos" component={EquipamentosPage} />
         <Route path="/equipamentos/chat" component={ChatOperacionalPage} />
         <Route path="/cobranca/chat" component={ChatOperacionalPage} />

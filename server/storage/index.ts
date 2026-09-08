@@ -41,7 +41,6 @@ import { ErpStorage, type ResumoErp, type IntegracaoAdminErp } from "./erp.stora
 import { ChatStorage } from "./chat.storage";
 import { DashboardStorage } from "./dashboard.storage";
 import { AdminStorage, type LinhaDeConsultaEncontrada } from "./admin.storage";
-import { ImportStorage } from "./import.storage";
 import { MarcasStorage } from "./marcas.storage";
 import { SuporteStorage } from "./suporte.storage";
 import {
@@ -268,9 +267,6 @@ export interface IStorage {
   updateVisitorChatStatus(chatId: number, status: string): Promise<void>;
   getVisitorUnreadCount(chatId: number): Promise<number>;
 
-  bulkImportCustomers(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
-  bulkImportInvoices(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
-  bulkImportEquipment(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
 
   // Acesso de suporte — personificacao do provedor pelo superadmin.
   // Ver server/storage/suporte.storage.ts: a validade e o prazo sao decididos
@@ -381,7 +377,6 @@ class DatabaseStorage implements IStorage {
   private _chat = new ChatStorage();
   private _dashboard = new DashboardStorage();
   private _admin = new AdminStorage();
-  private _import = new ImportStorage();
   private _marcas = new MarcasStorage();
   private _suporte = new SuporteStorage();
   private _cobranca = new CobrancaStorage();
@@ -662,9 +657,6 @@ class DatabaseStorage implements IStorage {
   acknowledgeProactiveAlert = (alertId: number, providerId: number) => this._consultations.acknowledgeProactiveAlert(alertId, providerId);
 
   // Import
-  bulkImportCustomers = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportCustomers(rows, providerId);
-  bulkImportInvoices = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportInvoices(rows, providerId);
-  bulkImportEquipment = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportEquipment(rows, providerId);
 
   // ── Faturas do ERP (fase 2 da cobranca) ──
   private _faturas = new FaturasStorage();
