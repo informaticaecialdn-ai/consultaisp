@@ -32,6 +32,7 @@ import { registerCobrancaRoutes } from "./cobranca.routes";
 import { registerCobrancaIndicadoresRoutes } from "./cobranca-indicadores.routes";
 import { registerChatBullqRoutes } from "./chat-bullq.routes";
 import { registerChatBullqAgenteRoutes } from "./chat-bullq-agente.routes";
+import { registerChatConsoleRoutes } from "./chat-console.routes";
 import { registerChatAutonomiaRoutes } from "./chat-autonomia.routes";
 
 export async function registerRoutes(
@@ -86,6 +87,8 @@ export async function registerRoutes(
   app.use(registerCobrancaIndicadoresRoutes());
   // A ponte com o Chat BullQ (chat com o cliente em cobranca e equipamentos).
   app.use(registerChatBullqRoutes());
+  // O console de agentes do provedor: agentes, skills, conexoes e execucoes (sessao).
+  app.use(registerChatConsoleRoutes());
   // As skills do agente de IA e o webhook de volta do Chat BullQ (sem sessao: chave e HMAC).
   app.use(registerChatBullqAgenteRoutes());
   // A autonomia do chat: configuracao por provedor, fila por status e a volta da conversa ao assistente (sessao).

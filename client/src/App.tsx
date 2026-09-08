@@ -61,6 +61,9 @@ const EquipamentosPage = lazy(pagina(() => import("@/pages/operacional/equipamen
 const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperacao")));
 const ChatOperacionalPage = lazy(pagina(() => import("@/pages/operacional/chat")));
 
+// O console de agentes de IA do provedor (agentes, skills, conexoes, execucoes).
+const AgentesPage = lazy(pagina(() => import("@/pages/agentes")));
+
 // Cobranca — carteira, ficha 360, kanban, regua + DNA e politica (05/09/2026).
 const CobrancaCarteiraPage = lazy(pagina(() => import("@/pages/cobranca/carteira")));
 const CobrancaCliente360Page = lazy(pagina(() => import("@/pages/cobranca/cliente360")));
@@ -144,6 +147,8 @@ function Router() {
         <Route path="/cobranca/esteira" component={CobrancaKanbanPage} />
         <Route path="/cobranca/kanban"><RedirecionarEsteira /></Route>
         <Route path="/cobranca/regua" component={CobrancaReguaPage} />
+        {/* O console de agentes de IA — o /ai-agents do Chat BullQ por dentro. */}
+        <Route path="/agentes" component={AgentesPage} />
         {/* A politica de cobranca virou aba do Painel do Provedor (06/09/2026,
             pedido do dono). O endereco antigo redireciona: link salvo, favorito
             e mensagem antiga nao podem dar em pagina vazia. A ancora #economia
@@ -177,6 +182,8 @@ export const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-cadastral", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/equipamentos", "/equipamentos/chat", "/recuperacao", "/administracao", "/painel-provedor",
+  // O console de agentes: resolve a organizacao do Chat BullQ pelo provedor da sessao.
+  "/agentes",
   "/benchmark-regional",
   // A cobranca. `/cobranca/cliente/:id` nao cabe numa lista de caminho exato —
   // e coberta por `ehRotaDeCobranca`, abaixo, pelo prefixo. `/cobranca` e

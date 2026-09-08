@@ -32,6 +32,7 @@ import {
   Route,
   UserX,
   ChevronRight,
+  Bot,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { SimboloDaMarca } from "@/components/marca";
@@ -492,6 +493,10 @@ export const NAV_PROVEDOR: Array<{
     grupo: "Gestão",
     itens: [
       { label: "Importação",         url: "/importacao",      Icone: Upload,    testId: "link-importacao" },
+      // Os agentes de IA do provedor: quem fala com o cliente, o que pode executar
+      // e o que ja executou. Fica em Gestao porque e configuracao do provedor,
+      // ao lado do Painel — nao e uma tela de trabalho do dia.
+      { label: "Agentes de IA",      url: "/agentes",         Icone: Bot,       testId: "link-agentes" },
       { label: "Painel do Provedor", url: "/painel-provedor", Icone: Building2, testId: "link-painel-provedor" },
     ],
   },

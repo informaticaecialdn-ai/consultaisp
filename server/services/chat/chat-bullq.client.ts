@@ -113,6 +113,11 @@ export interface DadosAgente {
   capabilities?: unknown;
   isActive?: boolean;
   canRespondDirectly?: boolean;
+  /** Organograma do console: categoria livre, chefia direta, area e squad. */
+  category?: string;
+  parentAgentId?: string | null;
+  department?: string | null;
+  squad?: string | null;
 }
 
 interface Tokens {
@@ -455,9 +460,9 @@ export class ChatBullqClient {
   // ---------------------------------------------------------- catalogo do agente
 
   /** A conexao HTTP que as skills usam (uma por organizacao): base + headers literais (a chave do agente vai aqui). */
-  async criarTool(orgId: string, dados: { nome: string; descricao: string; httpBaseUrl: string; httpHeaders: Record<string, string> }): Promise<Resultado<{ id: string }>> {
+  async criarTool(orgId: string, dados: { nome: string; descricao: string; httpBaseUrl: string; httpHeaders: Record<string, string>; isActive?: boolean }): Promise<Resultado<{ id: string }>> {
     return this.operacao<{ id: string }>(orgId, "POST", "/ai-catalog/tools", {
-      corpo: { name: dados.nome, description: dados.descricao, source: "CUSTOM_HTTP", httpBaseUrl: dados.httpBaseUrl, httpHeaders: dados.httpHeaders },
+      corpo: { name: dados.nome, description: dados.descricao, source: "CUSTOM_HTTP", httpBaseUrl: dados.httpBaseUrl, httpHeaders: dados.httpHeaders, ...(dados.isActive !== undefined ? { isActive: dados.isActive } : {}) },
     });
   }
 
@@ -465,7 +470,7 @@ export class ChatBullqClient {
   async criarSkill(orgId: string, dados: {
     nome: string; descricao: string; categoria?: string; promptInstructions?: string; toolId: string;
     parameters: Record<string, unknown>; httpMethod: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; httpPath: string;
-    httpBodyTemplate?: string; responseMap?: Record<string, string>; timeoutMs?: number;
+    httpBodyTemplate?: string; responseMap?: Record<string, string>; timeoutMs?: number; isActive?: boolean; changeNote?: string;
   }): Promise<Resultado<{ id: string }>> {
     return this.operacao<{ id: string }>(orgId, "POST", "/ai-catalog/skills", {
       corpo: {
@@ -474,6 +479,8 @@ export class ChatBullqClient {
         source: "HTTP", toolId: dados.toolId, parameters: dados.parameters, httpMethod: dados.httpMethod, httpPath: dados.httpPath,
         ...(dados.httpBodyTemplate ? { httpBodyTemplate: dados.httpBodyTemplate } : {}),
         ...(dados.responseMap ? { responseMap: dados.responseMap } : {}),
+        ...(dados.isActive !== undefined ? { isActive: dados.isActive } : {}),
+        ...(dados.changeNote ? { changeNote: dados.changeNote } : {}),
         timeoutMs: dados.timeoutMs ?? 10000,
       },
     });
@@ -487,6 +494,72 @@ export class ChatBullqClient {
   /** PATCH no agente: prompt, contexto operacional, modelo, ativo. */
   async atualizarAgente(orgId: string, agenteId: string, dados: Record<string, unknown>): Promise<Resultado<{ id: string }>> {
     return this.operacao<{ id: string }>(orgId, "PATCH", `/ai-agents/${enc(agenteId)}`, { corpo: dados });
+  }
+
+  // ------------------------------------------------- console de agentes
+  // O que a tela `/ai-agents` do fork consome, na mesma ordem em que ela
+  // consome. Tudo aqui e leitura ou escrita DENTRO da organizacao do provedor:
+  // o `orgId` vai no cabecalho e o fork filtra por ele.
+
+  /** DELETE no agente — o fork faz soft delete (o historico de execucoes fica). */
+  async apagarAgente(orgId: string, agenteId: string): Promise<Resultado<void>> {
+    return descartar(await this.operacao(orgId, "DELETE", `/ai-agents/${enc(agenteId)}`));
+  }
+
+  async desligarAgenteDoCanal(orgId: string, agenteId: string, canalId: string): Promise<Resultado<void>> {
+    return descartar(await this.operacao(orgId, "DELETE", `/ai-agents/${enc(agenteId)}/channels/${enc(canalId)}`));
+  }
+
+  /** As skills ligadas a um agente, com a marca de "exige aprovacao". */
+  listarSkillsDoAgente(orgId: string, agenteId: string): Promise<Resultado<unknown[]>> {
+    return this.operacao<unknown[]>(orgId, "GET", `/ai-agents/${enc(agenteId)}/skills`);
+  }
+
+  async definirAprovacaoDaSkill(orgId: string, agenteId: string, skillId: string, exigeAprovacao: boolean): Promise<Resultado<void>> {
+    return descartar(await this.operacao(orgId, "PATCH", `/ai-agents/${enc(agenteId)}/skills/${enc(skillId)}/approval`, {
+      corpo: { requiresApproval: exigeAprovacao },
+    }));
+  }
+
+  /** O feed de execucoes da organizacao inteira, com as chamadas de ferramenta. */
+  listarExecucoes(orgId: string, filtros: Record<string, string | number | undefined> = {}): Promise<Resultado<unknown[]>> {
+    const query = Object.entries(filtros)
+      .filter(([, v]) => v !== undefined && v !== "")
+      .map(([k, v]) => `${enc(k)}=${enc(String(v))}`)
+      .join("&");
+    return this.operacao<unknown[]>(orgId, "GET", `/ai-agents/runs/feed${query ? `?${query}` : ""}`);
+  }
+
+  estatisticasDaOrganizacao(orgId: string, periodo: string): Promise<Resultado<unknown>> {
+    return this.operacao(orgId, "GET", `/ai-agents/stats/overview?period=${enc(periodo)}`);
+  }
+
+  listarTools(orgId: string): Promise<Resultado<unknown[]>> {
+    return this.operacao<unknown[]>(orgId, "GET", "/ai-catalog/tools");
+  }
+
+  atualizarTool(orgId: string, toolId: string, dados: Record<string, unknown>): Promise<Resultado<{ id: string }>> {
+    return this.operacao<{ id: string }>(orgId, "PATCH", `/ai-catalog/tools/${enc(toolId)}`, { corpo: dados });
+  }
+
+  async apagarTool(orgId: string, toolId: string): Promise<Resultado<void>> {
+    return descartar(await this.operacao(orgId, "DELETE", `/ai-catalog/tools/${enc(toolId)}`));
+  }
+
+  listarSkills(orgId: string): Promise<Resultado<unknown[]>> {
+    return this.operacao<unknown[]>(orgId, "GET", "/ai-catalog/skills");
+  }
+
+  atualizarSkill(orgId: string, skillId: string, dados: Record<string, unknown>): Promise<Resultado<{ id: string }>> {
+    return this.operacao<{ id: string }>(orgId, "PATCH", `/ai-catalog/skills/${enc(skillId)}`, { corpo: dados });
+  }
+
+  async apagarSkill(orgId: string, skillId: string): Promise<Resultado<void>> {
+    return descartar(await this.operacao(orgId, "DELETE", `/ai-catalog/skills/${enc(skillId)}`));
+  }
+
+  versoesDaSkill(orgId: string, skillId: string): Promise<Resultado<unknown[]>> {
+    return this.operacao<unknown[]>(orgId, "GET", `/ai-catalog/skills/${enc(skillId)}/versions`);
   }
 
   /** Uma automacao (gatilho → acoes) — usada para o webhook de volta ao Consulta ISP. */

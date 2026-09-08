@@ -8,6 +8,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'client/src'),
     },
   },
+  // JSX automatico, o mesmo do vite.config (plugin-react). Sem isto o esbuild
+  // do vitest usa o transform CLASSICO, que exige `React` no escopo: qualquer
+  // componente .tsx sem `import * as React` explode com "React is not defined"
+  // ao ser renderizado num teste — armadilha silenciosa, porque o mesmo arquivo
+  // funciona no navegador.
+  esbuild: { jsx: "automatic" },
+
   test: {
     // O client tambem entra. So o server estava incluido, entao um teste posto
     // em client/ era coletado por ninguem e passava despercebido — o arquivo
