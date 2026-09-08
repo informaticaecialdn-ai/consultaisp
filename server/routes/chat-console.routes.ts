@@ -1,5 +1,6 @@
 /**
- * O console de agentes — as rotas que a tela `/agentes` consome.
+ * O console de agentes — as rotas que a aba **Agentes de IA** do Painel do
+ * Provedor consome (`/painel-provedor?tab=agentes`; `/agentes` só redireciona).
  *
  * Tudo aqui é `requireAuth + requireProvider`: a organização do Chat BullQ sai
  * do `providerId` da sessão, nunca do corpo nem do caminho. Leitura é de

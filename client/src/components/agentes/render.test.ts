@@ -22,12 +22,12 @@ vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { name: "Emerson", role: 
 const SAIDA = process.env.PREVIA_AGENTES_SAIDA ?? "";
 
 async function paginaEmHtml(caminho: string, busca: string, semear: (qc: QueryClient) => void) {
-  const { default: AgentesPage } = await import("../../pages/agentes");
+  const { AbaAgentesDeIa } = await import("../painel/AbaAgentesDeIa");
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } });
   semear(qc);
   const html = renderToStaticMarkup(
     createElement(QueryClientProvider, { client: qc },
-      createElement(Router, { ssrPath: caminho, ssrSearch: busca }, createElement(AgentesPage))),
+      createElement(Router, { ssrPath: caminho, ssrSearch: busca }, createElement(AbaAgentesDeIa, { podeAdministrar: true }))),
   );
   qc.clear();
   return html;
@@ -104,12 +104,33 @@ describe("prévia do console", () => {
       }]],
     };
 
+    /**
+     * A MARCA de cada aba: um trecho que SÓ o corpo daquela aba imprime.
+     *
+     * A primeira versão deste teste afirmava `toContain("Agentes de IA")` por
+     * aba — o título do cabeçalho, que sai igual nas cinco. Com a aba travada
+     * na Visão geral ele passava cinco vezes e o teste ficava verde justamente
+     * na regressão que ele diz existir para pegar. Cada render agora tem que
+     * conter a própria marca e NENHUMA das outras.
+     */
+    const MARCA: Record<string, string> = {
+      resumo: 'data-testid="console-kpi-sucesso"',
+      agentes: 'data-testid="console-agente-ag-2"',
+      skills: 'data-testid="console-skill-consultarCaso"',
+      conexoes: 'data-testid="console-conexao-t-1"',
+      execucoes: 'data-testid="console-execucao-r-1"',
+    };
+
     const partes: string[] = [];
     for (const [aba, dados] of Object.entries(abas)) {
-      const html = await paginaEmHtml("/agentes", `aba=${aba}`, qc => {
+      const html = await paginaEmHtml("/painel-provedor", `tab=agentes&aba=${aba}`, qc => {
         qc.setQueryData(["/api/chat-bullq/integracao"], { ligado: true });
         for (const [chave, valor] of dados) qc.setQueryData([chave], valor);
       });
+      expect(html, `?aba=${aba} não renderizou o corpo da própria aba`).toContain(MARCA[aba]);
+      for (const [outra, marca] of Object.entries(MARCA)) {
+        if (outra !== aba) expect(html, `?aba=${aba} renderizou o corpo de ${outra}`).not.toContain(marca);
+      }
       expect(html).toContain("Agentes de IA");
       partes.push(`<section class="previa"><h2 class="previa-titulo">?aba=${aba}</h2>${html}</section>`);
     }

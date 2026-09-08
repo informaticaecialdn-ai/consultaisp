@@ -637,7 +637,8 @@ GET  /api/chat-bullq/autonomia/estado      # a fila do assistente, por status
 POST /api/chat-bullq/autonomia/conversas/:conversationId/devolver   # volta do humano ao assistente
 POST /api/webhooks/chat-bullq              # o fork avisa (HMAC X-Signature-256)
 ```
-**Console de agentes** (`/agentes`, `server/routes/chat-console.routes.ts`, 07/09/2026):
+**Console de agentes** (Painel do Provedor -> aba **Agentes de IA**,
+`server/routes/chat-console.routes.ts`, 07/09/2026):
 o `/ai-agents` do Chat BullQ por dentro do Consulta ISP. O fork continua sendo a
 LOJA e o EXECUTOR (`ai_agents`, `ai_skills`, `ai_tools`, execucoes); a porta muda:
 a organizacao sai do `providerId` da sessao e ninguem digita organizacao nem ve
@@ -667,6 +668,16 @@ e as skills `consultarCaso`/`registrarTransferencia`/`registrarPromessa` sao
 marcados `daPonte` e recusados para edicao e remocao — apagar um deles quebra o
 atendimento em producao. Os tres perfis continuam sendo administrados no Painel do
 Provedor -> aba Chat, onde politica e regua entram no prompt.
+
+O console nasceu como a pagina `/agentes`, item proprio no menu de Gestao, e no
+mesmo dia virou ABA do Painel do Provedor (pedido do dono: "agentes de IA tem que
+estar dentro de painel do provedor") — e onde mora o resto da configuracao do
+provedor. `/agentes` continua roteado, so como REDIRECIONAMENTO, com a sub-aba
+preservada; `ROTA_AGENTES` aponta para `/painel-provedor?tab=agentes` e quem
+acrescenta a sub-aba usa `&aba=`, nunca `?` — trocar derrubaria a aba do painel.
+O `podeAdministrar` agora vem do painel (`admin` OU `superadmin` **personificando**),
+que e exatamente o que `podeAdministrarOProvedor` faz no servidor; a pagina antiga
+aceitava superadmin sem personificacao, que nem chega a ter `providerId` na sessao.
 
 **Três faixas de autonomia** (migração 0028, DESLIGADA por padrão em todo provedor):
 a IA sozinha faz primeiro contato, lembrete, segunda via de fatura que ela LEU

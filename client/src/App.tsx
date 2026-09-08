@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from "react";
 import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
 import { caminhoNaCarteira, carteiraDaNavegacao, retornoDaCarteira } from "@/components/cobranca/carteiras";
 import { ROTA_ESTEIRA, ROTA_POLITICA } from "@/components/cobranca/tipos";
+import { ROTA_AGENTES } from "@/components/agentes/tipos";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -37,6 +38,13 @@ function RedirecionarEsteira() {
   return <Redirect to={`${ROTA_ESTEIRA}${search ? `?${search}` : ""}`} replace />;
 }
 
+/** O endereco antigo do console de agentes, com a sub-aba (`?aba=`) preservada. */
+function RedirecionarAgentes() {
+  const search = useSearch();
+  const aba = new URLSearchParams(search).get("aba");
+  return <Redirect to={`${ROTA_AGENTES}${aba ? `&aba=${encodeURIComponent(aba)}` : ""}`} replace />;
+}
+
 function RedirecionarFila() {
   const search = useSearch();
   const carteira = carteiraDaNavegacao("/cobranca/fila", search);
@@ -61,8 +69,6 @@ const EquipamentosPage = lazy(pagina(() => import("@/pages/operacional/equipamen
 const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperacao")));
 const ChatOperacionalPage = lazy(pagina(() => import("@/pages/operacional/chat")));
 
-// O console de agentes de IA do provedor (agentes, skills, conexoes, execucoes).
-const AgentesPage = lazy(pagina(() => import("@/pages/agentes")));
 
 // Cobranca — carteira, ficha 360, kanban, regua + DNA e politica (05/09/2026).
 const CobrancaCarteiraPage = lazy(pagina(() => import("@/pages/cobranca/carteira")));
@@ -147,8 +153,10 @@ function Router() {
         <Route path="/cobranca/esteira" component={CobrancaKanbanPage} />
         <Route path="/cobranca/kanban"><RedirecionarEsteira /></Route>
         <Route path="/cobranca/regua" component={CobrancaReguaPage} />
-        {/* O console de agentes de IA — o /ai-agents do Chat BullQ por dentro. */}
-        <Route path="/agentes" component={AgentesPage} />
+        {/* Os agentes de IA viraram aba do Painel do Provedor (07/09/2026, pedido
+            do dono). O endereco antigo redireciona com a sub-aba preservada:
+            link salvo e favorito nao podem dar em pagina vazia. */}
+        <Route path="/agentes"><RedirecionarAgentes /></Route>
         {/* A politica de cobranca virou aba do Painel do Provedor (06/09/2026,
             pedido do dono). O endereco antigo redireciona: link salvo, favorito
             e mensagem antiga nao podem dar em pagina vazia. A ancora #economia
@@ -182,7 +190,9 @@ export const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-cadastral", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/equipamentos", "/equipamentos/chat", "/recuperacao", "/administracao", "/painel-provedor",
-  // O console de agentes: resolve a organizacao do Chat BullQ pelo provedor da sessao.
+  // O console de agentes virou aba do Painel do Provedor; `/agentes` so
+  // redireciona. Continua aqui de proposito: a guarda roda ANTES do desvio, e
+  // sem esta entrada um papel sem provedor atravessaria o redirecionamento.
   "/agentes",
   "/benchmark-regional",
   // A cobranca. `/cobranca/cliente/:id` nao cabe numa lista de caminho exato —

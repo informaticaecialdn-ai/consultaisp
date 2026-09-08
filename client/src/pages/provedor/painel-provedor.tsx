@@ -25,7 +25,8 @@ import { AbaAntiFraude } from "@/components/painel/AbaAntiFraude";
 import { AbaSuporte } from "@/components/painel/AbaSuporte";
 import { AbaChat } from "@/components/painel/AbaChat";
 import { AbaCobranca } from "@/components/painel/AbaCobranca";
-import { MessageSquareShare, Scale } from "lucide-react";
+import { AbaAgentesDeIa } from "@/components/painel/AbaAgentesDeIa";
+import { Bot, MessageSquareShare, Scale } from "lucide-react";
 import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 import { rotuloDoPlano } from "@/lib/planos";
 import { ERP_OPTIONS } from "@/components/admin/constants";
@@ -337,9 +338,23 @@ export default function PainelProvedorPage() {
   const search = useSearch();
   const [activeTab, setActiveTab] = useState(() => new URLSearchParams(window.location.search).get("tab") || "visao-geral");
 
+  /**
+   * URL SEM `?tab=` volta para a Visão Geral — o `if (tab)` sem `else` deixava
+   * a aba congelada na última escolhida.
+   *
+   * Ficou latente enquanto ninguém navegava de aba para aba DENTRO do painel:
+   * a única entrada sem query era a barra lateral, e quem chegava por ali já
+   * estava na Visão Geral. Passou a doer em 07/09/2026, quando a aba de agentes
+   * trouxe um link do wouter para `?tab=chat` — o Voltar do navegador tirava o
+   * `?tab=` da URL, o efeito rodava, a guarda pulava o `setActiveTab` e a tela
+   * continuava no Chat. Voltar parecia morto.
+   *
+   * O efeito só re-roda quando a URL muda de verdade, então isto não briga com
+   * o clique nas abas, que mexe só no estado.
+   */
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
-    if (tab) setActiveTab(tab);
+    setActiveTab(tab || "visao-geral");
   }, [location, search]);
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "user" });
@@ -853,6 +868,15 @@ export default function PainelProvedorPage() {
           </TabsTrigger>
           <TabsTrigger value="chat" className="gap-1.5" data-testid="tab-chat">
             <MessageSquareShare className="w-3.5 h-3.5" />Chat
+          </TabsTrigger>
+          {/* Os agentes de IA sao os agentes DO chat — vem logo depois dele.
+              Mudaram de casa em 07/09/2026 (pedido do dono: "agentes de IA tem
+              que estar dentro de painel do provedor"); eram a pagina /agentes,
+              item proprio no menu de Gestao. Leitura e de qualquer operador: a
+              aba nao esconde de ninguem, quem nao pode administrar ve tudo sem
+              os botoes de escrita. */}
+          <TabsTrigger value="agentes" className="gap-1.5" data-testid="tab-agentes">
+            <Bot className="w-3.5 h-3.5" />Agentes de IA
           </TabsTrigger>
           {/* A politica de cobranca mudou de casa em 06/09/2026 (pedido do dono):
               era a pagina /cobranca/politica, no submenu de Cobranca, e virou aba
@@ -2252,6 +2276,10 @@ export default function PainelProvedorPage() {
         {/* O chat com o cliente (Chat BullQ): ligar o numero, senha do inbox, estado. */}
         <TabsContent value="chat">
           <AbaChat podeAdministrar={podeAdministrar} />
+        </TabsContent>
+
+        <TabsContent value="agentes">
+          <AbaAgentesDeIa podeAdministrar={podeAdministrar} />
         </TabsContent>
 
         {/* A politica de cobranca: tetos de negociacao, encargos, janela de

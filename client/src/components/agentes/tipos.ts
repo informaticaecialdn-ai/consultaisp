@@ -13,7 +13,12 @@ export const API_TOOLS = `${API_CONSOLE}/tools`;
 export const API_EXECUCOES = `${API_CONSOLE}/execucoes`;
 export const API_RESUMO = `${API_CONSOLE}/resumo`;
 
-export const ROTA_AGENTES = "/agentes";
+/**
+ * O console e uma ABA do Painel do Provedor desde 07/09/2026 — o `?tab=` e do
+ * painel e o `?aba=` e do console, entao quem acrescenta a sub-aba usa `&`,
+ * nunca `?`. O endereco antigo (`/agentes`) redireciona para ca.
+ */
+export const ROTA_AGENTES = "/painel-provedor?tab=agentes";
 
 export const ABAS_DO_CONSOLE = [
   { chave: "resumo", rotulo: "Visão geral" },
