@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   MapPin,
   CreditCard,
-  Upload,
   Settings,
   Shield,
   LogOut,
@@ -471,13 +470,6 @@ export const NAV_PROVEDOR: Array<{
     ],
   },
   {
-    grupo: "Financeiro",
-    itens: [
-      { label: "Comprar Créditos", url: "/creditos", Icone: CreditCard, testId: "link-creditos" },
-      { label: "Notas Fiscais",    url: "/nfse",     Icone: FileText,   testId: "link-nfse" },
-    ],
-  },
-  {
     // Equipamento perdido e prejuizo direto do provedor e entra no score da
     // rede: merece grupo proprio, nao um item solto dentro de Gestao.
     grupo: "Equipamentos",
@@ -489,16 +481,29 @@ export const NAV_PROVEDOR: Array<{
     ],
   },
   {
-    grupo: "Gestão",
+    // O grupo "Gestão" tinha dois itens e acabou em 07/09/2026 (pedido do dono):
+    // a Importação saiu do menu e o Painel do Provedor veio para cá, que é o que
+    // ele é — a casa da configuração do provedor. Um grupo de um item só é
+    // rótulo sem função: rótulo de grupo existe para separar assunto.
+    //
+    // A Importação continua ROTEADA e alcançável pelo atalho do Dashboard
+    // ("Importe clientes e faturas por arquivo CSV"). Sair do menu não é sair
+    // do produto — quem tinha o endereço salvo continua chegando.
+    grupo: "Configurações",
     itens: [
-      { label: "Importação",         url: "/importacao",      Icone: Upload,    testId: "link-importacao" },
       { label: "Painel do Provedor", url: "/painel-provedor", Icone: Building2, testId: "link-painel-provedor" },
+      { label: "Regionalização", url: "/configuracoes/regionalizacao", Icone: MapPin, testId: "link-regionalizacao" },
     ],
   },
   {
-    grupo: "Configurações",
+    // O ULTIMO grupo, abaixo de Configuracoes (pedido do dono, 07/09/2026).
+    // Estava entre Cobranca e Equipamentos, no meio do caminho de quem trabalha
+    // o dia. Comprar credito e emitir nota sao atos ocasionais do dono do
+    // provedor, nao operacao diaria — e menu se le de cima para baixo.
+    grupo: "Financeiro",
     itens: [
-      { label: "Regionalização", url: "/configuracoes/regionalizacao", Icone: MapPin, testId: "link-regionalizacao" },
+      { label: "Comprar Créditos", url: "/creditos", Icone: CreditCard, testId: "link-creditos" },
+      { label: "Notas Fiscais",    url: "/nfse",     Icone: FileText,   testId: "link-nfse" },
     ],
   },
 ];

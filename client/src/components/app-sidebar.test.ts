@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { REVENDA_PATHS } from "../App";
 import { NAV_PROVEDOR, NAV_REVENDEDOR, itemDeProvedorAtivo, itemDeRevendaAtivo } from "./app-sidebar";
@@ -116,5 +117,48 @@ describe("navegação independente das carteiras", () => {
       expect(menu.filhos?.some(i => i.url.startsWith("/cobranca/fila"))).toBe(false);
       expect(menu.filhos?.some(i => i.label === "Fila do dia")).toBe(false);
     }
+  });
+
+  /**
+   * A ORDEM dos grupos é decisão de produto, e menu se lê de cima para baixo:
+   * o que vem primeiro é o que se faz todo dia. Financeiro foi para o fim em
+   * 07/09/2026 (pedido do dono) — comprar crédito e emitir nota são atos
+   * ocasionais do dono do provedor, não operação diária, e estavam no meio do
+   * caminho de quem trabalha a carteira.
+   *
+   * A lista inteira, e não só a posição do Financeiro: assim mover qualquer
+   * grupo por descuido acusa aqui, com o diff mostrando o antes e o depois.
+   */
+  it("os grupos vêm na ordem decidida, com Financeiro por último", () => {
+    expect(NAV_PROVEDOR.map(g => g.grupo)).toEqual([
+      "Principal", "Cobrança", "Equipamentos", "Configurações", "Financeiro",
+    ]);
+  });
+
+  /**
+   * "Gestão" acabou no mesmo dia: a Importação saiu do menu e o Painel do
+   * Provedor foi para Configurações, que é o que ele é. A Importação continua
+   * ROTEADA e alcançável pelo atalho do Dashboard — este teste trava as duas
+   * pontas, para o item não voltar por descuido nem a página virar órfã.
+   */
+  it("Importação sai do menu mas segue alcançável; o Painel mora em Configurações", () => {
+    const itens = NAV_PROVEDOR.flatMap(g => g.itens);
+    expect(itens.some(i => i.url === "/importacao")).toBe(false);
+    expect(NAV_PROVEDOR.some(g => g.grupo === "Gestão")).toBe(false);
+
+    const configuracoes = NAV_PROVEDOR.find(g => g.grupo === "Configurações")!;
+    expect(configuracoes.itens.map(i => i.url)).toEqual([
+      "/painel-provedor", "/configuracoes/regionalizacao",
+    ]);
+
+    // A porta que sobrou: o atalho do Dashboard. Se ele sair, a Importação fica
+    // sem nenhum caminho dentro do produto.
+    const dashboard = readFileSync(new URL("../pages/provedor/dashboard.tsx", import.meta.url), "utf8");
+    expect(dashboard).toContain('url: "/importacao"');
+    // E a rota continua de pé, com a guarda cobrindo.
+    const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+    expect(app).toContain('<Route path="/importacao" component={ImportacaoPage} />');
+    expect(app.slice(app.indexOf("PROVIDER_ONLY_PATHS = ["), app.indexOf("PROVIDER_ONLY_PATHS = [") + 1400))
+      .toContain('"/importacao"');
   });
 });
