@@ -555,10 +555,21 @@ GET/POST spc-consultations
 GET anti-fraud/alerts, PATCH alerts/:id/status, GET customer-risk, GET migradores, GET/PUT anti-fraud/rules (regras + canais do provedor; PUT só admin)
 
 ### Equipamentos (requireAuth)
-GET/POST/PATCH/DELETE equipment  // o cadastro unitario continua: so IXC e SGP declaram
-                                 // `supportsEquipment`, entao provedor em MK, Hubsoft,
-                                 // Voalle ou RBX nao tem outro caminho para registrar a ONU
-                                 // retida. NAO existe mais `POST equipamentos/import`.
+GET/POST/PATCH/DELETE equipment
+```
+**O cadastro UNITÁRIO de equipamento fica — decisão do dono, 08/09/2026 ("mantém"),
+tomada junto com o fim da importação manual e apesar dela.** Não é sobra: só IXC e
+SGP declaram `supportsEquipment`, então provedor em MK, Hubsoft, Voalle ou RBX não
+tem NENHUM outro caminho para registrar a ONU retida — e sem ela o módulo de
+recuperação inteiro (`/recuperacao`, esteira de retirada, conversas de equipamento)
+morre para esses provedores. A NsLink é MK.
+
+Isto está escrito aqui e travado em `server/sem-importacao-manual.test.ts` porque o
+risco é de leitura: o teste vizinho diz "não existe entrada manual de dado", e quem
+ler só aquilo apaga este cadastro achando que passou batido. Se um dia os quatro
+conectores trouxerem equipamento, aí sim a rota perde a razão de existir.
+```
+`POST equipamentos/import` NÃO existe mais (saiu com a importação manual).
 
 ### Provedor Config (requireAuth)
 GET/PATCH provider/profile, provider/settings, provider/notification-settings

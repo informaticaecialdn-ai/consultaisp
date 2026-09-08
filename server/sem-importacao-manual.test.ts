@@ -116,4 +116,40 @@ describe("o caminho que ficou", () => {
     expect(sync).toMatch(/upsertFromErp/);
     expect(sync).toMatch(/upsertFaturasDoErp/);
   });
+
+  /**
+   * A EXCEÇÃO, e ela é deliberada — decisão do dono em 08/09/2026 ("mantém"),
+   * tomada junto com o corte da importação manual e apesar dele.
+   *
+   * Só IXC e SGP declaram `supportsEquipment`. Provedor em MK, Hubsoft, Voalle
+   * ou RBX não tem NENHUM outro caminho para registrar a ONU que ficou com o
+   * ex-cliente, e sem esse registro o módulo de recuperação inteiro morre para
+   * ele: sem equipamento não há caso de retirada, esteira nem conversa.
+   *
+   * Este teste existe por causa do teste vizinho. O arquivo inteiro diz "não
+   * existe entrada manual de dado"; quem ler só isso apaga o cadastro de
+   * equipamento achando que escapou da varredura. Aqui está por escrito que não
+   * escapou — foi decidido ficar.
+   *
+   * Quando os quatro conectores trouxerem equipamento, a rota perde a razão e
+   * este teste é o lugar de registrar a mudança.
+   */
+  it("o cadastro unitário de equipamento FICA — é a única porta de quem não tem ERP com equipamento", () => {
+    const rotas = ler(join(RAIZ, "server/routes/equipamentos.routes.ts"));
+    expect(rotas).toMatch(/router\.post\(\s*["'`]\/api\/equipment["'`]/);
+    expect(rotas).toMatch(/router\.patch\(\s*["'`]\/api\/equipment\/:id["'`]/);
+
+    const tela = ler(join(RAIZ, "client/src/pages/operacional/equipamentos.tsx"));
+    expect(tela).toContain('data-testid="botao-cadastrar-equipamento"');
+
+    // A premissa que sustenta a exceção, conferida no fonte e não de memória:
+    // se um dia mais conectores trouxerem equipamento, este número muda e a
+    // decisão volta à mesa.
+    const conectores = arquivosDe("server/erp/connectors", [".ts"]);
+    const comEquipamento = conectores.filter(c => /supportsEquipment\s*=\s*true/.test(ler(c)));
+    expect(comEquipamento.map(relativo).sort()).toEqual([
+      "server/erp/connectors/ixc.ts",
+      "server/erp/connectors/sgp.ts",
+    ]);
+  });
 });
