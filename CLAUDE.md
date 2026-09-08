@@ -86,6 +86,10 @@ CHAT_BULLQ_INBOX_URL=               # Opcional; padrao https://chat.consultaisp.
 CHAT_BULLQ_AGENTE_URL=              # Opcional; base que a tool do agente de IA chama (padrao https://consultaisp.com.br/api/chat-bullq/agente)
 CHAT_BULLQ_WEBHOOK_URL=             # Opcional; para onde o Chat BullQ manda o call_webhook de volta (padrao https://consultaisp.com.br/api/webhooks/chat-bullq)
 CHAT_BULLQ_AGENTE_MODELO=           # Opcional; modelo do agente de cobranca criado por provedor (padrao openai/gpt-4o-mini)
+CHAT_BULLQ_TOOLS_HOSTS=             # Opcional; hosts que uma "conexao" do console de agentes pode chamar, separados por virgula.
+                                    # A base de CHAT_BULLQ_AGENTE_URL entra sempre. Sem a variavel, so ela e permitida — e e o
+                                    # que faz sentido: a skill util aqui chama a NOSSA API do agente. Quem escolhe o destino
+                                    # escolhe para onde vao os headers de credencial.
 ```
 
 ---
@@ -633,6 +637,37 @@ GET  /api/chat-bullq/autonomia/estado      # a fila do assistente, por status
 POST /api/chat-bullq/autonomia/conversas/:conversationId/devolver   # volta do humano ao assistente
 POST /api/webhooks/chat-bullq              # o fork avisa (HMAC X-Signature-256)
 ```
+**Console de agentes** (`/agentes`, `server/routes/chat-console.routes.ts`, 07/09/2026):
+o `/ai-agents` do Chat BullQ por dentro do Consulta ISP. O fork continua sendo a
+LOJA e o EXECUTOR (`ai_agents`, `ai_skills`, `ai_tools`, execucoes); a porta muda:
+a organizacao sai do `providerId` da sessao e ninguem digita organizacao nem ve
+token. Leitura e de qualquer operador; **toda escrita e de admin**.
+```
+GET/POST         /api/chat-bullq/console/agentes            # + GET/PATCH/DELETE :id
+GET/PUT          /api/chat-bullq/console/agentes/:id/skills # PUT manda o conjunto INTEIRO (o fork apaga e recria)
+PATCH            /api/chat-bullq/console/agentes/:id/skills/:skillId  # exige aprovacao humana
+POST/DELETE      /api/chat-bullq/console/agentes/:id/canais[/:canalId]
+GET/POST         /api/chat-bullq/console/tools              # + PATCH/DELETE :id
+GET/POST         /api/chat-bullq/console/skills             # + PATCH/DELETE :id, GET :id/versoes
+GET              /api/chat-bullq/console/execucoes | resumo
+```
+**Duas travas que sao nossas, nao do fork:**
+1. **Tool so HTTP.** O fork aceita `CUSTOM_SQL` — conexao de banco com query livre.
+   Contra o nosso Postgres isso entrega a base inteira: quem escreve a query escolhe
+   se filtra por `provider_id`. Fica **fora do schema** (`ToolDoConsoleSchema` e
+   `.strict()`), nao escondido na UI.
+2. **Allowlist de host** (`hostPermitido` em `shared/chat-console.ts`). Uma skill e
+   uma chamada HTTP que o FORK faz com os headers configurados. Sem lista, um admin
+   aponta a conexao para um servidor dele e recebe a chave junto — e usa a VPS como
+   proxy para a rede interna. Exige https, host liberado e nada de endereco privado.
+
+Agente novo nasce **parado e sem canal**: criar nao e ligar. Os tres perfis da
+cobranca (ids em `agenteConfig.agentes`), a conexao cuja base e `urlDaApiDoAgente()`
+e as skills `consultarCaso`/`registrarTransferencia`/`registrarPromessa` sao
+marcados `daPonte` e recusados para edicao e remocao — apagar um deles quebra o
+atendimento em producao. Os tres perfis continuam sendo administrados no Painel do
+Provedor -> aba Chat, onde politica e regua entram no prompt.
+
 **Três faixas de autonomia** (migração 0028, DESLIGADA por padrão em todo provedor):
 a IA sozinha faz primeiro contato, lembrete, segunda via de fatura que ela LEU
 agora e promessa de valor integral com data citada; dentro da política e sem
