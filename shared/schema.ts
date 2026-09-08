@@ -284,8 +284,23 @@ export const customers = pgTable("customers", {
   totalOverdueAmount: decimal("total_overdue_amount", { precision: 10, scale: 2 }).default("0"),
   maxDaysOverdue: integer("max_days_overdue").default(0),
   overdueInvoicesCount: integer("overdue_invoices_count").default(0),
-  equipmentCount: integer("equipment_count").default(1),
-  equipmentEstimatedValue: decimal("equipment_estimated_value", { precision: 10, scale: 2 }).default("290"),
+  /**
+   * Patrimônio em comodato NÃO devolvido, medido — não presumido.
+   *
+   * Estes dois nasceram com default `1` e `"290"`: todo cliente entrava
+   * afirmando ter um equipamento de R$ 290 sem que ninguém tivesse medido. E
+   * não é enfeite: são os campos que o Anti-Fraude lê para dizer quanto o
+   * provedor perde (`antifraude.routes.ts`, `equipCount`/`equipValue`).
+   *
+   * Zerados na migração 0032 (08/09/2026, autorizada pelo dono), que também
+   * corrigiu as 32.214 linhas de produção que carregavam o número inventado —
+   * para 324 aparelhos que existiam de fato.
+   *
+   * Quem escreve aqui é `recalculateCustomerEquipmentAggregate`, a partir da
+   * tabela `equipment`. `upsertFromErp` NÃO toca nestes campos de propósito.
+   */
+  equipmentCount: integer("equipment_count").default(0),
+  equipmentEstimatedValue: decimal("equipment_estimated_value", { precision: 10, scale: 2 }).default("0"),
   ispScore: integer("isp_score").default(100),
   riskTier: text("risk_tier").default("low"),
   /**
