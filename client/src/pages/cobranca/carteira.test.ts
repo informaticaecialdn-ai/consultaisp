@@ -113,7 +113,7 @@ describe("linhasDoPrejuizo — o card fala do eixo, da cobertura e do número re
       dividaDoRecorte: 3120, dividaDaCarteira: 9176.47, devedoresDaCarteira: 21, fatiaDaCarteira: 34,
       motivosDoTraco: [{ motivo: "sem mensalidade: este cliente não tem fatura vinda do ERP, e o plano dele não chegou do sync", clientes: 4, divida: 400 }],
       semData: { clientes: 0, divida: 0 },
-      multaForaDoPrejuizo: 0, multasIndeterminadas: 0,
+      multaForaDoPrejuizo: 0, multasIndeterminadas: 0, estimados: 0,
     },
   };
   it("ativos: projeção com cobertura na mesma linha, a dívida real ao lado, e a decomposição que fecha", () => {
@@ -168,7 +168,7 @@ describe("a linha da multa no card — o que ficou fora do prejuízo, dito na te
     resumo: {
       devedores: 3, avaliados: 3, noPrejuizo: 2, prejuizo: 1200, dividaAvaliada: 240, instalacaoNaoRecuperada: 960, abatida: 0,
       dividaDoRecorte: 1440, dividaDaCarteira: 1440, devedoresDaCarteira: 3, fatiaDaCarteira: 100,
-      motivosDoTraco: [], semData: { clientes: 0, divida: 0 }, multaForaDoPrejuizo: 1200, multasIndeterminadas: 0,
+      motivosDoTraco: [], semData: { clientes: 0, divida: 0 }, multaForaDoPrejuizo: 1200, multasIndeterminadas: 0, estimados: 0,
     },
   };
   it("multa e equipamento fora do prejuízo aparecem com o valor e a razão; sem nada, a linha não existe", () => {
@@ -181,5 +181,25 @@ describe("a linha da multa no card — o que ficou fora do prejuízo, dito na te
     expect(uma.multa).toBe("1 fatura mistura multa e mensalidade sem valores: contada como dívida");
     const duas = linhasDoPrejuizo({ ...base, resumo: { ...base.resumo, multasIndeterminadas: 2 } }, "ex");
     expect(duas.multa).toMatch(/não entram no prejuízo — o equipamento já está no investimento que a Economia cobra · 2 faturas misturam multa e mensalidade sem valores: contadas como dívida$/);
+  });
+});
+
+describe("os estimados no card — o ex-cliente sem fatura paga entra, e a tela diz quantos", () => {
+  const base: RespostaDoPrejuizo = {
+    live: true, motivo: null, eixo: "devem_desde", confirmado: false, atualizadoEm: "2026-09-09T06:05:00.000Z",
+    periodo: { texto: "2026-09", rotulo: "set/26", granularidade: "mes", de: "2026-09-01", ate: "2026-10-01" },
+    serie: [],
+    resumo: {
+      devedores: 5, avaliados: 4, noPrejuizo: 3, prejuizo: 2200, dividaAvaliada: 400, instalacaoNaoRecuperada: 2200, abatida: 0,
+      dividaDoRecorte: 500, dividaDaCarteira: 500, devedoresDaCarteira: 5, fatiaDaCarteira: 100,
+      motivosDoTraco: [], semData: { clientes: 0, divida: 0 }, multaForaDoPrejuizo: 0, multasIndeterminadas: 0, estimados: 3,
+    },
+  };
+  it("ex-clientes: o subtitulo fala em resultado do contrato, e a linha dos estimados diz de onde vem o numero", () => {
+    const l = linhasDoPrejuizo(base, "ex");
+    expect(l.sub).toContain("resultado do contrato pela Economia do cliente");
+    expect(l.estimados).toBe("3 de 4 estimados: sem fatura paga do ERP, receita = mensalidades do ciclo − saldo devedor");
+    expect(linhasDoPrejuizo({ ...base, resumo: { ...base.resumo, estimados: 0 } }, "ex").estimados).toBeNull();
+    expect(linhasDoPrejuizo(base, "ativos").sub).toContain("projeção pela Economia do cliente");
   });
 });

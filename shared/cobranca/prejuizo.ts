@@ -71,8 +71,8 @@ export interface DecomposicaoDoPrejuizo {
 
 export function decomporPrejuizo(L: EconomiaLedger, dividaReal: number): DecomposicaoDoPrejuizo {
   const prejuizo = r2(Math.max(0, -L.lucro_acumulado));
-  if (L.fonte_receita === "recebida") {
-    // O ledger recebido não subtrai a dívida: o que sobra negativo é só instalação.
+  if (L.fonte_receita !== "projetada") {
+    // O ledger recebido (ou estimado) não subtrai a dívida: o que sobra negativo é só instalação.
     return { prejuizo, dividaAvaliada: r2(dividaReal), instalacaoNaoRecuperada: prejuizo, abatida: 0 };
   }
   const d = L.inadimplencia_aberta;
@@ -140,6 +140,8 @@ export interface ResumoDoPrejuizo {
   multaForaDoPrejuizo: number;
   /** Faturas do recorte que misturam multa e mensalidade sem valores — ficaram como dívida. */
   multasIndeterminadas: number;
+  /** Dos avaliados, quantos saíram ESTIMADOS (ciclo encerrado sem fatura paga: mensalidades − saldo devedor). */
+  estimados: number;
 }
 
 export interface SerieDoPrejuizo { mes: string; devedores: number; dividaReal: number; prejuizo: number | null }
@@ -182,7 +184,7 @@ export function agregarPrejuizo(entrada: {
     devedores: 0, avaliados: 0, noPrejuizo: 0, prejuizo: null, dividaAvaliada: 0, instalacaoNaoRecuperada: null, abatida: 0,
     dividaDoRecorte: 0, dividaDaCarteira: 0, devedoresDaCarteira: 0, fatiaDaCarteira: null,
     motivosDoTraco: [], semData: { clientes: 0, divida: 0 },
-    multaForaDoPrejuizo: 0, multasIndeterminadas: 0,
+    multaForaDoPrejuizo: 0, multasIndeterminadas: 0, estimados: 0,
   };
   const motivos = new Map<string, MotivoDoTraco>();
   const ids: number[] = [];
@@ -238,6 +240,7 @@ export function agregarPrejuizo(entrada: {
     resumo.multaForaDoPrejuizo = r2(resumo.multaForaDoPrejuizo + eco.multaForaDoPrejuizo);
     // So dos AVALIADOS, como a multa: "contada como divida" so faz sentido para quem entrou na conta.
     resumo.multasIndeterminadas += eco.multasIndeterminadas;
+    if (eco.economia.fonte_receita === "estimada") resumo.estimados++;
     resumo.avaliados++;
     if (dec.prejuizo > 0) resumo.noPrejuizo++;
     somaPrejuizo = r2(somaPrejuizo + dec.prejuizo);

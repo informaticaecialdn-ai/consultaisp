@@ -679,6 +679,12 @@ como dívida e a tela avisa; "multa" de mora (juros/atraso) não é saída; a fa
 de saída nunca concorre à moda da mensalidade. Sem UMA fatura `paid` na base do provedor
 (`erpConfirmaPagamentos`), o motivo do traço do ex-cliente é do PROVEDOR (MK sem
 a API licenciada), não do cliente.
+**Ex-cliente sem fatura paga sai ESTIMADO** (09/09/2026, pedido do dono): receita =
+mensalidade × meses do ciclo − saldo devedor de serviço, `fonte_receita = "estimada"`,
+selo "≈ estimado" com o motivo (`economiaEstimada`), `estimados` no card. A
+mensalidade do ex-cliente cuja única fatura é o saldo vem do preço do plano, ou da
+própria fatura de saída ("2 Mensalidades 199,80" → 99,90; "Proporcional 40 dias"
+pro-rata), origem `fatura_de_saida`.
 
 ### Chat, agentes e assistente autônomo (requireAuth + requireProvider)
 O atendimento vive DENTRO do sistema: `/cobranca/chat` e `/equipamentos/chat`, a

@@ -120,12 +120,28 @@ describe("montarFicha360", () => {
     expect(f.economiaPendente).toMatch(/Política > Economia/);
   });
 
-  it("ex-cliente sem histórico: ciclo encerrado, meses contados até o corte, Economia PENDENTE com o motivo do Provedor.ai", () => {
+  it("ex-cliente sem fatura paga: ciclo encerrado, meses ate o corte, e o resultado ESTIMADO (mensalidades − saldo devedor) com o motivo no selo", () => {
     const f = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05" });
     expect(f.situacaoReal).toBe("ex-cliente");
     expect(f.mesesCliente).toBe(6);
-    expect(f.economia).toBeNull();
-    expect(f.economiaPendente).toMatch(/ex-cliente sem histórico de pagamento sincronizado/);
+    expect(f.economia).not.toBeNull();
+    expect(f.economia!.fonte_receita).toBe("estimada");
+    expect(f.economia!.receita_estimada).toBe(500);          // 100 × 6 − 100 de divida
+    expect(f.economia!.lucro_acumulado).toBe(-140);          // 500 × 0,9 − 40 × 6 − 350
+    expect(f.economia!.ciclo_encerrado).toBe(true);
+    expect(f.economiaPendente).toBeNull();
+    expect(f.economiaEstimada).toMatch(/sem fatura paga sincronizada deste cliente — o resultado do contrato é estimado/);
+    // Com o ERP do provedor sem paga nenhuma, o selo diz isso — e no MK, qual API falta.
+    const mk = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", erpConfirmaPagamentos: false, erpSource: "mk" });
+    expect(mk.economia!.fonte_receita).toBe("estimada");
+    expect(mk.economiaEstimada).toMatch(/o MK ainda não entregou nenhuma ao Consulta ISP .* MK Solutions/);
+    // A multa cobrada a parte sai do saldo devedor antes da estimativa.
+    const comMulta = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", dividaAtual: 700, cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1 } });
+    expect(comMulta.economia!.receita_estimada).toBe(500);   // 600 − (700 − 600)
+  });
+  it("cliente vivo com historico ausente continua PROJETADO; ex-cliente com historico continua RECEBIDO", () => {
+    expect(montarFicha360({ ...base }).economia!.fonte_receita).toBe("projetada");
+    expect(montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 } }).economiaEstimada).toBeNull();
   });
 
   it("ex-cliente COM histórico: Economia realizada, ciclo encerrado e efetivo = meses de casa", () => {
@@ -306,24 +322,25 @@ describe("o resultado do contrato encerrado com pagamento REAL (0036)", () => {
 
 describe("o motivo do traco quando o ERP do PROVEDOR nunca confirmou pagamento (0036)", () => {
   it("MK sem a API licenciada: o texto culpa o MK, nao o cliente", () => {
-    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: "mk" })).toMatch(/o MK ainda não entregou nenhuma fatura paga .* licenciada à parte pela MK Solutions/);
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: "mk" })).toMatch(/o MK ainda não entregou nenhuma ao Consulta ISP .* licenciada à parte pela MK Solutions.* estimado/);
     expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: "MK" })).toMatch(/WSMKFaturas/);
   });
   it("outro ERP sem paga nenhuma: o provedor ainda nao entregou fatura paga", () => {
-    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: "ixc" })).toMatch(/ainda não entregou nenhuma fatura paga/);
-    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: null })).toMatch(/ainda não entregou nenhuma fatura paga/);
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: "ixc" })).toMatch(/o ERP deste provedor ainda não entregou nenhuma ao Consulta ISP/);
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: null })).toMatch(/o ERP deste provedor ainda não entregou nenhuma/);
   });
   it("com pagas na base (ou sem saber), o motivo continua sendo do cliente", () => {
-    expect(motivoSemHistorico({ erpConfirmaPagamentos: true, erpSource: "mk" })).toMatch(/ex-cliente sem histórico de pagamento sincronizado/);
-    expect(motivoSemHistorico({ erpConfirmaPagamentos: null, erpSource: "mk" })).toMatch(/ex-cliente sem histórico/);
-    expect(motivoSemHistorico({})).toMatch(/ex-cliente sem histórico/);
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: true, erpSource: "mk" })).toMatch(/sem fatura paga sincronizada deste cliente/);
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: null, erpSource: "mk" })).toMatch(/sem fatura paga sincronizada deste cliente/);
+    expect(motivoSemHistorico({})).toMatch(/sem fatura paga sincronizada deste cliente/);
   });
-  it("a ficha do ex-cliente da NsLink leva esse motivo — e nao muda nada para quem tem historico", () => {
+  it("a ficha do ex-cliente da NsLink leva esse motivo no SELO do estimado — e nao muda nada para quem tem historico", () => {
     const semApi = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", erpConfirmaPagamentos: false, erpSource: "mk" });
-    expect(semApi.economia).toBeNull();
-    expect(semApi.economiaPendente).toMatch(/MK Solutions/);
+    expect(semApi.economia!.fonte_receita).toBe("estimada");
+    expect(semApi.economiaEstimada).toMatch(/MK Solutions/);
     const comHistorico = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", erpConfirmaPagamentos: false, erpSource: "mk", historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 } });
-    expect(comHistorico.economiaPendente ?? "").not.toMatch(/MK Solutions/);
+    expect(comHistorico.economia!.fonte_receita).toBe("recebida");
+    expect(comHistorico.economiaEstimada).toBeNull();
   });
 });
 
@@ -382,5 +399,28 @@ describe("a fatura de SAIDA nao vira mensalidade (revisao de 09/09/2026)", () =>
       cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1 } });
     expect(f.valorMensal).toBe(89.9);
     expect(f.economia).not.toBeNull();
+  });
+});
+
+describe("a mensalidade deduzida da fatura de saida e a terceira fonte do ARPU", () => {
+  it("ex-cliente da NsLink cuja unica fatura e o saldo: sem preco do plano e sem moda valida, a fatura de saida declara a mensalidade", () => {
+    const f = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", plano: "Smart 700MB", economia: { ...ECONOMIA, precoPorPlano: {} }, dividaAtual: 719.86,
+      mensalidadeObservada: { valor: 719.86, concordam: 1, faturas: 1, baixadas: 0 },
+      cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1, mensalidadeLida: 89.9 } });
+    expect(f.valorMensal).toBe(89.9);
+    expect(f.origemDoValorMensal).toBe("fatura_de_saida");
+    expect(f.economia!.fonte_receita).toBe("estimada");
+    expect(f.economia!.receita_estimada).toBe(419.54);       // 89,90 × 6 − 119,86 de saldo de servico
+  });
+  it("o preco do plano cadastrado vence a fatura de saida; e sem nada, o pendente manda cadastrar o preco do plano", () => {
+    const comPreco = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", plano: "Fibra 300",
+      mensalidadeObservada: { valor: 719.86, concordam: 1, faturas: 1, baixadas: 0 },
+      cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1, mensalidadeLida: 89.9 } });
+    expect(comPreco.origemDoValorMensal).toBe("plano_cadastrado");
+    const semNada = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", plano: "Smart 700MB", economia: { ...ECONOMIA, precoPorPlano: {} },
+      mensalidadeObservada: { valor: 719.86, concordam: 1, faturas: 1, baixadas: 0 },
+      cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1, mensalidadeLida: null } });
+    expect(semNada.economia).toBeNull();
+    expect(semNada.economiaPendente).toMatch(/a única fatura aberta é a de saída .* cadastre o preço do plano "Smart 700MB" em Política > Economia/);
   });
 });

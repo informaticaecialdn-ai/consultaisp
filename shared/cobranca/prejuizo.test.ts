@@ -115,8 +115,8 @@ describe("agregarPrejuizo — a soma da carteira por período", () => {
     expect(r.resumo.prejuizo).toBeNull();
     expect(r.resumo.instalacaoNaoRecuperada).toBeNull();
     expect(r.resumo.dividaDoRecorte).toBe(3514.31);
-    // Hoje o gate do ex-cliente fecha ANTES da mensalidade: o motivo é o do histórico.
-    expect(r.resumo.motivosDoTraco).toEqual([{ motivo: expect.stringMatching(/ex-cliente sem histórico/), clientes: 2, divida: 3514.31 }]);
+    // Sem fatura paga o ex-cliente sai ESTIMADO; o que barra aqui e a mensalidade: a unica fatura e o saldo.
+    expect(r.resumo.motivosDoTraco).toEqual([{ motivo: expect.stringMatching(/a única fatura aberta deste ex-cliente é o saldo final/), clientes: 2, divida: 3514.31 }]);
   });
   it("sem devedor no período: ZERO, não traço (conjunto vazio soma zero); sem carteira, sem fatia", () => {
     const r = agregarPrejuizo({ devedores: [], mensalidades: new Map(), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-09")!, carteira: "ativo" });
@@ -148,20 +148,28 @@ describe("com pagamento real (0036), o ex-cliente entra na soma pelo que pagou",
 });
 
 describe("o provedor cujo ERP nunca confirmou pagamento (0036)", () => {
-  it("ex-clientes ficam de fora com o motivo do PROVEDOR, e ele aparece uma vez so, agregado", () => {
+  it("ex-clientes sem fatura paga entram ESTIMADOS (mensalidades do ciclo − saldo devedor), e o resumo diz quantos", () => {
     const devedores = [
       devedor({ id: 1, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-05", ultimaFatura: "2026-03-05", devemDesde: "2026-03-05" }),
       devedor({ id: 2, statusErp: "cancelled", dividaAtual: 200, contractStartDate: "2025-09-05", ultimaFatura: "2026-02-05", devemDesde: "2026-02-05" }),
     ];
     const mensalidades = new Map([[1, mensal(89.9, 6, 6)], [2, mensal(89.9, 6, 6)]]);
     const r = agregarPrejuizo({ devedores, mensalidades, erpConfirmaPagamentos: false, erpSource: "mk", economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ex_cliente" });
-    expect(r.resumo.avaliados).toBe(0);
-    expect(r.resumo.motivosDoTraco).toEqual([{ motivo: expect.stringMatching(/MK Solutions/), clientes: 2, divida: 300 }]);
+    expect(r.resumo.avaliados).toBe(2);
+    expect(r.resumo.estimados).toBe(2);
+    expect(r.resumo.motivosDoTraco).toEqual([]);
+    // 1: (89,90 × 6 − 100) × 0,92 − 45 × 6 − 770 = −635,75 · 2: (89,90 × 5 − 200) × 0,92 − 45 × 5 − 770 = −765,46
+    expect(r.resumo.prejuizo).toBeCloseTo(1401.21, 2);
+    expect(r.resumo.instalacaoNaoRecuperada).toBeCloseTo(1401.21, 2);
+    expect(r.resumo.dividaAvaliada).toBe(300);
   });
-  it("sem a flag, o motivo antigo (do cliente) continua", () => {
-    const devedores = [devedor({ id: 1, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-05", ultimaFatura: "2026-03-05", devemDesde: "2026-03-05" })];
-    const r = agregarPrejuizo({ devedores, mensalidades: new Map([[1, mensal(89.9, 6, 6)]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ex_cliente" });
-    expect(r.resumo.motivosDoTraco[0]?.motivo).toMatch(/ex-cliente sem histórico/);
+  it("ex-cliente com historico real nao e estimado; cliente vivo tampouco", () => {
+    const ex = agregarPrejuizo({ devedores: [devedor({ id: 1, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-05", ultimaFatura: "2026-03-05", devemDesde: "2026-03-05" })], mensalidades: new Map([[1, mensal(89.9, 6, 6)]]), historicos: new Map([[1, { pagas: 6, recebido: 539.4, pct_em_dia: 100 }]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ex_cliente" });
+    expect(ex.resumo.avaliados).toBe(1);
+    expect(ex.resumo.estimados).toBe(0);
+    const vivo = agregarPrejuizo({ devedores: [devedor({ id: 1, statusErp: "active", dividaAtual: 100, contractStartDate: "2025-09-05", devemDesde: "2026-03-05", ultimaFatura: "2026-03-05" })], mensalidades: new Map([[1, mensal(89.9, 2)]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ativo" });
+    expect(vivo.resumo.avaliados).toBe(1);
+    expect(vivo.resumo.estimados).toBe(0);
   });
   it("o plano do devedor (contract_plan) com preco cadastrado vira o ARPU do cliente vivo", () => {
     const devedores = [devedor({ id: 1, statusErp: "active", dividaAtual: 100, contractStartDate: "2025-09-05", devemDesde: "2026-03-05", ultimaFatura: "2026-03-05", plano: "Smart 800MB" })];

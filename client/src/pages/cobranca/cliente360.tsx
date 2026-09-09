@@ -103,7 +103,7 @@ function Pendente({ motivo, ext }: { motivo: string; ext?: string }) {
  * nao: um preco que o admin cadastrou e configuracao, e um valor lido das
  * faturas do ERP e observacao. A tela diz qual dos dois esta olhando.
  */
-export type OrigemDoValor = "plano_cadastrado" | "faturas_do_erp";
+export type OrigemDoValor = "plano_cadastrado" | "faturas_do_erp" | "fatura_de_saida";
 export interface EvidenciaDaMensalidade { valor: number; concordam: number; faturas: number }
 
 /**
@@ -119,13 +119,18 @@ export interface EvidenciaDaMensalidade { valor: number; concordam: number; fatu
  */
 export function rotuloDaMensalidade(origem: OrigemDoValor | null, e: EvidenciaDaMensalidade | null): string {
   if (origem === "plano_cadastrado") return "preço do plano cadastrado";
+  if (origem === "fatura_de_saida") return "deduzida da fatura de saída";
   if (origem !== "faturas_do_erp") return "mensalidade do plano";
   if (!e) return "lida das faturas do ERP";
   if (e.concordam >= 2) return `mesmo valor em ${e.concordam} de ${e.faturas} faturas`;
   return e.faturas === 1 ? "lida de 1 fatura só" : `1 de ${e.faturas} faturas · valores diferentes`;
 }
 
-export const ORIGEM_DO_VALOR: Record<"plano_cadastrado" | "faturas_do_erp", { rotulo: string; titulo: string }> = {
+export const ORIGEM_DO_VALOR: Record<OrigemDoValor, { rotulo: string; titulo: string }> = {
+  fatura_de_saida: {
+    rotulo: "deduzida da fatura de saída",
+    titulo: "Mensalidade deduzida da própria fatura de saída do ERP (\"2 Mensalidades 199,80\" → 99,90; \"Proporcional 40 dias\" → pro-rata a 30 dias). Cadastre o preço do plano em Política > Economia para o número vir da sua tabela.",
+  },
   plano_cadastrado: {
     rotulo: "preço do plano",
     titulo: "Mensalidade do preço por plano cadastrado em Política > Economia.",
@@ -437,7 +442,7 @@ function FichaDaCarteira() {
               <ScoreMini score={ficha.scores.credito} band={ficha.scores.credito_band} />
 
               {/* 1c · Economia do cliente · R24 */}
-              <EconomiaMini economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} multaForaDoPrejuizo={ficha?.multaForaDoPrejuizo ?? 0} multasIndeterminadas={ficha?.multasIndeterminadas ?? 0} cobrancaDeSaida={data?.fichaEntrada?.cobrancaDeSaida ?? null} />
+              <EconomiaMini economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} multaForaDoPrejuizo={ficha?.multaForaDoPrejuizo ?? 0} multasIndeterminadas={ficha?.multasIndeterminadas ?? 0} cobrancaDeSaida={data?.fichaEntrada?.cobrancaDeSaida ?? null} estimativa={ficha?.economiaEstimada ?? null} />
             </div>
 
             {/* 1d · Endereço */}
@@ -762,7 +767,7 @@ export function textoDaCobrancaDeSaida(e: { multaForaDoPrejuizo: number; multasI
   };
 }
 
-function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, origem, multaForaDoPrejuizo = 0, multasIndeterminadas = 0, cobrancaDeSaida = null }: {
+function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, origem, multaForaDoPrejuizo = 0, multasIndeterminadas = 0, cobrancaDeSaida = null, estimativa = null }: {
   economia: EconomiaLedger | null; pendente: string | null; exCliente: boolean; confirmado: boolean;
   /** Multa e equipamento cobrados a parte — tirados da divida antes do prejuizo. */
   multaForaDoPrejuizo?: number;
@@ -771,17 +776,22 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
   cobrancaDeSaida?: { multa: number; equipamento: number } | null;
   /** A mensalidade, que EXISTE antes dos custos — e por isso aparece antes deles. */
   valorMensal: number | null;
-  origem: "plano_cadastrado" | "faturas_do_erp" | null;
+  origem: OrigemDoValor | null;
+  /** Quando o resultado do contrato e ESTIMADO (sem fatura paga): o porque, para o selo. */
+  estimativa?: string | null;
 }) {
-  // Contrato ENCERRADO com pagamento real: a Economia e o resultado, nao a projecao.
-  const contratoEncerrado = !!economia && economia.ciclo_encerrado && economia.fonte_receita === "recebida";
+  // Contrato ENCERRADO com pagamento real ou estimado: a Economia e o resultado, nao a projecao.
+  const contratoEncerrado = !!economia && economia.ciclo_encerrado && economia.fonte_receita !== "projetada";
+  const estimado = !!economia && economia.fonte_receita === "estimada";
   const saida = textoDaCobrancaDeSaida({ multaForaDoPrejuizo, multasIndeterminadas, multa: cobrancaDeSaida?.multa, equipamento: cobrancaDeSaida?.equipamento });
   const kpis: Array<{ k: string; v: string; cor?: string }> = economia
     ? [
         { k: "MRR", v: money(economia.arpu) },
         { k: "Margem bruta", v: money(economia.margem_mes), cor: economia.margem_mes >= 0 ? "var(--ok)" : "var(--money-neg)" },
         { k: "Payback", v: economia.payback_meses !== null ? `${economia.payback_meses} meses${economia.mes_atual >= economia.payback_meses ? " ✓" : ""}` : "nunca", cor: economia.payback_meses !== null ? "var(--ok)" : undefined },
-        { k: "LTV realizado", v: economia.ltv_realizado !== null ? money(economia.ltv_realizado) : DASH },
+        estimado
+          ? { k: "LTV estimado", v: money(economia.receita_estimada ?? 0), cor: "var(--gated)" }
+          : { k: "LTV realizado", v: economia.ltv_realizado !== null ? money(economia.ltv_realizado) : DASH },
         { k: "LTV projetado", v: money(economia.ltv_receita) },
         { k: "LTV:CAC", v: economia.ltv_cac !== null ? `${economia.ltv_cac.toLocaleString("pt-BR")}×` : DASH, cor: economia.ltv_cac !== null && economia.ltv_cac >= 3 ? "var(--ok)" : "var(--gated)" },
       ]
@@ -801,12 +811,14 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
           do contrato, do inicio ao fim, pelo que ele pagou — nao uma projecao. */}
       <p className="mt-1 text-[11.5px] text-[var(--text-muted)]">
         {contratoEncerrado
-          ? `${economia!.lucro_acumulado >= 0 ? "lucro" : "prejuízo"} do contrato encerrado · ${economia!.mes_atual} ${economia!.mes_atual === 1 ? "mês" : "meses"} · pelo que foi pago`
+          ? `${economia!.lucro_acumulado >= 0 ? "lucro" : "prejuízo"} do contrato encerrado · ${economia!.mes_atual} ${economia!.mes_atual === 1 ? "mês" : "meses"} · ${estimado ? "estimado: mensalidades do ciclo − saldo devedor" : "pelo que foi pago"}`
           : `lucro acumulado${economia ? ` · mês ${economia.mes_atual}` : ""}`}
       </p>
       {contratoEncerrado && (
         <div className={cn(NUM, "mt-1.5 grid grid-cols-3 gap-x-3 text-[11px]")} data-testid="economia-resultado-contrato">
-          <span title="Σ do valor pago das faturas que o ERP confirmou"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Recebido</span>{money(economia!.receita_recebida ?? 0)}</span>
+          {estimado
+            ? <span title="Mensalidades do ciclo (início ao fim do contrato) menos o saldo devedor de serviço — o ERP não confirmou pagamento"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Receita estimada</span>{money(economia!.receita_estimada ?? 0)}</span>
+            : <span title="Σ do valor pago das faturas que o ERP confirmou"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Recebido</span>{money(economia!.receita_recebida ?? 0)}</span>}
           <span title={multaForaDoPrejuizo > 0 ? `Fatura vencida em aberto, segundo o ERP, sem os ${money(multaForaDoPrejuizo)} de multa/equipamento cobrados à parte` : "Fatura vencida em aberto, segundo o ERP"}><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">{saida.rotuloSaldo}</span><b style={{ color: economia!.inadimplencia_aberta > 0 ? "var(--money-neg)" : undefined }}>{money(economia!.inadimplencia_aberta)}</b></span>
           <span title="Mês em que a margem acumulada paga o investimento (CAC + instalação)"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Ponto de equilíbrio</span>
             {economia!.payback_meses === null ? "nunca" : `mês ${economia!.payback_meses}${economia!.mes_atual >= economia!.payback_meses ? " ✓" : " · não atingido"}`}
@@ -819,8 +831,8 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
         const d = decomporPrejuizo(economia, economia.inadimplencia_aberta);
         return (
           <p className={cn(NUM, "mt-0.5 text-[11px] text-[var(--text-muted)]")} data-testid="economia-prejuizo">
-            {economia.fonte_receita === "recebida"
-              ? <>prejuízo <b className="text-[var(--money-neg)]">{money(d.prejuizo)}</b> = investimento não recuperado pelo que foi pago · saldo devedor de serviço {money(d.dividaAvaliada)} à parte</>
+            {economia.fonte_receita !== "projetada"
+              ? <>prejuízo <b className="text-[var(--money-neg)]">{money(d.prejuizo)}</b> = investimento não recuperado pelo que {economia.fonte_receita === "estimada" ? "se estima pago" : "foi pago"} · saldo devedor de serviço {money(d.dividaAvaliada)} à parte</>
               : <>prejuízo <b className="text-[var(--money-neg)]">{money(d.prejuizo)}</b> = dívida {money(d.dividaAvaliada)} + instalação não recuperada {money(d.instalacaoNaoRecuperada)}{d.abatida > 0 ? ` − abatida ${money(d.abatida)}` : ""}</>}
           </p>
         );
@@ -831,6 +843,13 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
       {/* Fora do gate da Economia de proposito: o ex-cliente da NsLink (MK sem
           paga) tem a multa lida e a Economia PENDENTE — a divida dele tem de
           ser explicada mesmo assim. */}
+      {/* O selo do ESTIMADO: o ERP nao confirmou pagamento (MK sem a API
+          licenciada) — o numero e mensalidades do ciclo menos o saldo devedor. */}
+      {estimado && estimativa && (
+        <p className="mt-1 text-[11px] text-[var(--gated)]" data-testid="economia-estimada">
+          <SeloCobranca tom="gated" className="mr-1 normal-case tracking-normal">≈ estimado</SeloCobranca>{estimativa}
+        </p>
+      )}
       {saida.linha && (
         <p className={cn(NUM, "mt-0.5 text-[11px] text-[var(--text-muted)]")} data-testid="economia-multa">{saida.linha}</p>
       )}
@@ -945,7 +964,7 @@ function SecaoR24({ economia, pendente, exCliente, confirmado, politicaConfirmad
     { k: "OPEX · custo de servir/mês", s: "rede + suporte + impostos", v: e ? money(e.opex_mes) : DASH },
     { k: "Margem de contribuição", s: "ARPU − OPEX", v: e ? `${money(e.margem_mes)} · ${num(e.margem_pct)}%` : DASH, tone: e ? (e.margem_mes >= 0 ? "pos" : "neg") : undefined },
     { k: "Payback / equilíbrio", s: e ? "investimento ÷ margem" : "investimento ÷ margem", v: e ? (e.payback_meses !== null ? `${e.payback_meses} meses` : e.ciclo_encerrado ? "nunca cruzou" : "nunca") : DASH },
-    { k: "Lucro acumulado", s: e ? (e.fonte_receita === "recebida" ? `receita RECEBIDA real (${money(e.receita_recebida ?? 0)})` : e.inadimplencia_aberta > 0 ? `projeção · −${money(e.inadimplencia_aberta)} dívida aberta` : "projeção (plano × meses)") : "desde a instalação", v: e ? money(e.lucro_acumulado) : DASH, tone: e ? (e.lucro_acumulado >= 0 ? "pos" : "neg") : undefined },
+    { k: "Lucro acumulado", s: e ? (e.fonte_receita === "recebida" ? `receita RECEBIDA real (${money(e.receita_recebida ?? 0)})` : e.fonte_receita === "estimada" ? `receita ESTIMADA (${money(e.receita_estimada ?? 0)}) · mensalidades do ciclo − saldo devedor` : e.inadimplencia_aberta > 0 ? `projeção · −${money(e.inadimplencia_aberta)} dívida aberta` : "projeção (plano × meses)") : "desde a instalação", v: e ? money(e.lucro_acumulado) : DASH, tone: e ? (e.lucro_acumulado >= 0 ? "pos" : "neg") : undefined },
     { k: "LTV (receita)", s: e ? (e.ciclo_encerrado ? `receita total da vida · ${e.mes_atual} meses` : e.ciclo_efetivo > e.mes_atual ? `ticket × ${e.ciclo_meses}m de permanência (est.)` : `ticket × ${e.mes_atual}m de casa · veterano (atualiza mês a mês)`) : "ticket × permanência", v: e ? money(e.ltv_receita) : DASH },
   ];
 

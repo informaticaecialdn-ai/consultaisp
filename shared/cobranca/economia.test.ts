@@ -129,3 +129,21 @@ describe("precoDoPlano", () => {
     expect(precoDoPlano(tabela, null)).toBeNull();
   });
 });
+
+describe("receita ESTIMADA — o ciclo encerrado sem fatura paga (09/09/2026)", () => {
+  it("ciclo encerrado sem recebido: o lucro sai da estimada liquida de imposto, e a fonte diz 'estimada'", () => {
+    const e = computeEconomiaLedger({ arpu: 100, custoParams: CUSTOS, mesAtual: 6, cicloVivo: false, receitaRecebida: null, receitaEstimada: 500, inadimplenciaAberta: 100 });
+    expect(e.fonte_receita).toBe("estimada");
+    expect(e.receita_estimada).toBe(500);
+    expect(e.receita_recebida).toBeNull();
+    expect(e.ltv_realizado).toBeNull();
+    expect(e.lucro_acumulado).toBe(-140);   // 500 × 0,9 − 40 × 6 − 350
+    expect(e.ciclo_encerrado).toBe(true);
+  });
+  it("com recebido real, a estimada e ignorada; para o cliente VIVO tambem — segue projetada", () => {
+    expect(computeEconomiaLedger({ arpu: 100, custoParams: CUSTOS, mesAtual: 6, cicloVivo: false, receitaRecebida: 600, receitaEstimada: 500, inadimplenciaAberta: 100 }).fonte_receita).toBe("recebida");
+    const vivo = computeEconomiaLedger({ arpu: 100, custoParams: CUSTOS, mesAtual: 6, cicloVivo: true, receitaRecebida: null, receitaEstimada: 500, inadimplenciaAberta: 100 });
+    expect(vivo.fonte_receita).toBe("projetada");
+    expect(vivo.receita_estimada).toBeNull();
+  });
+});

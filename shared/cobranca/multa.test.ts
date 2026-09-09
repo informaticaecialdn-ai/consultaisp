@@ -6,7 +6,7 @@
  * como divida); negacao nao e multa; nada passa do valor da fatura.
  */
 import { describe, expect, it } from "vitest";
-import { parcelasDaDescricao, somarCobrancaDeSaida, valorBrasileiro } from "./multa";
+import { mensalidadeDaDescricao, parcelasDaDescricao, somarCobrancaDeSaida, valorBrasileiro } from "./multa";
 
 describe("valorBrasileiro", () => {
   it("le milhar com ponto e centavos com virgula, e o inteiro cru", () => {
@@ -77,8 +77,8 @@ describe("parcelasDaDescricao — os limites", () => {
       { descricao: "Proporcional 40 dias + multa 600,00", valor: 719.86 },
       { descricao: "referente ao equipamento", valor: 300 },
       { descricao: "2 Mensalidades + multa", valor: 700 },
-    ])).toEqual({ multa: 600, equipamento: 300, indeterminadas: 1, faturas: 3 });
-    expect(somarCobrancaDeSaida([])).toEqual({ multa: 0, equipamento: 0, indeterminadas: 0, faturas: 0 });
+    ])).toEqual({ multa: 600, equipamento: 300, indeterminadas: 1, faturas: 3, mensalidadeLida: 89.9 });
+    expect(somarCobrancaDeSaida([])).toEqual({ multa: 0, equipamento: 0, indeterminadas: 0, faturas: 0, mensalidadeLida: null });
   });
 });
 
@@ -122,5 +122,36 @@ describe("parcelasDaDescricao — o que a revisao adversarial de 09/09/2026 derr
     expect(parcelasDaDescricao("Ref. Valor de equipamento não devolvido", 755)).toEqual({ multa: 0, equipamento: 755, indeterminada: false });
     expect(parcelasDaDescricao("Referente aos dias de uso, não possui multa", 107)).toEqual({ multa: 0, equipamento: 0, indeterminada: false });
     expect(parcelasDaDescricao("2 Mensalidades + multa + juros", 720)).toEqual({ multa: 0, equipamento: 0, indeterminada: true });
+  });
+});
+
+describe("mensalidadeDaDescricao — a mensalidade que a fatura de saida declara", () => {
+  it("N mensalidades V → V/N; 1 mensalidade V → V", () => {
+    expect(mensalidadeDaDescricao("2 Mensalidades 199,80 + multa 500,00", 699.8)).toEqual({ valor: 99.9, origem: "mensalidades_na_fatura" });
+    expect(mensalidadeDaDescricao("2 Mensalidades 219,60 + multa 1083,33 + equipamento 800,00", 2102.93)).toEqual({ valor: 109.8, origem: "mensalidades_na_fatura" });
+    expect(mensalidadeDaDescricao("1 mensalidade 99,80 + multa 600,00", 699.8)).toEqual({ valor: 99.8, origem: "mensalidades_na_fatura" });
+  });
+  it("Proporcional D dias: o que sobra depois da multa e do equipamento, pro-rata a 30 dias", () => {
+    expect(mensalidadeDaDescricao("Proporcional 40 dias + multa 600,00", 719.86)).toEqual({ valor: 89.9, origem: "proporcional_na_fatura" });
+    expect(mensalidadeDaDescricao("Proporcional 40 dias", 119.86)).toEqual({ valor: 89.9, origem: "proporcional_na_fatura" });
+    expect(mensalidadeDaDescricao("Proporcional 40 dias + multa 140,00 + equipamento 800,00", 1059.86)).toEqual({ valor: 89.9, origem: "proporcional_na_fatura" });
+  });
+  it("sem declaracao, ou fora do plausivel, nada — nunca a moda do saldo", () => {
+    expect(mensalidadeDaDescricao("2 Mensalidades + multa", 700)).toBeNull();
+    expect(mensalidadeDaDescricao("referente a multa de rescisão", 500)).toBeNull();
+    expect(mensalidadeDaDescricao("Faturamento 09/2026", 89.9)).toBeNull();
+    expect(mensalidadeDaDescricao("2 Mensalidades 5,00", 700)).toBeNull();
+    expect(mensalidadeDaDescricao("2 Mensalidades 999,80", 700)).toBeNull();
+    expect(mensalidadeDaDescricao("Proporcional 0 dias + multa 600,00", 719.86)).toBeNull();
+    expect(mensalidadeDaDescricao("Proporcional 40 dias + multa 719,86", 719.86)).toBeNull();
+    expect(mensalidadeDaDescricao(null, 100)).toBeNull();
+  });
+  it("somar leva a mensalidade lida da primeira fatura que a declara", () => {
+    const s = somarCobrancaDeSaida([
+      { descricao: "referente ao equipamento", valor: 300 },
+      { descricao: "Proporcional 40 dias + multa 600,00", valor: 719.86 },
+    ]);
+    expect(s).toEqual({ multa: 600, equipamento: 300, indeterminadas: 0, faturas: 2, mensalidadeLida: 89.9 });
+    expect(somarCobrancaDeSaida([{ descricao: "referente ao equipamento", valor: 300 }]).mensalidadeLida).toBeNull();
   });
 });

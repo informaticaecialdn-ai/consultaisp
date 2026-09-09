@@ -468,7 +468,10 @@ describe("a multa de cancelamento sai da dívida da Economia — no 360 e no car
     ]);
     storageMock.mensalidadesDoProvedor.mockResolvedValueOnce(new Map([[1, { valor: 89.9, concordam: 6, faturas: 6, baixadas: 6 }]]));
     const body = await (await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ex_cliente&periodo=2026-T3")).json();
-    expect(body.resumo.motivosDoTraco[0]?.motivo).toMatch(/o MK ainda não entregou nenhuma fatura paga/);
+    // O ex-cliente sem fatura paga entra ESTIMADO — nao fica mais de fora.
+    expect(body.resumo.avaliados).toBe(1);
+    expect(body.resumo.estimados).toBe(1);
+    expect(body.resumo.motivosDoTraco).toEqual([]);
     expect(storageMock.getErpIntegracoesResumo).toHaveBeenCalledWith(42);
   });
   it("card: as cobranças de saída dos devedores do recorte entram na soma, e o resumo diz o total que ficou de fora", async () => {
@@ -494,8 +497,9 @@ describe("GET /360 — quando o ERP do provedor nunca confirmou pagamento, o mot
     storageMock.erpConfirmaPagamentos.mockResolvedValueOnce(false);
     storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled", erpSource: "mk", contractPlan: "Smart 800MB + Watch Tv" }]);
     const body = await (await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente")).json();
-    expect(body.ficha.economiaPendente).toMatch(/o MK ainda não entregou nenhuma fatura paga/);
-    expect(body.pendentes.find((x: any) => x.campo === "historicoPagamento")?.motivo).toMatch(/MK Solutions/);
+    // Sem preco do plano e sem mensalidade, a ficha manda cadastrar o preco; o pendente do historico culpa o MK.
+    expect(body.ficha.economiaPendente).toMatch(/não tem preço cadastrado/);
+    expect(body.pendentes.find((x: any) => x.campo === "historicoPagamento")?.motivo).toMatch(/o MK ainda não entregou nenhuma ao Consulta ISP .* MK Solutions/);
     expect(body.fichaEntrada.plano).toBe("Smart 800MB + Watch Tv");
     expect(body.cliente.plano).toBe("Smart 800MB + Watch Tv");
     expect(body.pendentes.map((x: any) => x.campo)).not.toContain("plano");
@@ -504,7 +508,7 @@ describe("GET /360 — quando o ERP do provedor nunca confirmou pagamento, o mot
     sessao = OPERADOR;
     storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled" }]);
     const body = await (await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente")).json();
-    expect(body.ficha.economiaPendente).toMatch(/ex-cliente sem histórico/);
+    expect(body.pendentes.find((x: any) => x.campo === "historicoPagamento")?.motivo).toMatch(/nenhuma fatura paga sincronizada do ERP para este cliente.*estimada \(ex-cliente/);
     expect(body.pendentes.find((x: any) => x.campo === "plano")?.motivo).toMatch(/nao informou o plano/);
   });
   it("a falha da pergunta ao provedor nao derruba o 360: motivo de sempre", async () => {
@@ -513,7 +517,7 @@ describe("GET /360 — quando o ERP do provedor nunca confirmou pagamento, o mot
     storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled", erpSource: "mk" }]);
     const res = await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente");
     expect(res.status).toBe(200);
-    expect((await res.json()).ficha.economiaPendente).toMatch(/ex-cliente sem histórico/);
+    expect((await res.json()).pendentes.find((x: any) => x.campo === "historicoPagamento")?.motivo).toMatch(/nenhuma fatura paga sincronizada do ERP para este cliente/);
   });
   it("o card do prejuízo pergunta ao provedor e passa a fonte da integração ligada", async () => {
     sessao = OPERADOR;
@@ -528,8 +532,9 @@ describe("GET /360 — quando o ERP do provedor nunca confirmou pagamento, o mot
     ]);
     storageMock.mensalidadesDoProvedor.mockResolvedValueOnce(new Map([[1, { valor: 89.9, concordam: 6, faturas: 6, baixadas: 6 }]]));
     const body = await (await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ex_cliente&periodo=2026-T1")).json();
-    expect(body.resumo.avaliados).toBe(0);
-    expect(body.resumo.motivosDoTraco[0]?.motivo).toMatch(/MK Solutions/);
+    // Sem fatura paga o ex-cliente entra ESTIMADO — e o resumo diz quantos.
+    expect(body.resumo.avaliados).toBe(1);
+    expect(body.resumo.estimados).toBe(1);
     expect(storageMock.erpConfirmaPagamentos).toHaveBeenCalledWith(42);
   });
 });
@@ -546,8 +551,8 @@ describe("GET /360 — o fim do ciclo e a evidência da mensalidade chegam à fi
     expect(storageMock.faturasDoCliente).toHaveBeenCalledWith(42, 1, { limite: 1, hoje: expect.any(Date) });
     expect(body.fichaEntrada.ultimaFaturaEmitidaEm).toBe("2026-03-05");
     expect(body.fichaEntrada.mensalidadeObservada).toMatchObject({ valor: 89.9, concordam: 3, faturas: 4, baixadas: 2 });
-    // O gate do ex-cliente continua fechado (decisão pendente do dono): pendente pelo histórico.
-    expect(body.ficha.economiaPendente).toMatch(/ex-cliente sem histórico/);
+    // Sem fatura paga o ex-cliente sai ESTIMADO (09/09/2026); aqui a politica e a padrao, sem custos.
+    expect(body.ficha.economiaPendente).toMatch(/faltam os custos do provedor/);
   });
   it("se a leitura das faturas falhar, a ficha abre sem o fim do ciclo — nunca derruba o 360", async () => {
     sessao = OPERADOR;

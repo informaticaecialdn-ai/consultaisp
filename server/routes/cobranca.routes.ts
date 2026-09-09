@@ -1698,7 +1698,7 @@ export function registerCobrancaRoutes(): Router {
             campo: "historicoPagamento",
             motivo: erpConfirmaPagamentos === false
               ? motivoSemHistorico({ erpConfirmaPagamentos, erpSource: cliente.erpSource })
-              : "nenhuma fatura paga sincronizada do ERP para este cliente: a Economia fica projetada (vivo) ou pendente (ex-cliente)",
+              : "nenhuma fatura paga sincronizada do ERP para este cliente: a Economia fica projetada (vivo) ou estimada (ex-cliente: mensalidades do ciclo − saldo devedor)",
           }]),
           { campo: "vulneravel", motivo: "nao ha coluna de vulnerabilidade (Lei 14.181)" },
         ],

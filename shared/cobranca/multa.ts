@@ -42,9 +42,18 @@ export interface CobrancaDeSaida {
   equipamento: number;
   /** Faturas que misturam multa e mensalidade sem dizer os valores — contadas como dívida. */
   indeterminadas: number;
-  /** Faturas vencidas lidas para este cliente (as que falam de multa/equipamento). */
+  /** Faturas vencidas lidas para este cliente (as que falam de multa/equipamento/proporcional/mensalidades). */
   faturas: number;
+  /**
+   * A mensalidade DEDUZIDA da propria fatura de saida, quando ela a declara:
+   * "2 Mensalidades 199,80" → 99,90; "Proporcional 40 dias" (menos multa e
+   * equipamento) → pro-rata a 30 dias. E a unica fonte de ARPU do ex-cliente
+   * cuja unica fatura e o saldo — e o MK nao entrega fatura paga.
+   */
+  mensalidadeLida?: number | null;
 }
+
+export interface MensalidadeLida { valor: number; origem: "mensalidades_na_fatura" | "proporcional_na_fatura" }
 
 export interface ParcelasDaFatura { multa: number; equipamento: number; indeterminada: boolean }
 
@@ -52,7 +61,7 @@ export interface ParcelasDaFatura { multa: number; equipamento: number; indeterm
 const MULTA_NOMES = String.raw`multas?|rescis\w*|fidelid\w*|quebra\s+de\s+contrato`;
 const EQUIP_NOMES = String.raw`equipamentos?|roteador(?:es)?|onus?|modems?|comodato`;
 /** O filtro do banco (`~*`, regex do Postgres): so a fatura cuja descricao fala nisso passa pelo parser. */
-export const PADRAO_DE_COBRANCA_DE_SAIDA = String.raw`\m(multas?|rescis|fidelid|quebra de contrato|equipamentos?|roteador|onus?|modems?|comodato)`;
+export const PADRAO_DE_COBRANCA_DE_SAIDA = String.raw`\m(multas?|rescis|fidelid|quebra de contrato|equipamentos?|roteador|onus?|modems?|comodato|proporcional|mensalidades?)`;
 
 const VALOR = String.raw`(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)`;
 const NEGACAO_MULTA = /n[ãa]o\s+(?:ser[áa]\s+|foi\s+|est[áa]\s+)?(?:cobrad[ao]|possui|tem|h[áa]|cobra|cobrar|aplicad[ao])\s+(?:a\s+)?multa|sem\s+(?:cobran[çc]a\s+d[ea]\s+)?multa|isen(?:t[oa]|[çc][ãa]o)\s+d[ea]\s+multa|multa\s+(?:isenta|dispensada|zerada|n[ãa]o\s+(?:cobrada|aplicada|devida))/i;
@@ -150,15 +159,52 @@ export function parcelasDaDescricao(descricao: string | null | undefined, valorD
   return { multa: centavos(multa), equipamento: centavos(equipamento), indeterminada };
 }
 
-/** Soma as parcelas de varias faturas de um cliente. */
+const N_MENSALIDADES = new RegExp(String.raw`\b(\d{1,2})\s*mensalidades?\s*(?:de\s*)?` + VALOR, "i");
+const PROPORCIONAL_DIAS = /\bproporcional\s*(?:de\s*|a\s*)?(\d{1,3})\s*dias?\b/i;
+const MENSALIDADE_MIN = 10, MENSALIDADE_MAX = 2000;
+
+/**
+ * A mensalidade que a fatura de saida DECLARA — aritmetica sobre os numeros
+ * do proprio ERP, nada inferido de fora:
+ *   "2 Mensalidades 199,80 + multa 500,00"        → 199,80 / 2 = 99,90
+ *   "1 mensalidade 99,80 + multa 600,00"          → 99,80
+ *   "Proporcional 40 dias + multa 600,00" (719,86) → (719,86 − 600) × 30 / 40 = 89,90
+ * `null` quando a fatura nao declara (e ai vale o preco do plano cadastrado,
+ * ou a Economia fica pendente — nunca a moda do saldo).
+ */
+export function mensalidadeDaDescricao(descricao: string | null | undefined, valorDaFatura: number): MensalidadeLida | null {
+  const d = (descricao ?? "").trim();
+  const teto = Number.isFinite(valorDaFatura) && valorDaFatura > 0 ? centavos(valorDaFatura) : 0;
+  if (!d || teto <= 0) return null;
+  const plausivel = (v: number) => Number.isFinite(v) && v >= MENSALIDADE_MIN && v <= MENSALIDADE_MAX ? centavos(v) : null;
+  const nm = d.match(N_MENSALIDADES);
+  if (nm) {
+    const n = Number(nm[1]);
+    const total = valorBrasileiro(nm[2]);
+    const v = n >= 1 && n <= 24 && total > 0 && total <= teto + 0.01 ? plausivel(total / n) : null;
+    if (v !== null) return { valor: v, origem: "mensalidades_na_fatura" };
+  }
+  const pd = d.match(PROPORCIONAL_DIAS);
+  if (pd) {
+    const dias = Number(pd[1]);
+    const { multa, equipamento } = parcelasDaDescricao(d, teto);
+    const resto = centavos(teto - multa - equipamento);
+    const v = dias >= 1 && dias <= 90 && resto > 0 ? plausivel((resto * 30) / dias) : null;
+    if (v !== null) return { valor: v, origem: "proporcional_na_fatura" };
+  }
+  return null;
+}
+
+/** Soma as parcelas de varias faturas de um cliente; a mensalidade lida e a da primeira fatura que a declara. */
 export function somarCobrancaDeSaida(faturas: ReadonlyArray<{ descricao: string | null | undefined; valor: number }>): CobrancaDeSaida {
-  const acc: CobrancaDeSaida = { multa: 0, equipamento: 0, indeterminadas: 0, faturas: 0 };
+  const acc: CobrancaDeSaida = { multa: 0, equipamento: 0, indeterminadas: 0, faturas: 0, mensalidadeLida: null };
   for (const f of faturas) {
     const p = parcelasDaDescricao(f.descricao, f.valor);
     acc.faturas++;
     acc.multa = centavos(acc.multa + p.multa);
     acc.equipamento = centavos(acc.equipamento + p.equipamento);
     if (p.indeterminada) acc.indeterminadas++;
+    if (acc.mensalidadeLida == null) acc.mensalidadeLida = mensalidadeDaDescricao(f.descricao, f.valor)?.valor ?? null;
   }
   return acc;
 }

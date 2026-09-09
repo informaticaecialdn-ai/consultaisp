@@ -747,8 +747,8 @@ describe("a cobranca de saida por cliente (multa + equipamento nas faturas venci
     expect(banco.consultas[0].sql).toContain("least(");
     expect(banco.consultas[0].sql).toContain('"last_sync_at"');
     expect(banco.consultas[0].sql).toContain("inner join");
-    expect(m.get(42)).toEqual({ multa: 600, equipamento: 300, indeterminadas: 0, faturas: 2 });
-    expect(m.get(43)).toEqual({ multa: 0, equipamento: 0, indeterminadas: 1, faturas: 1 });
+    expect(m.get(42)).toEqual({ multa: 600, equipamento: 300, indeterminadas: 0, faturas: 2, mensalidadeLida: 89.9 });
+    expect(m.get(43)).toEqual({ multa: 0, equipamento: 0, indeterminadas: 1, faturas: 1, mensalidadeLida: null });
     expect(m.has(44)).toBe(false);
   });
   it("lista vazia de ids: nada vai ao banco", async () => {

@@ -370,3 +370,19 @@ describe("o texto da cobranca de saida no card R24 (multa/equipamento fora do pr
     expect(fonte).toMatch(/plano: vivo\.plano \?\? data\.fichaEntrada\.plano/);
   });
 });
+
+describe("a mensalidade deduzida da fatura de saida tem rotulo proprio", () => {
+  it("rotuloDaMensalidade e ORIGEM_DO_VALOR conhecem 'fatura_de_saida'", async () => {
+    const { rotuloDaMensalidade, ORIGEM_DO_VALOR } = await import("./cliente360");
+    expect(rotuloDaMensalidade("fatura_de_saida", null)).toBe("deduzida da fatura de saída");
+    expect(ORIGEM_DO_VALOR.fatura_de_saida.rotulo).toBe("deduzida da fatura de saída");
+    expect(ORIGEM_DO_VALOR.fatura_de_saida.titulo).toMatch(/Proporcional 40 dias/);
+  });
+  it("o card R24 troca 'Recebido' por 'Receita estimada' e leva o selo quando a fonte e estimada", () => {
+    const fonte = ler("./cliente360.tsx");
+    expect(fonte).toMatch(/fonte_receita !== "projetada"/);
+    expect(fonte).toMatch(/Receita estimada/);
+    expect(fonte).toMatch(/data-testid="economia-estimada"/);
+    expect(fonte).toMatch(/LTV estimado/);
+  });
+});

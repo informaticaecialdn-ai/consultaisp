@@ -241,8 +241,10 @@ export interface LinhasDoPrejuizo {
   real: { rotulo: string; valor: string; sub: string };
   instalacao: { valor: string; sub: string } | null;
   abatida: string | null;
-  /** Multa e equipamento cobrados à parte — fora do prejuízo (a instalação não recuperada já é essa perda). */
+  /** Multa e equipamento cobrados à parte — fora do prejuízo (o equipamento já está no investimento). */
   multa: string | null;
+  /** Quantos dos avaliados saíram ESTIMADOS (ciclo encerrado sem fatura paga). */
+  estimados: string | null;
   semData: string | null;
   /** Por que houve traço/cobertura parcial, na ordem de quem mais barrou. */
   motivos: string[];
@@ -269,7 +271,7 @@ export function linhasDoPrejuizo(dados: RespostaDoPrejuizo | undefined, espaco: 
       // O motivo completo vai na linha própria da faixa; aqui só o resumo.
       sub: dados ? "sem fatura do ERP" : "Lendo a base…",
       real: { rotulo: espaco === "ativos" ? "dívida vencida" : "dívida deixada", valor: TRACO, sub: "segundo o ERP" },
-      instalacao: null, abatida: null, multa: null, semData: null, motivos: [], acao: null, titulo,
+      instalacao: null, abatida: null, multa: null, estimados: null, semData: null, motivos: [], acao: null, titulo,
     };
   }
   const r = dados.resumo;
@@ -288,7 +290,7 @@ export function linhasDoPrejuizo(dados: RespostaDoPrejuizo | undefined, espaco: 
       ? `nenhum ${espaco === "ativos" ? "cliente" : "ex-cliente"} com fatura vencida mais antiga em ${rotulo} · use ‹ ou troque o período`
       : r.prejuizo === null
         ? `${num(r.devedores)} ${quem} devem desde ${rotulo} · Economia: — em ${num(r.devedores)} de ${num(r.devedores)}`
-        : `${num(r.avaliados)} de ${num(r.devedores)} ${quem} que devem desde ${rotulo} · projeção pela Economia do cliente · em aberto no último sync`,
+        : `${num(r.avaliados)} de ${num(r.devedores)} ${quem} que devem desde ${rotulo} · ${espaco === "ativos" ? "projeção" : "resultado do contrato"} pela Economia do cliente · em aberto no último sync`,
     real: {
       rotulo: espaco === "ativos" ? "dívida vencida" : "dívida deixada",
       valor: brl(r.dividaDoRecorte),
@@ -305,6 +307,7 @@ export function linhasDoPrejuizo(dados: RespostaDoPrejuizo | undefined, espaco: 
           r.multasIndeterminadas > 0 ? `${num(r.multasIndeterminadas)} fatura${r.multasIndeterminadas === 1 ? "" : "s"} mistura${r.multasIndeterminadas === 1 ? "" : "m"} multa e mensalidade sem valores: contada${r.multasIndeterminadas === 1 ? "" : "s"} como dívida` : null,
         ].filter(Boolean).join(" · ")
       : null,
+    estimados: r.estimados > 0 ? `${num(r.estimados)} de ${num(r.avaliados)} estimados: sem fatura paga do ERP, receita = mensalidades do ciclo − saldo devedor` : null,
     semData: r.semData.clientes > 0 ? `${num(r.semData.clientes)} sem fatura vencida gravada ficam fora de qualquer período · ${brl(r.semData.divida)}` : null,
     motivos,
     acao,
@@ -391,6 +394,9 @@ function FaixaDePrejuizo({ espaco, periodo, onPeriodo, ligado, onLigar, dados, c
         )}
         {linhas.multa && (
           <span className="mt-1 block text-[10.5px] text-[var(--text-muted)]" data-testid="prejuizo-multa">{linhas.multa}</span>
+        )}
+        {linhas.estimados && (
+          <span className="mt-1 block text-[10.5px] text-[var(--gated)]" data-testid="prejuizo-estimados">≈ {linhas.estimados}</span>
         )}
         {linhas.motivos.length > 0 && (
           <span className="mt-1 block text-[10.5px] text-[var(--text-faint)]" data-testid="prejuizo-motivos">{linhas.motivos.join(" · ")}</span>
