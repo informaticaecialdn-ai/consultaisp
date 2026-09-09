@@ -39,7 +39,8 @@ import { and, desc, eq, gte, inArray, isNotNull, lt, max, ne, or, sql, type SQL 
 import { db } from "../db";
 import { cobrancaEventos, cobrancaNegociacoes, cobrancaParcelas, customers, invoices, users } from "@shared/schema";
 import type { FaturaAbertaDoErp } from "../erp/types";
-import { STATUS_DE_CLIENTE_ATUAL, clienteDaCarteira } from "./cobranca.storage";
+import { STATUS_DE_CLIENTE_ATUAL, clienteDaCarteira, comDivida } from "./cobranca.storage";
+import type { DevedorDaCarteira } from "@shared/cobranca/prejuizo";
 import { cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
 import { resumirHistoricoDePagamentos, type HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
 import { z } from "zod";
@@ -172,6 +173,15 @@ export interface MensalidadeDoCliente {
   faturas: number;
   /** O vencimento mais recente entre as que concordam — a idade da evidencia. */
   maisRecente: Date | null;
+  /**
+   * Quantas faturas DO VALOR DA MODA ja foram vistas abertas e depois sumiram
+   * dos pendentes (`baixada_no_erp`). E a evidencia de que ESTE valor foi PAGO
+   * repetidas vezes — o que separa mensalidade de saldo para ex-cliente.
+   * Contar baixadas de qualquer valor deixaria um saldo parcelado em duas
+   * faturas iguais passar como mensalidade por causa de uma mensalidade antiga
+   * baixada.
+   */
+  baixadas: number;
 }
 
 /**
@@ -207,6 +217,12 @@ export interface FaturasDoCliente {
    * ninguem gravou (regra do dono: integridade do dado).
    */
   vencimentoMaisAntigo: Date | null;
+  /**
+   * A fatura vencida mais RECENTE — a ultima que o ERP emitiu antes de o
+   * cliente sair. E o fim do ciclo do ex-cliente na Economia quando
+   * `cortado_em` nao veio (o MK nunca o preenche).
+   */
+  vencimentoMaisRecente: Date | null;
 }
 
 /**
@@ -238,6 +254,15 @@ export function janelaDoMes(mes: string): { de: string; ate: string } {
 
 /** Um dia AAAA-MM-DD como parametro de comparacao com `due_date`. */
 const ts = (dia: string): SQL => sql`${dia}::timestamp`;
+
+/**
+ * Fatura ABERTA e ja vencida no dia `corte` (AAAA-MM-DD) — a regua da casa,
+ * escrita uma vez: fatura que vence hoje ainda nao venceu. E o predicado do
+ * `vencimentoMaisAntigo` do 360 e do eixo "devem desde" do card de prejuizo;
+ * os dois tem de concordar sobre a mesma fatura.
+ */
+export const faturaVencidaAte = (corte: string): SQL =>
+  and(inArray(invoices.status, [...STATUS_FATURA_ABERTA]), lt(invoices.dueDate, ts(corte)))!;
 
 export class FaturasStorage {
   async clienteExiste(providerId: number, customerId: number, carteira?: CarteiraDeCobranca): Promise<boolean> {
@@ -669,7 +694,7 @@ export class FaturasStorage {
     );
     const corte = diaDeHoje(opcoes.hoje ?? new Date());
     const doCliente = and(eq(invoices.providerId, providerId), eq(invoices.customerId, customerId))!;
-    const vencida = and(inArray(invoices.status, [...STATUS_FATURA_ABERTA]), lt(invoices.dueDate, ts(corte)))!;
+    const vencida = faturaVencidaAte(corte);
 
     const [linhas, agregado] = await Promise.all([
       db.select({
@@ -695,6 +720,7 @@ export class FaturasStorage {
         // volta como Date exatamente como a linha volta, e nao como o texto
         // cru do driver (que viraria dia local e escorregaria de mes).
         vencimentoMaisAntigo: sql<Date | null>`min(${invoices.dueDate}) filter (where ${vencida})`.mapWith(invoices.dueDate),
+        vencimentoMaisRecente: sql<Date | null>`max(${invoices.dueDate}) filter (where ${vencida})`.mapWith(invoices.dueDate),
       })
         .from(invoices)
         .where(doCliente),
@@ -718,6 +744,7 @@ export class FaturasStorage {
       vencidas: a?.vencidas ?? 0,
       valorVencido: a?.valorVencido ?? 0,
       vencimentoMaisAntigo: a?.vencimentoMaisAntigo ?? null,
+      vencimentoMaisRecente: a?.vencimentoMaisRecente ?? null,
     };
   }
 
@@ -760,6 +787,131 @@ export class FaturasStorage {
     };
   }
 
+  /**
+   * A mensalidade observada de TODA a carteira numa consulta — a mesma moda de
+   * `mensalidadeDoCliente`, cliente a cliente, sem N+1 (a maior carteira tem
+   * 29 mil clientes). Nasceu com o card "Prejuízo acumulado" (09/09/2026), que
+   * precisa do ARPU de cada cliente para somar a Economia da carteira.
+   *
+   * Uma linha por cliente que tem ao menos uma fatura vinda do ERP; quem nao
+   * tem nao aparece no mapa — e a Economia dele fica pendente, como no 360.
+   */
+  async mensalidadesDoProvedor(providerId: number, ids?: readonly number[]): Promise<Map<number, MensalidadeDoCliente>> {
+    // Recorte por ids (os devedores do card): lista vazia e recorte vazio, nao
+    // "a carteira inteira" — e poupa agrupar a tabela toda para somar 20 devedores.
+    if (ids && ids.length === 0) return new Map();
+    const porValor = db.select({
+        customerId: invoices.customerId,
+        valor: invoices.value,
+        n: sql<number>`count(*)`.as("n"),
+        maisRecente: sql<Date | null>`max(${invoices.dueDate})`.as("mais_recente"),
+        total: sql<number>`sum(count(*)) over (partition by ${invoices.customerId})`.as("total"),
+        // Do MESMO grupo (cliente, valor): baixada de outro valor nao prova este.
+        baixadas: sql<number>`count(*) filter (where ${invoices.status} in ${[...STATUS_FATURA_CONCILIACAO]})`.as("baixadas"),
+        // A MODA: mais repeticoes primeiro; empate, o vencimento mais novo.
+        posicao: sql<number>`row_number() over (partition by ${invoices.customerId} order by count(*) desc, max(${invoices.dueDate}) desc)`.as("posicao"),
+      })
+      .from(invoices)
+      .where(and(
+        eq(invoices.providerId, providerId),
+        isNotNull(invoices.erpSource),
+        ids ? inArray(invoices.customerId, [...ids]) : undefined,
+      ))
+      .groupBy(invoices.customerId, invoices.value)
+      .as("por_valor");
+    const linhas = await db.select({
+        customerId: porValor.customerId,
+        valor: porValor.valor,
+        n: porValor.n,
+        maisRecente: porValor.maisRecente,
+        total: porValor.total,
+        baixadas: porValor.baixadas,
+      })
+      .from(porValor)
+      .where(eq(porValor.posicao, 1));
+
+    const mapa = new Map<number, MensalidadeDoCliente>();
+    for (const l of linhas) {
+      const valor = Number(l.valor ?? 0);
+      if (!Number.isFinite(valor) || valor <= 0) continue;
+      mapa.set(l.customerId, {
+        valor: Math.round(valor * 100) / 100,
+        concordam: Number(l.n),
+        faturas: Number(l.total ?? l.n),
+        maisRecente: l.maisRecente ? new Date(l.maisRecente) : null,
+        baixadas: Number(l.baixadas ?? 0),
+      });
+    }
+    return mapa;
+  }
+
+  /**
+   * OS DEVEDORES DA CARTEIRA com as duas datas que o card de prejuizo precisa,
+   * numa consulta: a fatura vencida mais ANTIGA em aberto ("devem desde", o
+   * eixo do periodo) e a vencida em aberto mais RECENTE (o fim do ciclo do
+   * ex-cliente — o ultimo mes que o ERP cobrou e ninguem pagou; baixada
+   * posterior seria pagamento, e ai o fim seria outro assunto).
+   *
+   * A populacao e a do KPI "Vencido" — `comDivida()` dentro de
+   * `clienteDaCarteira` —, por isso a soma dos periodos + "sem data" fecha
+   * com ele por construcao. Quem tem divida e nenhuma fatura vencida gravada
+   * volta com as datas nulas: e o balde "sem data", nunca uma data inventada.
+   *
+   * As datas saem como DIA EM TEXTO (`to_char`), nunca como Date: `due_date` e
+   * meia-noite UTC e um Date lido no fuso do servidor escorregaria de mes na
+   * fronteira (01/09 viraria 31/08 em Sao Paulo). O periodo e atribuido em
+   * texto, ano-na-frente, sem getMonth() no caminho.
+   */
+  async devedoresComVencimento(providerId: number, carteira: CarteiraDeCobranca, hoje: Date): Promise<DevedorDaCarteira[]> {
+    const vencida = faturaVencidaAte(diaDeHoje(hoje));
+    const datas = db.select({
+        customerId: invoices.customerId,
+        devemDesde: sql<string | null>`to_char(min(${invoices.dueDate}) filter (where ${vencida}), 'YYYY-MM-DD')`.as("devem_desde"),
+        ultimaFatura: sql<string | null>`to_char(max(${invoices.dueDate}) filter (where ${vencida}), 'YYYY-MM-DD')`.as("ultima_fatura"),
+      })
+      .from(invoices)
+      .where(eq(invoices.providerId, providerId))
+      .groupBy(invoices.customerId)
+      .as("datas");
+    const linhas = await db.select({
+        id: customers.id,
+        statusErp: customers.status,
+        dividaAtual: customers.totalOverdueAmount,
+        contractStartDate: sql<string | null>`to_char(${customers.contractStartDate}, 'YYYY-MM-DD')`,
+        cortadoEm: sql<string | null>`to_char(${customers.cortadoEm}, 'YYYY-MM-DD')`,
+        devemDesde: datas.devemDesde,
+        ultimaFatura: datas.ultimaFatura,
+      })
+      .from(customers)
+      .leftJoin(datas, eq(datas.customerId, customers.id))
+      .where(and(eq(customers.providerId, providerId), clienteDaCarteira(carteira), comDivida()));
+    return linhas.map(l => ({
+      id: l.id,
+      statusErp: l.statusErp,
+      dividaAtual: Math.round(Number(l.dividaAtual ?? 0) * 100) / 100,
+      contractStartDate: l.contractStartDate ?? null,
+      cortadoEm: l.cortadoEm ?? null,
+      devemDesde: l.devemDesde ?? null,
+      ultimaFatura: l.ultimaFatura ?? null,
+    }));
+  }
+
+  /**
+   * Ha fatura vinda do ERP, e quando a varredura tocou uma pela ultima vez —
+   * o `live`/`atualizadoEm` de toda faixa que le `invoices`. O incidente de
+   * 31/08 zerou divida numa leitura vazia; a data e o que deixa o operador
+   * datar o numero.
+   */
+  async baseDeFaturas(providerId: number): Promise<{ total: number; atualizadoEm: Date | null }> {
+    const [b] = await db.select({
+      total: sql<number>`count(*)`.mapWith(Number),
+      atualizadoEm: max(invoices.updatedAt),
+    })
+      .from(invoices)
+      .where(and(eq(invoices.providerId, providerId), isNotNull(invoices.erpSource)));
+    return { total: b?.total ?? 0, atualizadoEm: b?.atualizadoEm ?? null };
+  }
+
   async mensalidadeDoCliente(providerId: number, customerId: number): Promise<MensalidadeDoCliente | null> {
     const linhas = await db.select({
         valor: invoices.value,
@@ -782,7 +934,11 @@ export class FaturasStorage {
     const valor = Number(moda.valor ?? 0);
     if (!Number.isFinite(valor) || valor <= 0) return null;
 
-    const [contagem] = await db.select({ total: sql<number>`count(*)`.mapWith(Number) })
+    const [contagem] = await db.select({
+        total: sql<number>`count(*)`.mapWith(Number),
+        // So as baixadas DO VALOR da moda — a mesma regra do lote.
+        baixadas: sql<number>`count(*) filter (where ${invoices.status} in ${[...STATUS_FATURA_CONCILIACAO]} and ${invoices.value} = ${moda.valor})`.mapWith(Number),
+      })
       .from(invoices)
       .where(and(
         eq(invoices.providerId, providerId),
@@ -795,6 +951,8 @@ export class FaturasStorage {
       concordam: moda.n,
       faturas: contagem?.total ?? moda.n,
       maisRecente: moda.maisRecente ?? null,
+      // `mapWith(Number)` faz NaN de coluna ausente; NaN nao e "nenhuma baixada".
+      baixadas: Number.isFinite(Number(contagem?.baixadas)) ? Number(contagem!.baixadas) : 0,
     };
   }
 

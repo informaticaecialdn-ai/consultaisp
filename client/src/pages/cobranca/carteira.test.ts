@@ -4,7 +4,8 @@
  * molde do Provedor.ai. Regra de ouro: sem base de fatura, traço e motivo.
  */
 import { describe, expect, it } from "vitest";
-import { chipsDoMes, deslocarMes, ESPACO_META, mesAtual, rotuloDoMes } from "./carteira";
+import { chipsDoMes, deslocarMes, ESPACO_META, linhasDoPrejuizo, mesAtual, rotuloDoMes } from "./carteira";
+import type { RespostaDoPrejuizo } from "@/components/cobranca/tipos";
 import { brl } from "@/components/localizacao/ui";
 import type { RespostaDoMes } from "@/components/cobranca/tipos";
 
@@ -99,5 +100,61 @@ describe("Pagou o mês — número, porcentagem e lista têm de concordar", () =
   it("sem faturado no mês não inventa 0% — não há porcentagem a afirmar", () => {
     expect(doMes(0, 0, 0).sub).toContain("sem faturado no mês");
     expect(doMes(0, 0, 0).sub).not.toContain("0% do faturado");
+  });
+});
+
+describe("linhasDoPrejuizo — o card fala do eixo, da cobertura e do número real", () => {
+  const base: RespostaDoPrejuizo = {
+    live: true, motivo: null, eixo: "devem_desde", confirmado: false, atualizadoEm: "2026-09-09T06:05:00.000Z",
+    periodo: { texto: "2026-09", rotulo: "set/26", granularidade: "mes", de: "2026-09-01", ate: "2026-10-01" },
+    serie: [],
+    resumo: {
+      devedores: 21, avaliados: 17, noPrejuizo: 15, prejuizo: 12430, dividaAvaliada: 2720, instalacaoNaoRecuperada: 9890, abatida: 180,
+      dividaDoRecorte: 3120, dividaDaCarteira: 9176.47, devedoresDaCarteira: 21, fatiaDaCarteira: 34,
+      motivosDoTraco: [{ motivo: "sem mensalidade: este cliente não tem fatura vinda do ERP, e o plano dele não chegou do sync", clientes: 4, divida: 400 }],
+      semData: { clientes: 0, divida: 0 },
+    },
+  };
+  it("ativos: projeção com cobertura na mesma linha, a dívida real ao lado, e a decomposição que fecha", () => {
+    const l = linhasDoPrejuizo(base, "ativos");
+    expect(l.kicker).toBe("Prejuízo acumulado · devem desde set/26");
+    expect(semNbsp(l.principal)).toBe("R$ 12.430,00");
+    expect(l.cobertura).toBe("· 17 de 21");
+    expect(l.sub).toMatch(/17 de 21 clientes que devem desde set\/26 · projeção/);
+    expect(l.sub).toMatch(/último sync/);
+    expect(l.sub).not.toMatch(/hoje/);
+    expect(l.real).toMatchObject({ rotulo: "dívida vencida", sub: "segundo o ERP · 21 clientes · 34% do vencido da carteira" });
+    expect(l.instalacao?.sub).toBe("instalação e aquisição não recuperadas · 17 avaliados");
+    expect(l.abatida).toMatch(/abate/);
+    expect(l.motivos).toEqual(["4 sem economia: sem mensalidade: este cliente não tem fatura vinda do ERP, e o plano dele não chegou do sync"]);
+    expect(l.acao).toBeNull();
+    expect(l.titulo).toMatch(/Não é data de cancelamento/);
+  });
+  it("ex-clientes sem avaliado: traço no principal com o motivo, e a dívida deixada é o número", () => {
+    const ex: RespostaDoPrejuizo = { ...base, periodo: { ...base.periodo, texto: "2026-T1", rotulo: "T1/26", granularidade: "trimestre", de: "2026-01-01", ate: "2026-04-01" },
+      resumo: { ...base.resumo, devedores: 64, avaliados: 0, noPrejuizo: 0, prejuizo: null, instalacaoNaoRecuperada: null, abatida: 0, dividaAvaliada: 0, dividaDoRecorte: 37737.6, fatiaDaCarteira: 4.6,
+        motivosDoTraco: [{ motivo: "ex-cliente sem histórico de pagamento sincronizado — a economia realizada é a soma dos pagamentos reais, não fórmula", clientes: 64, divida: 37737.6 }] } };
+    const l = linhasDoPrejuizo(ex, "ex");
+    expect(l.principal).toBe("—");
+    expect(l.cobertura).toBeNull();
+    expect(l.sub).toBe("64 ex-clientes devem desde T1/26 · Economia: — em 64 de 64");
+    expect(l.real.rotulo).toBe("dívida deixada");
+    expect(l.real.sub).toBe("segundo o ERP · 64 ex-clientes · 4,6% do vencido da carteira");
+    expect(l.instalacao).toBeNull();
+    expect(l.acao).toBeNull();
+  });
+  it("sem base ou sem resposta: traço em tudo, com o motivo; sem devedor no período: diz que é o período, não ausência de dado", () => {
+    expect(linhasDoPrejuizo(undefined, "ativos")).toMatchObject({ principal: "—", sub: "Lendo a base…", real: { valor: "—" } });
+    expect(linhasDoPrejuizo({ ...base, live: false, motivo: "O ERP ainda não mandou fatura a fatura" }, "ex")).toMatchObject({ principal: "—", sub: "sem fatura do ERP" });
+    const vazio = linhasDoPrejuizo({ ...base, resumo: { ...base.resumo, devedores: 0, avaliados: 0, prejuizo: 0, instalacaoNaoRecuperada: 0, dividaDoRecorte: 0, motivosDoTraco: [] } }, "ex");
+    expect(semNbsp(vazio.principal)).toBe("R$ 0,00");
+    expect(vazio.sub).toMatch(/nenhum ex-cliente com fatura vencida mais antiga em set\/26/);
+  });
+  it("quando é a Política que falta, o card leva até ela; o balde sem data aparece com o valor", () => {
+    const semCustos = linhasDoPrejuizo({ ...base, resumo: { ...base.resumo, avaliados: 0, prejuizo: null, instalacaoNaoRecuperada: null,
+      motivosDoTraco: [{ motivo: "faltam os custos do provedor: CAC, instalação e o custo mensal de servir um assinante (Política > Economia)", clientes: 21, divida: 3120 }],
+      semData: { clientes: 3, divida: 250 } } }, "ativos");
+    expect(semCustos.acao).toEqual({ rotulo: "Informar os custos" });
+    expect(semNbsp(semCustos.semData)).toBe("3 sem fatura vencida gravada ficam fora de qualquer período · R$ 250,00");
   });
 });

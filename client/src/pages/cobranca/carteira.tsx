@@ -31,13 +31,17 @@ import {
   OPCOES_STATUS, POR_PAGINA, queryDaCarteira, temFiltros, totalDePaginas, type FiltrosDaCarteira, type GrupoDoMes, type OpcaoDeFiltro, type VisaoDaCarteira,
 } from "@/components/cobranca/filtros";
 import {
-  API_CARTEIRA, API_CARTEIRA_MES, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_REGUA, rotaDoCliente,
-  type RespostaDaCarteira, type RespostaDaRegua, type RespostaDoMes,
+  API_CARTEIRA, API_CARTEIRA_MES, API_CARTEIRA_PREJUIZO, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_POLITICA, ROTA_REGUA, rotaDoCliente,
+  type RespostaDaCarteira, type RespostaDaRegua, type RespostaDoMes, type RespostaDoPrejuizo,
 } from "@/components/cobranca/tipos";
+import {
+  deslocarPeriodo, formatarPeriodo, GRANULARIDADES, parsePeriodo, periodoDaData, reenquadrar, ROTULO_GRANULARIDADE, rotuloDoPeriodo,
+  type Granularidade,
+} from "@shared/cobranca/periodo";
 import { caminhoNaCarteira } from "@/components/cobranca/carteiras";
 import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
 import { etapasDaCarteira } from "@shared/cobranca";
-import { BarraComposicao, FiltroPilula, mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
+import { BarraComposicao, FiltroPilula, mensagemDoErro, SeloCobranca, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
 export type EspacoDaCarteira = "ativos" | "ex";
 
@@ -224,6 +228,197 @@ function FaixaDoMes({ mes, onMes, grupo, onGrupo, dados, carregando }: {
   );
 }
 
+/* ── Prejuízo acumulado: o card da Economia somada por período ─────────── */
+
+export interface LinhasDoPrejuizo {
+  kicker: string;
+  /** O número principal — Σ prejuízo dos avaliados; TRAÇO sem avaliado. */
+  principal: string;
+  /** "· 17 de 21" na mesma linha do número, quando a cobertura é parcial. */
+  cobertura: string | null;
+  sub: string;
+  /** O número REAL, sempre: a dívida do recorte segundo o ERP. */
+  real: { rotulo: string; valor: string; sub: string };
+  instalacao: { valor: string; sub: string } | null;
+  abatida: string | null;
+  semData: string | null;
+  /** Por que houve traço/cobertura parcial, na ordem de quem mais barrou. */
+  motivos: string[];
+  /** O botão que leva à Política quando é ela que falta. */
+  acao: { rotulo: string } | null;
+  titulo: string;
+}
+
+/**
+ * O texto do card, calculado uma vez e testado sem React. Regras: nunca zero
+ * no lugar de "—"; o número real do ERP sempre ao lado da projeção; o eixo
+ * escrito no kicker ("devem desde"), porque `cortado_em` não existe no MK e o
+ * dado que temos é o vencimento mais antigo em aberto — não é cancelamento
+ * nem prova de quando parou de pagar.
+ */
+export function linhasDoPrejuizo(dados: RespostaDoPrejuizo | undefined, espaco: EspacoDaCarteira): LinhasDoPrejuizo {
+  const rotulo = dados?.periodo.rotulo ?? "…";
+  const kicker = `Prejuízo acumulado · devem desde ${rotulo}`;
+  const titulo = "Data = vencimento da fatura vencida mais antiga que o ERP mantém aberta. Não é data de cancelamento nem prova de quando parou de pagar. Só devedor entra; o valor é a Economia do cliente de vida inteira (margem × meses − investimento − dívida), como está hoje: quem quitou saiu.";
+  const quem = espaco === "ativos" ? "clientes" : "ex-clientes";
+  if (!dados || !dados.live) {
+    return {
+      kicker, principal: TRACO, cobertura: null,
+      // O motivo completo vai na linha própria da faixa; aqui só o resumo.
+      sub: dados ? "sem fatura do ERP" : "Lendo a base…",
+      real: { rotulo: espaco === "ativos" ? "dívida vencida" : "dívida deixada", valor: TRACO, sub: "segundo o ERP" },
+      instalacao: null, abatida: null, semData: null, motivos: [], acao: null, titulo,
+    };
+  }
+  const r = dados.resumo;
+  const parcial = r.avaliados > 0 && r.avaliados < r.devedores;
+  const motivos = r.motivosDoTraco.map(m => `${num(m.clientes)} ${m.clientes === 1 ? "sem economia" : "sem economia"}: ${m.motivo}`);
+  const principalMotivo = r.motivosDoTraco[0]?.motivo ?? null;
+  // Só a ação que o card de fato lê: os custos. "Cadastrar preço do plano"
+  // não entra enquanto não houver plano por cliente (o sync não o guarda).
+  const acao = principalMotivo && /custos do provedor/.test(principalMotivo) ? { rotulo: "Informar os custos" } : null;
+  const fatia = r.fatiaDaCarteira === null ? "" : ` · ${r.fatiaDaCarteira.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% do vencido da carteira`;
+  return {
+    kicker,
+    principal: r.prejuizo === null ? TRACO : brl(r.prejuizo),
+    cobertura: parcial ? `· ${num(r.avaliados)} de ${num(r.devedores)}` : null,
+    sub: r.devedores === 0
+      ? `nenhum ${espaco === "ativos" ? "cliente" : "ex-cliente"} com fatura vencida mais antiga em ${rotulo} · use ‹ ou troque o período`
+      : r.prejuizo === null
+        ? `${num(r.devedores)} ${quem} devem desde ${rotulo} · Economia: — em ${num(r.devedores)} de ${num(r.devedores)}`
+        : `${num(r.avaliados)} de ${num(r.devedores)} ${quem} que devem desde ${rotulo} · projeção pela Economia do cliente · em aberto no último sync`,
+    real: {
+      rotulo: espaco === "ativos" ? "dívida vencida" : "dívida deixada",
+      valor: brl(r.dividaDoRecorte),
+      sub: `segundo o ERP · ${num(r.devedores)} ${quem}${fatia}`,
+    },
+    instalacao: r.instalacaoNaoRecuperada === null ? null : {
+      valor: brl(r.instalacaoNaoRecuperada),
+      sub: `instalação e aquisição não recuperadas · ${num(r.avaliados)} avaliados`,
+    },
+    abatida: r.abatida > 0 ? `margem já acumulada abate ${brl(r.abatida)}` : null,
+    semData: r.semData.clientes > 0 ? `${num(r.semData.clientes)} sem fatura vencida gravada ficam fora de qualquer período · ${brl(r.semData.divida)}` : null,
+    motivos,
+    acao,
+    titulo,
+  };
+}
+
+function FaixaDePrejuizo({ espaco, periodo, onPeriodo, ligado, onLigar, dados, carregando, hoje }: {
+  espaco: EspacoDaCarteira;
+  /** O período canônico em vigor (o da URL, ou o mês corrente). */
+  periodo: string;
+  onPeriodo: (p: string) => void;
+  ligado: boolean;
+  onLigar: () => void;
+  dados: RespostaDoPrejuizo | undefined;
+  carregando: boolean;
+  hoje: Date;
+}) {
+  const p = parsePeriodo(periodo) ?? periodoDaData(hoje, "mes");
+  const linhas = linhasDoPrejuizo(dados, espaco);
+  const botao = "grid h-[26px] w-[26px] place-items-center rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--border-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand)]";
+  const semAvaliado = !!dados?.live && dados.resumo.prejuizo === null;
+  return (
+    <section
+      className="flex flex-wrap items-stretch gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5"
+      aria-label="Prejuízo acumulado"
+      data-testid="faixa-prejuizo"
+      title={linhas.titulo}
+    >
+      <div className="flex flex-col gap-1.5 border-r border-[var(--border)] pr-2.5" data-testid="prejuizo-seletor">
+        <div className="flex items-center gap-1" role="group" aria-label="Granularidade do período">
+          {GRANULARIDADES.map(g => (
+            <button
+              key={g}
+              type="button"
+              aria-pressed={p.granularidade === g}
+              onClick={() => onPeriodo(formatarPeriodo(reenquadrar(p, g as Granularidade)))}
+              className={cn(
+                "min-h-[28px] rounded border px-2.5 font-mono text-[10px] font-semibold uppercase tracking-[var(--track-wide)]",
+                p.granularidade === g ? "border-[var(--brand)] bg-[var(--brand-soft)] text-[var(--brand-ink)]" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] hover:border-[var(--border-strong)]",
+              )}
+              data-testid={`prejuizo-granularidade-${g}`}
+            >
+              {ROTULO_GRANULARIDADE[g]}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button type="button" className={botao} aria-label="Período anterior" onClick={() => onPeriodo(formatarPeriodo(deslocarPeriodo(p, -1)))} data-testid="prejuizo-anterior">‹</button>
+          <span className="min-w-[52px] text-center font-mono text-[12.5px] font-semibold tabular-nums" data-testid="prejuizo-periodo">{rotuloDoPeriodo(p)}</span>
+          <button type="button" className={botao} aria-label="Próximo período" onClick={() => onPeriodo(formatarPeriodo(deslocarPeriodo(p, 1)))} data-testid="prejuizo-seguinte">›</button>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        aria-pressed={ligado}
+        onClick={onLigar}
+        disabled={!ligado && (!dados?.live || dados.resumo.devedores === 0)}
+        title={ligado ? "clique para limpar o filtro" : "clique para listar os devedores deste período"}
+        className={cn(
+          "min-w-[260px] flex-[2_1_260px] rounded-md border px-3 py-2 text-left motion-safe:transition-[border-color,box-shadow] disabled:cursor-default",
+          ligado ? "bg-[var(--surface-3)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)]",
+        )}
+        style={ligado ? { borderColor: "var(--money-neg)", borderWidth: 1.5 } : undefined}
+        data-testid="prejuizo-valor"
+      >
+        <span className="block font-mono text-[10px] font-semibold uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]">{linhas.kicker}</span>
+        <span className="mt-0.5 flex flex-wrap items-baseline gap-x-2">
+          <span className={cn("font-mono text-[23px] font-semibold tabular-nums tracking-[-0.02em]", semAvaliado || !dados?.live ? "text-[var(--text-muted)]" : "text-[var(--money-neg)]")}>
+            {carregando ? "…" : linhas.principal}
+          </span>
+          {linhas.cobertura && <span className="font-mono text-[11.5px] tabular-nums text-[var(--text-muted)]">{linhas.cobertura}</span>}
+          {dados?.live && !dados.confirmado && dados.resumo.prejuizo !== null && (
+            <SeloCobranca tom="gated" className="normal-case tracking-normal" titulo="Os custos da Política ainda não foram confirmados pelo admin: a soma usa os parâmetros padrão.">≈ parâmetros padrão</SeloCobranca>
+          )}
+        </span>
+        <span className="mt-px block text-[10.5px] text-[var(--text-muted)]">{linhas.sub}</span>
+        {linhas.instalacao && (
+          <span className="mt-1 block text-[10.5px] text-[var(--text-muted)]" data-testid="prejuizo-instalacao">
+            <b className="font-mono tabular-nums text-[var(--text-2)]">{linhas.instalacao.valor}</b> {linhas.instalacao.sub}
+            {linhas.abatida && <> · {linhas.abatida}</>}
+          </span>
+        )}
+        {linhas.motivos.length > 0 && (
+          <span className="mt-1 block text-[10.5px] text-[var(--text-faint)]" data-testid="prejuizo-motivos">{linhas.motivos.join(" · ")}</span>
+        )}
+      </button>
+
+      <div className="flex min-w-[200px] flex-[1_1_200px] flex-col justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2" data-testid="prejuizo-divida">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]">{linhas.real.rotulo}</span>
+        <span className="font-mono text-[15px] font-semibold tabular-nums text-[var(--money-neg)]">{carregando ? "…" : linhas.real.valor}</span>
+        <span className="text-[10.5px] text-[var(--text-muted)]">{linhas.real.sub}</span>
+      </div>
+
+      {(linhas.semData || linhas.acao) && (
+        <span className="basis-full flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-muted)]">
+          {linhas.semData && <span data-testid="prejuizo-sem-data">{linhas.semData}</span>}
+          {linhas.acao && (
+            <Link href={ROTA_POLITICA} className="underline font-medium" style={{ color: "var(--brand)" }} data-testid="prejuizo-acao">
+              {linhas.acao.rotulo}
+            </Link>
+          )}
+        </span>
+      )}
+      {ligado && (
+        <span className="self-center text-[11.5px] text-[var(--text-2)]" data-testid="prejuizo-filtro-ligado">
+          lista filtrada: <b>devem desde {rotuloDoPeriodo(p)}</b>
+        </span>
+      )}
+      {dados && !dados.live && !carregando && (
+        <span className="basis-full text-[11px] text-[var(--text-muted)]" data-testid="prejuizo-sem-base">{dados.motivo}</span>
+      )}
+      {dados?.atualizadoEm && (
+        <span className="basis-full text-[10.5px] text-[var(--text-faint)]">
+          sync de {new Date(dados.atualizadoEm).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+        </span>
+      )}
+    </section>
+  );
+}
+
 /* ── A tela ───────────────────────────────────────────────────────────── */
 
 export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaCarteira }) {
@@ -281,6 +476,14 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
     queryKey: [`${API_CARTEIRA_MES}?mes=${mes}&carteira=${meta.carteira}`],
     staleTime: 60_000,
     enabled: espaco === "ativos",
+  });
+  // O card de prejuízo, nos dois espaços. O período viaja na URL; vazio é o
+  // mês corrente — o mesmo "agora" da faixa do mês, para não haver dois hoje.
+  const periodoCorrente = formatarPeriodo(periodoDaData(hoje, "mes"));
+  const periodoAtual = filtros.periodo || periodoCorrente;
+  const { data: doPrejuizo, isLoading: carregandoPrejuizo } = useQuery<RespostaDoPrejuizo>({
+    queryKey: [`${API_CARTEIRA_PREJUIZO}?carteira=${meta.carteira}&periodo=${periodoAtual}`],
+    staleTime: 300_000,
   });
   const mostrarSkeleton = useSkeletonAtrasado(isLoading);
 
@@ -343,11 +546,26 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
           mes={mes}
           onMes={m => mudar({ mes: m === mesAtual(hoje) ? "" : m })}
           grupo={filtros.mesStatus}
-          onGrupo={g => mudar({ mesStatus: g })}
+          onGrupo={g => mudar({ mesStatus: g, prejuizo: "" })}
           dados={doMes}
           carregando={carregandoMes}
         />
       )}
+
+      {/* Prejuízo acumulado — a Economia do cliente somada por período. A faixa
+          do mês fatia o DINHEIRO do mês (faturas por vencimento); esta fatia as
+          PESSOAS (quem deve desde o período) e soma a Economia de vida inteira
+          de cada uma. Os dois chips são mutuamente exclusivos. */}
+      <FaixaDePrejuizo
+        espaco={espaco}
+        periodo={periodoAtual}
+        onPeriodo={p => mudar({ periodo: p === periodoCorrente ? "" : p })}
+        ligado={filtros.prejuizo === "1"}
+        onLigar={() => mudar({ prejuizo: filtros.prejuizo ? "" : "1", mesStatus: "" })}
+        dados={doPrejuizo}
+        carregando={carregandoPrejuizo}
+        hoje={hoje}
+      />
 
       <section className="flex flex-wrap items-center gap-2" aria-label="Filtros" data-testid="filtros-carteira">
         <div className="relative min-w-[220px] flex-1 sm:max-w-[320px]">

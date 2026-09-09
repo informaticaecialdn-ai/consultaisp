@@ -22,6 +22,7 @@ import {
   type Carteira,
   type Quadrante,
 } from "@shared/cobranca";
+import { parsePeriodo } from "@shared/cobranca/periodo";
 
 export interface FiltrosDaCarteira {
   carteira: Carteira;
@@ -36,6 +37,14 @@ export interface FiltrosDaCarteira {
   mes: string;
   /** Qual grupo do mes filtra a lista: pago · inadimplente · a_vencer · sem_fatura; vazio = nenhum. */
   mesStatus: string;
+  /**
+   * O card de prejuízo (os dois espaços): o período canônico de
+   * shared/cobranca/periodo.ts — "2026-09" · "2026-T3" · "2026-S2" · "2026";
+   * vazio = mês corrente. Sobrevive à troca de espaço, como a carteira.
+   */
+  periodo: string;
+  /** "1" quando a lista está filtrada pelos devedores do período; exclui mesStatus. */
+  prejuizo: string;
   pagina: number;
 }
 
@@ -53,6 +62,8 @@ export const FILTROS_INICIAIS: FiltrosDaCarteira = {
   bairro: "",
   mes: "",
   mesStatus: "",
+  periodo: "",
+  prejuizo: "",
   pagina: 1,
 };
 
@@ -110,16 +121,22 @@ export const OPCOES_DIVIDA: OpcaoDeFiltro[] = [
   { valor: "1000-mais", rotulo: "Acima de R$ 1.000", chip: "1.000+" },
 ];
 
-const CHAVES_DE_FILTRO = ["status", "etapa", "quadrante", "saude", "divida", "bairro", "mesStatus"] as const;
+const CHAVES_DE_FILTRO = ["status", "etapa", "quadrante", "saude", "divida", "bairro", "mesStatus", "prejuizo"] as const;
 
 /** Algum filtro além da carteira e da página está ligado. */
 export function temFiltros(f: FiltrosDaCarteira): boolean {
   return f.busca.trim() !== "" || CHAVES_DE_FILTRO.some(k => f[k] !== "");
 }
 
-/** Mantém a carteira, limpa o resto — trocar de aba não deve carregar o filtro de bairro da outra. */
+/**
+ * Mantém a carteira e o período, limpa o resto. É o botão "Limpar" da barra:
+ * o período é o recorte do card, não da lista, e o operador que limpa a lista
+ * não pediu para perder o trimestre que escolheu. O chip de prejuízo NÃO fica:
+ * é um recorte de ids. (Trocar de ESPAÇO pela sidebar remonta a tela numa URL
+ * nova — o período vive na URL de cada espaço.)
+ */
 export function limparFiltros(f: FiltrosDaCarteira): FiltrosDaCarteira {
-  return { ...FILTROS_INICIAIS, carteira: f.carteira };
+  return { ...FILTROS_INICIAIS, carteira: f.carteira, periodo: f.periodo };
 }
 
 /**
@@ -135,6 +152,7 @@ export function queryDaCarteira(f: FiltrosDaCarteira): string {
   // O mes so viaja quando ha um grupo do mes ligado ou quando nao e o corrente:
   // a URL limpa continua sendo a que se compartilha.
   if (f.mes) p.set("mes", f.mes);
+  if (f.periodo) p.set("periodo", f.periodo);
   if (f.pagina > 1) p.set("pagina", String(f.pagina));
   return p.toString();
 }
@@ -155,6 +173,10 @@ export function filtrosDaUrl(search: string): FiltrosDaCarteira {
     bairro: p.get("bairro") ?? "",
     mes: /^\d{4}-(0[1-9]|1[0-2])$/.test(p.get("mes") ?? "") ? (p.get("mes") as string) : "",
     mesStatus: (GRUPOS_DO_MES as readonly string[]).includes(p.get("mesStatus") ?? "") ? (p.get("mesStatus") as string) : "",
+    periodo: parsePeriodo(p.get("periodo")) ? (p.get("periodo") as string) : "",
+    // Os dois chips são mutuamente exclusivos (o servidor recusa os dois): num
+    // link que traga ambos, o do mês vence e o de prejuízo cai — a lista carrega.
+    prejuizo: p.get("prejuizo") === "1" && !(GRUPOS_DO_MES as readonly string[]).includes(p.get("mesStatus") ?? "") ? "1" : "",
     pagina: Number.isInteger(pagina) && pagina > 1 ? pagina : 1,
   };
 }

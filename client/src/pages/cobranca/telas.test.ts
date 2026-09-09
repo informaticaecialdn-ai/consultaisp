@@ -686,3 +686,27 @@ describe("o módulo se chama Esteira, e não Kanban", () => {
     expect(tipos).toContain('export const API_KANBAN = "/api/cobranca/kanban"');
   });
 });
+
+describe("o card de prejuízo na carteira — o que a fonte tem de garantir", () => {
+  const f = PAGINAS.carteira;
+  it("os dois chips são mutuamente exclusivos nos dois sentidos, e desligar é sempre possível", () => {
+    // O chip do mês derruba o de prejuízo; o de prejuízo derruba o do mês —
+    // senão o clique do operador recebe 400 do refine do servidor.
+    expect(f).toContain('onGrupo={g => mudar({ mesStatus: g, prejuizo: "" })}');
+    expect(f).toContain('onLigar={() => mudar({ prejuizo: filtros.prejuizo ? "" : "1", mesStatus: "" })}');
+    // Ligado, o botão nunca fica desabilitado: "clique para limpar o filtro" tem de funcionar.
+    expect(f).toContain("disabled={!ligado && (!dados?.live || dados.resumo.devedores === 0)}");
+  });
+  it("a faixa existe nos dois espaços e o período vazio é o mês corrente", () => {
+    expect(f).toContain("<FaixaDePrejuizo");
+    expect(f).toContain('const periodoAtual = filtros.periodo || periodoCorrente;');
+    expect(f).toContain('onPeriodo={p => mudar({ periodo: p === periodoCorrente ? "" : p })}');
+  });
+  it("a instalação não recuperada (projeção) fica no bloco da projeção, onde vive o selo — não na caixa 'segundo o ERP'", () => {
+    const projecao = f.slice(f.indexOf('data-testid="prejuizo-valor"'), f.indexOf('data-testid="prejuizo-divida"'));
+    expect(projecao).toContain('data-testid="prejuizo-instalacao"');
+    expect(projecao).toContain("≈ parâmetros padrão");
+    const caixaReal = f.slice(f.indexOf('data-testid="prejuizo-divida"'), f.indexOf('data-testid="prejuizo-sem-data"'));
+    expect(caixaReal).not.toContain("linhas.instalacao");
+  });
+});

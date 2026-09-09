@@ -68,6 +68,9 @@ const storageMock = vi.hoisted(() => ({
   // O ARPU da Economia (R24): a mensalidade lida das faturas do ERP. Sem
   // fatura gravada o padrao e `null`, que e o caso do cliente do fixture.
   mensalidadeDoCliente: vi.fn(async (): Promise<any> => null),
+  mensalidadesDoProvedor: vi.fn(async (): Promise<any> => new Map()),
+  devedoresComVencimento: vi.fn(async (): Promise<any[]> => []),
+  baseDeFaturas: vi.fn(async (): Promise<any> => ({ total: 0, atualizadoEm: null })),
   coberturaDaMensalidade: vi.fn(async (): Promise<any> => ({ ativos: 0, comMensalidade: 0, comDataDeContrato: 0 })),
   resumoDoMes: vi.fn(async (): Promise<any> => ({
     mes: "2026-09", base: false, faturado: 0, recebido: 0, recebidoConfirmado: false, emConciliacao: 0, inadimplente: 0, numInadimplentes: 0,
@@ -305,6 +308,137 @@ describe("ispScoreReal", () => {
 });
 
 /* ── Carteira ────────────────────────────────────────────────────────── */
+
+describe("GET /api/cobranca/carteira/prejuizo", () => {
+  const politicaComCustos = () => ({
+    id: 1, providerId: 42, ...POLITICA_PADRAO, updatedAt: new Date("2026-09-05T12:00:00Z"),
+    economia: { ...POLITICA_PADRAO.economia, cac: 120, capexInstalacao: 650, opexLink: 15, opexRedePop: 10, opexSuporte: 10, opexManutencaoNoc: 10, impostoReceitaPct: 8, cicloMeses: 36, confirmado: false },
+  });
+  it("exige a carteira e recusa periodo fora do formato", async () => {
+    sessao = OPERADOR;
+    expect((await json("GET", "/api/cobranca/carteira/prejuizo")).status).toBe(400);
+    expect((await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ativo&periodo=set-26")).status).toBe(400);
+    expect((await json("GET", "/api/cobranca/carteira/prejuizo?carteira=inventada")).status).toBe(400);
+    expect(storageMock.devedoresComVencimento).not.toHaveBeenCalled();
+  });
+  it("sem fatura do ERP: live=false com o motivo, e o periodo resolvido mesmo assim", async () => {
+    sessao = OPERADOR;
+    const r = await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ex_cliente&periodo=2026-T1");
+    expect(r.status).toBe(200);
+    const b = await r.json();
+    expect(b.live).toBe(false);
+    expect(b.motivo).toMatch(/fatura a fatura/);
+    expect(b.periodo).toEqual({ texto: "2026-T1", rotulo: "T1/26", granularidade: "trimestre", de: "2026-01-01", ate: "2026-04-01" });
+    expect(b.eixo).toBe("devem_desde");
+    // Sem devedor no periodo o conjunto vazio soma ZERO; o traco e para "ha devedor e ninguem passou no gate".
+    expect(b.resumo).toMatchObject({ devedores: 0, prejuizo: 0 });
+    // Sempre o provedor da sessao, nunca um da query.
+    expect(storageMock.devedoresComVencimento).toHaveBeenCalledWith(42, "ex_cliente", expect.any(Date));
+    expect(storageMock.baseDeFaturas).toHaveBeenCalledWith(42);
+  });
+  it("com base: soma os avaliados pelo mesmo gate do 360, e a mensalidade e lida SO dos devedores", async () => {
+    sessao = OPERADOR;
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce(politicaComCustos());
+    storageMock.baseDeFaturas.mockResolvedValueOnce({ total: 40, atualizadoEm: new Date("2026-09-09T06:05:00Z") });
+    storageMock.devedoresComVencimento.mockResolvedValueOnce([
+      // mes 6 devendo 179,80 → −723,55 no ledger (margem 37,708 × 6 − 770 − 179,80)
+      { id: 1, statusErp: "active", dividaAtual: 179.8, contractStartDate: "2026-03-09", cortadoEm: null, devemDesde: "2026-09-01", ultimaFatura: "2026-09-01" },
+      // sem fatura vencida gravada: balde "sem data"
+      { id: 2, statusErp: "active", dividaAtual: 50, contractStartDate: "2026-03-09", cortadoEm: null, devemDesde: null, ultimaFatura: null },
+    ]);
+    storageMock.mensalidadesDoProvedor.mockResolvedValueOnce(new Map([[1, { valor: 89.9, concordam: 1, faturas: 1, maisRecente: null, baixadas: 0 }]]));
+    const b = await (await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ativo&periodo=2026-09")).json();
+    expect(b.live).toBe(true);
+    expect(b.confirmado).toBe(false);
+    expect(b.resumo).toMatchObject({ devedores: 1, avaliados: 1, prejuizo: 723.55, dividaAvaliada: 179.8, instalacaoNaoRecuperada: 543.75, dividaDoRecorte: 179.8, dividaDaCarteira: 229.8, semData: { clientes: 1, divida: 50 } });
+    expect(b.serie).toEqual([{ mes: "2026-09", devedores: 1, dividaReal: 179.8, prejuizo: 723.55 }]);
+    expect(b.atualizadoEm).toBe("2026-09-09T06:05:00.000Z");
+    expect(storageMock.mensalidadesDoProvedor).toHaveBeenCalledWith(42, [1, 2]);
+  });
+  it("sem periodo na query, o mes corrente", async () => {
+    sessao = OPERADOR;
+    const b = await (await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ativo")).json();
+    const agora = new Date();
+    expect(b.periodo.texto).toBe(`${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`);
+  });
+});
+
+describe("o chip de prejuizo na lista da carteira", () => {
+  it("resolve os devedores do periodo pela mesma soma do card, nas duas carteiras", async () => {
+    sessao = OPERADOR;
+    storageMock.devedoresComVencimento.mockResolvedValue([
+      { id: 1, statusErp: "cancelled", dividaAtual: 589.65, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-03-05", ultimaFatura: "2026-03-05" },
+      { id: 2, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-07-05", ultimaFatura: "2026-07-05" },
+    ]);
+    const r = await json("GET", "/api/cobranca/carteira?carteira=ex_cliente&prejuizo=1&periodo=2026-T1");
+    expect(r.status).toBe(200);
+    expect(storageMock.devedoresComVencimento).toHaveBeenCalledWith(42, "ex_cliente", expect.any(Date));
+    storageMock.devedoresComVencimento.mockReset();
+    storageMock.devedoresComVencimento.mockResolvedValue([]);
+  });
+  it("chip do mes e chip de prejuizo nao se somam; prejuizo sem carteira e recusado", async () => {
+    sessao = OPERADOR;
+    expect((await json("GET", "/api/cobranca/carteira?carteira=ativo&prejuizo=1&mesStatus=pago")).status).toBe(400);
+    expect((await json("GET", "/api/cobranca/carteira?prejuizo=1")).status).toBe(400);
+  });
+});
+
+describe("GET /360 — o fim do ciclo e a evidência da mensalidade chegam à ficha", () => {
+  it("ex-cliente: ultimaFaturaEmitidaEm vem da fatura vencida mais recente (limite 1) e baixadas vai na mensalidade", async () => {
+    sessao = OPERADOR;
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled" }]);
+    storageMock.faturasDoCliente.mockResolvedValueOnce({ linhas: [], total: 1, limite: 1, doErp: 1, vencidas: 1, valorVencido: 589.65, vencimentoMaisAntigo: new Date("2026-03-05T00:00:00Z"), vencimentoMaisRecente: new Date("2026-03-05T00:00:00Z") });
+    storageMock.mensalidadeDoCliente.mockResolvedValueOnce({ valor: 89.9, concordam: 3, faturas: 4, maisRecente: null, baixadas: 2 });
+    const res = await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(storageMock.faturasDoCliente).toHaveBeenCalledWith(42, 1, { limite: 1, hoje: expect.any(Date) });
+    expect(body.fichaEntrada.ultimaFaturaEmitidaEm).toBe("2026-03-05");
+    expect(body.fichaEntrada.mensalidadeObservada).toMatchObject({ valor: 89.9, concordam: 3, faturas: 4, baixadas: 2 });
+    // O gate do ex-cliente continua fechado (decisão pendente do dono): pendente pelo histórico.
+    expect(body.ficha.economiaPendente).toMatch(/ex-cliente sem histórico/);
+  });
+  it("se a leitura das faturas falhar, a ficha abre sem o fim do ciclo — nunca derruba o 360", async () => {
+    sessao = OPERADOR;
+    storageMock.getCustomersProvider = undefined;
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled" }]);
+    storageMock.faturasDoCliente.mockRejectedValueOnce(new Error("banco fora"));
+    const res = await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente");
+    expect(res.status).toBe(200);
+    expect((await res.json()).fichaEntrada.ultimaFaturaEmitidaEm).toBeNull();
+  });
+});
+
+describe("o chip de prejuízo na lista — os três segmentos passam pelo recorte", () => {
+  const devedoresDoT1 = [
+    { id: 2, statusErp: "active", dividaAtual: 100, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-02-05", ultimaFatura: "2026-02-05" },
+    { id: 77, statusErp: "active", dividaAtual: 50, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-03-05", ultimaFatura: "2026-03-05" },
+    { id: 1, statusErp: "active", dividaAtual: 80, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-07-05", ultimaFatura: "2026-07-05" },
+  ];
+  it("ativos: casos e candidatos fora do período saem, e quem está em dia nunca entra", async () => {
+    sessao = OPERADOR;
+    storageMock.devedoresComVencimento.mockResolvedValueOnce(devedoresDoT1);
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [linhaCaso({ id: 1, cliente: { ...linhaCaso().cliente, id: 1 } }), linhaCaso({ id: 2, cliente: { ...linhaCaso().cliente, id: 2 } })], total: 2 });
+    storageMock.clientesParaAbrirCaso.mockResolvedValueOnce([
+      { customerId: 3, nome: "Fora", cpfCnpj: "111", statusErp: "active", carteira: "ativo", dividaAtual: 50, diasAtraso: 10, faturasAbertas: 1, contractStartDate: null },
+    ]);
+    const res = await json("GET", "/api/cobranca/carteira?carteira=ativo&prejuizo=1&periodo=2026-T1");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(storageMock.devedoresComVencimento).toHaveBeenCalledWith(42, "ativo", expect.any(Date));
+    expect(body.itens.map((i: any) => i.customerId)).toEqual([2]);
+    expect(storageMock.clientesAtivosEmDia).not.toHaveBeenCalled();
+  });
+  it("ex-clientes: o mesmo recorte, que o chip do mês nunca teve aqui", async () => {
+    sessao = OPERADOR;
+    storageMock.devedoresComVencimento.mockResolvedValueOnce(devedoresDoT1.map(d => ({ ...d, statusErp: "cancelled" })));
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [linhaCaso({ id: 1, cliente: { ...linhaCaso().cliente, id: 1 } }), linhaCaso({ id: 77, cliente: { ...linhaCaso().cliente, id: 77 } })], total: 2 });
+    storageMock.clientesParaAbrirCaso.mockResolvedValueOnce([]);
+    const body = await (await json("GET", "/api/cobranca/carteira?carteira=ex_cliente&prejuizo=1&periodo=2026-T1")).json();
+    expect(body.itens.map((i: any) => i.customerId)).toEqual([77]);
+    expect(storageMock.clientesDoMes).not.toHaveBeenCalled();
+  });
+});
 
 describe("GET /api/cobranca/carteira/mes", () => {
   it("sem fatura do ERP: live=false com o motivo; com base: o resumo inteiro e o mes pedido", async () => {

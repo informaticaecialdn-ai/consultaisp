@@ -40,7 +40,7 @@ vi.mock("../db", () => ({ db: new Proxy({} as any, { get: (_a, k) => banco.db[k]
  * acha nada. Estes helpers deixam a ordem do select explícita no teste.
  */
 const linhaDaModa = (valor: string | null, n: number, maisRecente: string | null) => [valor, n, maisRecente];
-const linhaDoTotal = (total: number) => [total];
+const linhaDoTotal = (total: number, baixadas = 0) => [total, baixadas];
 const linhaDaCobertura = (ativos: number, comMensalidade: number, comData: number) => [ativos, comMensalidade, comData];
 
 import { drizzle } from "drizzle-orm/pg-proxy";
@@ -183,5 +183,22 @@ describe("o índice que a leitura exige", () => {
   it("provider_id lidera: multi-tenant filtra por provedor antes de tudo", () => {
     expect(migracao).toMatch(/\(provider_id, customer_id\)/);
     expect(migracao).not.toMatch(/\(customer_id, provider_id\)/);
+  });
+});
+
+describe("as baixadas do valor da moda — a evidência do ex-cliente", () => {
+  it("conta só as faturas do VALOR da moda que foram baixadas, e o valor entra na consulta", async () => {
+    banco.respostas.push([linhaDaModa("89.90", 3, "2026-08-10T00:00:00Z")]);
+    banco.respostas.push([linhaDoTotal(5, 2)]);
+    const m = await storage.mensalidadeDoCliente(PROVEDOR, CLIENTE);
+    expect(m).toMatchObject({ valor: 89.9, concordam: 3, faturas: 5, baixadas: 2 });
+    expect(banco.consultas[1].params).toContain("baixada_no_erp");
+    expect(banco.consultas[1].params).toContain("89.90");
+    expect(banco.consultas[1].sql).toMatch(/"value" = \$\d/);
+  });
+  it("sem baixada nenhuma, zero — e a coluna ausente também é zero, nunca undefined", async () => {
+    banco.respostas.push([linhaDaModa("89.90", 1, "2026-08-10T00:00:00Z")]);
+    banco.respostas.push([[1]]);
+    expect((await storage.mensalidadeDoCliente(PROVEDOR, CLIENTE))?.baixadas).toBe(0);
   });
 });

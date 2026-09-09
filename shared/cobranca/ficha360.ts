@@ -26,8 +26,19 @@ export interface EntradaDaFicha360 {
   statusErp: string | null;
   carteira: string | null;
   contractStartDate: string | Date | null;
-  /** Quando o contrato acabou — o "fim realizado" do ex-cliente. */
+  /** Quando o contrato acabou — o "fim realizado" do ex-cliente. Só o SGP informa. */
   cortadoEm: string | Date | null;
+  /**
+   * A fatura VENCIDA EM ABERTO mais recente do cliente — o último mês que o
+   * ERP cobrou e ninguém pagou; é o fim do ciclo do ex-cliente quando
+   * `cortadoEm` não veio. (Baixada posterior seria pagamento, e não entra.) Até 09/09/2026 o fim caía em `hoje`: quem saiu há um
+   * ano contava permanência até agora, e creditaria margem de meses em que já
+   * não era cliente no dia em que a Economia projetada abrisse para ex-cliente.
+   *
+   * NÃO confundir com a fatura vencida MAIS ANTIGA ("devem desde"), que é o eixo
+   * do card de prejuízo e não entra no ledger. Coincidem quando há uma fatura só.
+   */
+  ultimaFaturaEmitidaEm?: string | Date | null;
   plano: string | null;
   ispScore: number | null;
   riskTier: string | null;
@@ -54,7 +65,7 @@ export interface EntradaDaFicha360 {
    * O preço cadastrado VENCE esta leitura: configuração explícita do admin
    * ganha de valor observado. Ausente aqui = o cliente não tem fatura do ERP.
    */
-  mensalidadeObservada?: { valor: number; concordam: number; faturas: number } | null;
+  mensalidadeObservada?: { valor: number; concordam: number; faturas: number; baixadas?: number } | null;
   /** Histórico de pagamento sincronizado, quando existir (fase 2). */
   historicoPagamento: { pagas: number; recebido: number; pct_em_dia: number } | null;
 }
@@ -98,18 +109,112 @@ function dataOuNull(v: string | Date | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
+/** O que a Economia precisa da ficha — o subconjunto que o card de prejuízo também tem por linha. */
+export type EntradaDaEconomia = Pick<EntradaDaFicha360,
+  "hoje" | "statusErp" | "carteira" | "contractStartDate" | "cortadoEm" | "ultimaFaturaEmitidaEm" | "plano"
+  | "dividaAtual" | "economia" | "mensalidadeObservada" | "historicoPagamento">;
+
+export interface EconomiaDoCliente {
+  situacaoReal: Ficha360["situacaoReal"];
+  cicloVivo: boolean;
+  /** O fim do ciclo: hoje para quem está vivo; corte, última fatura ou hoje para ex-cliente. */
+  fim: Date;
+  mesesCliente: number | null;
+  valorMensal: number | null;
+  origemDoValorMensal: Ficha360["origemDoValorMensal"];
+  economia: EconomiaLedger | null;
+  economiaPendente: string | null;
+}
+
+/**
+ * O GATE da Economia — um só, para a ficha do 360 e para a soma da carteira
+ * (card "Prejuízo acumulado"). Extraído de `montarFicha360` em 09/09/2026 para
+ * o card ser, por construção, a soma das fichas: uma fórmula, um gate, dois
+ * consumidores.
+ *
+ * A regra de evidência da mensalidade observada nasceu aqui e vale nos dois
+ * lugares: para quem está VIVO a fatura aberta é estruturalmente a mensalidade
+ * do mês (a moda da carteira da NsLink é R$ 89,90 ×177); para EX-CLIENTE a
+ * única fatura aberta é, em 97% dos casos, o SALDO consolidado do cancelamento
+ * (mediana R$ 589,65, máximo R$ 3.974,60) — e virava "MRR" no 360. Ex-cliente
+ * só tem mensalidade observada com duas faturas concordantes e ao menos uma
+ * baixada no ERP: valor PAGO repetidas vezes é mensalidade; saldo não é.
+ */
+export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
   const situacaoReal = situacaoRealDe(e.statusErp, e.carteira);
   const cicloVivo = situacaoReal === "ativo" || situacaoReal === "suspenso";
-  const fim = cicloVivo ? e.hoje : (dataOuNull(e.cortadoEm) ?? e.hoje);
+  // O fim do ciclo do ex-cliente é o que o ERP PROVOU: o corte, ou a última
+  // fatura emitida. `hoje` só quando não há nada — e aí a permanência é teto.
+  const fim = cicloVivo ? e.hoje : (dataOuNull(e.cortadoEm) ?? dataOuNull(e.ultimaFaturaEmitidaEm ?? null) ?? e.hoje);
   const mesesCliente = mesesEntre(e.contractStartDate, fim);
-  const anosCliente = anosDeCliente(e.contractStartDate, fim);
   // Preço cadastrado primeiro (o admin mandou), mensalidade observada depois.
   const precoCadastrado = precoDoPlano(e.economia?.precoPorPlano, e.plano);
-  const observada = e.mensalidadeObservada && e.mensalidadeObservada.valor > 0 ? e.mensalidadeObservada.valor : null;
+  const obs = e.mensalidadeObservada ?? null;
+  const observadaConfiavel = !!obs && obs.valor > 0 && (cicloVivo || (obs.concordam >= 2 && (obs.baixadas ?? 0) >= 1));
+  const observada = observadaConfiavel ? obs!.valor : null;
+  // Dois jeitos de a observada NÃO valer para ex-cliente, com motivos distintos:
+  // uma fatura só (é o saldo) ou várias iguais que ninguém pagou (sem prova).
+  const recusada = !!obs && obs.valor > 0 && !observadaConfiavel;
+  const motivoDaRecusa = !recusada ? null
+    : obs!.concordam >= 2
+      ? `sem mensalidade confirmada: ${obs!.concordam} faturas iguais em aberto e nenhuma baixada no ERP — sem prova de pagamento, o valor não vira mensalidade`
+      : "sem mensalidade: a única fatura aberta deste ex-cliente é o saldo final, não a mensalidade";
   const valorMensal = precoCadastrado ?? observada;
   const origemDoValorMensal: Ficha360["origemDoValorMensal"] =
     precoCadastrado !== null ? "plano_cadastrado" : observada !== null ? "faturas_do_erp" : null;
+
+  let economia: EconomiaLedger | null = null;
+  let economiaPendente: string | null = null;
+  if (!e.economia) {
+    economiaPendente = "sem parâmetros de custo do provedor (Política > Economia)";
+  } else if (situacaoReal === "ex-cliente" && !e.historicoPagamento) {
+    economiaPendente = "ex-cliente sem histórico de pagamento sincronizado — a economia realizada é a soma dos pagamentos reais, não fórmula";
+  } else if (!cicloVivo && !e.historicoPagamento) {
+    economiaPendente = "cliente sem contrato ativo (cancelado no ERP) — ciclo encerrado; nenhum número de assinatura é projetado";
+  } else if (valorMensal === null) {
+    economiaPendente = motivoDaRecusa
+      ? motivoDaRecusa
+      : e.plano
+        ? `sem mensalidade: o plano "${e.plano}" não tem preço cadastrado e este cliente não tem fatura vinda do ERP`
+        : "sem mensalidade: este cliente não tem fatura vinda do ERP, e o plano dele não chegou do sync";
+  } else if (!custosInformados(e.economia)) {
+    // Chega DEPOIS do ARPU de propósito: o ARPU é dado do ERP e o provedor não
+    // tem o que fazer se faltar; os custos são a configuração que ele preenche.
+    economiaPendente = "faltam os custos do provedor: CAC, instalação e o custo mensal de servir um assinante (Política > Economia)";
+  } else if (mesesCliente === null) {
+    const inicio = dataOuNull(e.contractStartDate);
+    economiaPendente = !inicio
+      ? "sem data de contrato — o ERP não informou quando o cliente aderiu"
+      : cicloVivo
+        ? "data de contrato no futuro segundo o ERP — a adesão informada é posterior a hoje"
+        : "data de contrato posterior à última fatura — contrato renovado; o ERP não informa o ciclo anterior";
+  } else {
+    economia = computeEconomiaLedger({
+      arpu: valorMensal,
+      custoParams: {
+        cac: e.economia.cac,
+        capex_instalacao: e.economia.capexInstalacao,
+        equipamento_residual: e.economia.equipamentoResidual,
+        opex_link: e.economia.opexLink,
+        opex_rede_pop: e.economia.opexRedePop,
+        opex_suporte: e.economia.opexSuporte,
+        opex_manutencao_noc: e.economia.opexManutencaoNoc,
+        imposto_receita_pct: e.economia.impostoReceitaPct,
+        ciclo_meses: e.economia.cicloMeses,
+      },
+      mesAtual: mesesCliente,
+      cicloVivo,
+      receitaRecebida: e.historicoPagamento ? e.historicoPagamento.recebido : null,
+      inadimplenciaAberta: e.dividaAtual,
+    });
+  }
+
+  return { situacaoReal, cicloVivo, fim, mesesCliente, valorMensal, origemDoValorMensal, economia, economiaPendente };
+}
+
+export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
+  const { situacaoReal, fim, mesesCliente, valorMensal, origemDoValorMensal, economia, economiaPendente } = economiaDoCliente(e);
+  const anosCliente = anosDeCliente(e.contractStartDate, fim);
   const faturasAbertas = e.faturasAbertas ?? (e.dividaAtual > 0 ? 1 : 0);
 
   const selo = classificarSeloPagamento({
@@ -141,45 +246,6 @@ export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
     : null;
 
   const prescricao = prescricaoPorAtraso(e.diasAtraso, e.hoje);
-
-  let economia: EconomiaLedger | null = null;
-  let economiaPendente: string | null = null;
-  if (!e.economia) {
-    economiaPendente = "sem parâmetros de custo do provedor (Política > Economia)";
-  } else if (situacaoReal === "ex-cliente" && !e.historicoPagamento) {
-    economiaPendente = "ex-cliente sem histórico de pagamento sincronizado — a economia realizada é a soma dos pagamentos reais, não fórmula";
-  } else if (!cicloVivo && !e.historicoPagamento) {
-    economiaPendente = "cliente sem contrato ativo (cancelado no ERP) — ciclo encerrado; nenhum número de assinatura é projetado";
-  } else if (valorMensal === null) {
-    economiaPendente = e.plano
-      ? `sem mensalidade: o plano "${e.plano}" não tem preço cadastrado e este cliente não tem fatura vinda do ERP`
-      : "sem mensalidade: este cliente não tem fatura vinda do ERP, e o plano dele não chegou do sync";
-  } else if (!custosInformados(e.economia)) {
-    // Chega DEPOIS do ARPU de propósito: o ARPU é dado do ERP e o provedor não
-    // tem o que fazer se faltar; os custos são a configuração que ele preenche.
-    economiaPendente = "faltam os custos do provedor: CAC, instalação e o custo mensal de servir um assinante (Política > Economia)";
-  } else if (mesesCliente === null) {
-    economiaPendente = "sem data de contrato — o ERP não informou quando o cliente aderiu";
-  } else {
-    economia = computeEconomiaLedger({
-      arpu: valorMensal,
-      custoParams: {
-        cac: e.economia.cac,
-        capex_instalacao: e.economia.capexInstalacao,
-        equipamento_residual: e.economia.equipamentoResidual,
-        opex_link: e.economia.opexLink,
-        opex_rede_pop: e.economia.opexRedePop,
-        opex_suporte: e.economia.opexSuporte,
-        opex_manutencao_noc: e.economia.opexManutencaoNoc,
-        imposto_receita_pct: e.economia.impostoReceitaPct,
-        ciclo_meses: e.economia.cicloMeses,
-      },
-      mesAtual: mesesCliente,
-      cicloVivo,
-      receitaRecebida: e.historicoPagamento ? e.historicoPagamento.recebido : null,
-      inadimplenciaAberta: e.dividaAtual,
-    });
-  }
 
   const resumo = resumoExecutivo({
     selo,

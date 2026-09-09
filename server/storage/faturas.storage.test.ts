@@ -539,7 +539,7 @@ describe("faturasDoCliente", () => {
   it("devolve a fatura como a tela a mostra, e o valor vira numero", async () => {
     banco.responder = (sql) => /order by/.test(sql)
       ? [[10, "mk", "551", "2026-09-10 00:00:00", "99.90", "Mensalidade setembro", "aberta", null]]
-      : [[7, 7, 3, "310.50", "2026-07-10 00:00:00"]];
+      : [[7, 7, 3, "310.50", "2026-07-10 00:00:00", "2026-09-01 00:00:00"]];
 
     const r = await storage.faturasDoCliente(PROVEDOR, CLIENTE, { hoje: HOJE });
     expect(r.linhas).toHaveLength(1);
@@ -553,15 +553,101 @@ describe("faturasDoCliente", () => {
     expect(r.vencidas).toBe(3);
     expect(r.valorVencido).toBe(310.5);
     expect(r.vencimentoMaisAntigo).toEqual(new Date("2026-07-10T00:00:00.000Z"));
+    // A vencida mais recente sai pelo MESMO decodificador — Date, nao texto.
+    expect(r.vencimentoMaisRecente).toEqual(new Date("2026-09-01T00:00:00.000Z"));
+    expect(banco.consultas.some(c => /max\("due_date"\) filter \(where/.test(c.sql) || /max\("invoices"\."due_date"\) filter \(where/.test(c.sql))).toBe(true);
   });
 
   it("cliente sem fatura gravada: tudo zero e vencimento NULO — a tela mostra o traco", async () => {
-    banco.responder = (sql) => /order by/.test(sql) ? [] : [[0, 0, 0, 0, null]];
+    banco.responder = (sql) => /order by/.test(sql) ? [] : [[0, 0, 0, 0, null, null]];
     const r = await storage.faturasDoCliente(PROVEDOR, CLIENTE, { hoje: HOJE });
     expect(r.linhas).toEqual([]);
     expect(r.total).toBe(0);
     expect(r.doErp).toBe(0);
     expect(r.vencidas).toBe(0);
     expect(r.vencimentoMaisAntigo).toBeNull();
+    expect(r.vencimentoMaisRecente).toBeNull();
+  });
+});
+
+describe("mensalidade observada em lote", () => {
+  /**
+   * A mesma moda de mensalidadeDoCliente, para a carteira inteira numa
+   * consulta: e o ARPU que o card "Prejuizo acumulado" soma. Uma linha por
+   * cliente, so a posicao 1 do ranking (mais repeticoes, depois vencimento
+   * mais novo), e valor nao positivo nao vira mensalidade.
+   */
+  it("uma consulta, uma linha por cliente, moda por repeticao e vencimento; valor <= 0 fica de fora", async () => {
+    banco.responder = () => [
+      [42, "89.90", 5, "2026-09-10T00:00:00Z", 7, 4],
+      [43, "0.00", 3, "2026-08-10T00:00:00Z", 3, 0],
+      [44, "2924.66", 1, "2026-05-25T00:00:00Z", 1, 0],
+    ];
+    const m = await storage.mensalidadesDoProvedor(PROVEDOR);
+    expect(banco.consultas).toHaveLength(1);
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].sql).toContain('"erp_source" is not null');
+    expect(banco.consultas[0].sql).toContain("row_number() over (partition by");
+    expect(banco.consultas[0].sql).toContain('group by');
+    expect(m.get(42)).toMatchObject({ valor: 89.9, concordam: 5, faturas: 7, baixadas: 4 });
+    expect(banco.consultas[0].params).toContain("baixada_no_erp");
+    // As baixadas sao do GRUPO (cliente, valor): nenhuma janela somando os valores todos.
+    expect(banco.consultas[0].sql).not.toMatch(/filter \(where "status" in[^)]*\)\) over/);
+    expect(m.get(42)!.maisRecente).toEqual(new Date("2026-09-10T00:00:00Z"));
+    expect(m.has(43)).toBe(false);
+    // O ex-cliente com UMA fatura-saldo entra no mapa como qualquer outro: quem
+    // decide se isso e mensalidade e quem le a evidencia (concordam/faturas).
+    expect(m.get(44)).toMatchObject({ valor: 2924.66, concordam: 1, faturas: 1, baixadas: 0 });
+  });
+  it("com ids: recorta por cliente no SQL; lista vazia e recorte vazio, sem ir ao banco", async () => {
+    expect((await storage.mensalidadesDoProvedor(PROVEDOR, [])).size).toBe(0);
+    expect(banco.consultas).toHaveLength(0);
+    banco.responder = () => [];
+    await storage.mensalidadesDoProvedor(PROVEDOR, [7, 9]);
+    expect(banco.consultas).toHaveLength(1);
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].sql).toContain('"customer_id" in (');
+    expect(banco.consultas[0].params).toEqual(expect.arrayContaining([7, 9]));
+  });
+});
+
+describe("os devedores com as datas do card de prejuizo", () => {
+  /**
+   * Uma consulta, a populacao do KPI (comDivida dentro da carteira), e as
+   * datas como DIA EM TEXTO: due_date e meia-noite UTC e um Date lido no fuso
+   * do servidor escorregaria de mes na fronteira.
+   */
+  it.each(["ativo", "ex_cliente"] as const)("carteira %s: uma consulta, datas em texto, o predicado da carteira e o corte de hoje", async carteira => {
+    banco.responder = () => [
+      [42, "cancelled", "589.65", "2025-09-01", null, "2026-03-05", "2026-03-05"],
+      [43, "cancelled", "50.00", null, null, null, null],
+    ];
+    const r = await storage.devedoresComVencimento(PROVEDOR, carteira, HOJE);
+    expect(banco.consultas).toHaveLength(1);
+    conferirTenant(banco.consultas[0]);
+    // A populacao e a da carteira pedida: ativos = status atual; ex = not (status atual).
+    expect(banco.consultas[0].sql).toContain('"customers"."status" in (');
+    if (carteira === "ex_cliente") expect(banco.consultas[0].sql).toContain("not (");
+    else expect(banco.consultas[0].sql).not.toContain("not (");
+    expect(banco.consultas[0].params).toEqual(expect.arrayContaining(["active", "suspended"]));
+    expect(banco.consultas[0].sql).toContain("to_char(min(");
+    expect(banco.consultas[0].sql).toContain("to_char(max(");
+    expect(banco.consultas[0].sql).toContain("'YYYY-MM-DD'");
+    expect(banco.consultas[0].sql).toContain("left join");
+    expect(banco.consultas[0].sql).toContain('coalesce("customers"."total_overdue_amount", 0) > 0');
+    // A regua da casa: fatura que vence HOJE ainda nao venceu — o corte e o dia, em texto.
+    expect(banco.consultas[0].params).toContain("2026-09-05");
+    expect(r).toEqual([
+      { id: 42, statusErp: "cancelled", dividaAtual: 589.65, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-03-05", ultimaFatura: "2026-03-05" },
+      { id: 43, statusErp: "cancelled", dividaAtual: 50, contractStartDate: null, cortadoEm: null, devemDesde: null, ultimaFatura: null },
+    ]);
+  });
+  it("a base de faturas diz se ha fatura do ERP e quando a varredura tocou a ultima", async () => {
+    banco.responder = () => [[12, "2026-09-09T06:05:00Z"]];
+    const b = await storage.baseDeFaturas(PROVEDOR);
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].sql).toContain('"erp_source" is not null');
+    expect(b.total).toBe(12);
+    expect(b.atualizadoEm).toBeTruthy();
   });
 });

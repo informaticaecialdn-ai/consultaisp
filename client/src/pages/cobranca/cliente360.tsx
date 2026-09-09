@@ -21,6 +21,7 @@
  * mesmo `montarFicha360` do servidor — uma fórmula, dois lugares.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { decomporPrejuizo } from "@shared/cobranca/prejuizo";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearch } from "wouter";
 import { carteiraDaNavegacao, caminhoNaCarteira } from "@/components/cobranca/carteiras";
@@ -766,6 +767,16 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
       </div>
       <p className={cn(NUM, "mt-1 text-[26px] font-bold leading-none tracking-[-0.02em]")} style={{ color: economia ? (economia.lucro_acumulado >= 0 ? "var(--ok)" : "var(--danger)") : "var(--text-muted)" }}>{economia ? money(economia.lucro_acumulado) : DASH}</p>
       <p className="mt-1 text-[11.5px] text-[var(--text-muted)]">lucro acumulado{economia ? ` · mês ${economia.mes_atual}` : ""}</p>
+      {/* O mesmo número que o card "Prejuízo acumulado" da carteira soma — pela
+          mesma função, para o operador reconhecê-lo ao clicar. */}
+      {economia && economia.lucro_acumulado < 0 && (() => {
+        const d = decomporPrejuizo(economia, economia.inadimplencia_aberta);
+        return (
+          <p className={cn(NUM, "mt-0.5 text-[11px] text-[var(--text-muted)]")} data-testid="economia-prejuizo">
+            prejuízo <b className="text-[var(--money-neg)]">{money(d.prejuizo)}</b> = dívida {money(d.dividaAvaliada)} + instalação não recuperada {money(d.instalacaoNaoRecuperada)}{d.abatida > 0 ? ` − abatida ${money(d.abatida)}` : ""}
+          </p>
+        );
+      })()}
       {!economia && pendente && <p className="mt-1"><Pendente motivo={pendente} ext={exCliente ? undefined : "R24"} /></p>}
       {economia && !confirmado && <p className="mt-1"><SeloCobranca tom="gated" className="normal-case tracking-normal"><Sparkles className="h-3 w-3" aria-hidden /> ≈ parâmetros padrão</SeloCobranca></p>}
       <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 border-t border-[var(--border)] pt-2">

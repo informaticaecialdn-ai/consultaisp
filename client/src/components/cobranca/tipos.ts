@@ -11,6 +11,8 @@
  * Nada de React aqui: o módulo é importado pelos `.ts` puros e pelos testes.
  */
 import { POLITICA_PADRAO, ROTULO_CANAL, ROTULO_STATUS_DE_CASO, type Economia, type Etapa, type MotivoSemEtapa } from "@shared/cobranca";
+import type { ResumoDoPrejuizo, SerieDoPrejuizo } from "@shared/cobranca/prejuizo";
+import type { Granularidade } from "@shared/cobranca/periodo";
 import type { EntradaDaFicha360, Ficha360 } from "@shared/cobranca";
 
 /** O que a rota leu para montar a ficha; o navegador remonta com o plano e a data do ERP ao vivo. */
@@ -69,6 +71,8 @@ export const rotaDoCliente = (customerId: number, carteira?: string) => `/cobran
 export const API_CARTEIRA = "/api/cobranca/carteira";
 /** Realidade mensal do espaco de ativos: GET ?mes=AAAA-MM. */
 export const API_CARTEIRA_MES = "/api/cobranca/carteira/mes";
+/** O card de prejuizo (os dois espacos): GET ?carteira=&periodo=AAAA-MM|AAAA-Tn|AAAA-Sn|AAAA. */
+export const API_CARTEIRA_PREJUIZO = "/api/cobranca/carteira/prejuizo";
 /**
  * A rota da fila continua no servidor — nenhuma tela a consome desde 06/09/2026,
  * mas remover API e irreversivel para quem tiver integracao. `lerRespostaDaFila`
@@ -167,6 +171,19 @@ export interface RespostaDoMes {
   live: boolean;
   motivo: string | null;
   resumo: ResumoDoMes | null;
+}
+
+/** O que GET /api/cobranca/carteira/prejuizo devolve — ver shared/cobranca/prejuizo.ts. */
+export interface RespostaDoPrejuizo {
+  live: boolean;
+  motivo: string | null;
+  periodo: { texto: string; rotulo: string; granularidade: Granularidade; de: string; ate: string };
+  eixo: "devem_desde";
+  /** politica.economia.confirmado — sem ele a soma leva o selo "≈ parâmetros padrão". */
+  confirmado: boolean;
+  resumo: ResumoDoPrejuizo;
+  serie: SerieDoPrejuizo[];
+  atualizadoEm: string | null;
 }
 
 export interface KpisDaCobranca {

@@ -203,3 +203,80 @@ describe("custos zerados não viram número bonito e falso", () => {
     expect(f.economiaPendente).toMatch(/sem mensalidade/);
   });
 });
+
+describe("o gate extraído: a mensalidade do ex-cliente e o fim do ciclo (09/09/2026)", () => {
+  it("ex-cliente com UMA fatura aberta (o saldo) não ganha mensalidade: MRR fica em branco, com o motivo do saldo", () => {
+    // O print do dono: "MRR R$ 2.924,66" era o próprio saldo em aberto.
+    const f = montarFicha360({
+      ...base, statusErp: "cancelled", carteira: "ex_cliente", plano: null, dividaAtual: 2924.66,
+      economia: { ...ECONOMIA, precoPorPlano: {} },
+      mensalidadeObservada: { valor: 2924.66, concordam: 1, faturas: 1, baixadas: 0 },
+      // Com histórico, o gate de ex-cliente abriria — e sem a regra o saldo viraria ARPU.
+      historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 },
+    });
+    expect(f.valorMensal).toBeNull();
+    expect(f.origemDoValorMensal).toBeNull();
+    expect(f.economia).toBeNull();
+    expect(f.economiaPendente).toMatch(/saldo final, não a mensalidade/);
+  });
+  it("ex-cliente com duas faturas concordantes e uma baixada tem mensalidade observada", () => {
+    const f = montarFicha360({
+      ...base, statusErp: "cancelled", carteira: "ex_cliente", plano: null, cortadoEm: "2026-03-05",
+      economia: { ...ECONOMIA, precoPorPlano: {} },
+      mensalidadeObservada: { valor: 89.9, concordam: 3, faturas: 4, baixadas: 2 },
+      historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 },
+    });
+    expect(f.valorMensal).toBe(89.9);
+    expect(f.origemDoValorMensal).toBe("faturas_do_erp");
+    expect(f.economia?.arpu).toBe(89.9);
+  });
+  it("cliente vivo com uma fatura só continua com a mensalidade do mês — a regra de evidência é para ex-cliente", () => {
+    const f = montarFicha360({ ...base, plano: null, economia: { ...ECONOMIA, precoPorPlano: {} }, mensalidadeObservada: { valor: 89.9, concordam: 1, faturas: 1, baixadas: 0 } });
+    expect(f.valorMensal).toBe(89.9);
+    expect(f.economia?.arpu).toBe(89.9);
+  });
+  it("sem corte informado, o ciclo do ex-cliente termina na ÚLTIMA fatura emitida, não em hoje", () => {
+    // Aderiu em set/25; a última fatura venceu em mar/26; hoje é set/26.
+    const f = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: null, ultimaFaturaEmitidaEm: "2026-03-05" });
+    expect(f.mesesCliente).toBe(6);
+    // Sem nada que prove o fim, a permanência vai até hoje — como antes.
+    expect(montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: null }).mesesCliente).toBe(12);
+    // O corte informado vence a última fatura.
+    expect(montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-01-05", ultimaFaturaEmitidaEm: "2026-03-05" }).mesesCliente).toBe(4);
+  });
+  it("contrato que começa DEPOIS da última fatura é contrato renovado, não 'sem data'", () => {
+    const f = montarFicha360({
+      ...base, statusErp: "cancelled", carteira: "ex_cliente", contractStartDate: "2026-06-01", ultimaFaturaEmitidaEm: "2026-03-05",
+      historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 },
+    });
+    expect(f.mesesCliente).toBeNull();
+    expect(f.economiaPendente).toMatch(/contrato renovado/);
+  });
+});
+
+describe("os motivos do gate, um por caso (revisão de 09/09/2026)", () => {
+  it("cliente VIVO com data de contrato no futuro não é 'contrato renovado'", () => {
+    const f = montarFicha360({ ...base, contractStartDate: "2026-09-20" });
+    expect(f.mesesCliente).toBeNull();
+    expect(f.economiaPendente).toMatch(/no futuro/);
+    expect(f.economiaPendente).not.toMatch(/renovado|última fatura/);
+  });
+  it("ex-cliente com várias faturas iguais e nenhuma baixada: sem prova de pagamento, não 'a única fatura'", () => {
+    const f = montarFicha360({
+      ...base, statusErp: "cancelled", carteira: "ex_cliente", plano: null, economia: { ...ECONOMIA, precoPorPlano: {} },
+      mensalidadeObservada: { valor: 89.9, concordam: 3, faturas: 3, baixadas: 0 },
+      historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 },
+    });
+    expect(f.valorMensal).toBeNull();
+    expect(f.economiaPendente).toMatch(/3 faturas iguais em aberto e nenhuma baixada/);
+    expect(f.economiaPendente).not.toMatch(/única fatura/);
+  });
+  it("o motivo do saldo não promete um cadastro que o card não lê (não há plano por cliente)", () => {
+    const f = montarFicha360({
+      ...base, statusErp: "cancelled", carteira: "ex_cliente", plano: null, economia: { ...ECONOMIA, precoPorPlano: {} },
+      mensalidadeObservada: { valor: 2924.66, concordam: 1, faturas: 1, baixadas: 0 },
+      historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 },
+    });
+    expect(f.economiaPendente).toMatch(/saldo final, não a mensalidade$/);
+  });
+});

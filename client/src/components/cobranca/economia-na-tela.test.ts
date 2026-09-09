@@ -179,3 +179,14 @@ describe("o rótulo do ARPU carrega a força da evidência", () => {
     expect(rotulo(null, null)).toBe("mensalidade do plano");
   });
 });
+
+describe("a linha 'prejuízo' do card R24 é a mesma conta do card da carteira", () => {
+  it("usa decomporPrejuizo sobre o ledger, só com lucro negativo, e mostra a decomposição", () => {
+    const mini = ficha360.slice(ficha360.indexOf("function EconomiaMini("), ficha360.indexOf("function ScoreBox("));
+    expect(mini).toContain("economia.lucro_acumulado < 0");
+    expect(mini).toContain("decomporPrejuizo(economia, economia.inadimplencia_aberta)");
+    expect(mini).toContain('data-testid="economia-prejuizo"');
+    expect(mini).toMatch(/instalação não recuperada/);
+    expect(mini).toMatch(/abatida/);
+  });
+});

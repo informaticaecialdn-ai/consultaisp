@@ -635,6 +635,10 @@ GET  /api/cobranca/carteira/mes        # ?mes=AAAA-MM → { live, motivo, resumo
                                        # Provedor.ai) sobre `invoices`: inadimplente = aberta vencida, aVencer = aberta
                                        # >= hoje, emConciliacao = baixada_no_erp, semFatura = cliente atual sem fatura
                                        # no mês. Sem fatura vinda do ERP → live=false e a tela mostra "—", nunca zero.
+GET  /api/cobranca/carteira/prejuizo   # ?carteira=ativo|ex_cliente&periodo=AAAA-MM|AAAA-Tn|AAAA-Sn|AAAA — a Economia do
+                                       # cliente somada por periodo, so devedores, eixo "devem desde" (fatura vencida mais
+                                       # antiga). Ver docs/prejuizo-acumulado-2026-09-09.md. Na lista, `prejuizo=1&periodo=`
+                                       # filtra pelos devedores do periodo (exclui mesStatus).
 GET  /api/cobranca/kanban              # colunas = fluxo do operador, na ORDEM DO DIA; `kpis` calculados sobre o MESMO
                                        # recorte do quadro (casosVivos, emAberto, vencidos, criticos,
                                        # paraHoje = quem TEM data até hoje, semProximaAcao = caso vivo sem data)

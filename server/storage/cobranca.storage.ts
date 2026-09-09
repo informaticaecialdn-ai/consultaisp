@@ -422,7 +422,8 @@ const clienteAtual = () => inArray(customers.status, [...STATUS_DE_CLIENTE_ATUAL
 export const clienteDaCarteira = (carteira?: CarteiraDeCobranca) => carteira === undefined
   ? undefined
   : carteira === "ativo" ? clienteAtual() : sql`not (${clienteAtual()})`;
-const comDivida = () => sql`coalesce(${customers.totalOverdueAmount}, 0) > 0`;
+/** Devedor = o mesmo predicado do KPI "Vencido"; exportado para o card de prejuízo somar a MESMA população. */
+export const comDivida = () => sql`coalesce(${customers.totalOverdueAmount}, 0) > 0`;
 const semDivida = () => sql`coalesce(${customers.totalOverdueAmount}, 0) <= 0`;
 
 /** O que a tela da carteira mostra por linha, juntando caso, cliente e responsavel. */

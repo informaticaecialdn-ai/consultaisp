@@ -23,6 +23,8 @@ import type { FaturaDoCliente, FaturasDoCliente } from "../storage/faturas.stora
 import { FaturasStorage } from "../storage/faturas.storage";
 import type { HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
 import type { CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela, Customer, Equipment } from "@shared/schema";
+import { formatarPeriodo, janelaDoPeriodoEmDias, parsePeriodo, periodoDaData, rotuloDoPeriodo, type Periodo } from "@shared/cobranca/periodo";
+import { agregarPrejuizo } from "@shared/cobranca/prejuizo";
 import {
   ABORDAGEM_POR_QUADRANTE,
   CANAIS_HUMANOS,
@@ -819,6 +821,13 @@ const MesQuerySchema = z.object({
   mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "use AAAA-MM").optional(),
 });
 
+/** O periodo do card de prejuizo: AAAA-MM · AAAA-Tn · AAAA-Sn · AAAA (shared/cobranca/periodo.ts). */
+const periodoQuery = z.string().refine(v => parsePeriodo(v) !== null, "use AAAA-MM, AAAA-Tn, AAAA-Sn ou AAAA");
+const PrejuizoQuerySchema = z.object({
+  carteira: z.enum(CARTEIRAS),
+  periodo: periodoQuery.optional(),
+});
+
 /** "AAAA-MM" de uma data, no fuso do servidor. */
 function mesDe(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -837,9 +846,16 @@ const CarteiraQuerySchema = z.object({
   /** Realidade mensal (espaco de ativos): o mes e o grupo do mes que filtra a lista. */
   mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "use AAAA-MM").optional(),
   mesStatus: z.enum(GRUPOS_DO_MES).optional(),
+  /** O card de prejuizo: o periodo e o chip que filtra a lista pelos devedores dele (as duas carteiras). */
+  periodo: periodoQuery.optional(),
+  prejuizo: z.literal("1").optional(),
   pagina: z.coerce.number().int().min(1).default(1),
   porPagina: z.coerce.number().int().min(1).max(200).default(50),
-});
+})
+  // Dois recortes por ids nao se somam: ou o grupo do mes, ou os devedores do
+  // periodo. A exclusao vive aqui, no servidor — o client so a reflete.
+  .refine(q => !(q.prejuizo && q.mesStatus), { message: "prejuizo e mesStatus sao mutuamente exclusivos", path: ["prejuizo"] })
+  .refine(q => !(q.prejuizo && !q.carteira), { message: "o recorte de prejuizo exige a carteira", path: ["prejuizo"] });
 type CarteiraQuery = z.infer<typeof CarteiraQuerySchema>;
 
 
@@ -1247,6 +1263,27 @@ function jaTemCaso(e: unknown): boolean {
 
 /* ── Router ──────────────────────────────────────────────────────────── */
 
+/**
+ * O card "Prejuizo acumulado" de uma carteira num periodo — a soma das fichas
+ * do servidor, pelo MESMO gate do 360 (`economiaDoCliente`), ver
+ * shared/cobranca/prejuizo.ts. Quatro leituras, nenhuma por cliente: os
+ * devedores com as datas, a politica, a base de faturas, e a mensalidade
+ * observada SO dos devedores — nao a tabela inteira de faturas.
+ *
+ * E a mesma funcao que resolve os ids do chip na lista: card e lista leem o
+ * mesmo recorte por construcao.
+ */
+async function prejuizoDaCarteira(providerId: number, carteira: "ativo" | "ex_cliente", periodo: Periodo, hoje: Date) {
+  const [devedores, { politica }, base] = await Promise.all([
+    storage.devedoresComVencimento(providerId, carteira, hoje),
+    carregarPolitica(providerId),
+    storage.baseDeFaturas(providerId),
+  ]);
+  const mensalidades = await storage.mensalidadesDoProvedor(providerId, devedores.map(d => d.id));
+  const r = agregarPrejuizo({ devedores, mensalidades, economia: politica.economia, hoje, periodo, carteira });
+  return { ...r, live: base.total > 0, atualizadoEm: base.atualizadoEm, confirmado: politica.economia.confirmado };
+}
+
 export function registerCobrancaRoutes(): Router {
   const router = Router();
 
@@ -1265,9 +1302,15 @@ export function registerCobrancaRoutes(): Router {
       // Realidade mensal: o chip clicado vira um recorte de ids de cliente, e
       // os tres segmentos (casos, quem deve sem caso, quem esta em dia) passam
       // por ele. So a carteira de ativos tem mes.
-      const idsDoMes = q.mesStatus && q.carteira !== "ex_cliente"
-        ? new Set<number>(await storage.clientesDoMes(providerId, q.mes ?? mesDe(hoje), q.mesStatus))
-        : null;
+      // Dois recortes por ids, mutuamente exclusivos (o schema recusa os dois):
+      // o grupo do mes (so ativos) e os devedores do periodo do card de
+      // prejuizo (as duas carteiras) — resolvidos pela MESMA soma que o card
+      // mostra, para lista e card lerem o mesmo recorte.
+      const idsDoMes = q.prejuizo && q.carteira
+        ? new Set<number>((await prejuizoDaCarteira(providerId, q.carteira, parsePeriodo(q.periodo) ?? periodoDaData(hoje, "mes"), hoje)).ids)
+        : q.mesStatus && q.carteira !== "ex_cliente"
+          ? new Set<number>(await storage.clientesDoMes(providerId, q.mes ?? mesDe(hoje), q.mesStatus))
+          : null;
       const [kpis, composicao, bairros, { politica, etapas }, listaDeClientes] = await Promise.all([
         storage.kpisDaCobranca(providerId, hoje, q.carteira),
         storage.composicaoDaCarteira(providerId, q.carteira),
@@ -1288,8 +1331,8 @@ export function registerCobrancaRoutes(): Router {
           const varredura = await varrerCasos(providerId, filtros);
           if (!varredura.completa) {
             return res.status(400).json({
-              message: "Recorte grande demais para filtrar por saude ou pelo mes: combine com etapa ou bairro.",
-              errors: { [q.saude ? "saude" : "mesStatus"]: ["recorte grande demais"] },
+              message: "Recorte grande demais para filtrar por saude, pelo mes ou pelo periodo: combine com etapa ou bairro.",
+              errors: { [q.saude ? "saude" : q.prejuizo ? "prejuizo" : "mesStatus"]: ["recorte grande demais"] },
             });
           }
           const filtradas = varredura.linhas.filter(l =>
@@ -1323,7 +1366,8 @@ export function registerCobrancaRoutes(): Router {
       // deixa o segmento de fora.
       const filtroDeDevedor = Boolean(q.status || q.etapa || q.quadrante || q.saude || q.divida || q.responsavel !== undefined);
       let emDia: { linhas: ClienteEmDia[]; total: number } = { linhas: [], total: 0 };
-      if (q.carteira === "ativo" && recorte.semCaso && !filtroDeDevedor && q.mesStatus !== "inadimplente") {
+      // O chip de prejuizo lista devedores; quem esta em dia nunca entra nele.
+      if (q.carteira === "ativo" && recorte.semCaso && !filtroDeDevedor && q.mesStatus !== "inadimplente" && !q.prejuizo) {
         const inicioEmDia = Math.max(0, offset - totalCasos - candidatos.length);
         const faltamEmDia = Math.max(0, q.porPagina - casosDaPagina.length - candidatosDaPagina.length);
         emDia = await storage.clientesAtivosEmDia(
@@ -1380,6 +1424,36 @@ export function registerCobrancaRoutes(): Router {
     }
   });
 
+  /**
+   * O card "Prejuizo acumulado" — a Economia do cliente somada por periodo,
+   * nas duas carteiras. Sem fatura do ERP nao ha eixo: `live: false` e o
+   * motivo, como /carteira/mes. `resumo.prejuizo` vem null quando nenhum
+   * devedor do periodo passou no gate — a tela desenha "—", nunca zero.
+   */
+  router.get("/api/cobranca/carteira/prejuizo", requireAuth, requireProvider, async (req, res) => {
+    const parsed = PrejuizoQuerySchema.safeParse(semVazios(req.query));
+    if (!parsed.success) return recusar(res, parsed.error);
+    const providerId = providerDaSessao(req);
+    const hoje = new Date();
+    const periodo = parsePeriodo(parsed.data.periodo) ?? periodoDaData(hoje, "mes");
+    try {
+      const r = await prejuizoDaCarteira(providerId, parsed.data.carteira, periodo, hoje);
+      const janela = janelaDoPeriodoEmDias(periodo);
+      res.json({
+        live: r.live,
+        motivo: r.live ? null : "O ERP ainda não mandou fatura a fatura: sem vencimento gravado não há período. O sync passa a gravar as faturas abertas na próxima varredura.",
+        periodo: { texto: formatarPeriodo(periodo), rotulo: rotuloDoPeriodo(periodo), granularidade: periodo.granularidade, de: janela.de, ate: janela.ate },
+        eixo: "devem_desde",
+        confirmado: r.confirmado,
+        resumo: r.resumo,
+        serie: r.serie,
+        atualizadoEm: r.atualizadoEm ? new Date(r.atualizadoEm).toISOString() : null,
+      });
+    } catch (e) {
+      falha(res, e);
+    }
+  });
+
   // ── Cliente 360 ───────────────────────────────────────────────────────
 
   router.get("/api/cobranca/clientes/:customerId/360", requireAuth, requireProvider, async (req, res) => {
@@ -1397,7 +1471,7 @@ export function registerCobrancaRoutes(): Router {
       // inteiro so o proprio cliente (ou um CNPJ que o contenha) volta, e o
       // filtro por id abaixo tira o resto.
       const digitos = cliente.cpfCnpj.replace(/\D/g, "");
-      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade, historicoPagamentos] = await Promise.all([
+      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade, historicoPagamentos, faturasVencidas] = await Promise.all([
         carregarPolitica(providerId),
         storage.listarCasosDeCobranca(providerId, { status: "todos", busca: digitos.length >= 3 ? digitos : cliente.name }, { pagina: 1, porPagina: 200 }),
         storage.listarEventosDoCliente(providerId, customerId),
@@ -1416,6 +1490,10 @@ export function registerCobrancaRoutes(): Router {
         // inteira. Falha aqui nao derruba a ficha — ela so volta a "—".
         storage.mensalidadeDoCliente(providerId, customerId).catch(() => null),
         new FaturasStorage().historicoDePagamentosDoCliente(providerId, customerId).catch(() => null),
+        // As datas das faturas vencidas: a mais recente e o fim do ciclo do
+        // ex-cliente na Economia quando o ERP nao informou o corte (o MK nunca
+        // informa). Limite 1: so os agregados interessam aqui.
+        storage.faturasDoCliente(providerId, customerId, { limite: 1, hoje }).catch(() => null),
       ]);
       const ha30d = new Date(hoje.getTime() - 30 * 86_400_000);
       const deOutros = consultasRecentes.filter(c => c.providerId !== providerId);
@@ -1468,11 +1546,15 @@ export function registerCobrancaRoutes(): Router {
         statusErp: cliente.status,
         carteira,
         contractStartDate: cliente.contractStartDate,
-        cortadoEm: cliente.cortadoEm,
+        // Dia em texto, como o card recebe do storage (to_char): o SGP grava o
+        // corte com hora, e um Date com hora contra uma adesao sem hora fazia o
+        // 360 contar um mes a mais do que o card para o mesmo cliente.
+        cortadoEm: cliente.cortadoEm ? new Date(cliente.cortadoEm).toISOString().slice(0, 10) : null,
+        ultimaFaturaEmitidaEm: faturasVencidas?.vencimentoMaisRecente ? faturasVencidas.vencimentoMaisRecente.toISOString().slice(0, 10) : null,
         plano: null,
         // Vai no `fichaEntrada` que o navegador remonta: sem ela, a remontagem
         // com o plano ao vivo perderia o ARPU que o servidor ja tinha.
-        mensalidadeObservada: mensalidade ? { valor: mensalidade.valor, concordam: mensalidade.concordam, faturas: mensalidade.faturas } : null,
+        mensalidadeObservada: mensalidade ? { valor: mensalidade.valor, concordam: mensalidade.concordam, faturas: mensalidade.faturas, baixadas: mensalidade.baixadas } : null,
         ispScore: numOuNull(cliente.ispScore),
         riskTier: cliente.riskTier,
         dividaAtual,

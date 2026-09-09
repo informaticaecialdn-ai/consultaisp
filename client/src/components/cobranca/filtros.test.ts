@@ -85,3 +85,21 @@ describe("paginação e visão", () => {
     expect(lerVisao(null)).toBe("cards");
   });
 });
+
+describe("o período e o chip de prejuízo na URL", () => {
+  it("vão e voltam; período inválido cai no padrão; prejuízo só vale como '1'", () => {
+    const f = filtrosDaUrl("?carteira=ex_cliente&periodo=2026-T1&prejuizo=1");
+    expect(f).toMatchObject({ carteira: "ex_cliente", periodo: "2026-T1", prejuizo: "1" });
+    expect(queryDaCarteira(f)).toBe("carteira=ex_cliente&prejuizo=1&periodo=2026-T1");
+    expect(filtrosDaUrl("?periodo=set-26&prejuizo=sim")).toMatchObject({ periodo: "", prejuizo: "" });
+    // Link com os dois chips: o do mês vence, a lista nunca cai em 400.
+    expect(filtrosDaUrl("?carteira=ativo&mesStatus=pago&prejuizo=1")).toMatchObject({ mesStatus: "pago", prejuizo: "" });
+    expect(temFiltros({ ...FILTROS_INICIAIS, prejuizo: "1" })).toBe(true);
+    // O período sozinho não é filtro da lista — é o recorte do card.
+    expect(temFiltros({ ...FILTROS_INICIAIS, periodo: "2026-T1" })).toBe(false);
+  });
+  it("trocar de espaço mantém o período e derruba o chip — o recorte de ids é da outra carteira", () => {
+    const limpo = limparFiltros({ ...FILTROS_INICIAIS, carteira: "ex_cliente", periodo: "2026-T1", prejuizo: "1", bairro: "Centro" });
+    expect(limpo).toMatchObject({ carteira: "ex_cliente", periodo: "2026-T1", prejuizo: "", bairro: "" });
+  });
+});
