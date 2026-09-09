@@ -1273,7 +1273,10 @@ function jaTemCaso(e: unknown): boolean {
  * E a mesma funcao que resolve os ids do chip na lista: card e lista leem o
  * mesmo recorte por construcao.
  */
-async function prejuizoDaCarteira(providerId: number, carteira: "ativo" | "ex_cliente", periodo: Periodo, hoje: Date) {
+// Exportada para script/medir-prejuizo.ts: o numero que vai para a tela se mede
+// pela MESMA funcao que a tela usa — uma copia no script ja ficou para tras uma
+// vez (09/09/2026: a copia nao passava os historicos de pagamento da 0036).
+export async function prejuizoDaCarteira(providerId: number, carteira: "ativo" | "ex_cliente", periodo: Periodo, hoje: Date) {
   const [devedores, { politica }, base] = await Promise.all([
     storage.devedoresComVencimento(providerId, carteira, hoje),
     carregarPolitica(providerId),

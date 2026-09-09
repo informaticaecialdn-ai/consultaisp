@@ -14,8 +14,7 @@ import "dotenv/config";
 import { storage } from "../server/storage";
 // A MESMA leitura da politica que a rota usa (validacao e defaults incluidos):
 // medir com outra leitura seria medir outro numero.
-import { carregarPolitica } from "../server/routes/cobranca.routes";
-import { agregarPrejuizo } from "../shared/cobranca/prejuizo";
+import { carregarPolitica, prejuizoDaCarteira } from "../server/routes/cobranca.routes";
 import { formatarPeriodo, parsePeriodo, periodoDaData, rotuloDoPeriodo } from "../shared/cobranca/periodo";
 
 const providerId = Number(process.argv[2]);
@@ -32,9 +31,9 @@ const periodo = parsePeriodo(process.argv[3]) ?? periodoDaData(hoje, "mes");
   console.log(`provedor ${providerId} · período ${formatarPeriodo(periodo)} (${rotuloDoPeriodo(periodo)}) · base de faturas: ${base.total} · custos confirmados: ${politica.economia.confirmado}`);
 
   for (const carteira of ["ativo", "ex_cliente"] as const) {
-    const devedores = await storage.devedoresComVencimento(providerId, carteira, hoje);
-    const mensalidades = await storage.mensalidadesDoProvedor(providerId, devedores.map(d => d.id));
-    const r = agregarPrejuizo({ devedores, mensalidades, economia: politica.economia, hoje, periodo, carteira });
+    // A funcao da rota, nao uma copia: ela e quem carrega devedores, mensalidades
+    // e os historicos de pagamento (0036) — o que a copia antiga nao fazia.
+    const r = await prejuizoDaCarteira(providerId, carteira, periodo, hoje);
     const s = r.resumo;
     console.log(`\n[${carteira}] carteira: ${s.devedoresDaCarteira} devedores · R$ ${s.dividaDaCarteira.toFixed(2)} · sem data: ${s.semData.clientes} (R$ ${s.semData.divida.toFixed(2)})`);
     console.log(`  no período: ${s.devedores} devedores · dívida do recorte R$ ${s.dividaDoRecorte.toFixed(2)} (${s.fatiaDaCarteira ?? "—"}% da carteira)`);
