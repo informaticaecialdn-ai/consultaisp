@@ -72,3 +72,32 @@ Navegação verificada no navegador: troca das três carteiras, fórmulas do Jar
 - `shared/schema.ts` preservado.
 
 Endereço local: http://127.0.0.1:5000/localizacao?carteira=ativo
+
+## Modo Rede — 09/09/2026
+
+Com a camada Rede ligada, tudo ACIMA do mapa descrevia a carteira própria. Agora
+cada modo tem a sua fileira; a da rede responde ao que só a rede responde:
+
+| Card | Cálculo | NsLink (medido em produção) |
+| --- | --- | --- |
+| Casos de outros provedores | Σ (ocorrências + ocultas) − Σ doObservador, no recorte do chip | 4.050 (4.344 na rede · 294 seus · 6,8%) |
+| Bairros sem caso seu | Σ bairrosSemObservador ÷ bairros visíveis, no recorte do chip | 112 de 205 |
+| Cidades atendidas com caso na rede | cidades com ocorrências + ocultas > 0 ÷ cidades declaradas — sempre da área inteira | 1 de 47 |
+| Seus ex-clientes fora da área | observador.foraDaArea, com a maior cidade nomeada — sempre da área inteira | 944 (895 em Ibiporã · 49 noutras · 294 na área) |
+
+Os dois lados de cada conta vivem no MESMO universo da rede (ex-cliente com
+dívida e com bairro no cadastro); por isso o 294 "seus" pode ficar abaixo do
+que a carteira própria mostra para a mesma cidade.
+
+Os chips do modo Rede vêm de `cidades[]` (a área declarada que o servidor usou)
+e contam o que o mapa desenha; cidade sem bolha é dita em texto, nunca vira
+chip — e a cidade com massa própria fora da área (Ibiporã) é nomeada com o
+número e o caminho para a Regionalização. A tela não estende a área sozinha:
+é a área declarada que autoriza ver dado de terceiros numa praça, e declarar
+é decisão do provedor.
+
+Escondidos no modo Rede: seletor de carteira, faixa de plotagem, diagnóstico de
+endereços, selo "ERP · data" e o rodapé de cidades sem cliente. A função pura
+é `kpisDaRede` em `client/src/components/localizacao/metricas.ts`; a medição,
+`script/medir-rede.ts`. O que o payload ganhou, e os três achados de LGPD que
+ficaram como decisão do dono, estão em `docs/mapa-da-rede-SEGURADO.md`.

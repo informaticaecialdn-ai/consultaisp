@@ -20,14 +20,72 @@ popup do ponto. Nada disso lê dado de outro tenant por cliente.
 ## O que continua fora
 
 ```
-server/services/rede-pontos.service.ts            (novo, não commitado)
-server/services/rede-pontos.service.test.ts       (novo, não commitado)
+server/services/rede-pontos.service.ts.segurado       (novo, não commitado)
+server/services/rede-pontos.service.test.ts.segurado  (novo, não commitado)
 client/src/components/localizacao/PainelRede.rede.test.tsx.segurado
-                                                  (era PainelRede.test.tsx; renomeado
-                                                   para não quebrar o typecheck do
-                                                   painel que voltou ao anterior)
+                                                  (era PainelRede.test.tsx)
 docs/rede-mapa-2026-09-08.md                      (o desenho da camada segurada)
 ```
+
+Os três `.segurado` são renomeações para o typecheck e o vitest não os
+coletarem: o painel voltou ao anterior e a assinatura de `agregarRede` mudou
+em 09/09 (ganhou o observador), então os arquivos segurados nem compilam mais
+contra o código atual. Quem for retomar a camada parte deles como rascunho,
+não como base.
+
+## O modo Rede que SUBIU em 09/09/2026 — e o que ele acrescentou ao payload
+
+Com a camada Rede ligada, a fileira de KPIs, os chips e o seletor de carteira
+continuavam sendo os da carteira própria (pedido do dono, com print). Subiu em
+`82521cf` uma fileira de quatro cards só da rede, chips vindos da área que o
+servidor usou, e dois campos novos em `GET /api/localizacao/rede` — desenhados
+por um painel de três propostas + juiz, e cada campo submetido a três céticos
+tentando provar vazamento (0/3 refutaram, com correções de implementação que
+foram honradas):
+
+- `cidades[]` — uma linha por cidade DECLARADA, zeros incluídos: `ocorrencias`
+  (Σ das bolhas visíveis), `ocultas` (abaixo do piso), `doObservador` (só as
+  linhas do provedor da sessão, contadas DEPOIS do portão de bairro — total
+  menos seus nunca fica negativo) e `bairrosSemObservador` (bairros visíveis
+  onde ele não tem caso; contagem, nunca nome). É contagem por MUNICÍPIO — o
+  grão que a soma das bolhas já entregava.
+- `observador` — `foraDaArea` e `cidadesForaDaArea` (até 5): ex-clientes com
+  dívida do PRÓPRIO observador em cidades que ele não declarou. Só linhas
+  dele; não é dado da rede.
+
+E o rótulo de cidade em `bairros[]`/`pontos[]` passou a ser o declarado, sem
+UF: a grafia crua do ERP alheio ("LONDRINA" numa bolha, "Londrina" na outra)
+era a única marca de origem que o payload ainda carregava.
+
+Medido em produção pela própria função (`script/medir-rede.ts 1`, NsLink,
+09/09/2026): 4.344 ocorrências na rede (4.208 em 205 bairros + 136 abaixo do
+piso), 294 suas, 4.050 de outros; **112 bairros sem caso dela** (o SQL cru
+dizia 149 de 243 — o agrupador de grafias junta variações antes do piso);
+rede com caso em 1 das 47 cidades declaradas; 944 ex-clientes dela fora da
+área — 895 em Ibiporã, que ela não declarou.
+
+## Três achados do painel que são DECISÃO DO DONO, não desta entrega
+
+Apareceram na leitura do serviço enquanto o modo Rede era desenhado. Nenhum
+foi corrigido: os três mudam o desenho do mapa ou a política de participação
+na rede, e isso é política de LGPD num produto de bureau — a mesma razão pela
+qual a camada por ponto foi segurada.
+
+1. **O piso de 3 é furado pelo próprio observador.** Bairro com 3 casos, 2
+   dele: o terceiro é uma pessoa de outro provedor, e a bolha diz que ela
+   existe. O piso deveria valer sobre os casos de OUTROS
+   (`ocorrencias − doObservador ≥ 3`). Com o providerId agora em memória, a
+   correção é de três linhas em `agregarRede` — mas muda quais bolhas
+   aparecem.
+2. **Provedor não aprovado alimenta a rede.** `bairrosDaRede` lê `customers`
+   de todo tenant, sem `providers.status = 'active'` nem
+   `verification_status = 'approved'`. É política de quem alimenta o bureau.
+   Os cards dão visibilidade ao 4.050 e o dono vai perguntar de onde vem.
+3. **`deslocarPonto` usa o id global de `customers`.** O observador conhece os
+   próprios ids (o link do Cliente 360 os entrega), reconstrói os próprios
+   pontos deslocados e subtrai de `pontos[]` — sobram os pontos individuais
+   dos concorrentes, deslocados mas individuais. Pré-existente; a saída é
+   derivar o deslocamento de um segredo do servidor, não do id.
 
 E, dentro de arquivos que subiram, ficaram de fora estas partes:
 
