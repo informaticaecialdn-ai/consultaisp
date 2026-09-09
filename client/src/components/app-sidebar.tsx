@@ -434,7 +434,9 @@ export const NAV_PROVEDOR: Array<{
       // O handoff Sidebar.md listava /meus-dados — rota do prototipo — e seguir
       // aquilo ao pe da letra repontou o item para a pagina de LGPD do titular,
       // deixando a de territorio orfa no menu. Nome e destino corrigidos aqui.
-      { label: "Localização",   url: "/localizacao", Icone: MapPin,   testId: "link-localizacao" },
+      // "Geomarketing" desde 09/09/2026 (pedido do dono): e o que a tela faz —
+      // mapa da divida, ranking de bairros, rede. A rota e o testId ficam.
+      { label: "Geomarketing",  url: "/localizacao", Icone: MapPin,   testId: "link-localizacao" },
     ],
   },
   {
