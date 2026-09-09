@@ -15,7 +15,7 @@ describe("navegação interna exclusiva da carteira", () => {
       expect(url.searchParams.get("carteira")).toBe(carteira);
       expect(url.pathname).not.toBe(carteira === "ativo" ? "/cobranca/ex-clientes" : "/cobranca/ativos");
     }
-    expect(html).toContain("Visão geral");
+    expect(html).toContain("Carteira");
     expect(html).toContain("Esteira");
     expect(html).toContain("Régua e DNA");
     expect(html).toContain("Conversas");

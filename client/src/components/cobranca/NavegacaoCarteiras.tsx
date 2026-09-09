@@ -7,7 +7,7 @@ import { caminhoNaCarteira, NOME_DA_CARTEIRA, retornoDaCarteira } from "./cartei
 /** A carteira só muda no menu principal. Aqui cada destino mantém o mesmo escopo. */
 export function NavegacaoCarteiras({ carteira, destino }: { carteira: Carteira; destino?: string }) {
   const paginas = [
-    { rota: retornoDaCarteira(carteira), rotulo: "Visão geral", Icone: LayoutDashboard },
+    { rota: retornoDaCarteira(carteira), rotulo: "Carteira", Icone: LayoutDashboard },
     { rota: "/cobranca/esteira", rotulo: "Esteira", Icone: KanbanSquare },
     { rota: "/cobranca/regua", rotulo: "Régua e DNA", Icone: Route },
     { rota: "/cobranca/chat", rotulo: "Conversas", Icone: MessageSquare },
