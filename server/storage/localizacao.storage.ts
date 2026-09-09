@@ -308,7 +308,19 @@ export class LocalizacaoStorage {
    * O recorte territorial vem da cascata — nunca mais de providers.addressState
    * sozinho, que nao filtrava nada quando a UF era nula.
    */
-  async getLocalizacao(providerId: number, carteira: CarteiraLocalizacao = "ativo"): Promise<LocalizacaoResposta> {
+  /**
+   * `carteira` é RECORTE, e quem não pede recorte recebe a carteira inteira.
+   *
+   * O padrão era `"ativo"` e isso derrubou o mapa em produção em 08/09/2026: a
+   * tela some com os ex-clientes com dívida — que são justamente o que o mapa de
+   * inadimplência existe para mostrar — e a taxa de bairro zera junto, porque o
+   * numerador vai embora enquanto o denominador fica. Ex-cliente que deve é o
+   * caso mais caro da carteira; ele nunca pode sair por omissão de parâmetro.
+   *
+   * `"todas"` também é o contrato que valia antes: o método não tinha filtro
+   * nenhum e classificava por status na exibição.
+   */
+  async getLocalizacao(providerId: number, carteira: CarteiraLocalizacao = "todas"): Promise<LocalizacaoResposta> {
     const area = await resolverAreaAtendida(providerId);
     const [prov] = await db.select().from(providers).where(eq(providers.id, providerId));
     const sede = await this.buscarSede(providerId, area);

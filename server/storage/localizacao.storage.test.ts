@@ -30,15 +30,36 @@ beforeEach(() => {
 });
 
 describe("Localização: universo da carteira", () => {
-  it("usa todos os ativos no denominador, incluindo devedor sem coordenada", async () => {
+  /**
+   * SEM recorte pedido, a carteira é INTEIRA — e o teste trava isso porque a
+   * troca custou o mapa em produção.
+   *
+   * O padrão nasceu `"ativo"` junto com a rota nova, que lê `carteira` da query
+   * e sempre a passa explicitamente. Só que a rota nova não subiu (ver
+   * `docs/mapa-da-rede-SEGURADO.md`), e a rota em produção chama
+   * `getLocalizacao(providerId)` sem argumento: o mapa perdeu os ex-clientes com
+   * dívida — o caso que ele existe para mostrar — e a taxa de bairro zerou, com
+   * o numerador indo embora e o denominador ficando.
+   *
+   * `"todas"` é seguro nos dois mundos: é a resposta certa para quem não pediu
+   * recorte, e a rota nova continua mandando o dela quando subir.
+   */
+  it("sem recorte pedido, o denominador é a carteira inteira do bairro", async () => {
     const r = await new LocalizacaoStorage().getLocalizacao(7);
-    expect(r.carteira).toBe("ativo");
-    expect(r.totalCarteira).toBe(20);
-    expect(r.bairros[0]).toMatchObject({ clientes: 20, universo: 20, inadimplentes: 4, pctInadimplencia: 20, pctBaseProvedor: 100 });
-    expect(r.cidades[0]).toMatchObject({ universo: 20, pctInadimplencia: 20, semCoordenada: 1, pontosNoMapa: 3 });
-    expect(r.resumo).toMatchObject({ clientes: 20, inadimplentes: 4, dividaTotal: 400, pctInadimplencia: 20, pontosNoMapa: 3 });
-    expect(r.pontos).toHaveLength(3);
-    expect(r.porEstado.ex_divida).toBe(0);
+    expect(r.carteira).toBe("todas");
+    // A fixture tem 30 clientes: 20 ativos e 10 cancelados; devem 5 deles —
+    // quatro ativos e UM ex-cliente. É esse ex que sumia da tela.
+    expect(r.totalCarteira).toBe(30);
+    // O denominador é a carteira inteira do bairro (30), não só os ativos.
+    // 5/30 = 16,7% — com o filtro "ativo" a conta dava 4/20 = 20% e, na tela do
+    // dono, 0% nos bairros cuja única dívida era de ex-cliente.
+    expect(r.bairros[0]).toMatchObject({ clientes: 30, universo: 30, inadimplentes: 5, exComDivida: 1, pctInadimplencia: 16.7, pctBaseProvedor: 100 });
+    expect(r.cidades[0]).toMatchObject({ universo: 30, pctInadimplencia: 16.7, semCoordenada: 1, pontosNoMapa: 4 });
+    expect(r.resumo).toMatchObject({ clientes: 30, inadimplentes: 5, dividaTotal: 500, pctInadimplencia: 16.7, pontosNoMapa: 4 });
+    // Quatro pontos: os cinco devedores menos o único sem coordenada.
+    expect(r.pontos).toHaveLength(4);
+    // O ex-cliente com dívida VOLTA para a legenda do mapa.
+    expect(r.porEstado.ex_divida).toBe(1);
     const sql = new PgDialect().sqlToQuery(fake.queries[2] as SQL);
     expect(sql.sql).toContain('"customers"."provider_id"');
     expect(sql.params).toEqual([7]);
