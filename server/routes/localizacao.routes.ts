@@ -110,15 +110,29 @@ export function registerLocalizacaoRoutes(): Router {
    */
   router.get("/api/localizacao/rede", requireAuth, requireProvider, async (req, res) => {
     try {
+      // A resposta passou a depender de quem olha (as contagens "seus" por
+      // cidade): nada dela pode ser servido a outro.
+      res.setHeader("Cache-Control", "private, no-store");
       const area = await resolverAreaAtendida(req.session.providerId!);
       const cidades = area.cidades ?? [];
       if (cidades.length === 0) {
         // Sem area declarada nao ha recorte, e varrer o Brasil inteiro nao e
         // "a rede na cidade" — e a base toda.
-        return res.json({ bairros: [], pontos: [], ocultas: 0, semArea: true, minPorBairro: MIN_POR_BAIRRO });
+        return res.json({
+          bairros: [], pontos: [], ocultas: 0, semPonto: 0, cidades: [], observador: null,
+          semArea: true, minPorBairro: MIN_POR_BAIRRO,
+        });
       }
-      const r = await bairrosDaRede(cidades);
-      return res.json({ ...r, semArea: false, minPorBairro: MIN_POR_BAIRRO });
+      // O observador e o provedor da SESSAO — nunca um providerId do pedido.
+      const r = await bairrosDaRede(cidades, req.session.providerId!);
+      // Campo a campo, e nao `...r`: o servico agora carrega providerId em
+      // memoria, e um espalhamento serviria qualquer campo que alguem
+      // acrescentasse ao resultado sem ninguem decidir que ele sai.
+      return res.json({
+        bairros: r.bairros, pontos: r.pontos, ocultas: r.ocultas, semPonto: r.semPonto,
+        cidades: r.cidades, observador: r.observador,
+        semArea: false, minPorBairro: MIN_POR_BAIRRO,
+      });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

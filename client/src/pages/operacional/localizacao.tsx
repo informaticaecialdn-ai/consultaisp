@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { MapPin, Banknote, Users, Satellite, Map as MapIcon } from "lucide-react";
+import { MapPin, Banknote, Users, Satellite, Map as MapIcon, Globe2, EyeOff, MapPinned, Compass } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -27,7 +27,8 @@ import RaioXBairro from "@/components/localizacao/RaioXBairro";
 import PainelRede from "@/components/localizacao/PainelRede";
 import { BenchmarkCidades } from "@/components/localizacao/BenchmarkCidades";
 import {
-  carteiraDaUrl, resumoDoRecorte, ROTULO_CARTEIRA_MAPA, type CarteiraMapa, type ResumoCidadeMapa,
+  carteiraDaUrl, chipsDaRede, cidadesCaladasDaRede, kpisDaRede, resumoDoRecorte, ROTULO_CARTEIRA_MAPA,
+  type CarteiraMapa, type ResumoCidadeMapa, type RedeResumo,
 } from "@/components/localizacao/metricas";
 import CoberturaEnderecos, {
   ROTA_COBERTURA, subDoKpiSemCoordenada, type Cobertura,
@@ -170,7 +171,7 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
   /* A cobertura da base de endereços. A mesma chave que `CoberturaEnderecos`
      lê — o React Query atende as duas com uma requisição só —, aqui só para a
      sublinha do KPI apontar para o bloco quando ele existir. */
-  const { data: cobertura } = useQuery<Cobertura>({ queryKey: [ROTA_COBERTURA] });
+  const { data: cobertura } = useQuery<Cobertura>({ queryKey: [ROTA_COBERTURA], enabled: modo === 'carteira' });
 
   const rodavaAntes = useRef(false);
   useEffect(() => {
@@ -223,8 +224,8 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
   // A rede: ex-clientes com dívida de TODOS os provedores nas cidades que este
   // provedor atende. É o desenho do modo regionalização, e só é buscado quando
   // esse modo está ligado.
-  const { data: redeRegional, isFetching: redeRegionalCarregando } = useQuery<{
-    bairros: BairroRede[]; pontos: PontoRedeItem[]; ocultas: number; semPonto?: number; semArea: boolean; minPorBairro: number;
+  const { data: redeRegional, isFetching: redeRegionalCarregando } = useQuery<RedeResumo & {
+    bairros: BairroRede[]; pontos: PontoRedeItem[]; ocultas: number; semPonto?: number;
   }>({
     queryKey: ["/api/localizacao/rede"],
     enabled: modo === 'regionalizacao',
@@ -239,6 +240,18 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
     const todos = redeRegional?.pontos ?? [];
     return fCidade ? todos.filter(p => p.cidade === fCidade) : todos;
   }, [redeRegional, fCidade]);
+  /* O que a tela mostra ACIMA do mapa no modo Rede. Até 09/09/2026 a fileira
+     de KPIs, os chips e o seletor de carteira continuavam sendo os da carteira
+     própria com a Rede ligada — números sem relação com o mapa que estava na
+     tela, e um chip (Ibiporã, com massa própria mas fora da área declarada)
+     que esvaziava a rede sem explicar. Os chips passam a vir da área que o
+     servidor usou e contam o que o mapa desenha; os cards vêm de kpisDaRede. */
+  const emRede = modo === 'regionalizacao';
+  const chipsRede = useMemo(() => chipsDaRede(redeRegional), [redeRegional]);
+  const cardsRede = useMemo(() => kpisDaRede(redeRegional, fCidade, bairrosRede.length), [redeRegional, fCidade, bairrosRede]);
+  const caladas = useMemo(() => cidadesCaladasDaRede(redeRegional), [redeRegional]);
+  const foraDaAreaRede = redeRegional?.observador?.cidadesForaDaArea ?? [];
+  const redeCarregando = emRede && redeRegionalCarregando && !redeRegional;
 
   const naFila = data?.plotaveis ?? 0;
   const foraDaFila = (data?.semCoordenada ?? 0) - naFila;
@@ -246,7 +259,6 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
   const todosPontos = data?.pontos ?? [];
   const todosBairros = data?.bairros ?? [];
   const cidades = data?.cidades ?? [];
-  const semCliente = data?.cidadesSemCliente ?? [];
   const catalogo = data?.catalogoCidades ?? [];
   const noMapa = catalogo.filter(c => c.noMapa);
   const foraDoMapa = catalogo.filter(c => !c.noMapa);
@@ -321,8 +333,8 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
   const [camadaAneel, setCamadaAneel] = useState(false);
   const [glOk] = useState(() => webglDisponivel());
   const cidadesTerritorio = useMemo(
-    () => (fCidade ? [fCidade] : cidades.map(c => c.cidade)),
-    [fCidade, cidades],
+    () => (fCidade ? [fCidade] : (emRede ? chipsRede : cidades).map(c => c.cidade)),
+    [fCidade, cidades, emRede, chipsRede],
   );
   const recorteTerritorio = cidadesTerritorio.join("|");
   // Contagem da legenda — os MESMOS arquivos que o mapa usa (cache do loader,
@@ -399,23 +411,40 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
             Localização &amp; mapa de inadimplência
           </h1>
           <p className="text-[13px] text-[var(--text-muted)] mt-1">
-            {ROTULO_CARTEIRA_MAPA[carteira]} · mapa da dívida vencida e comparação territorial.
-            Cada taxa usa todos os clientes da carteira no bairro, inclusive os que estão sem coordenadas.
+            {emRede ? (
+              redeRegional?.semArea
+                ? <>Rede · configure as cidades atendidas para ver a rede.</>
+                : <>
+                    Rede · ex-clientes com dívida de todos os provedores nas{" "}
+                    {redeRegional ? `${num(redeRegional.cidades.length)} cidades` : "cidades"} que você atende.
+                    Só posição e contagem: sem nome, valor, bairro ou provedor de origem.
+                    Bairro entra com {redeRegional?.minPorBairro ?? 3} ou mais casos.
+                  </>
+            ) : (
+              <>
+                {ROTULO_CARTEIRA_MAPA[carteira]} · mapa da dívida vencida e comparação territorial.
+                Cada taxa usa todos os clientes da carteira no bairro, inclusive os que estão sem coordenadas.
+              </>
+            )}
           </p>
         </div>
 
-        {cidades.length > 0 && (
+        {(emRede ? chipsRede.length > 0 : cidades.length > 0) && (
           <div className="flex flex-wrap items-center gap-1.5">
             <Kicker style={{ marginRight: 2 }}>Cidade</Kicker>
-            <Chip ativo={fCidade === null} onClick={() => trocarCidade(null)} contagem={todosPontos.length}>
+            <Chip
+              ativo={fCidade === null}
+              onClick={() => trocarCidade(null)}
+              contagem={emRede ? chipsRede.reduce((t, c) => t + c.ocorrencias, 0) : todosPontos.length}
+            >
               Todas
             </Chip>
-            {cidades.map(c => (
+            {(emRede ? chipsRede : cidades).map(c => (
               <Chip
                 key={c.cidade}
                 ativo={fCidade === c.cidade}
                 onClick={() => trocarCidade(fCidade === c.cidade ? null : c.cidade)}
-                contagem={devedoresPorCidade.get(c.cidade) ?? 0}
+                contagem={"ocorrencias" in c ? c.ocorrencias : devedoresPorCidade.get(c.cidade) ?? 0}
               >
                 {c.cidade}
               </Chip>
@@ -446,6 +475,48 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
           </div>
         )}
       </div>
+
+      {/* Cidade sem bolha NÃO vira chip — chip que esvazia o mapa foi
+          exatamente o defeito que o dono viu. Ela é nomeada aqui, em texto,
+          junto com a cidade em que o provedor tem massa própria mas que não
+          declarou: a rede recorta pela área DECLARADA por regra (é ela que
+          autoriza ver dado de terceiros numa praça), e a tela não estende a
+          área sozinha — declarar é decisão do provedor. */}
+      {emRede && redeRegional && !redeRegional.semArea && (caladas.semCaso.length > 0 || caladas.soAbaixoDoPiso.length > 0 || foraDaAreaRede.length > 0) && (
+        <div className="text-[12px] text-[var(--text-muted)] space-y-1" data-testid="rede-cidades-caladas">
+          {(caladas.semCaso.length > 0 || caladas.soAbaixoDoPiso.length > 0) && (
+            <p>
+              {caladas.semCaso.length > 0 && (
+                <span title={caladas.semCaso.join(" · ")}>
+                  <b className="font-mono tabular-nums font-medium" style={{ color: "var(--text)" }}>{num(caladas.semCaso.length)}</b>{" "}
+                  {caladas.semCaso.length === 1 ? "cidade atendida sem caso na rede" : "cidades atendidas sem caso na rede"}
+                </span>
+              )}
+              {caladas.semCaso.length > 0 && caladas.soAbaixoDoPiso.length > 0 && " · "}
+              {caladas.soAbaixoDoPiso.length > 0 && (
+                <span title={caladas.soAbaixoDoPiso.join(" · ")}>
+                  <b className="font-mono tabular-nums font-medium" style={{ color: "var(--text)" }}>{num(caladas.soAbaixoDoPiso.length)}</b>{" "}
+                  com casos só abaixo do piso de {redeRegional.minPorBairro}
+                </span>
+              )}
+            </p>
+          )}
+          {foraDaAreaRede.map(c => (
+            <p key={c.cidade}>
+              <b style={{ color: "var(--text)" }}>{c.cidade}</b>:{" "}
+              <span className="font-mono tabular-nums">{num(c.ocorrencias)}</span>{" "}
+              {c.ocorrencias === 1 ? "ex-cliente seu com dívida" : "ex-clientes seus com dívida"} fora da área atendida — a rede não cobre.{" "}
+              {user?.role !== "user" ? (
+                <Link href="/configuracoes/regionalizacao" className="underline font-medium" style={{ color: "var(--brand)" }}>
+                  Incluir em Regionalização
+                </Link>
+              ) : (
+                <>Quem administra inclui a cidade em Regionalização.</>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* O texto mudou junto com o comportamento: o mapa da CARTEIRA nunca
           dependeu da Regionalização e agora não depende mesmo — mostra a
@@ -541,15 +612,42 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
         </div>
       )}
 
-      <section className="flex flex-wrap items-center gap-2" aria-label="Carteira no mapa">
+      {/* A rede é só ex-cliente com dívida, por regra: um seletor que não
+          muda nada mente. O ?carteira= da URL fica preservado para a volta. */}
+      {modo === "carteira" && <section className="flex flex-wrap items-center gap-2" aria-label="Carteira no mapa">
         {(["todas", "ativo", "ex_cliente"] as const).map(c => <button key={c} type="button" aria-pressed={carteira === c} onClick={() => onCarteira(c)} className={`min-h-[44px] rounded border px-4 text-sm ${carteira === c ? "border-[var(--brand)] bg-[var(--brand-soft)] text-[var(--brand)]" : "border-[var(--border)] bg-[var(--surface)]"}`}>{ROTULO_CARTEIRA_MAPA[c]}</button>)}
         <span className="text-xs text-[var(--text-muted)]">{data ? `${num(data.totalCarteira)} clientes nesta carteira do provedor, antes do recorte territorial` : "Lendo a base…"}</span>
-      </section>
+      </section>}
 
       {modo === "carteira" && !isLoading && <BenchmarkCidades cidades={cidadesDoRecorte} carteira={carteira} onCidade={trocarCidade} />}
 
-      {/* Indicadores próprios nunca usam a amostra da rede. */}
-      {isLoading ? (
+      {/* Indicadores próprios nunca usam a amostra da rede — e os da rede
+          nunca usam a carteira própria. Cada modo tem a sua fileira. */}
+      {emRede ? (
+        redeCarregando ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[82px]" />)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kpis-rede">
+            {cardsRede.map((c, i) => (
+              <Kpi
+                key={c.rotulo}
+                icone={[
+                  <Globe2 size={16} strokeWidth={1.5} />, <EyeOff size={16} strokeWidth={1.5} />,
+                  <MapPinned size={16} strokeWidth={1.5} />, <Compass size={16} strokeWidth={1.5} />,
+                ][i]}
+                iconeCor={["var(--past)", "var(--danger)", "var(--info)", "var(--gated)"][i]}
+                iconeBg={["var(--past-bg)", "var(--danger-bg)", "var(--info-bg)", "var(--gated-bg)"][i]}
+                rotulo={c.rotulo}
+                valor={c.valor}
+                sub={c.sub} subMono
+                titulo={c.titulo}
+              />
+            ))}
+          </div>
+        )
+      ) : isLoading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[82px]" />)}
         </div>
@@ -592,7 +690,7 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
 
       {/* Situação da plotagem: a tela diz o que está de fato acontecendo, e o
           número é o mesmo do KPI ao lado — sai da mesma varredura. */}
-      {plotagem && naFila > 0 && (
+      {modo === 'carteira' && plotagem && naFila > 0 && (
         <div
           role="status"
           aria-live="polite"
@@ -662,10 +760,12 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
           cada 6 horas"), e este bloco diz o que a varredura sozinha não resolve.
           Na ordem inversa a causa apareceria antes do estado, e o operador leria
           um diagnóstico sem saber que há trabalho em curso. */}
-      <section aria-label="Diagnóstico geral dos endereços do provedor">
-        <p className="mb-2 text-xs text-[var(--text-muted)]">Diagnóstico dos endereços do provedor · todas as carteiras. As taxas e o mapa acima usam somente o recorte selecionado.</p>
-        <CoberturaEnderecos podeCarregar={podeCarregarBase} />
-      </section>
+      {modo === 'carteira' && (
+        <section aria-label="Diagnóstico geral dos endereços do provedor">
+          <p className="mb-2 text-xs text-[var(--text-muted)]">Diagnóstico dos endereços do provedor · todas as carteiras. As taxas e o mapa acima usam somente o recorte selecionado.</p>
+          <CoberturaEnderecos podeCarregar={podeCarregarBase} />
+        </section>
+      )}
 
       {/* ── Mapa + ranking, na mesma altura ── */}
       <div className="ds-mapa-grid">
@@ -686,7 +786,7 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
                   dot="var(--past)"
                   ligada={modo === 'regionalizacao'}
                   onToggle={trocarModo}
-                  titulo="Ocorrências da carteira selecionada de todos os provedores participantes nas cidades atendidas."
+                  titulo="Ex-clientes com dívida de todos os provedores participantes nas cidades atendidas. Troca o mapa, os cards e o painel."
                 />
                 {modo === 'regionalizacao' && !calor && (
                   <Camada
@@ -703,7 +803,7 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
                   ligada={calor}
                   onToggle={() => setCalor(v => !v)}
                   titulo={modo === 'regionalizacao'
-                    ? "Mancha ponderada pelo valor devido nas ocorrências da rede"
+                    ? "Mancha por número de casos de cada bairro — a rede não tem valor"
                     : "Mancha ponderada pelo valor em aberto de cada cliente"}
                 />
                 {/* Camadas fixas do território. Desabilitadas sem WebGL ou sem
@@ -728,7 +828,7 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
                   extra={contagemPill("aneel", camadaAneel && glOk)}
                 />
               </GrupoCamadas>
-              {sincronizado && (
+              {sincronizado && modo === 'carteira' && (
                 <Selo titulo="A tela mostra a carteira como estava na última sincronização com o ERP.">
                   ERP · {sincronizado}
                 </Selo>
@@ -1007,11 +1107,6 @@ function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteir
         />
       )}
 
-      {modo === 'regionalizacao' && semCliente.length > 0 && (
-        <p className="text-[12px] text-[var(--text-muted)]">
-          {num(semCliente.length)} cidades atendidas ainda sem cliente.
-        </p>
-      )}
     </div>
   );
 }

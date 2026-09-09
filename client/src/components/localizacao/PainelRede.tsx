@@ -63,7 +63,9 @@ export default function PainelRede({
 
         {!carregando && !semArea && (
           <>
-            <Linha rotulo="casos na rede" valor={casos} />
+            {/* "no mapa", não "na rede": a rede inteira (com os bairros abaixo
+                do piso) é o card acima; aqui é o que as bolhas somam. */}
+            <Linha rotulo="casos no mapa" valor={casos} />
             <Linha rotulo={`bairros com ${minPorBairro}+ casos`} valor={bairros} />
             {porPonto && <Linha rotulo="pontos no mapa" valor={pontos} />}
             {porPonto && semPonto > 0 && <Linha rotulo="só na bolha (sem coordenada confiável)" valor={semPonto} />}

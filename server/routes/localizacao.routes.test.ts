@@ -61,8 +61,13 @@ const plotagemMock = vi.hoisted(() => ({
 }));
 vi.mock("../services/geocode-backfill.service", () => plotagemMock);
 
+const redeMock = vi.hoisted(() => ({
+  bairrosDaRede: vi.fn(async (_cidades: string[], _observador: number): Promise<any> => ({
+    bairros: [], pontos: [], ocultas: 0, semPonto: 0, cidades: [], observador: { foraDaArea: 0, cidadesForaDaArea: [] },
+  })),
+}));
 vi.mock("../services/rede-regional.service", () => ({
-  bairrosDaRede: vi.fn(async () => ({ bairros: [], pontos: [], ocultas: 0 })),
+  bairrosDaRede: redeMock.bairrosDaRede,
   MIN_POR_BAIRRO: 5,
 }));
 vi.mock("../services/area-atendida", () => ({
@@ -283,6 +288,47 @@ describe("carteira da Localizacao", () => {
   it.each(["outra", "ativo&carteira=ex_cliente", ""])("recusa selecao invalida %s", async carteira => {
     expect((await fetch(`${base}/api/localizacao?carteira=${carteira}`)).status).toBe(400);
     expect(storageMock.getLocalizacao).not.toHaveBeenCalled();
+  });
+});
+
+describe("a rede sabe quem olha — e só o que foi decidido sai", () => {
+  const comArea = async () => {
+    const { resolverAreaAtendida } = await import("../services/area-atendida");
+    vi.mocked(resolverAreaAtendida).mockResolvedValueOnce({ cidades: ["Londrina - PR"], origem: "cidades", uf: "PR" } as any);
+  };
+  it("o observador é o provedor da SESSÃO, nunca um providerId do pedido", async () => {
+    await comArea();
+    const r = await fetch(`${base}/api/localizacao/rede?providerId=999`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("cache-control")).toBe("private, no-store");
+    expect(redeMock.bairrosDaRede).toHaveBeenCalledWith(["Londrina - PR"], AMPLINET);
+  });
+  it("sem área declarada não consulta a rede e devolve o formato inteiro, vazio", async () => {
+    const r = await fetch(`${base}/api/localizacao/rede`);
+    expect(await r.json()).toEqual({
+      bairros: [], pontos: [], ocultas: 0, semPonto: 0, cidades: [], observador: null, semArea: true, minPorBairro: 5,
+    });
+    expect(redeMock.bairrosDaRede).not.toHaveBeenCalled();
+  });
+  /**
+   * O serviço passou a carregar providerId em memória. A rota monta a resposta
+   * campo a campo justamente para que um campo novo no resultado — ou uma
+   * linha crua espalhada por engano — não saia sem ninguém decidir.
+   */
+  it("campo que ninguém decidiu publicar não sai, mesmo que o serviço o devolva", async () => {
+    await comArea();
+    redeMock.bairrosDaRede.mockResolvedValueOnce({
+      bairros: [{ cidade: "Londrina", ocorrencias: 3, lat: -23.3, lon: -51.1 }], pontos: [], ocultas: 1, semPonto: 0,
+      cidades: [{ cidade: "Londrina", ocorrencias: 3, ocultas: 1, doObservador: 1, bairrosSemObservador: 0 }],
+      observador: { foraDaArea: 2, cidadesForaDaArea: [{ cidade: "Ibiporã", ocorrencias: 2 }] },
+      providerId: 4, linhas: [{ id: 1, providerId: 4 }], porProvedor: { 4: 3 },
+    });
+    const corpo = await (await fetch(`${base}/api/localizacao/rede`)).json();
+    expect(Object.keys(corpo).sort()).toEqual(
+      ["bairros", "cidades", "minPorBairro", "observador", "ocultas", "pontos", "semArea", "semPonto"],
+    );
+    expect(JSON.stringify(corpo)).not.toMatch(/providerId|linhas|porProvedor/);
+    expect(corpo.cidades[0]).toEqual({ cidade: "Londrina", ocorrencias: 3, ocultas: 1, doObservador: 1, bairrosSemObservador: 0 });
   });
 });
 

@@ -109,6 +109,41 @@ export function deslocarPonto(id: number, lat: number, lon: number): { lat: numb
   };
 }
 
+/** Uma cidade da área declarada, na régua da rede — contagem por MUNICÍPIO. */
+export interface CidadeRede {
+  /**
+   * O nome DECLARADO, sem o sufixo " - UF" — e o MESMO rótulo que `bairros[].cidade`
+   * e `pontos[].cidade` emitem. Até 09/09/2026 a bolha saía com a grafia crua
+   * da primeira linha que abriu o bairro, vinda do ERP de um tenant qualquer:
+   * "LONDRINA" numa bolha e "Londrina" na outra era a única marca de origem que
+   * o payload ainda carregava, e o filtro `===` do chip esvaziava o mapa.
+   */
+  cidade: string;
+  /** Σ ocorrências dos bairros VISÍVEIS (≥ piso) — o mesmo grão de `bairros[].ocorrencias`. */
+  ocorrencias: number;
+  /** Σ ocorrências dos bairros da cidade abaixo do piso. O `ocultas` global é a soma. */
+  ocultas: number;
+  /**
+   * Ocorrências do PRÓPRIO observador na cidade, visíveis + ocultas. Contadas
+   * DEPOIS do portão de bairro, no mesmo universo das outras duas: assim
+   * `ocorrencias + ocultas - doObservador` nunca fica negativo.
+   */
+  doObservador: number;
+  /** Bairros VISÍVEIS da cidade sem nenhuma linha do observador — onde ele aprovaria às cegas. */
+  bairrosSemObservador: number;
+}
+
+/**
+ * O que a rede NÃO cobre da carteira do próprio observador. Só linhas dele
+ * entram nesta conta: não é dado da rede, é dado dele.
+ */
+export interface ObservadorRede {
+  /** Ex-clientes com dívida (e com bairro) do observador em cidades FORA da área declarada. */
+  foraDaArea: number;
+  /** Essas cidades, da maior para a menor, no máximo 5. Grafia do ERP dele. */
+  cidadesForaDaArea: Array<{ cidade: string; ocorrencias: number }>;
+}
+
 export interface ResultadoRede {
   bairros: BairroRede[];
   /**
@@ -129,11 +164,25 @@ export interface ResultadoRede {
    * contagem não depende de coordenada), só não aparecem "por ponto".
    */
   semPonto: number;
+  /**
+   * Uma linha por cidade da área que o servidor de fato usou (cobre a cascata
+   * cidades → mesorregião), zeros incluídos. Ordem: ocorrências desc, depois
+   * nome. É o que alimenta os chips e os cards do modo Rede — e é o único
+   * agregado NOVO no payload desde 09/09/2026: contagem por município, o grão
+   * que a soma das bolhas já entregava.
+   */
+  cidades: CidadeRede[];
+  observador: ObservadorRede;
 }
 
 /** A linha do cadastro que a agregação precisa — o que a query devolve. */
 export interface LinhaRede {
   id: number;
+  /**
+   * Entra para UMA comparação (`=== observador`) e morre no acumulador. Nunca
+   * vai para `bairros`, `pontos` nem `cidades` — o teste de chaves segura isso.
+   */
+  providerId: number;
   latitude: string | number | null;
   longitude: string | number | null;
   city: string | null;
@@ -147,21 +196,51 @@ const mediana = (v: number[]) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
+const SEM_UF = /\s*-\s*[A-Za-z]{2}\s*$/;
+
 /**
  * A agregação em si, pura: linhas do cadastro + cidades atendidas + centros de
- * bairro do IBGE → o que a tela recebe. Separada da leitura do banco para ser
- * testável com dados inventados.
+ * bairro do IBGE + quem está olhando → o que a tela recebe. Separada da leitura
+ * do banco para ser testável com dados inventados.
+ *
+ * `observador` é o provedor da SESSÃO. Ele entra em exatamente um lugar — a
+ * comparação `l.providerId === observador` — e serve para separar "seus" de
+ * "dos outros" nas contagens por cidade. Nunca filtra a leitura (isso faria da
+ * rede a carteira própria) e nunca chaveia acumulador (contagem por tenant
+ * sentada numa estrutura acaba saindo por um `...` de alguém).
  */
-export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: CentroidesPorCidade): ResultadoRede {
-  if (cidades.length === 0) return { bairros: [], pontos: [], ocultas: 0, semPonto: 0 };
+export function agregarRede(
+  linhas: LinhaRede[],
+  cidades: string[],
+  centroides: CentroidesPorCidade,
+  observador: number,
+): ResultadoRede {
+  const vazio: ResultadoRede = {
+    bairros: [], pontos: [], ocultas: 0, semPonto: 0, cidades: [],
+    observador: { foraDaArea: 0, cidadesForaDaArea: [] },
+  };
+  if (cidades.length === 0) return vazio;
 
   // O recorte vem da área atendida como "Londrina - PR" e o cadastro guarda
-  // "Londrina": a comparação usa a mesma canonização do resto do produto.
-  const alvo = new Set(cidades.map(normalizarCidade));
+  // "Londrina": a comparação usa a mesma canonização do resto do produto. O
+  // rótulo que sai é o DECLARADO, sem UF — e a primeira grafia vence quando a
+  // lista declara a mesma cidade duas vezes, para o rótulo não depender da
+  // ordem do array.
+  const rotulo = new Map<string, string>();
+  for (const c of cidades) {
+    const k = normalizarCidade(c);
+    if (k && !rotulo.has(k)) rotulo.set(k, c.replace(SEM_UF, "").trim() || c.trim());
+  }
+  if (rotulo.size === 0) return vazio;
 
   interface Acc {
     /** Rótulo do bairro: só para casar com o censo; não sai no payload. */
-    bairro: string; cidade: string; ocorrencias: number;
+    bairro: string;
+    /** O rótulo canônico da cidade (o que sai) e a chave normalizada (o que casa com o censo). */
+    cidade: string; cidadeNorm: string;
+    ocorrencias: number;
+    /** Linhas do observador neste bairro. Não sai para BairroRede. */
+    doObservador: number;
     lats: number[]; lons: number[];
     /** Guardados aqui e só liberados se o bairro passar o piso. */
     pontos: PontoRede[];
@@ -171,23 +250,43 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
   // Um agrupador por cidade: bairros homônimos em cidades diferentes são
   // lugares diferentes.
   const agrupadores = new Map<string, ReturnType<typeof criarAgrupadorDeBairro>>();
+  // Só linhas do observador, só fora da área: o que a rede não cobre dele.
+  const foraDaArea = new Map<string, { cidade: string; ocorrencias: number }>();
 
   for (const l of linhas) {
     const cidadeNorm = normalizarCidade(l.city);
-    if (!alvo.has(cidadeNorm)) continue;
+    const naArea = rotulo.has(cidadeNorm);
+    const proprio = l.providerId === observador;
+    // Linha de outro provedor fora da área não interessa a ninguém — e não
+    // vale a pena agrupar bairro de cidade que a rede não vai desenhar.
+    if (!naArea && !proprio) continue;
+    if (!cidadeNorm) continue;
 
     let ag = agrupadores.get(cidadeNorm);
     if (!ag) { ag = criarAgrupadorDeBairro(); agrupadores.set(cidadeNorm, ag); }
     const grupo = ag.agrupar(l.neighborhood);
+    // O portão de bairro vale para TODAS as contagens, dentro e fora da área:
+    // é o que faz "seus na área" e "seus fora dela" serem o mesmo universo.
     if (!grupo) continue;
+
+    if (!naArea) {
+      const f = foraDaArea.get(cidadeNorm) ?? { cidade: (l.city || "").trim(), ocorrencias: 0 };
+      f.ocorrencias++;
+      foraDaArea.set(cidadeNorm, f);
+      continue;
+    }
 
     const chave = `${cidadeNorm}||${grupo.chave}`;
     let a = porBairro.get(chave);
     if (!a) {
-      a = { bairro: grupo.rotulo, cidade: (l.city || "").trim(), ocorrencias: 0, lats: [], lons: [], pontos: [], semPonto: 0 };
+      a = {
+        bairro: grupo.rotulo, cidade: rotulo.get(cidadeNorm)!, cidadeNorm,
+        ocorrencias: 0, doObservador: 0, lats: [], lons: [], pontos: [], semPonto: 0,
+      };
       porBairro.set(chave, a);
     }
     a.ocorrencias++;
+    if (proprio) a.doObservador++;
 
     const coord = coordenadaValida(l.latitude, l.longitude);
     if (coord && PRECISAO_CONFIAVEL.has(l.geoPrecisao ?? "")) {
@@ -201,10 +300,12 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
   }
 
   // Casador por cidade contra os bairros que o IBGE conhece, do maior para o
-  // menor: em empate no fuzzy vence o bairro com mais endereços.
+  // menor: em empate no fuzzy vence o bairro com mais endereços. A chave do
+  // censo é a normalizada, nunca o rótulo — "Londrina - PR" viraria
+  // "LONDRINA PR" e nenhum centroide casaria.
   const casadores = new Map<string, ReturnType<typeof criarCasadorDeBairro>>();
   const ancorar = (a: Acc): Pick<BairroRede, "lat" | "lon"> => {
-    const cidadeIbge = normalizarLocalidade(a.cidade);
+    const cidadeIbge = normalizarLocalidade(a.cidadeNorm);
     const lista = centroides.get(cidadeIbge);
     if (lista && lista.length > 0) {
       let casar = casadores.get(cidadeIbge);
@@ -225,16 +326,38 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
   const todos = Array.from(porBairro.values());
   const visiveis = todos.filter(a => a.ocorrencias >= MIN_POR_BAIRRO);
 
+  // Uma linha por cidade DECLARADA, zeros incluídos: a tela precisa saber onde
+  // a rede está calada, não só onde ela fala.
+  const porCidade = new Map<string, CidadeRede>(
+    Array.from(rotulo.entries(), ([k, nome]) => [k, { cidade: nome, ocorrencias: 0, ocultas: 0, doObservador: 0, bairrosSemObservador: 0 }]),
+  );
+  for (const a of todos) {
+    const c = porCidade.get(a.cidadeNorm)!;
+    const visivel = a.ocorrencias >= MIN_POR_BAIRRO;
+    if (visivel) c.ocorrencias += a.ocorrencias; else c.ocultas += a.ocorrencias;
+    c.doObservador += a.doObservador;
+    if (visivel && a.doObservador === 0) c.bairrosSemObservador++;
+  }
+
   return {
     ocultas: todos.filter(a => a.ocorrencias < MIN_POR_BAIRRO)
       .reduce((s, a) => s + a.ocorrencias, 0),
     semPonto: visiveis.reduce((s, a) => s + a.semPonto, 0),
     // Do maior para o menor, e SÓ o que o mapa desenha: cidade (filtro),
-    // contagem (tamanho da bolha) e posição.
+    // contagem (tamanho da bolha) e posição. Montado campo a campo, de
+    // propósito: `doObservador` e `cidadeNorm` ficam no acumulador.
     bairros: visiveis
       .map(a => ({ cidade: a.cidade, ocorrencias: a.ocorrencias, ...ancorar(a) }))
       .sort((x, y) => y.ocorrencias - x.ocorrencias),
     pontos: visiveis.flatMap(a => a.pontos),
+    cidades: Array.from(porCidade.values())
+      .sort((x, y) => y.ocorrencias - x.ocorrencias || x.cidade.localeCompare(y.cidade, "pt-BR")),
+    observador: {
+      foraDaArea: Array.from(foraDaArea.values()).reduce((s, f) => s + f.ocorrencias, 0),
+      cidadesForaDaArea: Array.from(foraDaArea.values())
+        .sort((x, y) => y.ocorrencias - x.ocorrencias || x.cidade.localeCompare(y.cidade, "pt-BR"))
+        .slice(0, 5),
+    },
   };
 }
 
@@ -244,14 +367,19 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
  * "Ex-cliente" é contrato encerrado — cancelado ou inativo. Cliente que ainda é
  * de alguém não entra: ele está sendo cobrado por quem o atende, e apontar onde
  * ele mora para a concorrência não é informação de risco, é lista de alvos.
+ *
+ * `observador` é o provedor da sessão, e SÓ dele: a rota o tira de
+ * `req.session.providerId`, nunca do pedido. Ele não entra no WHERE — filtrar
+ * por provedor aqui transformaria a rede na carteira própria.
  */
-export async function bairrosDaRede(cidades: string[]): Promise<ResultadoRede> {
-  if (cidades.length === 0) return { bairros: [], pontos: [], ocultas: 0, semPonto: 0 };
+export async function bairrosDaRede(cidades: string[], observador: number): Promise<ResultadoRede> {
+  if (cidades.length === 0) return agregarRede([], [], new Map(), observador);
 
   const [linhas, centroides] = await Promise.all([
     db
       .select({
         id: customers.id,
+        providerId: customers.providerId,
         latitude: customers.latitude,
         longitude: customers.longitude,
         city: customers.city,
@@ -267,5 +395,5 @@ export async function bairrosDaRede(cidades: string[]): Promise<ResultadoRede> {
     carregarCentroidesDeBairro(cidades.map(c => normalizarLocalidade(normalizarCidade(c)))),
   ]);
 
-  return agregarRede(linhas, cidades, centroides);
+  return agregarRede(linhas, cidades, centroides, observador);
 }
