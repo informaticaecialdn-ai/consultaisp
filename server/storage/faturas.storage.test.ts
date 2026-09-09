@@ -591,6 +591,8 @@ describe("mensalidade observada em lote", () => {
     expect(banco.consultas[0].sql).toContain('group by');
     expect(m.get(42)).toMatchObject({ valor: 89.9, concordam: 5, faturas: 7, baixadas: 4 });
     expect(banco.consultas[0].params).toContain("baixada_no_erp");
+    // A fatura PAGA que o ERP confirmou (0036) e prova tao boa quanto a baixa.
+    expect(banco.consultas[0].params).toContain("paid");
     // As baixadas sao do GRUPO (cliente, valor): nenhuma janela somando os valores todos.
     expect(banco.consultas[0].sql).not.toMatch(/filter \(where "status" in[^)]*\)\) over/);
     expect(m.get(42)!.maisRecente).toEqual(new Date("2026-09-10T00:00:00Z"));

@@ -193,6 +193,7 @@ describe("as baixadas do valor da moda — a evidência do ex-cliente", () => {
     const m = await storage.mensalidadeDoCliente(PROVEDOR, CLIENTE);
     expect(m).toMatchObject({ valor: 89.9, concordam: 3, faturas: 5, baixadas: 2 });
     expect(banco.consultas[1].params).toContain("baixada_no_erp");
+    expect(banco.consultas[1].params).toContain("paid");
     expect(banco.consultas[1].params).toContain("89.90");
     expect(banco.consultas[1].sql).toMatch(/"value" = \$\d/);
   });

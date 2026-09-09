@@ -65,6 +65,13 @@ export const STATUS_FATURA_PAGA = ["paid"] as const;
 /** Sumiu dos pendentes do ERP numa varredura completa: pagamento provavel. */
 export const STATUS_FATURA_CONCILIACAO = ["baixada_no_erp"] as const;
 const UNIVERSO_DO_MES = [...STATUS_FATURA_ABERTA, ...STATUS_FATURA_PAGA, ...STATUS_FATURA_CONCILIACAO];
+/**
+ * O que PROVA que um valor de fatura e mensalidade de verdade: a fatura paga
+ * que o ERP confirmou (0036) ou a que sumiu dos pendentes numa varredura
+ * completa (baixa provavel). Sem uma delas, N faturas iguais em aberto podem
+ * ser N parcelas de um saldo — e o ex-cliente nao ganha ARPU por isso.
+ */
+const PROVA_DE_PAGAMENTO = [...STATUS_FATURA_PAGA, ...STATUS_FATURA_CONCILIACAO];
 
 export type GrupoDoMes = "pago" | "inadimplente" | "a_vencer" | "sem_fatura";
 
@@ -908,8 +915,8 @@ export class FaturasStorage {
         n: sql<number>`count(*)`.as("n"),
         maisRecente: sql<Date | null>`max(${invoices.dueDate})`.as("mais_recente"),
         total: sql<number>`sum(count(*)) over (partition by ${invoices.customerId})`.as("total"),
-        // Do MESMO grupo (cliente, valor): baixada de outro valor nao prova este.
-        baixadas: sql<number>`count(*) filter (where ${invoices.status} in ${[...STATUS_FATURA_CONCILIACAO]})`.as("baixadas"),
+        // Do MESMO grupo (cliente, valor): baixada ou paga de outro valor nao prova este.
+        baixadas: sql<number>`count(*) filter (where ${invoices.status} in ${PROVA_DE_PAGAMENTO})`.as("baixadas"),
         // A MODA: mais repeticoes primeiro; empate, o vencimento mais novo.
         posicao: sql<number>`row_number() over (partition by ${invoices.customerId} order by count(*) desc, max(${invoices.dueDate}) desc)`.as("posicao"),
       })
@@ -1038,8 +1045,8 @@ export class FaturasStorage {
 
     const [contagem] = await db.select({
         total: sql<number>`count(*)`.mapWith(Number),
-        // So as baixadas DO VALOR da moda — a mesma regra do lote.
-        baixadas: sql<number>`count(*) filter (where ${invoices.status} in ${[...STATUS_FATURA_CONCILIACAO]} and ${invoices.value} = ${moda.valor})`.mapWith(Number),
+        // So as baixadas ou pagas DO VALOR da moda — a mesma regra do lote.
+        baixadas: sql<number>`count(*) filter (where ${invoices.status} in ${PROVA_DE_PAGAMENTO} and ${invoices.value} = ${moda.valor})`.mapWith(Number),
       })
       .from(invoices)
       .where(and(

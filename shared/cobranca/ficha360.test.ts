@@ -268,7 +268,7 @@ describe("os motivos do gate, um por caso (revisão de 09/09/2026)", () => {
       historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 },
     });
     expect(f.valorMensal).toBeNull();
-    expect(f.economiaPendente).toMatch(/3 faturas iguais em aberto e nenhuma baixada/);
+    expect(f.economiaPendente).toMatch(/3 faturas iguais e nenhuma paga ou baixada/);
     expect(f.economiaPendente).not.toMatch(/única fatura/);
   });
   it("o motivo do saldo não promete um cadastro que o card não lê (não há plano por cliente)", () => {

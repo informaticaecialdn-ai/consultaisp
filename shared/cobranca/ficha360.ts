@@ -157,7 +157,7 @@ export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
   const recusada = !!obs && obs.valor > 0 && !observadaConfiavel;
   const motivoDaRecusa = !recusada ? null
     : obs!.concordam >= 2
-      ? `sem mensalidade confirmada: ${obs!.concordam} faturas iguais em aberto e nenhuma baixada no ERP — sem prova de pagamento, o valor não vira mensalidade`
+      ? `sem mensalidade confirmada: ${obs!.concordam} faturas iguais e nenhuma paga ou baixada no ERP — sem prova de pagamento, o valor não vira mensalidade`
       : "sem mensalidade: a única fatura aberta deste ex-cliente é o saldo final, não a mensalidade";
   const valorMensal = precoCadastrado ?? observada;
   const origemDoValorMensal: Ficha360["origemDoValorMensal"] =
