@@ -6,8 +6,9 @@
  * atendem o mesmo bairro, diz. É a única leitura cross-tenant que sai do
  * módulo de localização, e por isso é a mais vigiada:
  *
- * 1. O agregado é POR BAIRRO CANÔNICO DO CENSO, nunca pelo texto do ERP. Cada
- *    provedor escreve o bairro do seu jeito, e "Jd. Bandeirantes" de um só soma
+ * 1. O agregado de bairro é POR BAIRRO CANÔNICO DO CENSO. O municipal soma
+ *    toda a carteira selecionada, mesmo sem bairro ou correspondência no censo.
+ *    Cada provedor escreve o bairro do seu jeito, e "Jd. Bandeirantes" só soma
  *    com "JARDIM BANDEIRANTES" de outro se os dois forem casados contra a mesma
  *    lista do CNEFE — a mesma cascata (exato → núcleo → fuzzy) que o Raio-X usa
  *    para achar o HP do bairro. Chave igual dos dois lados é o que garante que
@@ -15,7 +16,7 @@
  *    A cidade é chaveada com a UF: "CENTRO" de Santa Helena/PR e de Santa
  *    Helena/SC são lugares diferentes, e somá-los contaria provedores de dois
  *    estados num k só.
- * 2. k-anonimato: o número só sai quando >= BENCHMARK_K_MINIMO provedores
+ * 2. k-anonimato: o número só sai quando >= BENCHMARK_K_MINIMO OUTROS provedores
  *    CONTRIBUINTES existem no bairro. Contribuinte é provedor aprovado e ativo
  *    (o cadastro é livre: qualquer e-mail cria uma conta e importa um CSV) com
  *    massa no bairro (>= BENCHMARK_MIN_CLIENTES_POR_PROVEDOR). Sem as duas
@@ -48,6 +49,8 @@ export const BENCHMARK_MIN_CLIENTES_POR_PROVEDOR = 10;
 /** Piso do universo mostrado (sem o observador): abaixo disto o percentual vira contagem. */
 export const BENCHMARK_MIN_CLIENTES_TOTAL = 30;
 
+export type CarteiraBenchmark = "ativo" | "ex_cliente" | "todas";
+
 /**
  * Uma linha do agregado do banco: quantos clientes e quantos inadimplentes um
  * provedor tem num (UF, cidade, bairro) como o ERP dele escreveu. É o grão
@@ -70,7 +73,7 @@ export type ContribuicoesBairro = Map<number, ParcelaProvedor>;
 
 /** O que existe por bairro canônico para UM observador. Sem id de ninguém, de propósito. */
 export interface BenchmarkBairro {
-  /** Provedores contribuintes no bairro (com massa), observador incluído — é contra este que o k é medido. */
+  /** Outros provedores contribuintes com massa, sem o observador. */
   provedores: number;
   /** Soma dos contribuintes SEM o observador. */
   clientes: number;
@@ -90,8 +93,8 @@ export function normalizarUf(uf: string | null | undefined): string {
 
 /**
  * Chave de cidade do benchmark: "PR|LONDRINA". UF vazia ("|LONDRINA") é o
- * pedido de quem não sabe o estado — casa com qualquer linha da cidade, que é
- * a ambiguidade que já existia antes da UF entrar na chave, não uma nova.
+ * pedido de quem não sabe o estado e não produz benchmark: homônimas não
+ * podem ser somadas nem usadas para completar o k.
  */
 export function chaveCidadeBenchmark(uf: string | null | undefined, cidadeNorm: string): string {
   return `${normalizarUf(uf)}|${cidadeNorm}`;
@@ -113,8 +116,8 @@ export function ordenarCanonicosPorTamanho(m: Map<string, number>): string[] {
  * inventados, como agregarRede.
  *
  * `canonicos` é chaveado por chaveCidadeBenchmark e já vem ordenado por
- * tamanho (ver ordenarCanonicosPorTamanho). Linha cujo estado contradiz a UF
- * pedida fica de fora; linha sem estado não contradiz ninguém.
+ * tamanho (ver ordenarCanonicosPorTamanho). Exige UF conhecida e igual à
+ * pedida: linha sem estado fica de fora para não misturar cidades homônimas.
  */
 export function agregarBenchmarkBairro(
   linhas: LinhaAgregadaBenchmark[],
@@ -142,7 +145,7 @@ export function agregarBenchmarkBairro(
 
     for (const chave of chaves) {
       const ufPedida = chave.slice(0, chave.indexOf("|"));
-      if (ufPedida && ufLinha && ufPedida !== ufLinha) continue;
+      if (!ufPedida || !ufLinha || ufPedida !== ufLinha) continue;
       const lista = canonicos.get(chave);
       if (!lista || lista.length === 0) continue;
 
@@ -170,7 +173,7 @@ export function agregarBenchmarkBairro(
 
 /**
  * O mercado de UM observador num bairro, ou null quando as travas não fecham:
- * k contribuintes com massa, e o que sobra sem o observador ainda tem piso.
+ * k outros contribuintes com massa, e universo sem o observador acima do piso.
  * É aqui que o conjunto de ids morre: daqui em diante só existe a contagem.
  */
 export function resumirBenchmark(
@@ -183,8 +186,8 @@ export function resumirBenchmark(
   let inadimplentes = 0;
   for (const [providerId, p] of Array.from(contrib.entries())) {
     if (p.clientes < BENCHMARK_MIN_CLIENTES_POR_PROVEDOR) continue;
-    provedores++;
     if (providerId === observador) continue;
+    provedores++;
     clientes += p.clientes;
     inadimplentes += p.inadimplentes;
   }
@@ -211,7 +214,7 @@ export function benchmarkParaTela(
 /* ── Leitura ────────────────────────────────────────────────────────────── */
 
 /**
- * O agregado do banco é UM só, global, e é ele que vale por uma hora. O
+ * O agregado do banco é global por carteira, e vale por uma hora. O
  * benchmark muda quando um sync roda, e o sync roda de hora em hora no melhor
  * caso — uma varredura da tabela inteira por render do Raio-X seria pagar toda
  * vez por um número que não mudou. Cachear por cidade sobre uma query global
@@ -223,17 +226,17 @@ export function benchmarkParaTela(
  * do CNEFE muda o casamento do HP na hora, e o mercado precisa mudar junto.
  */
 const BENCHMARK_TTL_MS = 60 * 60 * 1000;
-let agregadoCache: { em: number; linhas: LinhaAgregadaBenchmark[] } | null = null;
+const agregadoCache = new Map<CarteiraBenchmark, { em: number; linhas: LinhaAgregadaBenchmark[] }>();
 // Promise em voo: dois renders no cache frio dividem a mesma ida ao banco.
-let agregadoEmVoo: Promise<LinhaAgregadaBenchmark[]> | null = null;
+const agregadoEmVoo = new Map<CarteiraBenchmark, Promise<LinhaAgregadaBenchmark[]>>();
 const derivadoCache = new Map<string, {
   linhas: LinhaAgregadaBenchmark[]; assinatura: string; bairros: Map<string, ContribuicoesBairro>;
 }>();
 
 /** Só para os testes: esvazia os caches. */
 export function _limparCacheDeBenchmarkParaTestes(): void {
-  agregadoCache = null;
-  agregadoEmVoo = null;
+  agregadoCache.clear();
+  agregadoEmVoo.clear();
   derivadoCache.clear();
 }
 
@@ -243,20 +246,26 @@ export function _limparCacheDeBenchmarkParaTestes(): void {
  * feito em memória sobre poucos milhares de tuplas.
  *
  * Só provedor aprovado e ativo contribui — ver o item 2 do cabeçalho. Bairro
- * vazio sai no SQL: sem bairro não há o que casar, e é o mesmo corte do
- * AGREGADO_SQL do Provedor.ai.
+ * vazio permanece no SQL porque contribui para a amostra municipal.
  *
- * A régua de universo é a do Raio-X (localizacao.storage.ts): entra quem ainda
- * é cliente (status fora de cancelled/inactive) OU quem saiu devendo; é
- * inadimplente quem tem valor em aberto. Dois universos diferentes dos dois
- * lados fariam o provedor comparar a sua taxa com uma taxa de outra coisa.
+ * A régua de universo é a do Raio-X (localizacao.storage.ts): todos os clientes
+ * da carteira selecionada pelo status atual, inclusive em dia e sem coordenada.
+ * Cancelled/inactive são ex-clientes; os demais são ativos. Só o numerador
+ * exige valor em aberto positivo. A amostra não representa o mercado inteiro.
  *
  * Não filtra por cidade no SQL de propósito: o nome vem como texto livre e
  * normalizar com acento dentro do Postgres exigiria extensão. O GROUP BY já
  * reduz a tabela a uma linha por bairro por provedor; o corte por cidade cabe
  * na memória.
  */
-async function lerAgregado(): Promise<LinhaAgregadaBenchmark[]> {
+async function lerAgregado(carteira: CarteiraBenchmark): Promise<LinhaAgregadaBenchmark[]> {
+  // O status atual do ERP define a carteira, independentemente de ter dívida.
+  const status = sql`lower(trim(coalesce(${customers.status}, '')))`;
+  const filtroCarteira = carteira === "ativo"
+    ? sql`${status} not in ('cancelled', 'inactive')`
+    : carteira === "ex_cliente"
+      ? sql`${status} in ('cancelled', 'inactive')`
+      : sql`true`;
   const rows = await db
     .select({
       providerId: customers.providerId,
@@ -271,28 +280,58 @@ async function lerAgregado(): Promise<LinhaAgregadaBenchmark[]> {
     .where(sql`
       ${providers.status} = 'active'
       and ${providers.verificationStatus} = 'approved'
-      and ${customers.neighborhood} is not null
-      and ${customers.neighborhood} <> ''
-      and (
-        lower(${customers.status}) not in ('cancelled', 'inactive')
-        or coalesce(${customers.totalOverdueAmount}, 0) > 0
-      )
+      and ${filtroCarteira}
     `)
     .groupBy(customers.providerId, customers.state, customers.city, customers.neighborhood);
   return rows as LinhaAgregadaBenchmark[];
 }
 
-async function agregadoDaHora(agora: number): Promise<LinhaAgregadaBenchmark[]> {
-  if (agregadoCache && agora - agregadoCache.em < BENCHMARK_TTL_MS) return agregadoCache.linhas;
-  if (!agregadoEmVoo) {
-    agregadoEmVoo = lerAgregado()
-      .then(linhas => { agregadoCache = { em: Date.now(), linhas }; return linhas; })
-      .finally(() => { agregadoEmVoo = null; });
-  }
-  return agregadoEmVoo;
+async function agregadoDaHora(agora: number, carteira: CarteiraBenchmark): Promise<LinhaAgregadaBenchmark[]> {
+  const hit = agregadoCache.get(carteira);
+  if (hit && agora - hit.em < BENCHMARK_TTL_MS) return hit.linhas;
+  const emVoo = agregadoEmVoo.get(carteira);
+  if (emVoo) return emVoo;
+  const leitura = lerAgregado(carteira)
+    .then(linhas => { agregadoCache.set(carteira, { em: Date.now(), linhas }); return linhas; })
+    .finally(() => { agregadoEmVoo.delete(carteira); });
+  agregadoEmVoo.set(carteira, leitura);
+  return leitura;
 }
 
 export interface PedidoBenchmark { cidadeNorm: string; uf: string | null }
+
+/** Amostra municipal por provedor: inclui clientes sem bairro ou casamento no censo. */
+export function agregarBenchmarkCidade(
+  linhas: LinhaAgregadaBenchmark[],
+  pedidos: PedidoBenchmark[],
+): Map<string, ContribuicoesBairro> {
+  const chaves = new Set(pedidos
+    .filter(p => p.cidadeNorm && normalizarUf(p.uf))
+    .map(p => chaveCidadeBenchmark(p.uf, p.cidadeNorm)));
+  const resultado = new Map<string, ContribuicoesBairro>();
+  for (const linha of linhas) {
+    const uf = normalizarUf(linha.state);
+    if (!uf) continue;
+    const chave = chaveCidadeBenchmark(uf, normalizarLocalidade(normalizarCidade(linha.city)));
+    if (!chaves.has(chave)) continue;
+    const parcelas = resultado.get(chave) ?? new Map<number, ParcelaProvedor>();
+    const parcela = parcelas.get(linha.providerId) ?? { clientes: 0, inadimplentes: 0 };
+    parcela.clientes += Number(linha.clientes) || 0;
+    parcela.inadimplentes += Number(linha.inadimplentes) || 0;
+    parcelas.set(linha.providerId, parcela);
+    resultado.set(chave, parcelas);
+  }
+  return resultado;
+}
+
+/** Uso interno: resumirBenchmark aplica privacidade antes de qualquer payload. */
+export async function calcularBenchmarkCidade(
+  pedidos: PedidoBenchmark[],
+  carteira: CarteiraBenchmark = "ativo",
+): Promise<Map<string, ContribuicoesBairro>> {
+  if (!pedidos.some(p => p.cidadeNorm && normalizarUf(p.uf))) return new Map();
+  return agregarBenchmarkCidade(await agregadoDaHora(Date.now(), carteira), pedidos);
+}
 
 /**
  * Benchmark das cidades pedidas (chave de retorno: chaveCidadeBenchmark;
@@ -308,11 +347,12 @@ export interface PedidoBenchmark { cidadeNorm: string; uf: string | null }
 export async function calcularBenchmarkBairro(
   pedidos: PedidoBenchmark[],
   territorio?: Map<string, TerritorioDoMunicipio>,
+  carteira: CarteiraBenchmark = "ativo",
 ): Promise<BenchmarkPorCidade> {
   const mapa: BenchmarkPorCidade = new Map();
   const unicos = new Map<string, PedidoBenchmark>();
   for (const p of pedidos) {
-    if (!p.cidadeNorm) continue;
+    if (!p.cidadeNorm || !normalizarUf(p.uf)) continue;
     unicos.set(chaveCidadeBenchmark(p.uf, p.cidadeNorm), p);
   }
   if (unicos.size === 0) return mapa;
@@ -331,13 +371,13 @@ export async function calcularBenchmarkBairro(
   // Sem censo em nenhuma das cidades pedidas, nem vale ir ao banco de clientes.
   if (canonicos.size === 0) return mapa;
 
-  const linhas = await agregadoDaHora(Date.now());
+  const linhas = await agregadoDaHora(Date.now(), carteira);
 
   // Nome de bairro não tem quebra de linha: a lista inteira, na ordem, é a
   // assinatura do casamento.
   const faltam = new Map<string, string[]>();
   for (const [chave, lista] of Array.from(canonicos.entries())) {
-    const hit = derivadoCache.get(chave);
+    const hit = derivadoCache.get(`${carteira}|${chave}`);
     if (hit && hit.linhas === linhas && hit.assinatura === lista.join("\n")) mapa.set(chave, hit.bairros);
     else faltam.set(chave, lista);
   }
@@ -346,7 +386,7 @@ export async function calcularBenchmarkBairro(
   const calculado = agregarBenchmarkBairro(linhas, faltam);
   for (const [chave, lista] of Array.from(faltam.entries())) {
     const bairros = calculado.get(chave) ?? new Map<string, ContribuicoesBairro>();
-    derivadoCache.set(chave, { linhas, assinatura: lista.join("\n"), bairros });
+    derivadoCache.set(`${carteira}|${chave}`, { linhas, assinatura: lista.join("\n"), bairros });
     mapa.set(chave, bairros);
   }
   return mapa;

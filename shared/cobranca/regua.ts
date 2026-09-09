@@ -6,12 +6,10 @@
  * etapa diz a ação a executar e, se o provedor quiser, quem é o responsável.
  * O tom vem do DNA (`dna.ts`), não da etapa — os dois se cruzam só no caso.
  *
- * FASE 1 (fatos de produção, 05/09/2026): não existe fatura a fatura. O sync
- * grava só agregados em `customers`, e a régua roda POR CLIENTE sobre
- * `max_days_overdue`. Consequência: a etapa preventiva (D-7..D0) não tem como
- * disparar — sem fatura não há vencimento futuro. Ela fica no catálogo,
- * marcada `disponivelNaFase1: false`, e o motor a pula com o motivo
- * `depende_de_fatura`, para a tela dizer por que a coluna está vazia.
+ * A régua de atraso roda por cliente; o preventivo roda por fatura identificada,
+ * em fila própria com deduplicação por título/dia. Um agregado zerado não
+ * informa vencimento futuro, por isso o motor exige evidência de fatura para
+ * permitir D-7/D-3/D-1 mesmo com a etapa disponível no catálogo.
  *
  * Módulo puro: sem banco, sem React, sem I/O.
  */
@@ -72,7 +70,7 @@ export const ETAPAS_PADRAO: readonly Etapa[] = [
     acao: "Lembrar do vencimento só nos dias-toque (D-7, D-3, D-1), com o PIX ou a segunda via em mãos. Não é cobrança: a fatura ainda não venceu.",
     canalSugerido: "whatsapp",
     baseLegal: "CDC art. 42 — sem assédio: só nos dias-toque",
-    disponivelNaFase1: false,
+    disponivelNaFase1: true,
     responsavelUserId: null,
     ativa: true,
   },
@@ -254,7 +252,7 @@ export type DecisaoDaRegua = { etapa: Etapa; motivo: null } | { etapa: null; mot
 
 export const ROTULO_MOTIVO_SEM_ETAPA: Record<MotivoSemEtapa, string> = {
   prescrita: "Dívida prescrita — não se cobra",
-  depende_de_fatura: "Depende de fatura a fatura (fase 2)",
+  depende_de_fatura: "Pré-aviso exige uma fatura a vencer identificada",
   fora_toque_preventivo: "Fora do dia-toque do pré-aviso",
   sem_etapa: "Nenhuma etapa cobre este atraso",
 };
@@ -266,7 +264,8 @@ export const ROTULO_MOTIVO_SEM_ETAPA: Record<MotivoSemEtapa, string> = {
  * Etapa desligada pelo provedor some do mesmo jeito.
  */
 export function etapasDaCarteira(carteira: Carteira, etapas: readonly Etapa[] = ETAPAS_PADRAO): Etapa[] {
-  let lista = etapas.map(e => ({ ...e }));
+  // Não absorver o pré-aviso: isso anteciparia o lembrete de atraso para D-7.
+  let lista = etapas.filter(e => carteira !== "ex_cliente" || e.id !== "lembrete_pre_vencimento").map(e => ({ ...e }));
   for (const e of etapas) {
     const foraDaCarteira = carteira === "ex_cliente" && e.id === "aviso_suspensao";
     if (foraDaCarteira || !e.ativa) lista = removerAbsorvendo(lista, e.id);
@@ -296,6 +295,7 @@ export function etapaParaAtraso(
   diasAtraso: number,
   carteira: Carteira,
   etapas: readonly Etapa[] = ETAPAS_PADRAO,
+  faturaIdentificada = false,
 ): DecisaoDaRegua {
   if (prescrita(diasAtraso)) return { etapa: null, motivo: "prescrita" };
 
@@ -305,7 +305,7 @@ export function etapaParaAtraso(
   if (!etapa) return { etapa: null, motivo: "sem_etapa" };
 
   if (etapa.id === "lembrete_pre_vencimento") {
-    if (!etapa.disponivelNaFase1) return { etapa: null, motivo: "depende_de_fatura" };
+    if (!faturaIdentificada) return { etapa: null, motivo: "depende_de_fatura" };
     if (!PREVENTIVO_DIAS_TOQUE.has(diasAtraso)) return { etapa: null, motivo: "fora_toque_preventivo" };
   }
   return { etapa, motivo: null };

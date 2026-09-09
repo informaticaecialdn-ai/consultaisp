@@ -33,10 +33,10 @@ export async function salvarTemplatesWhatsapp(providerId: number, templates: Tem
   templates = parsed.data.templates;
   return comTravaDaConfiguracaoDoChat(providerId, async () => {
     const catalogo = await lerCatalogoTemplatesWhatsapp(providerId);
-    for (const config of Object.values(templates)) {
+    for (const [tipo, config] of Object.entries(templates)) {
       const template = catalogo.data.find(t => t.name === config.nome && t.language === config.idioma);
       if (!template) throw new ErroDaPonteDoChat("CONFLITO", "Selecione um template do catálogo atual");
-      const a = analisarTemplateDeAbertura(template);
+      const a = analisarTemplateDeAbertura(template, tipo !== "recuperacao_equipamentos");
       if (!a.compativel || a.variaveis !== config.variaveis.length) throw new ErroDaPonteDoChat("CONFLITO", a.motivo || "Associe cada variável do template a um dado do cliente ou provedor");
     }
     const i = await storage.getIntegracaoDoChat(providerId);
@@ -51,6 +51,6 @@ export async function prepararTemplateWhatsapp(providerId: number, tipo: TipoDeA
   const config = catalogo.templates[tipo];
   const template = config && catalogo.data.find(t => t.name === config.nome && t.language === config.idioma);
   if (!config || !template) throw new ErroDaPonteDoChat("CONFLITO", "Configure o template Datafy desta carteira no Painel do Provedor");
-  try { return montarTemplateDeAbertura(template, config, contexto); }
+  try { return montarTemplateDeAbertura(template, config, contexto, tipo !== "recuperacao_equipamentos"); }
   catch (e) { throw new ErroDaPonteDoChat("CONFLITO", e instanceof Error ? e.message : "Template incompatível"); }
 }

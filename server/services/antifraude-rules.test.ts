@@ -247,3 +247,27 @@ describe("montar e desmontar regras", () => {
     expect(montarRegras(desmontarRegras(custom))).toEqual(custom);
   });
 });
+
+
+describe("critérios combinados e dados ausentes", () => {
+  const config = { ...regras({ contrato_novo: { ativo: true } }), combinacao: "todas" as const };
+  it("exige novo E inadimplente na mesma consulta externa", () => {
+    const base = cliente({ contractStatus: "active", contractStartDate: "2026-08-20", totalOverdueAmount: 100, maxDaysOverdue: 5 });
+    expect(avaliarRiscoDeFuga(base, { ...outro, regras: config }).alerta).toBe(true);
+    for (const patch of [{ totalOverdueAmount: 0 }, { contractStartDate: undefined }, { contractStartDate: "2025-01-01" }, { contractStartDate: "2027-01-01" }]) {
+      expect(avaliarRiscoDeFuga({ ...base, ...patch }, { ...outro, regras: config }).alerta).toBe(false);
+    }
+  });
+  it("nenhum critério ligado nunca alerta, inclusive no modo todas", () => {
+    const off = regras({ ativo_inadimplente: { ativo: false } });
+    expect(avaliarRiscoDeFuga(cliente({ contractStatus: "active" }), { ...outro, regras: { ...off, combinacao: "todas" } }).alerta).toBe(false);
+  });
+  it("salva e lê o modo sem modificar regras de provedores antigos", () => {
+    expect(montarRegras(desmontarRegras(config))).toEqual(config);
+    expect(montarRegras([])).toEqual(REGRAS_PADRAO);
+  });
+  it.each([0, -10, Infinity, NaN])("dívida inválida %s não gera alerta financeiro", amount => {
+    expect(avaliarRiscoDeFuga(cliente({ contractStatus: "active", totalOverdueAmount: amount, maxDaysOverdue: 5 }), { ...outro, regras: regras({ ativo_inadimplente: { valorMinimo: 0 } }) }).alerta).toBe(false);
+  });
+  it.each(["2026-02-31", "31/02/2026", "01/01/1800"])("rejeita data %s", date => expect(parseDataContrato(date)).toBeNull());
+});

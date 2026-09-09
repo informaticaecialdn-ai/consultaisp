@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, STALE_DASHBOARD } from "@/lib/queryClient";
@@ -31,6 +31,9 @@ import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 import { rotuloDoPlano } from "@/lib/planos";
 import { ERP_OPTIONS } from "@/components/admin/constants";
 import { cnpjMascarado } from "@/lib/cnpj";
+
+import { NavegacaoPainel, CabecalhoConfiguracao, InicioConfiguracoes, CATEGORIAS_PAINEL } from "@/components/painel/OrganizacaoPainel";
+import "@/components/painel/organizacao-painel.css";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
 
@@ -329,7 +332,7 @@ export default function PainelProvedorPage() {
   const { user, provider, personificando } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   // A QUERY tambem, e nao so o caminho: `useLocation` do wouter devolve o
   // pathname puro, entao ir de `?tab=chat` para `?tab=cobranca` nao mudava
   // `location` e a aba nao trocava. Passou a importar em 06/09/2026, quando a
@@ -356,6 +359,8 @@ export default function PainelProvedorPage() {
     const tab = new URLSearchParams(window.location.search).get("tab");
     setActiveTab(tab || "visao-geral");
   }, [location, search]);
+  const abrirConfiguracao = (aba: string) => { setActiveTab(aba); navigate(`/painel-provedor?tab=${aba}`); };
+  const categoriaAtual = CATEGORIAS_PAINEL.find(c=>c.itens.some(i=>i.id===activeTab))?.id;
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "user" });
   const [showToken, setShowToken] = useState(false);
@@ -802,7 +807,7 @@ export default function PainelProvedorPage() {
     ?? source.toUpperCase();
 
   return (
-    <div className="p-4 lg:p-6 space-y-6" data-testid="painel-provedor-page">
+    <div className="pp-panel p-4 lg:p-6 space-y-6" data-testid="painel-provedor-page">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
@@ -820,7 +825,7 @@ export default function PainelProvedorPage() {
                 {kycConfig.label}
               </Badge>
             </div>
-            <p className="text-sm text-muted-foreground">Painel Administrativo do Provedor</p>
+            <p className="text-sm text-muted-foreground">Painel do Provedor · central de configurações</p>
           </div>
         </div>
         {subdomainUrl && (
@@ -837,67 +842,16 @@ export default function PainelProvedorPage() {
         )}
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="visao-geral" className="gap-1.5" data-testid="tab-visao-geral">
-            <BarChart3 className="w-3.5 h-3.5" />Visao Geral
-          </TabsTrigger>
-          <TabsTrigger value="empresa" className="gap-1.5" data-testid="tab-empresa">
-            <Building2 className="w-3.5 h-3.5" />Empresa
-          </TabsTrigger>
-          <TabsTrigger value="socios" className="gap-1.5" data-testid="tab-socios">
-            <UserCheck className="w-3.5 h-3.5" />Socios
-          </TabsTrigger>
-          <TabsTrigger value="documentos" className="gap-1.5" data-testid="tab-documentos">
-            <FileText className="w-3.5 h-3.5" />Documentos
-          </TabsTrigger>
-          <TabsTrigger value="subdominio" className="gap-1.5" data-testid="tab-subdominio">
-            <Globe className="w-3.5 h-3.5" />Subdominio
-          </TabsTrigger>
-          <TabsTrigger value="usuarios" className="gap-1.5" data-testid="tab-usuarios">
-            <Users className="w-3.5 h-3.5" />Usuarios
-          </TabsTrigger>
-          <TabsTrigger value="creditos" className="gap-1.5" data-testid="tab-creditos">
-            <CreditCard className="w-3.5 h-3.5" />Creditos
-          </TabsTrigger>
-          <TabsTrigger value="integracao" className="gap-1.5" data-testid="tab-integracao">
-            <Zap className="w-3.5 h-3.5" />Integracao
-          </TabsTrigger>
-          <TabsTrigger value="anti-fraude" className="gap-1.5" data-testid="tab-anti-fraude">
-            <Shield className="w-3.5 h-3.5" />Anti-Fraude
-          </TabsTrigger>
-          <TabsTrigger value="chat" className="gap-1.5" data-testid="tab-chat">
-            <MessageSquareShare className="w-3.5 h-3.5" />Chat
-          </TabsTrigger>
-          {/* Os agentes de IA sao os agentes DO chat — vem logo depois dele.
-              Mudaram de casa em 07/09/2026 (pedido do dono: "agentes de IA tem
-              que estar dentro de painel do provedor"); eram a pagina /agentes,
-              item proprio no menu de Gestao. Leitura e de qualquer operador: a
-              aba nao esconde de ninguem, quem nao pode administrar ve tudo sem
-              os botoes de escrita. */}
-          <TabsTrigger value="agentes" className="gap-1.5" data-testid="tab-agentes">
-            <Bot className="w-3.5 h-3.5" />Agentes de IA
-          </TabsTrigger>
-          {/* A politica de cobranca mudou de casa em 06/09/2026 (pedido do dono):
-              era a pagina /cobranca/politica, no submenu de Cobranca, e virou aba
-              daqui — que e onde mora todo o resto da configuracao do provedor. */}
-          <TabsTrigger value="cobranca" className="gap-1.5" data-testid="tab-cobranca">
-            <Scale className="w-3.5 h-3.5" />Cobranca
-          </TabsTrigger>
-          {/* A aba nao aparece para o OPERADOR do provedor (role `user`): a rota
-              que le o estado exige admin, entao para ele a aba seria uma caixa
-              vermelha de falha — um erro onde na verdade nao ha permissao. O
-              superadmin passa (`requireAdmin` o deixa entrar) e precisa ver o
-              estado enquanto esta conectado. */}
-          {user?.role !== "user" && (
-            <TabsTrigger value="suporte" className="gap-1.5" data-testid="tab-suporte">
-              <Headset className="w-3.5 h-3.5" />Suporte
-            </TabsTrigger>
-          )}
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={abrirConfiguracao} orientation="vertical" className="pp-layout">
+        <NavegacaoPainel podeSuporte={user?.role !== "user"} />
+        <div className="pp-content" data-category={categoriaAtual}>
+        <CabecalhoConfiguracao aba={activeTab} />
+
 
         {/* ======================== VISAO GERAL ======================== */}
         <TabsContent value="visao-geral" className="space-y-4">
+          <InicioConfiguracoes onAbrir={abrirConfiguracao} podeSuporte={user?.role !== "user"} />
+          <details className="pp-activity"><summary>Atividade da conta e resumo cadastral</summary>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: "Clientes", value: dashStats?.totalCustomers ?? "-", icon: Users, color: "bg-blue-500" },
@@ -973,7 +927,7 @@ export default function PainelProvedorPage() {
                   ))}
                   {!profileData?.tradeName && !profileData?.legalType && (
                     <p className="text-muted-foreground text-xs pt-2">
-                      Complete o cadastro na aba <button className="text-blue-600 underline" onClick={() => setActiveTab("empresa")}>Empresa</button>
+                      Complete o cadastro na aba <button className="text-blue-600 underline" onClick={() => abrirConfiguracao("empresa")}>Empresa</button>
                     </p>
                   )}
                 </div>
@@ -1003,11 +957,12 @@ export default function PainelProvedorPage() {
               {providerUsers.length > 3 && (
                 <p className="text-xs text-muted-foreground text-center pt-2">
                   +{providerUsers.length - 3} usuario(s).{" "}
-                  <button className="text-blue-600" onClick={() => setActiveTab("usuarios")}>Ver todos</button>
+                  <button className="text-blue-600" onClick={() => abrirConfiguracao("usuarios")}>Ver todos</button>
                 </p>
               )}
             </div>
           </Card>
+        </details>
         </TabsContent>
 
         {/* ======================== EMPRESA ======================== */}
@@ -1128,8 +1083,8 @@ export default function PainelProvedorPage() {
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Razao Social *</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-razao-social">Razao Social *</label>
+                    <Input id="input-razao-social"
                       value={getEmpresa().name}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), name: e.target.value })}
                       placeholder="Razao Social da Empresa"
@@ -1137,8 +1092,8 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Nome Fantasia</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-trade-name">Nome Fantasia</label>
+                    <Input id="input-trade-name"
                       value={getEmpresa().tradeName}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), tradeName: e.target.value })}
                       placeholder="Nome comercial da empresa"
@@ -1146,11 +1101,11 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">CNPJ</label>
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-cnpj-somente-leitura">CNPJ</label>
                     {/* readOnly e sem par no estado do formulario: o valor daqui
                         nao entra no corpo do PATCH (ver `getEmpresa`), entao a
                         mascara fica so nos olhos e a coluna segue com 14 digitos. */}
-                    <Input
+                    <Input id="input-cnpj-somente-leitura"
                       value={cnpjMascarado(provider?.cnpj)}
                       readOnly
                       className="bg-muted font-mono tabular-nums"
@@ -1158,8 +1113,8 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Tipo / Natureza Juridica</label>
-                    <select
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="select-legal-type">Tipo / Natureza Juridica</label>
+                    <select id="select-legal-type"
                       className="w-full border rounded-md px-3 py-2 text-sm bg-background"
                       value={getEmpresa().legalType}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), legalType: e.target.value })}
@@ -1170,10 +1125,10 @@ export default function PainelProvedorPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1" htmlFor="input-opening-date">
                       <Calendar className="w-3.5 h-3.5" />Data de Abertura
                     </label>
-                    <Input
+                    <Input id="input-opening-date"
                       type="date"
                       value={getEmpresa().openingDate}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), openingDate: e.target.value })}
@@ -1181,10 +1136,10 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1" htmlFor="select-segment">
                       <Briefcase className="w-3.5 h-3.5" />Segmento de Atuacao
                     </label>
-                    <select
+                    <select id="select-segment"
                       className="w-full border rounded-md px-3 py-2 text-sm bg-background"
                       value={getEmpresa().businessSegment}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), businessSegment: e.target.value })}
@@ -1195,10 +1150,10 @@ export default function PainelProvedorPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1" htmlFor="input-contact-email">
                       <Mail className="w-3.5 h-3.5" />Email de Contato
                     </label>
-                    <Input
+                    <Input id="input-contact-email"
                       type="email"
                       placeholder="contato@empresa.com.br"
                       value={getEmpresa().contactEmail}
@@ -1207,10 +1162,10 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1" htmlFor="input-contact-phone">
                       <Phone className="w-3.5 h-3.5" />Telefone de Contato
                     </label>
-                    <Input
+                    <Input type="tel" autoComplete="tel" id="input-contact-phone"
                       placeholder="(00) 0000-0000"
                       value={getEmpresa().contactPhone}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), contactPhone: e.target.value })}
@@ -1218,10 +1173,10 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1" htmlFor="input-website">
                       <Link2 className="w-3.5 h-3.5" />Website
                     </label>
-                    <Input
+                    <Input id="input-website"
                       placeholder="https://seuprovedor.com.br"
                       value={getEmpresa().website}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), website: e.target.value })}
@@ -1237,8 +1192,8 @@ export default function PainelProvedorPage() {
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">CEP</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-cep">CEP</label>
+                    <Input id="input-cep"
                       placeholder="00000-000"
                       value={getEmpresa().addressZip}
                       onChange={(e) => {
@@ -1249,8 +1204,8 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div className="md:col-span-1">
-                    <label className="text-sm font-medium mb-1.5 block">Logradouro</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-street">Logradouro</label>
+                    <Input id="input-street"
                       placeholder="Rua, Avenida..."
                       value={getEmpresa().addressStreet}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), addressStreet: e.target.value })}
@@ -1258,8 +1213,8 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Numero</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-number">Numero</label>
+                    <Input id="input-number"
                       placeholder="123"
                       value={getEmpresa().addressNumber}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), addressNumber: e.target.value })}
@@ -1267,8 +1222,8 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Complemento</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-complement">Complemento</label>
+                    <Input id="input-complement"
                       placeholder="Sala, Andar..."
                       value={getEmpresa().addressComplement}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), addressComplement: e.target.value })}
@@ -1276,8 +1231,8 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Bairro</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-neighborhood">Bairro</label>
+                    <Input id="input-neighborhood"
                       placeholder="Bairro"
                       value={getEmpresa().addressNeighborhood}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), addressNeighborhood: e.target.value })}
@@ -1285,8 +1240,8 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Cidade</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-city">Cidade</label>
+                    <Input id="input-city"
                       placeholder="Cidade"
                       value={getEmpresa().addressCity}
                       onChange={(e) => setEmpresa({ ...getEmpresa(), addressCity: e.target.value })}
@@ -1294,8 +1249,8 @@ export default function PainelProvedorPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Estado (UF)</label>
-                    <Input
+                    <label className="text-sm font-medium mb-1.5 block" htmlFor="input-state">Estado (UF)</label>
+                    <Input id="input-state"
                       placeholder="UF"
                       maxLength={2}
                       value={getEmpresa().addressState}
@@ -1307,7 +1262,7 @@ export default function PainelProvedorPage() {
               </Card>
 
               {podeAdministrar && (
-                <Button
+                <div className="pp-savebar"><p>Revise os dados da empresa antes de salvar.</p><Button
                   onClick={() => savePerfil.mutate(getEmpresa())}
                   disabled={savePerfil.isPending}
                   className="gap-2"
@@ -1315,7 +1270,7 @@ export default function PainelProvedorPage() {
                 >
                   {savePerfil.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   {savePerfil.isPending ? "Salvando..." : "Salvar Dados"}
-                </Button>
+                </Button></div>
               )}
             </div>
           )}
@@ -1354,32 +1309,32 @@ export default function PainelProvedorPage() {
                 <h3 className="font-semibold text-sm">{editingPartner ? "Editar Socio" : "Adicionar Socio"}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Nome Completo *</label>
-                    <Input placeholder="Nome do socio" value={partnerForm.name} onChange={(e) => setPartnerForm({ ...partnerForm, name: e.target.value })} data-testid="input-partner-name" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-partner-name">Nome Completo *</label>
+                    <Input id="input-partner-name" placeholder="Nome do socio" value={partnerForm.name} onChange={(e) => setPartnerForm({ ...partnerForm, name: e.target.value })} data-testid="input-partner-name" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">CPF *</label>
-                    <Input placeholder="000.000.000-00" value={partnerForm.cpf} onChange={(e) => setPartnerForm({ ...partnerForm, cpf: e.target.value })} data-testid="input-partner-cpf" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-partner-cpf">CPF *</label>
+                    <Input id="input-partner-cpf" placeholder="000.000.000-00" value={partnerForm.cpf} onChange={(e) => setPartnerForm({ ...partnerForm, cpf: e.target.value })} data-testid="input-partner-cpf" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Data de Nascimento</label>
-                    <Input type="date" value={partnerForm.birthDate} onChange={(e) => setPartnerForm({ ...partnerForm, birthDate: e.target.value })} data-testid="input-partner-birthdate" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-partner-birthdate">Data de Nascimento</label>
+                    <Input id="input-partner-birthdate" type="date" value={partnerForm.birthDate} onChange={(e) => setPartnerForm({ ...partnerForm, birthDate: e.target.value })} data-testid="input-partner-birthdate" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Cargo / Funcao</label>
-                    <Input placeholder="Ex: Socio-Administrador" value={partnerForm.role} onChange={(e) => setPartnerForm({ ...partnerForm, role: e.target.value })} data-testid="input-partner-role" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-partner-role">Cargo / Funcao</label>
+                    <Input id="input-partner-role" placeholder="Ex: Socio-Administrador" value={partnerForm.role} onChange={(e) => setPartnerForm({ ...partnerForm, role: e.target.value })} data-testid="input-partner-role" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Email</label>
-                    <Input type="email" placeholder="email@socio.com" value={partnerForm.email} onChange={(e) => setPartnerForm({ ...partnerForm, email: e.target.value })} data-testid="input-partner-email" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-partner-email">Email</label>
+                    <Input id="input-partner-email" type="email" placeholder="email@socio.com" value={partnerForm.email} onChange={(e) => setPartnerForm({ ...partnerForm, email: e.target.value })} data-testid="input-partner-email" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Telefone</label>
-                    <Input placeholder="(00) 00000-0000" value={partnerForm.phone} onChange={(e) => setPartnerForm({ ...partnerForm, phone: e.target.value })} data-testid="input-partner-phone" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-partner-phone">Telefone</label>
+                    <Input id="input-partner-phone" placeholder="(00) 00000-0000" value={partnerForm.phone} onChange={(e) => setPartnerForm({ ...partnerForm, phone: e.target.value })} data-testid="input-partner-phone" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Participacao (%)</label>
-                    <Input type="number" min="0" max="100" step="0.01" placeholder="0.00" value={partnerForm.sharePercentage} onChange={(e) => setPartnerForm({ ...partnerForm, sharePercentage: e.target.value })} data-testid="input-partner-share" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-partner-share">Participacao (%)</label>
+                    <Input id="input-partner-share" type="number" min="0" max="100" step="0.01" placeholder="0.00" value={partnerForm.sharePercentage} onChange={(e) => setPartnerForm({ ...partnerForm, sharePercentage: e.target.value })} data-testid="input-partner-share" />
                   </div>
                 </div>
                 <div className="flex gap-2 pt-1">
@@ -1698,16 +1653,16 @@ export default function PainelProvedorPage() {
                 <h3 className="font-medium text-sm">Adicionar Novo Usuario</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Nome</label>
-                    <Input placeholder="Nome completo" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} data-testid="input-new-user-name" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-new-user-name">Nome</label>
+                    <Input id="input-new-user-name" placeholder="Nome completo" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} data-testid="input-new-user-name" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Email</label>
-                    <Input type="email" placeholder="email@provedor.com" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} data-testid="input-new-user-email" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-new-user-email">Email</label>
+                    <Input id="input-new-user-email" type="email" placeholder="email@provedor.com" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} data-testid="input-new-user-email" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block">Senha temporaria</label>
-                    <Input type="password" placeholder="Min. 6 caracteres" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} data-testid="input-new-user-password" />
+                    <label className="text-xs font-medium mb-1 block" htmlFor="input-new-user-password">Senha temporaria</label>
+                    <Input autoComplete="new-password" id="input-new-user-password" type="password" placeholder="Min. 6 caracteres" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} data-testid="input-new-user-password" />
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Papel</label>
@@ -1747,9 +1702,9 @@ export default function PainelProvedorPage() {
                         {u.role === "admin" ? "Admin" : "Usuario"}
                       </Badge>
                       {u.emailVerified ? (
-                        <CheckCircle className="w-4 h-4 text-[var(--color-success)]" title="Email verificado" />
+                        <span title="Email verificado" aria-label="Email verificado"><CheckCircle className="w-4 h-4 text-[var(--color-success)]" aria-hidden /></span>
                       ) : (
-                        <Mail className="w-4 h-4 text-amber-500" title="Email pendente" />
+                        <span title="Email pendente" aria-label="Email pendente"><Mail className="w-4 h-4 text-amber-500" aria-hidden /></span>
                       )}
                       {podeAdministrar && u.id !== user?.id && (
                         <Button
@@ -2306,6 +2261,7 @@ export default function PainelProvedorPage() {
             <AbaSuporte podeEditar={user?.role === "admin"}   /* de proposito: ver `podeAdministrar` */ />
           </TabsContent>
         )}
+        </div>
       </Tabs>
     </div>
   );

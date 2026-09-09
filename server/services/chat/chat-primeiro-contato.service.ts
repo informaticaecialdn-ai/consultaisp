@@ -11,6 +11,8 @@ import {
   enviarRecuperacaoParaChat,
 } from "./chat-ponte.service";
 import { comTravaDoChat } from "./chat-trava";
+import { CobrancaPreventivoStorage } from "../../storage/cobranca-preventivo.storage";
+import { executarPreAviso } from "./chat-preventivo.service";
 
 let encerrando = false;
 let passada: Promise<void> | null = null;
@@ -39,20 +41,26 @@ export async function executarPrimeirosContatos(
         automacao.diasPausados,
       );
       if (!janela.permitida) return;
+      const preventivo = new CobrancaPreventivoStorage();
+      const usadosNoDia = async () => (await storage.contatosIniciadosNoDia(intg.providerId, janela.inicioDoDia)) +
+        (await preventivo.contatosReservadosNoDia(intg.providerId, janela.dia));
       let restantes = Math.min(
         5,
         automacao.limiteDiario -
-          (await storage.contatosIniciadosNoDia(
-            intg.providerId,
-            janela.inicioDoDia,
-          )),
+          (await usadosNoDia()),
       );
       if (restantes <= 0) return;
       const candidatos = await storage.candidatosAoPrimeiroContato(
         intg.providerId,
       );
       const etapas = resolverEtapas(politica);
+      if (automacao.preventivo && !politica?.pausada && automacao.carteiras.includes("ativo")) {
+        await preventivo.prepararPreAvisos(intg.providerId, agora, etapas);
+      }
+      const preAvisos = automacao.preventivo && !politica?.pausada && automacao.carteiras.includes("ativo")
+        ? await preventivo.listarPreAvisosPendentes(intg.providerId, janela.dia) : [];
       const tarefas = [
+        ...preAvisos.map(p => ({ origem: "preventivo" as const, carteira: "ativo", executar: () => executarPreAviso(intg.providerId, p.id, userId, janela.dia) })),
         ...(automacao.cobranca && !politica?.pausada
           ? candidatos.cobranca
               .filter(
@@ -83,6 +91,7 @@ export async function executarPrimeirosContatos(
         );
         const horaAtual = new Date(agora.getTime() + Date.now() - inicio);
         const politicaVigente = await storage.getPoliticaDeCobranca(intg.providerId);
+        if (janelaDoChat(horaAtual, politicaVigente?.janelaContato, configVigente.diasPausados).dia !== janela.dia) break;
         if (
           !configVigente.ligada ||
           !janelaDoChat(
@@ -92,12 +101,11 @@ export async function executarPrimeirosContatos(
           ).permitida
         )
           break;
-        if (tarefa.origem === "cobranca" ? (!configVigente.cobranca || politicaVigente?.pausada || !configVigente.carteiras.some(c => c === tarefa.carteira)) : !configVigente.equipamentos) continue;
+        if (tarefa.origem === "preventivo") {
+          if (!configVigente.preventivo || politicaVigente?.pausada || !configVigente.carteiras.includes("ativo") || !resolverEtapas(politicaVigente).some(e => e.id === "lembrete_pre_vencimento" && e.ativa)) continue;
+        } else if (tarefa.origem === "cobranca" ? (!configVigente.cobranca || politicaVigente?.pausada || !configVigente.carteiras.some(c => c === tarefa.carteira)) : !configVigente.equipamentos) continue;
         if (
-          (await storage.contatosIniciadosNoDia(
-            intg.providerId,
-            janela.inicioDoDia,
-          )) >= configVigente.limiteDiario
+          (await usadosNoDia()) >= configVigente.limiteDiario
         )
           break;
         try {

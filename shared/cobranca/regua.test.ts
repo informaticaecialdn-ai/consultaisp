@@ -22,8 +22,8 @@ import {
   type Etapa,
 } from "./regua";
 
-const idEm = (dias: number, carteira: "ativo" | "ex_cliente" = "ativo", etapas?: readonly Etapa[]) => {
-  const d = etapaParaAtraso(dias, carteira, etapas);
+const idEm = (dias: number, carteira: "ativo" | "ex_cliente" = "ativo", etapas?: readonly Etapa[], faturaIdentificada = false) => {
+  const d = etapaParaAtraso(dias, carteira, etapas, faturaIdentificada);
   return d.etapa ? d.etapa.id : d.motivo;
 };
 
@@ -37,7 +37,7 @@ describe("ETAPAS_PADRAO — o catálogo", () => {
   });
 
   it("só o preventivo depende de fatura a fatura; todo o resto vale na fase 1", () => {
-    expect(ETAPAS_PADRAO.filter(e => !e.disponivelNaFase1).map(e => e.id)).toEqual(["lembrete_pre_vencimento"]);
+    expect(ETAPAS_PADRAO.every(e => e.disponivelNaFase1)).toBe(true);
   });
 
   it("o aviso de suspensão começa no piso da Anatel e a pré-negativação cita a Súmula 359", () => {
@@ -89,6 +89,11 @@ describe("etapaParaAtraso — carteira de clientes ativos", () => {
 });
 
 describe("etapaParaAtraso — carteira de ex-clientes", () => {
+  it("não oferece pré-aviso nem antecipa cobrança para título ainda não vencido", () => {
+    expect(etapasDaCarteira("ex_cliente").map(e => e.id)).not.toContain("lembrete_pre_vencimento");
+    for (const dia of [-7, -3, -1, 0]) expect(etapaParaAtraso(dia, "ex_cliente", ETAPAS_PADRAO, true).etapa).toBeNull();
+    expect(idEm(1, "ex_cliente")).toBe("lembrete_atraso");
+  });
   it("não há aviso de suspensão: do lembrete vai direto à negociação, já em D+15", () => {
     expect(idEm(14, "ex_cliente")).toBe("lembrete_atraso");
     expect(idEm(15, "ex_cliente")).toBe("negociacao_recuperacao");
@@ -135,11 +140,11 @@ describe("preventivo — fase 2, quando houver fatura", () => {
 
   it("dispara só nos dias-toque D-7, D-3 e D-1", () => {
     expect([...PREVENTIVO_DIAS_TOQUE].sort((a, b) => a - b)).toEqual([-7, -3, -1]);
-    for (const dia of [-7, -3, -1]) expect(idEm(dia, "ativo", comPreventivo)).toBe("lembrete_pre_vencimento");
+    for (const dia of [-7, -3, -1]) expect(idEm(dia, "ativo", comPreventivo, true)).toBe("lembrete_pre_vencimento");
   });
 
   it("fora do dia-toque não contata: D-6, D-2 e D0 ficam em silêncio", () => {
-    for (const dia of [-6, -5, -4, -2, 0]) expect(idEm(dia, "ativo", comPreventivo)).toBe("fora_toque_preventivo");
+    for (const dia of [-6, -5, -4, -2, 0]) expect(idEm(dia, "ativo", comPreventivo, true)).toBe("fora_toque_preventivo");
   });
 });
 
@@ -176,7 +181,7 @@ describe("resolverEtapas — o que o provedor muda", () => {
     const parsed = EtapasConfigSchema.safeParse([{ id: "lembrete_pre_vencimento", disponivelNaFase1: true }]);
     expect(parsed.success).toBe(true);
     const etapas = resolverEtapas({ etapas: parsed.success ? parsed.data : [] });
-    expect(etapas.find(e => e.id === "lembrete_pre_vencimento")?.disponivelNaFase1).toBe(false);
+    expect(etapas.find(e => e.id === "lembrete_pre_vencimento")?.disponivelNaFase1).toBe(true);
   });
 
   it("aviso de suspensão antes de D+15 é puxado ao piso da Anatel", () => {

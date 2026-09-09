@@ -20,6 +20,23 @@ describe("limites do motor autônomo", () => {
     expect(validarProposta({ acao: "agendar", data: "2026-09-10T14:00:00-03:00" }, "10/9 às 14:00", 0, "m", agora)?.acao).toBe("agendar");
     expect(validarProposta({ acao: "agendar", data: "2026-09-10T14:00:00-03:00" }, "10/9 de tarde", 0, "m", agora)).toBeNull();
   });
+  it("aceita datas com zero à esquerda e pedidos normais de retirada", () => {
+    for (const texto of ["Quero agendar a retirada amanhã às 14:00", "Podem retirar amanhã às 14:00?"]) expect(exigeHumano(texto)).toBe(false);
+    for (const dia of ["09/09", "9/9"]) expect(validarProposta({ acao: "agendar", data: "2026-09-09T14:00:00-03:00" }, `${dia} às 14:00`, null, "m", new Date("2026-09-08T15:00:00Z"))?.data).toBe("2026-09-09T14:00:00-03:00");
+  });
+  it("negociação autorizada remove só o bloqueio de desconto e mantém contestação e pagamento informado", () => {
+    expect(exigeHumano("tem desconto ou parcelamento?", true)).toBe(false);
+    expect(exigeHumano("tem desconto? já paguei", true)).toBe(true);
+    expect(exigeHumano("quero desconto e meu advogado vai entrar", true)).toBe(true);
+  });
+  it("tom muda a abordagem sem alterar os fatos financeiros; vulnerabilidade prevalece", () => {
+    const plano = { acao: "responder" as const, resposta: "informar_divida" as const };
+    const firme = respostaControlada(plano, 150, false, { tom: "firme_objetivo" });
+    const acolhedor = respostaControlada(plano, 150, false, { tom: "firme_objetivo", vulneravel: true });
+    expect(firme).not.toBe(acolhedor);
+    expect(acolhedor).toContain("150,00");
+    expect(acolhedor).toContain("tranquilidade");
+  });
   it.each(["já paguei", "quero atendente", "não reconheço", "número errado", "desconto", "já devolvi", "pare de mandar mensagens"])("transfere exceção: %s", texto => expect(exigeHumano(texto)).toBe(true));
   // Negativar, baixar, retirar o nome, SPC/Serasa, Procon e advogado: nunca pela IA.
   it.each([

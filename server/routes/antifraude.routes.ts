@@ -131,6 +131,7 @@ export function registerAntiFraudeRoutes(): Router {
         equipCount: number;
         equipValue: string;
         contractStatus?: "active" | "cancelled" | "suspended";
+        contractStartDate?: string;
       }>();
 
       await Promise.all(documentos.map(async (doc) => {
@@ -140,6 +141,7 @@ export function registerAntiFraudeRoutes(): Router {
           if (!meu) return;
           snapshot.set(doc.replace(/\D/g, ""), {
             name: meu.name,
+            contractStartDate: meu.contractStartDate ?? undefined,
             daysOverdue: meu.maxDaysOverdue || 0,
             overdueAmount: meu.totalOverdueAmount || "0",
             equipCount: (meu as any).equipmentCount ?? 0,
@@ -180,6 +182,7 @@ export function registerAntiFraudeRoutes(): Router {
         return avaliarRiscoDeFuga(
           {
             contractStatus: snap?.contractStatus,
+            contractStartDate: snap?.contractStartDate,
             totalOverdueAmount: parseFloat(snap?.overdueAmount ?? brutos.overdueAmount) || 0,
             maxDaysOverdue: snap?.daysOverdue ?? brutos.daysOverdue,
           },
@@ -283,7 +286,10 @@ export function registerAntiFraudeRoutes(): Router {
               customerName: mascarado.customerName ?? snap?.name ?? null,
               motivos: motivosDoRegistro,
               motivoLabel: rotuloDoAlerta(motivosDoRegistro),
-              diasDeContrato: null,
+              diasDeContrato: (() => {
+                const fator = Array.isArray(bruto.riskFactors) ? bruto.riskFactors.find((f: unknown) => typeof f === "string" && /^dias_contrato:\d+$/.test(f)) : undefined;
+                return fator ? Number(fator.split(":")[1]) : null;
+              })(),
               equipmentNotReturned: bruto.equipmentNotReturned || snap?.equipCount || 0,
               equipmentValue: bruto.equipmentValue && bruto.equipmentValue !== "0" ? bruto.equipmentValue : (snap?.equipValue ?? "0"),
               atual: situacaoHoje(bruto.customerCpfCnpj),

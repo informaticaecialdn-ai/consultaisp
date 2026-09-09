@@ -119,4 +119,9 @@ export interface ContextoDoPrimeiroContato {
   tom?: string | null;
   orientacao?: string | null;
 }
-export interface PrimeiroContatoPreparado { texto: string; agenteId: string; modelo: string; runId: string }
+export interface PrimeiroContatoPreparado {
+  texto: string; agenteId: string;
+  /** Nulos quando a abertura é texto controlado, sem execução do modelo. */
+  modelo: string | null; runId: string | null;
+  modo?: "agente_ia" | "abertura_controlada";
+}

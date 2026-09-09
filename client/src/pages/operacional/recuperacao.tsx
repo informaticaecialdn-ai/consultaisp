@@ -383,7 +383,7 @@ export default function RecuperacaoPage() {
           </section>
 
           {filtrosAtivos && cardsFiltrados.length === 0 && (
-            <p className="text-[12px] text-[var(--text-muted)]">Nenhum card com os filtros atuais — {num(cards.length)} no total.</p>
+            <p className="text-[12px] text-[var(--text-muted)]">Nenhum caso encontrado com estes filtros — {num(cards.length)} no total.</p>
           )}
 
           <DndContext

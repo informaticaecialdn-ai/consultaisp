@@ -33,10 +33,13 @@ import { CANAIS_HUMANOS, RESULTADOS_DE_CONTATO, ROTULO_CANAL, ROTULO_RESULTADO, 
 import { BOTAO_MARCA, BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA } from "@/components/painel/ui";
 import { agoraInput, deInputDataHora, hojeInput, paraInputDataHora, validarProximoContato } from "./formatacao";
 import { API_CASOS } from "./tipos";
+import type { Carteira } from "@shared/cobranca";
+import { caminhoNaCarteira } from "./carteiras";
 import { descricaoDoErro, invalidarCobranca } from "./ui";
 
 export interface AlvoDoContato {
   casoId: number;
+  carteira?: Carteira;
   clienteNome: string;
   /** Canal que a etapa sugere — vira o padrão da caixa. */
   canalSugerido?: CanalHumano | null;
@@ -122,7 +125,8 @@ export function DialogoContato({ alvo, aberto, onFechar }: { alvo: AlvoDoContato
       const proximo = deInputDataHora(form.proximoContatoEm);
       const acao = form.proximaAcao.trim();
       if (!acao || !proximo) throw new Error("Todo contato termina com a próxima ação e o dia em que ela acontece");
-      const resposta = await apiRequest("POST", `${API_CASOS}/${alvo.casoId}/eventos`, {
+      const rota = `${API_CASOS}/${alvo.casoId}/eventos`;
+      const resposta = await apiRequest("POST", alvo.carteira ? caminhoNaCarteira(rota, alvo.carteira) : rota, {
         tipo: "contato",
         canal: form.canal,
         resultado: form.resultado,

@@ -5,6 +5,12 @@ import { mensagemDePagamento } from "@shared/cobranca/pagamento-chat";
 import { storage } from "../../storage";
 import { logger } from "../../logger";
 import { autonomiaStorage, type TrabalhoAutonomia } from "../../storage/chat-autonomia.storage";
+import { segurancaAutonomiaStorage } from "../../storage/chat-autonomia-seguranca.storage";
+import { avaliarIdentidade, protegerHistorico } from "./chat-autonomia-identidade";
+import { normalizarTelefoneParaChat } from "./chat-bullq.client";
+import { orientarContato } from "@shared/cobranca/contato";
+import { processarNegociacaoAutonoma } from "./chat-autonomia-negociacao.service";
+import { FaturasStorage } from "../../storage/faturas.storage";
 import { clienteDoChat, ErroDaPonteDoChat } from "./chat-ponte.service";
 import { comTravaDoChat } from "./chat-trava";
 import { listarAgentesDoChat, comTravaDaConfiguracaoDoChat, modelosDosAgentesDoChat } from "./chat-agentes.service";
@@ -17,13 +23,15 @@ import type { ChatBullqConversa } from "@shared/schema";
 import type { Resultado } from "./chat-bullq.client";
 
 const valor = <T>(r: Resultado<T>): T => { if (!r.ok) throw new Error("Operação do chat não confirmada"); return r.valor; };
+const faturasDaAutonomia = new FaturasStorage();
 export const chaveDaAutonomia = (providerId: number, conversationId: string) => `autonomia:${providerId}:${conversationId}`;
 
 /** O que a IA NUNCA faz sozinha, dito pelo servidor — a tela repete estas palavras, não inventa as suas. */
 export const LIMITES_DA_AUTONOMIA = {
   maxTurnos: 20, maxPlanosPorMensagem: 1, confirmacaoExplicita: true,
   agendamento: "local_sem_reserva_erp", pagamento: "somente_erp", envioAmbiguo: "humano_sem_reenvio",
-  nunca: ["negativar", "baixar", "desconto_fora_da_politica", "parcelar", "confirmar_pagamento", "confirmar_devolucao"],
+  identidade: "nome_e_final_cpf_validos_por_15_minutos", negociacao: "oferta_calculada_e_revalidada_com_aceite_explicito",
+  nunca: ["negativar", "baixar", "desconto_fora_da_politica", "parcelar_fora_da_politica", "confirmar_pagamento", "confirmar_devolucao"],
 } as const;
 
 export async function estadoDaAutonomia(providerId: number) {
@@ -53,6 +61,7 @@ export async function devolverAoAssistente(providerId: number, conversationId: s
     if (!c || !intg) throw new ErroDaPonteDoChat("CHAT_DESLIGADO", "Configure o Chat BullQ no Painel do Provedor para atender por aqui");
     valor(await c.desligarIa(intg.organizationId, conversationId));
     valor(await c.atribuir(intg.organizationId, conversationId, { status: "BOT" }));
+    await segurancaAutonomiaStorage.revogar(providerId, conversationId);
     await autonomiaStorage.devolver(providerId, conversationId, "Atendente devolveu a conversa ao assistente");
     const atualizado = await storage.atualizarConversaDoChat(providerId, conversationId, { status: "BOT" });
     await storage.registrarEventoDoChat(providerId, atualizado ?? vinculo, userId, "Atendente devolveu a conversa ao assistente autônomo");
@@ -61,13 +70,18 @@ export async function devolverAoAssistente(providerId: number, conversationId: s
   if (!r) throw new ErroDaPonteDoChat("CONFLITO", "O assistente está finalizando uma rodada. Tente novamente em instantes.");
   return r.valor;
 }
-export async function configurarAutonomia(providerId: number, dados: ConfigAutonomia) {
+export async function configurarAutonomia(providerId: number, dados: ConfigAutonomia, userId: number | null = null) {
   const config = ConfigAutonomiaSchema.parse(dados);
   return comTravaDaConfiguracaoDoChat(providerId, async () => {
     if (config.ativa) {
       const [{ agentes }, modelos] = await Promise.all([listarAgentesDoChat(providerId), modelosDosAgentesDoChat(providerId)]);
       if (!modelos.configured || config.tipos.some(tipo => !agentes.some(a => a.tipo === tipo && a.etapa === "pronto" && a.habilitado && a.id && a.modelo)))
         throw new ErroDaPonteDoChat("CONFLITO", "Configure a credencial de IA e deixe os agentes selecionados prontos antes de ativar a autonomia");
+    }
+    if (config.permitirNegociacao) {
+      const autor = userId ? await storage.getUser(userId) : null;
+      if (!autor || autor.providerId !== providerId || autor.role !== "admin") throw new ErroDaPonteDoChat("CONFLITO", "Um administrador deste provedor precisa autorizar a negociação autônoma");
+      await segurancaAutonomiaStorage.autorizar(providerId, autor.id);
     }
     await autonomiaStorage.salvarConfig(providerId, config);
     return estadoDaAutonomia(providerId);
@@ -120,7 +134,7 @@ async function pedirRespostaNoCaso(providerId: number, vinculo: ChatBullqConvers
   }
 }
 
-async function transferir(job: TrabalhoAutonomia, motivo: string) {
+async function transferir(job: TrabalhoAutonomia, motivo: string, atualizarFollowUp = true) {
   // Bloqueio local primeiro: se o BullQ falhar, nenhuma próxima rodada responde.
   await autonomiaStorage.cancelar(job.provider_id, job.conversation_id, motivo);
   const vinculo = await storage.getConversaDoChat(job.provider_id, job.conversation_id);
@@ -131,7 +145,7 @@ async function transferir(job: TrabalhoAutonomia, motivo: string) {
     if (c && i) { valor(await c.desligarIa(i.organizationId, job.conversation_id)); valor(await c.atribuir(i.organizationId, job.conversation_id, { status: "PENDING" })); }
   }
   // Quem recebe a conversa precisa do caso pedindo resposta, como no fluxo humano.
-  await pedirRespostaNoCaso(job.provider_id, vinculo);
+  if (atualizarFollowUp) await pedirRespostaNoCaso(job.provider_id, vinculo);
   await autonomiaStorage.marcar(job, "humano", motivo);
 }
 
@@ -152,12 +166,33 @@ async function processar(job: TrabalhoAutonomia) {
     const ultima = mensagens.filter(m => m.direction === "INBOUND").at(-1);
     if (ultima?.id !== job.message_id) { await autonomiaStorage.marcar(job, "cancelado", "Outra mensagem do cliente já recebida"); return; }
     const texto = inbound.content.text.trim();
-    if (texto.length > 1200 || exigeHumano(texto)) { await transferir(job, "Cliente pediu atendimento ou informou uma exceção que exige conferência"); return; }
+    if (texto.length > 1200 || exigeHumano(texto, config.permitirNegociacao === true && !vinculo.recuperacaoId)) { await transferir(job, "Cliente pediu atendimento ou informou uma exceção que exige conferência"); return; }
     const recuperacao = !!vinculo.recuperacaoId;
     const caso = vinculo.casoId ? await storage.obterCasoDeCobranca(providerId, vinculo.casoId) : null;
+    if (!recuperacao && caso && (casoFechado(caso.status) || ["negociando", "acordo_ativo"].includes(caso.status))) { await transferir(job, "Caso encerrado ou acordo em andamento exige acompanhamento humano"); return; }
     const tipo: TipoDeAgente = recuperacao ? "recuperacao_equipamentos" : caso?.carteira === "ex_cliente" ? "cobranca_ex_clientes" : "cobranca_ativos";
     const agente = (await listarAgentesDoChat(providerId)).agentes.find(a => a.tipo === tipo);
     if (!config.tipos.includes(tipo) || !agente?.habilitado || agente.etapa !== "pronto" || !agente.id || !agente.modelo) { await transferir(job, "Agente da carteira não está habilitado e pronto"); return; }
+    const cadastro = !recuperacao ? await storage.clienteDoAtendimento(providerId, vinculo.customerId) : null;
+    const seguranca = !recuperacao ? await segurancaAutonomiaStorage.ler(providerId, conversationId) : null;
+    if (!recuperacao) {
+      const telefone = normalizarTelefoneParaChat(cadastro?.telefone);
+      const conversaDoTelefone = telefone ? valor(await c.buscarConversaPorTelefone(intg.organizationId, telefone, vinculo.canalId)) : null;
+      if (!cadastro || !telefone || cadastro.id !== vinculo.customerId || conversaDoTelefone?.id !== conversationId || normalizarTelefoneParaChat(conversaDoTelefone.contact.phone) !== telefone) { await transferir(job, "Vínculo de identificação entre cliente, telefone e conversa exige conferência"); return; }
+      const identificacao = avaliarIdentidade(seguranca?.identidade ?? null, { providerId, conversationId, customerId: vinculo.customerId, telefone }, cadastro, texto, job.message_id);
+      await segurancaAutonomiaStorage.identidade(providerId, conversationId, identificacao.estado);
+      if (identificacao.acao === "humano") { await transferir(job, "Identificação não confirmada; atendimento humano necessário"); return; }
+      if (identificacao.acao !== "confirmada" || identificacao.mensagem) {
+        await autonomiaStorage.proposta(providerId, conversationId, null);
+        await segurancaAutonomiaStorage.ofertas(providerId, conversationId, null);
+        await autonomiaStorage.turno(providerId, conversationId);
+        await autonomiaStorage.marcar(job, "enviando");
+        valor(await c.enviarTexto(intg.organizationId, conversationId, identificacao.mensagem));
+        await autonomiaStorage.marcar(job, "concluido");
+        await storage.registrarEventoDoChat(providerId, vinculo, null, identificacao.acao === "confirmada" ? "Identidade confirmada por desafio no chat; validade de 15 minutos" : "Confirmação de identidade solicitada no chat; sem divulgação financeira");
+        return;
+      }
+    }
     const contexto = await contextoDoAtendimento(providerId, conversationId, true);
     // A ficha agora devolve null quando ninguém leu o valor/atraso; null não é zero.
     const saldoLido = contexto.cliente.divida, atrasoLido = contexto.cliente.diasAtraso;
@@ -169,13 +204,27 @@ async function processar(job: TrabalhoAutonomia) {
     // 03:00 — com `status: "disponivel"` do mesmo jeito. Falar aquele saldo é
     // cobrar por WhatsApp quem já pagou. Sem leitura ao vivo, vai ao atendente.
     if (!recuperacao && !contexto.erp.financeiroAoVivo) { await transferir(job, `Saldo não confirmado no ERP nesta leitura: o valor disponível é o da ${contexto.erp.valoresDe === "base_sincronizada" ? "base sincronizada" : "leitura anterior"}, e o assistente não fala valor que não leu`); return; }
+    if (!recuperacao && (contexto.temMaisFaturas || await faturasDaAutonomia.faturasQuitadasAindaAbertas(providerId, vinculo.customerId, contexto.faturas.map(f => f.ref), contexto.erp.fonte ?? undefined))) {
+      await transferir(job, "Financeiro exige conciliação: quitação comprovada ainda aparece no ERP ou há títulos além da leitura detalhada"); return;
+    }
     // Só se fala em valor o que foi lido AGORA. Na recuperação o saldo não é
     // afirmado a ninguém: `respostaControlada` e a proposta de agendamento o ignoram.
     const saldo: number | null = recuperacao || !contexto.erp.financeiroAoVivo ? null : saldoLido;
+    const orientacao = orientarContato({ diasAtraso: atrasoLido ?? 0, tom: caso?.tom, quadrante: caso?.quadranteDna, carteira: caso?.carteira, status: caso?.status });
+    const abordagem = { tom: orientacao.tom, quadrante: orientacao.quadrante, vulneravel: orientacao.tom === "humanizado_vulneravel", etapa: caso?.etapaAtual ?? orientacao.etapa?.id ?? null, objetivo: orientacao.etapa?.acao ?? "atender solicitação do cliente", diretiva: orientacao.diretiva };
     // Debita antes de chamar IA ou efetivar operação; falha não concede custo ilimitado.
     await autonomiaStorage.turno(providerId, conversationId);
+    const negociacao = !recuperacao && caso && saldo !== null ? await processarNegociacaoAutonoma({
+      providerId, conversationId, casoId: caso.id, customerId: vinculo.customerId, carteira: caso.carteira === "ex_cliente" ? "ex_cliente" : "ativo",
+      saldo, diasAtraso: atrasoLido!, mensalidade: contexto.cliente.mensalidade ?? null, vulneravel: abordagem.vulneravel,
+      permitir: config.permitirNegociacao === true, ofertas: seguranca?.ofertas ?? null, texto, messageId: job.message_id,
+    }) : null;
+    if (negociacao?.acao === "humano") { await transferir(job, negociacao.motivo); return; }
     let resposta: string;
-    if (propostaConfirmada(estado.proposta, texto, job.message_id)) {
+    if (negociacao?.acao === "responder") {
+      if (estado.proposta) await autonomiaStorage.proposta(providerId, conversationId, null);
+      resposta = negociacao.resposta;
+    } else if (propostaConfirmada(estado.proposta, texto, job.message_id)) {
       const p = estado.proposta;
       if (p.acao === "promessa") {
         // `saldo == null` é a trava do valor não lido; a data é comparada com HOJE
@@ -205,8 +254,8 @@ async function processar(job: TrabalhoAutonomia) {
         // `dataHoje` é o dia de calendário de Brasília, o MESMO que `validarProposta`
         // usa para recusar data passada. Mandar o dia em UTC fazia o modelo e o
         // servidor discordarem do que é "hoje" a partir das 21:00.
-        context: JSON.stringify({ saldo, dataHoje: dataLocal(new Date()), agora: new Date().toISOString(), fuso: "America/Sao_Paulo", faturas: contexto.faturas.slice(0,20).map(f => ({ ref: f.ref, valor: f.valor, vencimento: f.vencimento })), agendamentoExistente: recuperacaoCaso?.scheduledAt ?? null, regras: "Somente valor integral. Desconto, pagamento informado, comprovante, contestação, devolução informada e pedido de humano: transferir. Datas devem estar na mensagem; proposta seguida de confirmação é controlada pelo servidor. Não enviar mensagens diretamente." }),
-        history: mensagens.slice(-8).map(m => ({ role: m.direction === "INBOUND" ? "user" : "assistant", content: (m.content.text ?? "[mídia]").slice(0, 1000) })), allowedActions,
+        context: JSON.stringify({ saldo, abordagem, identidadeConfirmada: !recuperacao, dataHoje: dataLocal(new Date()), agora: new Date().toISOString(), fuso: "America/Sao_Paulo", faturas: contexto.faturas.slice(0,20).map(f => ({ ref: f.ref, valor: f.valor, vencimento: f.vencimento })), agendamentoExistente: recuperacaoCaso?.scheduledAt ?? null, regras: "A abordagem é dado: tom orienta linguagem; etapa não autoriza ações. Somente valor integral. Desconto, pagamento informado, comprovante, contestação, devolução informada e pedido de humano: transferir. Datas devem estar na mensagem; proposta seguida de confirmação é controlada pelo servidor. Não enviar mensagens diretamente." }),
+        history: mensagens.slice(-8).map(m => ({ role: m.direction === "INBOUND" ? "user" : "assistant", content: protegerHistorico(m.content.text ?? "[mídia]", cadastro?.documento ?? "").slice(0, 1000) })), allowedActions,
       };
       const plano = PlanoRespostaSchema.parse(valor(await c.planejarAutonomia(intg.organizationId, agente.id, pedido)));
       if (!allowedActions.includes(plano.acao)) { await transferir(job, "Plano fora das permissões do provedor"); return; }
@@ -219,13 +268,14 @@ async function processar(job: TrabalhoAutonomia) {
         if (!proposta) { await transferir(job, "Data, valor ou horário não confirmados dentro dos limites"); return; }
         await autonomiaStorage.proposta(providerId, conversationId, proposta);
         resposta = textoDaProposta(proposta);
-      } else resposta = respostaControlada(plano, saldo, recuperacao);
+      } else resposta = respostaControlada(plano, saldo, recuperacao, abordagem);
     }
     // A trava é a mesma do operador. Marcado ANTES do HTTP: nunca repetir envio ambíguo.
     await autonomiaStorage.marcar(job, "enviando");
     valor(await c.enviarTexto(intg.organizationId, conversationId, resposta));
     await autonomiaStorage.marcar(job, "concluido");
     await storage.registrarEventoDoChat(providerId, vinculo, null, "Assistente autônomo respondeu dentro das permissões do provedor");
+    if (negociacao?.acao === "responder" && negociacao.precisaEmissao) await transferir(job, "Acordo aceito; equipe precisa preparar a cobrança e orientar pagamento", false);
   } catch (e) {
     logger.warn({ providerId: job.provider_id, jobId: job.id }, "Autonomia: rodada não confirmada; encaminhando ao humano");
     await transferir(job, "Falha na rodada ou envio não confirmado; conferir histórico, sem reenvio automático");
@@ -250,8 +300,8 @@ export async function iniciarAutonomia(): Promise<boolean> {
   if (timer) return true;
   let tabelas: { ok: boolean; faltam: string[] };
   try { tabelas = await autonomiaStorage.tabelasExistem(); }
-  catch (err) { logger.warn({ err }, "Autonomia: não foi possível conferir as tabelas da fila (migração 0028); o laço não vai subir"); return false; }
-  if (!tabelas.ok) { logger.warn({ faltam: tabelas.faltam }, "Autonomia: tabelas da migração 0028 ausentes; o laço não vai subir"); return false; }
+  catch (err) { logger.warn({ err }, "Autonomia: não foi possível conferir fila, identidade e quitações (0028/0034/0035); o laço não vai subir"); return false; }
+  if (!tabelas.ok) { logger.warn({ faltam: tabelas.faltam }, "Autonomia: tabelas das migrações 0028/0034/0035 ausentes; o laço não vai subir"); return false; }
   timer = setInterval(() => {
     if (rodando) return;
     rodando = executarFilaAutonomia().catch(err => logger.warn({ err }, "Autonomia: fila indisponível")).finally(() => { rodando = null; });

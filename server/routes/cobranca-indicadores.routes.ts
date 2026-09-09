@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { Router, type Request, type Response } from "express";
 import { requireAuth, requireProvider } from "../auth";
 import { logger } from "../logger";
@@ -6,6 +7,7 @@ import { maskName } from "../services/lgpd-masking";
 import { lerAutomacaoChat, janelaDoChat } from "@shared/cobranca/automacao-chat";
 import { ChatBullqStorage } from "../storage/chat-bullq.storage";
 import { FaturasStorage } from "../storage/faturas.storage";
+import { CobrancaPreventivoStorage } from "../storage/cobranca-preventivo.storage";
 
 /**
  * INDICADORES DA COBRANCA — o que a automacao fez, e quanto a cobranca
@@ -109,15 +111,18 @@ export function registerCobrancaIndicadoresRoutes(): Router {
       }
       const config = (integracao.agenteConfig ?? {}) as Record<string, unknown>;
       const automacao = lerAutomacaoChat(config.primeiroContato);
-      const [hoje, envios] = await Promise.all([
+      const [cobrancaHoje, envios, preAvisosReservados] = await Promise.all([
         chat.contatosIniciadosNoDia(providerId, inicioDoDia),
         chat.ultimosPrimeirosContatos(providerId, 20),
+        new CobrancaPreventivoStorage().contatosReservadosNoDia(providerId, dia),
       ]);
       res.json({
         provisionado: true,
         ligada: automacao.ligada,
         dia,
-        hoje,
+        hoje: cobrancaHoje + preAvisosReservados,
+        cobrancaHoje,
+        preAvisosReservados,
         limiteDiario: automacao.limiteDiario,
         motivo: null,
         porRodada: CONTATOS_POR_RODADA,
@@ -153,10 +158,12 @@ export function registerCobrancaIndicadoresRoutes(): Router {
    */
   router.get(API_RECUPERACAO, requireAuth, requireProvider, async (req, res) => {
     const providerId = providerDaSessao(req);
+    const escopo = z.enum(["ativo", "ex_cliente"]).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return res.status(400).json({ message: "Carteira inválida" });
     const dias = inteiro(req.query.dias, 30, 1, 365);
     const janelaDias = inteiro(req.query.janela, 7, 1, 90);
     try {
-      const r = await faturas.recuperacaoAposContato(providerId, { dias, janelaDias });
+      const r = await faturas.recuperacaoAposContato(providerId, { dias, janelaDias, ...(escopo.data ? { carteira: escopo.data } : {}) });
       res.json({
         ...r,
         desde: r.desde.toISOString(),

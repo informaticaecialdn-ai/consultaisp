@@ -4,6 +4,7 @@ import { clienteDoChat, garantirIntegracao, ErroDaPonteDoChat } from "./chat-pon
 import { comTravaDoChat } from "./chat-trava";
 import { CATALOGO_DE_AGENTES, TIPOS_DE_AGENTE, ConfiguracaoDeAgenteSchema, LIMITES_DO_AGENTE, catalogoDeModelos, type AgenteDoChat, type ConfiguracaoDeAgente, type TipoDeAgente, type ContextoDoPrimeiroContato, type PrimeiroContatoPreparado, type ModelosDosAgentes, type PromptDoAgente } from "@shared/chat-agentes";
 import type { Resultado } from "./chat-bullq.client";
+import { textoDeAberturaControlada } from "@shared/chat-templates";
 
 const objeto = (v: unknown): Record<string, unknown> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const texto = (v: unknown): string | null => typeof v === "string" && v.trim() ? v.trim() : null;
@@ -202,6 +203,9 @@ export async function prepararPrimeiroContatoDoAgente(providerId: number, tipo: 
     await exigirAgentesProntos(providerId, [tipo]);
     const i = await integracao(providerId);
     const a = lerAgente(i.agenteConfig, tipo);
+    if (tipo !== "recuperacao_equipamentos") {
+      return { texto: textoDeAberturaControlada(contexto), agenteId: a.id!, modelo: null, runId: null, modo: "abertura_controlada" };
+    }
     const bruto = exigir(await cliente().prepararPrimeiroContato(i.organizationId, a.id!, contexto), "O agente não preparou o primeiro contato. Nenhuma mensagem foi enviada");
     const r = PreparadoSchema.safeParse(bruto);
     if (!r.success || r.data.agenteId !== a.id || r.data.modelo !== a.modelo) throw new ErroDaPonteDoChat("CHAT_FALHOU", "O Chat BullQ devolveu uma preparação inválida ou de outro agente/modelo. Nenhuma mensagem foi enviada.");

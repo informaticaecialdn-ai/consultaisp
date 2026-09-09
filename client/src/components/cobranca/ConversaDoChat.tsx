@@ -37,6 +37,7 @@ export function ConversaDoChat({
           <Atendimento
             conversationId={chat.conversationId}
             origem="cobranca"
+            carteira={carteira}
             compacto
           />
         </>

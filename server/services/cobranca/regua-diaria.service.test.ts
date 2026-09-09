@@ -15,6 +15,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 vi.mock("../../db", () => ({ pool: {}, db: {} }));
+const faturasMock = vi.hoisted(() => ({ historicosDePagamentosDoProvedor: vi.fn(async () => new Map()), prepararPreAvisos: vi.fn(async () => 0) }));
+vi.mock("../../storage/faturas.storage", () => ({ FaturasStorage: class { historicosDePagamentosDoProvedor = faturasMock.historicosDePagamentosDoProvedor; } }));
+vi.mock("../../storage/cobranca-preventivo.storage", () => ({ CobrancaPreventivoStorage: class { prepararPreAvisos = faturasMock.prepararPreAvisos; } }));
 
 const log = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), fatal: vi.fn() }));
 vi.mock("../../logger", () => ({ logger: log }));
@@ -59,6 +62,8 @@ const fake = vi.hoisted(() => {
     const c = estado.clientes.find(x => x.id === caso.customerId && x.providerId === caso.providerId)!;
     return {
       ...caso,
+      carteiraAbertura: caso.carteira,
+      carteira: ["active", "suspended"].includes(c.statusErp) ? "ativo" : "ex_cliente",
       responsavelNome: null,
       cliente: {
         id: c.id, nome: c.nome, cpfCnpj: "000", telefone: null, email: null, cidade: null, bairro: null,
@@ -432,14 +437,15 @@ describe("2 · revisão dos casos abertos", () => {
     expect(mudou.metadata).toEqual({ de: "lembrete_atraso", para: "aviso_suspensao" });
   });
 
-  it("dívida zerada no sync encerra como pago, pelo sistema, com o motivo", async () => {
+  it("dívida zerada no sync encerra para conciliação, sem afirmar recebimento", async () => {
     cliente({ id: 21, divida: 0, dias: 0 });
     const k = caso({ customerId: 21 });
 
     const r = await rodarReguaDoProvedor(1, hoje);
 
-    expect(r.pagos).toBe(1);
-    expect(k).toMatchObject({ status: "pago", motivoEncerramento: MOTIVO_DIVIDA_ZERADA });
+    expect(r.pagos).toBe(0);
+    expect(r.conciliacoes).toBe(1);
+    expect(k).toMatchObject({ status: "encerrado", motivoEncerramento: MOTIVO_DIVIDA_ZERADA });
     expect(k.encerradoEm).not.toBeNull();
     const fim = eventosDo(k.id).find(e => e.tipo === "encerramento")!;
     expect(fim).toMatchObject({ userId: null, canal: "sistema" });
@@ -469,8 +475,8 @@ describe("2 · revisão dos casos abertos", () => {
     const r = await rodarReguaDoProvedor(1, hoje);
 
     expect(conversando).toMatchObject({ status: "em_contato", etapaAtual: "aviso_suspensao", valorAtual: 180 });
-    expect(pagou).toMatchObject({ status: "pago", motivoEncerramento: MOTIVO_DIVIDA_ZERADA });
-    expect(r).toMatchObject({ etapasMudadas: 1, valoresEspelhados: 1, pagos: 1 });
+    expect(pagou).toMatchObject({ status: "encerrado", motivoEncerramento: MOTIVO_DIVIDA_ZERADA });
+    expect(r).toMatchObject({ etapasMudadas: 1, valoresEspelhados: 1, pagos: 0, conciliacoes: 1 });
   });
 
   it("`negociando` com proposta na mesa é blindado como o acordo: nem etapa, nem pago, nem prescrição, nem cancelamento", async () => {
@@ -562,8 +568,8 @@ describe("2 · revisão dos casos abertos", () => {
     const r = await rodarReguaDoProvedor(1, hoje);
 
     expect(exCliente.status).toBe("aberto");
-    expect(pagouESaiu).toMatchObject({ status: "pago", motivoEncerramento: MOTIVO_DIVIDA_ZERADA });
-    expect(r).toMatchObject({ cancelados: 0, pagos: 1 });
+    expect(pagouESaiu).toMatchObject({ status: "encerrado", motivoEncerramento: MOTIVO_DIVIDA_ZERADA });
+    expect(r).toMatchObject({ cancelados: 0, pagos: 0, conciliacoes: 1 });
     expect(storage.cancelarCaso).not.toHaveBeenCalled();
   });
 
@@ -801,7 +807,7 @@ describe("idempotência", () => {
     const segunda = await rodarReguaDoProvedor(1, hoje);
 
     expect(primeira).toMatchObject({
-      abertos: 1, etapasMudadas: 2, valoresEspelhados: 2, dnaAtualizados: 2, pagos: 1, prescritosEncerrados: 1,
+      abertos: 1, etapasMudadas: 2, valoresEspelhados: 2, dnaAtualizados: 2, pagos: 0, conciliacoes: 1, prescritosEncerrados: 1,
       cancelados: 0, parcelasAtrasadas: 1, acordosQuebrados: 1, erros: 0,
     });
     expect(segunda).toMatchObject({
@@ -930,9 +936,10 @@ describe("a passada inteira", () => {
 
     const r = await rodarReguaDoProvedor(1, hoje);
 
-    expect(r.pagos).toBe(250);
+    expect(r.pagos).toBe(0);
+    expect(r.conciliacoes).toBe(250);
     expect(storage.listarCasosDeCobranca).toHaveBeenCalledTimes(2);
-    expect(estado.casos.every(k => k.status === "pago")).toBe(true);
+    expect(estado.casos.every(k => k.status === "encerrado")).toBe(true);
   });
 });
 
@@ -951,6 +958,11 @@ describe("prioridadeSugerida", () => {
 });
 
 describe("dnaDoCaso", () => {
+  it("usa histórico confirmado quando existe", () => {
+    expect(dnaDoCaso({ contractStartDate: "2020-01-01", diasAtraso: 5, faturasAbertas: 1 }, hoje,
+      { historicoInsuficiente: false, faturasPagas: 5, faturasPagasComAtraso: 3, taxaAtraso: 0.6, ultimaConfirmacaoEm: hoje, fonte: "pagamentos_com_data" }))
+      .toMatchObject({ quadranteDna: "C3" });
+  });
   it("fase 1: a confiabilidade sai só do atraso e das faturas abertas; sem data não há DNA", () => {
     expect(dnaDoCaso({ contractStartDate: "2026-06-01", diasAtraso: 5, faturasAbertas: 1 }, hoje))
       .toEqual({ quadranteDna: "A1", tom: "boas_vindas", arbitrado: false });

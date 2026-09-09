@@ -444,7 +444,7 @@ export function montarAlertaAntiFraude(
     ${paragrafo(
       detalhes?.resumo
         ? esc(detalhes.resumo)
-        : "Na prática, ele está procurando outro fornecedor. É a janela para agir: cobrar, renegociar, recolher o equipamento ou reter — antes que ele instale em outro lugar.",
+        : "Confira o histórico e a situação atual do cliente antes de decidir o contato. A consulta por outro provedor é um sinal para análise, não comprovação de fraude ou cancelamento.",
     )}
     ${botao(alertaUrl, "Ver o alerta no painel", marca)}
     ${divisor()}

@@ -24,6 +24,8 @@ vi.mock("../auth", () => ({
   requireAuth: (req: any, res: any, next: any) => (req.session?.userId ? next() : res.status(401).json({ message: "Autenticacao necessaria" })),
   requireProvider: (req: any, res: any, next: any) => (req.session?.providerId ? next() : res.status(403).json({ message: "Somente provedores" })),
 }));
+const escopoStorage = vi.hoisted(() => ({ getConversaDoChat: vi.fn(), obterCasoDeCobranca: vi.fn() }));
+vi.mock("../storage", () => ({ storage: escopoStorage }));
 const loggerMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock("../logger", () => ({ logger: loggerMock }));
 
@@ -91,7 +93,7 @@ describe("configuracao", () => {
     sessao = ADMIN;
     const r = await json("PUT", "/api/chat-bullq/autonomia", CONFIG);
     expect(r.status).toBe(200);
-    expect(servico.configurarAutonomia).toHaveBeenCalledWith(42, CONFIG);
+    expect(servico.configurarAutonomia).toHaveBeenCalledWith(42, CONFIG, 7);
     // `.strict()`: providerId no corpo e recusado, nao ignorado em silencio.
     expect((await json("PUT", "/api/chat-bullq/autonomia", { ...CONFIG, providerId: 99 })).status).toBe(400);
     expect((await json("PUT", "/api/chat-bullq/autonomia", { ...CONFIG, maxTurnos: 50 })).status).toBe(400);
@@ -148,4 +150,14 @@ describe("devolver ao assistente", () => {
     servico.devolverAoAssistente.mockRejectedValueOnce(new ErroDaPonteDoChat("CHAT_DESLIGADO", "Configure o Chat BullQ"));
     expect((await json("POST", "/api/chat-bullq/autonomia/conversas/conv_1/devolver")).status).toBe(503);
   });
+});
+
+
+it("não devolve ao assistente conversa de outra carteira", async () => {
+  sessao = OPERADOR;
+  escopoStorage.getConversaDoChat.mockResolvedValue({ casoId: 11 });
+  escopoStorage.obterCasoDeCobranca.mockResolvedValue({ carteira: "ex_cliente" });
+  const resposta = await json("POST", "/api/chat-bullq/autonomia/conversas/conv_1/devolver?origem=cobranca&carteira=ativo", {});
+  expect(resposta.status).toBe(404);
+  expect(servico.devolverAoAssistente).not.toHaveBeenCalled();
 });

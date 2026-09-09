@@ -1,3 +1,4 @@
+import type { CarteiraDeCobranca } from "@shared/schema";
 /**
  * As faturas do ERP, fatura a fatura, e o resumo do MES de vencimento.
  *
@@ -12,8 +13,8 @@
  * universo = faturas que VENCEM no mes [de, ate). Sobre ele:
  *   inadimplente   = abertas com vencimento antes de hoje
  *   aVencer        = abertas com vencimento hoje ou depois
- *   recebido       = pagas — aqui SEMPRE zero: o ERP nao nos confirma
- *                    pagamento, e `recebidoConfirmado: false` diz isso
+ *   recebido       = explicitamente pagas COM data, incluindo quitações
+ *                    com recibo conferido; sem evidência não se afirma pagamento
  *   emConciliacao  = sumiram dos pendentes numa varredura completa
  *                    (`baixada_no_erp`) — pagamento provavel, sem prova
  *   faturado       = tudo do universo
@@ -34,15 +35,31 @@
  *    vencimento e toda comparacao usa a mesma forma, para que "vence em
  *    setembro" nao escorregue tres horas para agosto.
  */
-import { and, desc, eq, gte, inArray, isNotNull, lt, max, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, lt, max, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
-import { cobrancaEventos, customers, invoices } from "@shared/schema";
+import { cobrancaEventos, cobrancaNegociacoes, cobrancaParcelas, customers, invoices, users } from "@shared/schema";
 import type { FaturaAbertaDoErp } from "../erp/types";
-import { STATUS_DE_CLIENTE_ATUAL } from "./cobranca.storage";
+import { STATUS_DE_CLIENTE_ATUAL, clienteDaCarteira } from "./cobranca.storage";
+import { cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
+import { resumirHistoricoDePagamentos, type HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
+import { z } from "zod";
+
+const QuitacaoConfirmadaSchema = z.object({
+  faturaId: z.number().int().positive(),
+  origem: z.enum(["erp_confirmado", "comprovante_conferido"]),
+  referencia: z.string().trim().min(3).max(200),
+  pagoEm: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(d => {
+    const data = new Date(`${d}T00:00:00Z`);
+    return Number.isFinite(data.getTime()) && data.toISOString().slice(0, 10) === d;
+  }, "Data de recebimento inválida"),
+  valorPago: z.number().finite().positive().max(9999999999.99),
+  userId: z.number().int().positive().optional(),
+}).refine(d => d.origem !== "comprovante_conferido" || !!d.userId, "A conferência exige o operador responsável");
+export type QuitacaoConfirmada = z.infer<typeof QuitacaoConfirmadaSchema>;
 
 /** Pendente no ERP (ou, nas linhas legadas do CSV, pending/overdue). */
 export const STATUS_FATURA_ABERTA = ["aberta", "pending", "overdue"] as const;
-/** Paga com confirmacao — so o CSV afirma isso hoje. */
+/** Paga explicitamente; histórico/recebido também exigem data de pagamento. */
 export const STATUS_FATURA_PAGA = ["paid"] as const;
 /** Sumiu dos pendentes do ERP numa varredura completa: pagamento provavel. */
 export const STATUS_FATURA_CONCILIACAO = ["baixada_no_erp"] as const;
@@ -56,7 +73,7 @@ export interface ResumoDoMes {
   base: boolean;
   faturado: number;
   recebido: number;
-  /** Sempre false enquanto nenhum ERP confirmar pagamento — `recebido` fica em zero. */
+  /** true quando o valor recebido tem registros explicitamente pagos e datados. */
   recebidoConfirmado: boolean;
   emConciliacao: number;
   inadimplente: number;
@@ -223,6 +240,118 @@ export function janelaDoMes(mes: string): { de: string; ate: string } {
 const ts = (dia: string): SQL => sql`${dia}::timestamp`;
 
 export class FaturasStorage {
+  async clienteExiste(providerId: number, customerId: number, carteira?: CarteiraDeCobranca): Promise<boolean> {
+    const [r] = await db.select({ id: customers.id }).from(customers).where(and(eq(customers.providerId, providerId), eq(customers.id, customerId), clienteDaCarteira(carteira))).limit(1);
+    return !!r;
+  }
+
+  async clienteDaFatura(providerId: number, faturaId: number): Promise<number | null> {
+    const [r] = await db.select({ customerId: invoices.customerId }).from(invoices).where(and(eq(invoices.providerId, providerId), eq(invoices.id, faturaId))).limit(1);
+    return r?.customerId ?? null;
+  }
+
+  async listarQuitacoesDoCliente(providerId: number, customerId: number) {
+    return db.select({ faturaId: cobrancaQuitacoes.faturaId, valorPago: cobrancaQuitacoes.valorPago,
+      pagoEm: cobrancaQuitacoes.pagoEm, origem: cobrancaQuitacoes.origem, referencia: cobrancaQuitacoes.referencia,
+      divergenciaErpEm: cobrancaQuitacoes.divergenciaErpEm }).from(cobrancaQuitacoes)
+      .where(and(eq(cobrancaQuitacoes.providerId, providerId), eq(cobrancaQuitacoes.customerId, customerId)))
+      .orderBy(desc(cobrancaQuitacoes.pagoEm)).limit(200);
+  }
+
+  /** Divergência positiva: o ERP ao vivo ainda oferece título com recibo local. */
+  async faturasQuitadasAindaAbertas(providerId: number, customerId: number, refs: readonly string[], erpSource?: string): Promise<boolean> {
+    const referencias = [...new Set(refs.map(r => r.trim()).filter(Boolean))];
+    if (!referencias.length) return false;
+    const [r] = await db.select({ id: invoices.id }).from(invoices)
+      .innerJoin(cobrancaQuitacoes, and(eq(cobrancaQuitacoes.faturaId, invoices.id), eq(cobrancaQuitacoes.providerId, providerId), eq(cobrancaQuitacoes.customerId, customerId)))
+      .where(and(eq(invoices.providerId, providerId), eq(invoices.customerId, customerId), inArray(invoices.erpRef, referencias),
+        erpSource ? eq(invoices.erpSource, erpSource) : undefined)).limit(1);
+    return !!r;
+  }
+  /** Leitura em lote para o job: uma consulta por provedor, sem N+1 por caso. */
+  async historicosDePagamentosDoProvedor(providerId: number, customerId?: number): Promise<Map<number, HistoricoDePagamentos>> {
+    const linhas = await db.select({
+      customerId: invoices.customerId,
+      pagas: sql<number>`count(*)`.mapWith(Number),
+      atrasadas: sql<number>`count(*) filter (where ${invoices.paidDate}::date > ${invoices.dueDate}::date)`.mapWith(Number),
+      ultima: max(invoices.paidDate),
+    }).from(invoices).where(and(
+      eq(invoices.providerId, providerId), eq(invoices.status, "paid"), isNotNull(invoices.paidDate),
+      customerId === undefined ? undefined : eq(invoices.customerId, customerId),
+    )).groupBy(invoices.customerId);
+    return new Map(linhas.map(l => [l.customerId, {
+      historicoInsuficiente: false, faturasPagas: l.pagas, faturasPagasComAtraso: l.atrasadas,
+      taxaAtraso: l.atrasadas / l.pagas, ultimaConfirmacaoEm: l.ultima ? new Date(l.ultima) : null,
+      fonte: "pagamentos_com_data" as const,
+    }]));
+  }
+
+  async historicoDePagamentosDoCliente(providerId: number, customerId: number): Promise<HistoricoDePagamentos> {
+    return (await this.historicosDePagamentosDoProvedor(providerId, customerId)).get(customerId) ?? resumirHistoricoDePagamentos([]);
+  }
+
+  /**
+   * Registra prova positiva de quitação integral. O chamador do ERP precisa de
+   * resposta explícita de liquidação; ausência nas abertas nunca chama isto.
+   * O operador informa referência do comprovante que conferiu. A fatura e a
+   * prova são gravadas juntas, sob lock, tornando replay idempotente.
+   */
+  async registrarQuitacaoConfirmada(providerId: number, customerId: number, entrada: QuitacaoConfirmada,
+    contexto?: { suporteProviderId: number }): Promise<{ faturaId: number; repetida: boolean }> {
+    const d = QuitacaoConfirmadaSchema.parse(entrada);
+    if (d.pagoEm > diaDeHoje(new Date())) throw new Error("Recebimento não pode ter data futura");
+    return db.transaction(async tx => {
+      // A mesma ordem é usada no aceite/criação do acordo; as duas vias de
+      // recebimento não podem passar na checagem antes uma da outra gravar.
+      const [cliente] = await tx.select({ id: customers.id }).from(customers)
+        .where(and(eq(customers.providerId, providerId), eq(customers.id, customerId))).for("update");
+      if (!cliente) throw new Error("Fatura não encontrada neste cliente e provedor");
+      if (d.userId) {
+        const suporteAutorizado = contexto?.suporteProviderId === providerId;
+        const [operador] = await tx.select({ id: users.id, role: users.role, providerId: users.providerId }).from(users)
+          .where(and(eq(users.id, d.userId), or(eq(users.providerId, providerId), suporteAutorizado ? eq(users.role, "superadmin") : undefined))).for("share");
+        if (!operador || !(operador.role === "admin" && operador.providerId === providerId) && !(operador.role === "superadmin" && suporteAutorizado)) {
+          throw new Error("A confirmação exige administrador atual do provedor ou suporte autorizado");
+        }
+      }
+      const [fatura] = await tx.select({ id: invoices.id, valor: invoices.value, status: invoices.status, erpSource: invoices.erpSource })
+        .from(invoices).where(and(eq(invoices.providerId, providerId), eq(invoices.customerId, customerId), eq(invoices.id, d.faturaId))).for("update");
+      if (!fatura) throw new Error("Fatura não encontrada neste cliente e provedor");
+      if (Math.round(d.valorPago * 100) < Math.round(Number(fatura.valor) * 100)) throw new Error("A quitação exige o valor integral; registre pagamentos parciais no acordo");
+      if (d.origem === "erp_confirmado" && !fatura.erpSource) throw new Error("Fatura sem origem ERP para confirmação integrada");
+      const [prova] = await tx.select().from(cobrancaQuitacoes)
+        .where(and(eq(cobrancaQuitacoes.providerId, providerId), eq(cobrancaQuitacoes.faturaId, d.faturaId)));
+      if (prova) {
+        if (prova.origem !== d.origem || prova.referencia !== d.referencia || prova.pagoEm !== d.pagoEm || Math.round(Number(prova.valorPago) * 100) !== Math.round(d.valorPago * 100)) {
+          throw new Error("Esta fatura já tem outra confirmação de recebimento");
+        }
+        return { faturaId: d.faturaId, repetida: true };
+      }
+      if (fatura.status === "paid") throw new Error("Esta fatura já está paga; confira o registro existente");
+      if (![...STATUS_FATURA_ABERTA, ...STATUS_FATURA_CONCILIACAO].includes(fatura.status as typeof STATUS_FATURA_ABERTA[number] | typeof STATUS_FATURA_CONCILIACAO[number])) {
+        throw new Error("Esta fatura não permite confirmação de recebimento");
+      }
+      const [acordo] = await tx.select({ id: cobrancaNegociacoes.id }).from(cobrancaNegociacoes)
+        .where(and(eq(cobrancaNegociacoes.providerId, providerId), eq(cobrancaNegociacoes.customerId, customerId), inArray(cobrancaNegociacoes.status, ["aceita", "ativa", "cumprida"]))).limit(1);
+      if (acordo) throw new Error("Cliente com acordo: confirme o recebimento pelas parcelas ou concilie a origem para evitar duplicidade");
+      const [parcelaRecebida] = await tx.select({ id: cobrancaParcelas.id }).from(cobrancaParcelas)
+        .innerJoin(cobrancaNegociacoes, and(eq(cobrancaNegociacoes.id, cobrancaParcelas.negociacaoId), eq(cobrancaNegociacoes.providerId, providerId)))
+        .where(and(eq(cobrancaParcelas.providerId, providerId), eq(cobrancaNegociacoes.customerId, customerId), sql`coalesce(${cobrancaParcelas.valorPago}, 0) > 0`)).limit(1);
+      if (parcelaRecebida) throw new Error("Cliente tem recebimento em acordo; concilie a origem antes de confirmar a mesma dívida novamente");
+      await tx.insert(cobrancaQuitacoes).values({ providerId, customerId, ...d, valorPago: d.valorPago.toFixed(2) });
+      await tx.update(invoices).set({ status: "paid", paidDate: diaComoTimestamp(d.pagoEm), updatedAt: new Date() })
+        .where(and(eq(invoices.providerId, providerId), eq(invoices.customerId, customerId), eq(invoices.id, d.faturaId)));
+      return { faturaId: d.faturaId, repetida: false };
+    }).catch((erro: unknown) => {
+      type ErroPg = { code?: unknown; constraint?: unknown; cause?: unknown };
+      const pg = erro as ErroPg | null;
+      const causas = [pg, pg?.cause as ErroPg | null | undefined];
+      if (causas.some(e => e?.code === "23505" && e.constraint === "cobranca_quitacoes_referencia_uq")) {
+        throw new Error("Esta referência de recebimento já foi usada");
+      }
+      throw erro;
+    });
+  }
   /**
    * Grava (ou regrava) as faturas ABERTAS de um cliente, vindas do ERP.
    *
@@ -274,6 +403,8 @@ export class FaturasStorage {
           // O predicado tem de ser o do indice parcial da 0027, palavra por
           // palavra, senao o Postgres nao o reconhece como alvo do conflito.
           targetWhere: sql`erp_ref IS NOT NULL`,
+          // Lista de abertas pode estar defasada; jamais apaga recibo positivo.
+          setWhere: ne(invoices.status, "paid"),
           set: {
             customerId: sql`excluded.customer_id`,
             value: sql`excluded.value`,
@@ -284,6 +415,15 @@ export class FaturasStorage {
             updatedAt: agora,
           },
         });
+      // Abertas do ERP que contradizem prova positiva ficam para conciliação;
+      // preservamos a quitação e deixamos a divergência visível no recibo.
+      await db.update(cobrancaQuitacoes).set({ divergenciaErpEm: agora }).where(and(
+        eq(cobrancaQuitacoes.providerId, providerId), eq(cobrancaQuitacoes.customerId, customerId),
+        inArray(cobrancaQuitacoes.faturaId, db.select({ id: invoices.id }).from(invoices).where(and(
+          eq(invoices.providerId, providerId), eq(invoices.customerId, customerId), eq(invoices.erpSource, erpSource),
+          eq(invoices.status, "paid"), inArray(invoices.erpRef, lote.map(f => f.ref)),
+        ))),
+      ));
     }
     return validas.length;
   }
@@ -383,7 +523,7 @@ export class FaturasStorage {
 
     const [f] = await db.select({
       faturado: sql<number>`coalesce(sum(${invoices.value}), 0)`.mapWith(Number),
-      recebido: soma(inArray(invoices.status, [...STATUS_FATURA_PAGA])),
+      recebido: soma(and(inArray(invoices.status, [...STATUS_FATURA_PAGA]), isNotNull(invoices.paidDate))!),
       emConciliacao: soma(inArray(invoices.status, [...STATUS_FATURA_CONCILIACAO])),
       inadimplente: soma(vencida),
       numInadimplentes: conta(vencida),
@@ -431,7 +571,7 @@ export class FaturasStorage {
       base: (b?.total ?? 0) > 0,
       faturado: f?.faturado ?? 0,
       recebido: f?.recebido ?? 0,
-      recebidoConfirmado: false,
+      recebidoConfirmado: (f?.recebido ?? 0) > 0,
       emConciliacao: f?.emConciliacao ?? 0,
       inadimplente: f?.inadimplente ?? 0,
       numInadimplentes: f?.numInadimplentes ?? 0,
@@ -699,8 +839,9 @@ export class FaturasStorage {
    */
   async recuperacaoAposContato(
     providerId: number,
-    opcoes: { dias?: number; janelaDias?: number; hoje?: Date } = {},
+    opcoes: { dias?: number; janelaDias?: number; hoje?: Date; carteira?: CarteiraDeCobranca } = {},
   ): Promise<RecuperacaoAposContato> {
+    const doEscopo = opcoes.carteira ? inArray(invoices.customerId, db.select({ id: customers.id }).from(customers).where(and(eq(customers.providerId, providerId), clienteDaCarteira(opcoes.carteira)))) : undefined;
     const hoje = opcoes.hoje ?? new Date();
     const dias = Math.max(1, Math.min(Math.trunc(opcoes.dias ?? 30), 365));
     const janelaDias = Math.max(1, Math.min(Math.trunc(opcoes.janelaDias ?? 7), 90));
@@ -713,7 +854,7 @@ export class FaturasStorage {
       baixadas: sql<number>`count(*) filter (where ${invoices.status} = 'baixada_no_erp')`.mapWith(Number),
     })
       .from(invoices)
-      .where(eq(invoices.providerId, providerId));
+      .where(and(eq(invoices.providerId, providerId), doEscopo));
 
     const vazio = (motivo: string): RecuperacaoAposContato => ({
       base: false, motivo, dias, janelaDias, desde, ate: hoje,
@@ -746,6 +887,7 @@ export class FaturasStorage {
       ))
       .where(and(
         eq(invoices.providerId, providerId),
+        doEscopo,
         eq(invoices.status, "baixada_no_erp"),
         isNotNull(invoices.erpSource),
         isNotNull(invoices.baixadaEm),

@@ -1,11 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { AgentesDoChat } from "@/components/chat/AgentesDoChat";
 import { ConexaoWhatsapp } from "@/components/chat/ConexaoWhatsapp";
 import { TemplatesDatafy } from "@/components/chat/TemplatesDatafy";
 import type { ProvedorWhatsapp } from "@shared/chat-whatsapp";
-import { AutomacaoPrimeiroContato } from "@/components/chat/AutomacaoPrimeiroContato";
-import { AutonomiaDoChat } from "@/components/chat/AutonomiaDoChat";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ExternalLink, KeyRound, MessageSquareShare, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -135,10 +132,11 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
         </section>
       </div>
       {integracao?.canal?.provider === "DATAFY" && <TemplatesDatafy podeAdministrar={podeAdministrar} />}
-      <AgentesDoChat podeAdministrar={podeAdministrar} />
-      <AutomacaoPrimeiroContato podeAdministrar={podeAdministrar} />
-      {/* Fase 2: o assistente continua a conversa sozinho, dentro das permissoes; a fila e o que ele nunca faz ficam a vista. */}
-      <AutonomiaDoChat podeAdministrar={podeAdministrar} />
+      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        <h3 className="text-sm font-semibold">Agentes e automação</h3>
+        <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">Configure os perfis, o primeiro contato e os limites da autonomia em Agentes de IA.</p>
+        <Link href="/painel-provedor?tab=agentes&aba=cobranca" className={cn(BOTAO_SECUNDARIO, "mt-3 min-h-[44px]")}>Configurar agentes de cobrança</Link>
+      </section>
     </div>
   );
 }

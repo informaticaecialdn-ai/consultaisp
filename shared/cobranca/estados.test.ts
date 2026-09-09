@@ -311,7 +311,7 @@ describe("vocabulário — toda chave tem rótulo, e só ela", () => {
       "aberto", "em_contato", "negociando", "acordo_ativo", "pago", "baixado", "negativado", "encerrado", "cancelamento",
     ]);
     expect([...STATUS_DE_NEGOCIACAO]).toEqual(["proposta", "aceita", "ativa", "cumprida", "quebrada", "cancelada"]);
-    expect([...STATUS_DE_PARCELA]).toEqual(["pendente", "paga", "atrasada", "cancelada"]);
+    expect([...STATUS_DE_PARCELA]).toEqual(["pendente", "paga", "atrasada", "cancelada", "conciliacao_pendente"]);
     expect([...TIPOS_DE_NEGOCIACAO]).toEqual(["parcelamento", "quitacao_desconto", "baixa_negociada"]);
     expect([...CARTEIRAS]).toEqual(["ativo", "ex_cliente"]);
     expect([...TIPOS_DE_EVENTO]).toEqual([

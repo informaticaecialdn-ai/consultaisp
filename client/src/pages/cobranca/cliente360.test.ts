@@ -1,9 +1,9 @@
 /**
- * A ficha 360 — o molde literal do Provedor.ai, travado pelo fonte.
+ * A ficha 360 — as seções do Provedor.ai adaptadas aos dados disponíveis.
  *
  * O vitest daqui não monta .tsx: o que se prova é que a tela carrega as 24
  * seções `<Let>` do `cliente360/index.tsx` do Provedor.ai, na ordem e com os
- * rótulos de lá; que o Hero tem os cinco sub-cards; que a Economia R24 e o
+ * rótulos adaptados; que o Hero tem os cinco sub-cards; que a Economia R24 e o
  * Transversal existem; e que o que esta base não tem sai como PENDENTE ou
  * A-CRIAR, nunca como zero. A remontagem com o ERP ao vivo usa o MESMO
  * `montarFicha360` do servidor.
@@ -24,7 +24,7 @@ const LETS = [
   "Comodato a recuperar",
   "Prescrição (CC 206 §5)",
   "Histórico de pagamento",
-  "Pontualidade · últimos 12 meses",
+  "Pontualidade observada",
   "Histórico (suspensões · negativações)",
   "Health Score",
   "NPS (relacionamento)",

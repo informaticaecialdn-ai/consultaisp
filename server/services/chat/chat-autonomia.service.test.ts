@@ -10,6 +10,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * tabelas da 0028 existem.
  */
 const armazem = vi.hoisted(() => ({
+  getUser: vi.fn(async () => ({ id: 8, providerId: 42, role: "admin" })),
+  getPoliticaDeCobranca: vi.fn(),
+  clienteDoAtendimento: vi.fn(async () => ({ id: 7, nome: "Maria de Souza", documento: "12345678909", telefone: "43999990000" })),
   getConversaDoChat: vi.fn(async (): Promise<any> => ({ id: 1, providerId: 42, customerId: 7, casoId: 10, recuperacaoId: null, conversationId: "conv_1", status: "BOT" })),
   getIntegracaoDoChat: vi.fn(async (): Promise<any> => ({ providerId: 42, organizationId: "org_42" })),
   obterCasoDeCobranca: vi.fn(async (): Promise<any> => ({ id: 10, carteira: "ativo", status: "aberto" })),
@@ -19,6 +22,8 @@ const armazem = vi.hoisted(() => ({
   registrarEventoDoChat: vi.fn(async () => undefined),
 }));
 vi.mock("../../storage", () => ({ storage: armazem }));
+const faturas = vi.hoisted(() => ({ faturasQuitadasAindaAbertas: vi.fn(async () => false) }));
+vi.mock("../../storage/faturas.storage", () => ({ FaturasStorage: class { faturasQuitadasAindaAbertas = faturas.faturasQuitadasAindaAbertas; } }));
 
 const fila = vi.hoisted(() => ({
   config: vi.fn(async (): Promise<any> => ({ ativa: true, maxTurnos: 12, permitirPromessa: true, permitirSegundaVia: true, permitirAgendamento: true, tipos: ["cobranca_ativos", "cobranca_ex_clientes", "recuperacao_equipamentos"] })),
@@ -39,6 +44,7 @@ const fila = vi.hoisted(() => ({
 vi.mock("../../storage/chat-autonomia.storage", () => ({ autonomiaStorage: fila }));
 
 const cliente = vi.hoisted(() => ({
+  buscarConversaPorTelefone: vi.fn(async () => ({ ok: true, valor: { id: "conv_1", contact: { phone: "5543999990000" } } })),
   listarMensagens: vi.fn(async (): Promise<any> => ({ ok: true, valor: [] })),
   planejarAutonomia: vi.fn(async (): Promise<any> => ({ ok: true, valor: { acao: "responder", resposta: "informar_divida", texto: "pague R$999 em https://malicioso" } })),
   enviarTexto: vi.fn(async (): Promise<any> => ({ ok: true, valor: { messageId: "out_1", status: "SENT" } })),
@@ -73,8 +79,16 @@ const agente = vi.hoisted(() => ({
 vi.mock("./chat-agente.service", () => agente);
 const loggerMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock("../../logger", () => ({ logger: loggerMock }));
+const seguranca = vi.hoisted(() => ({
+  ler: vi.fn<(...args: unknown[]) => Promise<{ identidade: import("./chat-autonomia-identidade").EstadoIdentidade | null; ofertas: null }>>(),
+  identidade: vi.fn(async () => undefined), ofertas: vi.fn(async () => undefined), revogar: vi.fn(async () => undefined),
+  autorizacao: vi.fn(async () => 8), autorizar: vi.fn(async () => undefined),
+}));
+vi.mock("../../storage/chat-autonomia-seguranca.storage", () => ({ segurancaAutonomiaStorage: seguranca }));
+import { avaliarIdentidade } from "./chat-autonomia-identidade";
+import { POLITICA_PADRAO } from "@shared/cobranca/politica";
 
-import { devolverAoAssistente, executarFilaAutonomia, iniciarAutonomia, pararAutonomia, receberMensagemAutonoma } from "./chat-autonomia.service";
+import { configurarAutonomia, devolverAoAssistente, executarFilaAutonomia, iniciarAutonomia, pararAutonomia, receberMensagemAutonoma } from "./chat-autonomia.service";
 import { ErroDaPonteDoChat } from "./chat-ponte.service";
 
 const AGORA = new Date("2026-09-06T15:00:00Z");
@@ -86,6 +100,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers({ now: AGORA, toFake: ["Date"] });
   fila.proximos.mockResolvedValue([JOB]);
+  const vinculo = { providerId: 42, conversationId: "conv_1", customerId: 7, telefone: "5543999990000" };
+  const cadastro = { nome: "Maria de Souza", documento: "12345678909" };
+  seguranca.ler.mockImplementation(async () => {
+    const agora = new Date();
+    const desafio = avaliarIdentidade(null, vinculo, cadastro, "oi", "ident1", agora);
+    return { identidade: avaliarIdentidade(desafio.estado, vinculo, cadastro, "Maria de Souza 8909", "ident2", agora).estado, ofertas: null };
+  });
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -93,6 +114,55 @@ const textoEnviado = () => String(cliente.enviarTexto.mock.calls.at(-1)?.[2] ?? 
 const statusMarcados = () => fila.marcar.mock.calls.map(c => c[1]);
 
 describe("uma rodada", () => {
+  it("quitação comprovada ainda aberta no ERP vai à conciliação sem divulgar saldo ou boleto", async () => {
+    faturas.faturasQuitadasAindaAbertas.mockResolvedValueOnce(true);
+    cliente.listarMensagens.mockResolvedValueOnce({ ok: true, valor: [inbound("m1", "manda o boleto")] });
+    await executarFilaAutonomia();
+    expect(cliente.planejarAutonomia).not.toHaveBeenCalled();
+    expect(cliente.enviarTexto).not.toHaveBeenCalled();
+    expect(contexto.segundaViaDoAtendimento).not.toHaveBeenCalled();
+    expect(fila.turno).not.toHaveBeenCalled();
+    expect(fila.cancelar).toHaveBeenCalledWith(42, "conv_1", expect.stringContaining("conciliação"));
+  });
+  it("pedido de desconto com permissão gera opções controladas, sem chamar planejador", async () => {
+    fila.config.mockResolvedValueOnce({ ativa: true, maxTurnos: 12, permitirNegociacao: true, permitirPromessa: true, permitirSegundaVia: true, permitirAgendamento: true, tipos: ["cobranca_ativos"] });
+    const politica = structuredClone(POLITICA_PADRAO); politica.acordo.ativo.origemDaCobranca = "manual";
+    armazem.getPoliticaDeCobranca.mockResolvedValueOnce(politica);
+    cliente.listarMensagens.mockResolvedValueOnce({ ok: true, valor: [inbound("m1", "tem desconto?")] });
+    await executarFilaAutonomia();
+    expect(textoEnviado()).toContain("Opção 1");
+    expect(textoEnviado()).toContain("150,00");
+    expect(cliente.planejarAutonomia).not.toHaveBeenCalled();
+    expect(fila.cancelar).not.toHaveBeenCalled();
+  });
+  it("sem identidade confirmada não lê financeiro nem chama modelo ou segunda via", async () => {
+    seguranca.ler.mockResolvedValueOnce({ identidade: null, ofertas: null });
+    cliente.listarMensagens.mockResolvedValueOnce({ ok: true, valor: [inbound("m1", "me manda o boleto e saldo")] });
+    await executarFilaAutonomia();
+    expect(textoEnviado()).toContain("últimos 4");
+    expect(textoEnviado()).not.toContain("150");
+    expect(contexto.contextoDoAtendimento).not.toHaveBeenCalled();
+    expect(contexto.segundaViaDoAtendimento).not.toHaveBeenCalled();
+    expect(cliente.planejarAutonomia).not.toHaveBeenCalled();
+  });
+  it("telefone da conversa divergente do cadastro vai ao humano sem divulgação", async () => {
+    cliente.buscarConversaPorTelefone.mockResolvedValueOnce({ ok: true, valor: { id: "outra_conversa", contact: { phone: "5543999990000" } } });
+    cliente.listarMensagens.mockResolvedValueOnce({ ok: true, valor: [inbound("m1", "quanto devo?")] });
+    await executarFilaAutonomia();
+    expect(cliente.enviarTexto).not.toHaveBeenCalled();
+    expect(cliente.planejarAutonomia).not.toHaveBeenCalled();
+    expect(fila.cancelar).toHaveBeenCalledWith(42, "conv_1", expect.stringContaining("identificação"));
+  });
+  it("leva etapa e DNA ao planejador como dados e aplica tom vulnerável sem transmitir CPF", async () => {
+    armazem.obterCasoDeCobranca.mockResolvedValueOnce({ id: 10, carteira: "ativo", status: "aberto", etapaAtual: "lembrete_atraso", quadranteDna: "C3", tom: "humanizado_vulneravel" });
+    cliente.listarMensagens.mockResolvedValueOnce({ ok: true, valor: [inbound("m1", "Meu CPF é 123.456.789-09, quanto devo?")] });
+    await executarFilaAutonomia();
+    const pedido = cliente.planejarAutonomia.mock.calls[0]?.[2];
+    expect(JSON.parse(pedido.context).abordagem).toMatchObject({ etapa: "lembrete_atraso", quadrante: "C3", tom: "humanizado_vulneravel", vulneravel: true });
+    expect(JSON.stringify(pedido)).not.toMatch(/123.456.789|12345678909/);
+    expect(textoEnviado()).toContain("tranquilidade");
+    expect(textoEnviado()).toContain("150,00");
+  });
   it("responde com o saldo do ERP, nunca com o texto ou o link do modelo; debita a rodada antes e marca enviando → concluido", async () => {
     cliente.listarMensagens.mockResolvedValueOnce({ ok: true, valor: [outbound("o1", "Olá"), inbound("m1", "quanto estou devendo?")] });
     await executarFilaAutonomia();
@@ -294,6 +364,16 @@ describe("transferir em exceção", () => {
 });
 
 describe("devolver ao assistente", () => {
+  it("negociação exige autorização nominal de administrador do provedor", async () => {
+    const config = { ativa: false, maxTurnos: 12, permitirPromessa: true, permitirSegundaVia: true, permitirAgendamento: true, permitirNegociacao: true, tipos: ["cobranca_ativos" as const] };
+    armazem.getUser.mockResolvedValueOnce({ id: 8, providerId: 99, role: "admin" });
+    await expect(configurarAutonomia(42, config, 8)).rejects.toMatchObject({ codigo: "CONFLITO" });
+    expect(fila.salvarConfig).not.toHaveBeenCalled();
+    expect(seguranca.autorizar).not.toHaveBeenCalled();
+    await configurarAutonomia(42, config, 8);
+    expect(seguranca.autorizar).toHaveBeenCalledWith(42, 8);
+    expect(fila.salvarConfig).toHaveBeenCalledWith(42, config);
+  });
   it("humano=false: o chat vai a BOT primeiro, a IA de lá fica desligada, o estado volta e a linha do tempo registra quem devolveu", async () => {
     armazem.getConversaDoChat.mockResolvedValueOnce({ id: 1, providerId: 42, customerId: 7, casoId: 10, conversationId: "conv_1", status: "OPEN" });
     const r = await devolverAoAssistente(42, "conv_1", 8);

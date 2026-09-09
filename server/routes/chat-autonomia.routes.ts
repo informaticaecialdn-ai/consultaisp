@@ -1,3 +1,4 @@
+import { exigirEscopoDoChat } from "./chat-escopo";
 /**
  * A autonomia do chat, do lado da sessao: o provedor le e (so o admin) grava
  * a configuracao, ve a fila por status e devolve uma conversa ao assistente.
@@ -29,7 +30,7 @@ function falha(res: Response, e: unknown, contexto: string) {
     return res.status(status).json({ message: e.message, codigo: e.codigo });
   }
   logger.warn({ err: e }, `Autonomia do chat: ${contexto}`);
-  res.status(503).json({ message: "Autonomia indisponível. Confira a migração da fila (0028)." });
+  res.status(503).json({ message: "Autonomia indisponível. Confira as migrações da fila e da confirmação de identidade (0028/0034)." });
 }
 
 const ConversaSchema = z.string().trim().min(1).max(120);
@@ -46,7 +47,7 @@ export function registerChatAutonomiaRoutes() {
     if (!podeAdministrarOProvedor(req.session)) return res.status(403).json({ message: "Apenas administradores podem configurar a autonomia" });
     const r = ConfigAutonomiaSchema.safeParse(req.body);
     if (!r.success) return res.status(400).json({ message: "Configuração de autonomia inválida", erros: r.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) });
-    try { res.json(await configurarAutonomia(providerDaSessao(req), r.data)); }
+    try { res.json(await configurarAutonomia(providerDaSessao(req), r.data, userDaSessao(req))); }
     catch (e) {
       if (e instanceof ErroDaPonteDoChat) return res.status(409).json({ message: e.message, codigo: e.codigo });
       logger.warn({ err: e, providerId: providerDaSessao(req) }, "Não foi possível configurar autonomia");
@@ -59,7 +60,7 @@ export function registerChatAutonomiaRoutes() {
     catch (e) { falha(res, e, "fila não lida"); }
   });
 
-  router.post("/api/chat-bullq/autonomia/conversas/:conversationId/devolver", requireAuth, requireProvider, async (req, res) => {
+  router.post("/api/chat-bullq/autonomia/conversas/:conversationId/devolver", requireAuth, requireProvider, exigirEscopoDoChat, async (req, res) => {
     const id = ConversaSchema.safeParse(req.params.conversationId);
     if (!id.success) return res.status(400).json({ message: "Conversa inválida" });
     try { res.json(await devolverAoAssistente(providerDaSessao(req), id.data, userDaSessao(req))); }

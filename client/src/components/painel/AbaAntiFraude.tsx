@@ -6,6 +6,7 @@
  * vivem em shared/antifraude-regras.ts — a mesma fonte que o servidor usa
  * para decidir.
  */
+import { SimuladorAntiFraude } from "./SimuladorAntiFraude";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -48,7 +49,7 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery<ConfigAntiFraude>({
+  const { data, isLoading, isError, refetch } = useQuery<ConfigAntiFraude>({
     queryKey: ["/api/anti-fraud/rules"],
     staleTime: 30_000,
   });
@@ -70,7 +71,7 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
   const salvar = useMutation({
     mutationFn: () =>
       apiRequest("PUT", "/api/anti-fraud/rules", {
-        regras,
+        regras: { ...regras, combinacao: regras.combinacao ?? "qualquer" },
         canais: { proactiveAlertsEnabled: avisos, webhookUrl: webhookUrl.trim() },
       }),
     onSuccess: () => {
@@ -91,7 +92,7 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
 
   const ligadas = TIPOS_DE_REGRA.filter(t => regras[t].ativo).length;
   const canais = data?.canais;
-  const bloqueado = !podeEditar || isLoading;
+  const bloqueado = !podeEditar || isLoading || isError || salvar.isPending;
 
   return (
     <div className="space-y-4" data-testid="tab-content-anti-fraude">
@@ -109,13 +110,30 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
           </div>
         </div>
         {podeEditar && (
-          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => salvar.mutate()} disabled={!sujo || salvar.isPending} data-testid="button-salvar-anti-fraude">
+          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => salvar.mutate()} disabled={!sujo || bloqueado} data-testid="button-salvar-anti-fraude">
             {salvar.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             Salvar
           </Button>
         )}
       </div>
 
+      {isError && <div role="alert" className="rounded-lg border p-4 text-sm">Não foi possível carregar a configuração. <Button variant="outline" onClick={() => refetch()}>Tentar novamente</Button></div>}
+      <Card className="p-4 border-l-4 border-l-violet-500 space-y-3">
+        <div><h3 className="font-semibold text-sm">Como combinar os critérios</h3><p className="text-xs text-muted-foreground mt-1">A consulta por outro provedor e o vínculo ativo são obrigatórios em todos os cenários.</p></div>
+        <label className="block text-xs">Gerar aviso quando
+          <select aria-label="Combinação de critérios" value={regras.combinacao ?? "qualquer"} disabled={bloqueado} onChange={e => { setSujo(true); setRegras(r => ({ ...r, combinacao: e.target.value as "todas" | "qualquer" })); }} className="block w-full mt-2 rounded-lg border bg-background p-3 text-sm">
+            <option value="qualquer">Qualquer critério ligado for atendido (OU)</option><option value="todas">Todos os critérios ligados forem atendidos (E)</option>
+          </select>
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={bloqueado} onClick={() => { setSujo(true); setRegras({ ...REGRAS_PADRAO, combinacao: "todas", contrato_novo: { ativo: true, diasMaximo: 90 } }); }}>Usar modelo: novo até 90 dias + inadimplente</Button>
+          <Button variant="ghost" disabled={bloqueado} onClick={() => { setSujo(true); setRegras({ ...REGRAS_PADRAO, combinacao: "qualquer" }); }}>Usar modelo: qualquer inadimplente</Button>
+        </div>
+        <p className="text-xs text-muted-foreground">Os modelos substituem os critérios em edição; só entram em vigor ao salvar. Ajuste valor e dias abaixo.</p>
+        {ligadas === 0 && <p className="text-xs text-amber-700 dark:text-amber-300">Nenhum critério ligado: novos alertas não serão gerados.</p>}
+        {ligadas > 1 && regras.ativo_qualquer.ativo && regras.combinacao !== "todas" && <p className="text-xs text-amber-700 dark:text-amber-300">“Qualquer cliente ativo” está ligado no modo OU: os limites dos demais critérios não restringem os avisos.</p>}
+      </Card>
+      <SimuladorAntiFraude regras={regras}/>
       {/* Resumo */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Card className="p-3">
@@ -169,7 +187,7 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
                       <span className="inline-flex items-center gap-1">
                         <span className="text-muted-foreground">R$</span>
                         <Input
-                          type="number" min={0} step="1"
+                          type="number" min={0} max={100000} step="1" aria-label="Valor mínimo vencido"
                           className="h-8 w-24 font-mono tabular-nums text-xs"
                           value={regras.ativo_inadimplente.valorMinimo}
                           disabled={bloqueado || !regra.ativo}
@@ -179,7 +197,7 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
                       </span>
                       <span>vencidos há</span>
                       <Input
-                        type="number" min={1} step="1"
+                        type="number" min={1} max={365} step="1" aria-label="Dias mínimos de atraso"
                         className="h-8 w-20 font-mono tabular-nums text-xs"
                         value={regras.ativo_inadimplente.diasMinimo}
                         disabled={bloqueado || !regra.ativo}
@@ -194,7 +212,7 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
                     <div className="flex items-center gap-2 flex-wrap text-xs pt-1">
                       <span>até</span>
                       <Input
-                        type="number" min={1} max={365} step="1"
+                        type="number" min={1} max={365} step="1" aria-label="Máximo de dias de contrato"
                         className="h-8 w-20 font-mono tabular-nums text-xs"
                         value={regras.contrato_novo.diasMaximo}
                         disabled={bloqueado || !regra.ativo}
@@ -208,7 +226,7 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
                   {tipo === "consultas_repetidas" && (
                     <div className="flex items-center gap-2 flex-wrap text-xs pt-1">
                       <Input
-                        type="number" min={2} max={20} step="1"
+                        type="number" min={2} max={20} step="1" aria-label="Mínimo de provedores distintos"
                         className="h-8 w-20 font-mono tabular-nums text-xs"
                         value={regras.consultas_repetidas.provedoresMinimos}
                         disabled={bloqueado || !regra.ativo}
@@ -275,7 +293,7 @@ export function AbaAntiFraude({ podeEditar }: { podeEditar: boolean }) {
               <p className="font-medium">Webhook</p>
               <p className="text-xs text-muted-foreground mb-2">Recebe um POST em JSON a cada alerta — para integrar com o seu CRM ou automação.</p>
               <Input
-                placeholder="https://..."
+                aria-label="URL do webhook de alertas" placeholder="https://..."
                 value={webhookUrl}
                 disabled={bloqueado}
                 onChange={e => { setSujo(true); setWebhookUrl(e.target.value); }}

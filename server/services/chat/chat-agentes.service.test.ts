@@ -73,11 +73,11 @@ describe("agentes de primeiro contato", () => {
     expect(client.ligarAgenteAoCanal).toHaveBeenLastCalledWith("org-6", "a-0", "ch-6", "DISABLED");
     expect(fake.intg.agenteConfig.primeiroContato).toEqual({ ligada: false });
   });
-  it("gera no agente do papel e valida o identificador devolvido", async () => {
+  it("cobrança prepara abertura controlada, sem LLM, dívida ou histórico", async () => {
     await configurar(); await provisionarAgenteDoChat(6, "cobranca_ativos");
     const d = await prepararPrimeiroContatoDoAgente(6, "cobranca_ativos", { nomeCliente: "Maria", nomeProvedor: "NsLink" });
-    expect(d.runId).toBe("run-1");
-    expect(client.prepararPrimeiroContato).toHaveBeenCalledWith("org-6", "a-0", { nomeCliente: "Maria", nomeProvedor: "NsLink" });
+    expect(d).toEqual({ texto: "Olá, sou o assistente virtual de NsLink. Posso falar com Maria?", agenteId: "a-0", modelo: null, runId: null, modo: "abertura_controlada" });
+    expect(client.prepararPrimeiroContato).not.toHaveBeenCalled();
   });
   it("recusa provedor divergente e concorrência", async () => {
     await expect(configurarAgenteDoChat(7, "cobranca_ativos", { modelo: null, instrucoes: "", habilitado: false })).rejects.toThrow();
@@ -97,10 +97,12 @@ describe("agentes de primeiro contato", () => {
     expect(client.criarAgente).not.toHaveBeenCalled();
     expect(client.atualizarAgente).toHaveBeenCalledWith("org-6", "legado", expect.objectContaining({ isActive: false, canRespondDirectly: false }));
   });
-  it("recusa texto devolvido por outro modelo mesmo com status HTTP de sucesso", async () => {
+  it("ignora orientação contendo valores e resposta financeira preparada pelo modelo", async () => {
     await configurar(); await provisionarAgenteDoChat(6, "cobranca_ativos");
-    client.prepararPrimeiroContato.mockResolvedValueOnce({ ok: true, valor: { texto: "Olá, sou assistente virtual. Posso falar com Maria?", agenteId: "a-0", modelo: "modelo-diferente", runId: "run" } });
-    await expect(prepararPrimeiroContatoDoAgente(6, "cobranca_ativos", { nomeCliente: "Maria", nomeProvedor: "NsLink" })).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
+    client.prepararPrimeiroContato.mockResolvedValueOnce({ ok: true, valor: { texto: "Sua dívida é R$ 400", agenteId: "a-0", modelo: "modelo-diferente", runId: "run" } });
+    const contato = await prepararPrimeiroContatoDoAgente(6, "cobranca_ativos", { nomeCliente: "Maria Silva", nomeProvedor: "NsLink", orientacao: "Cobrar R$ 400 e enviar https://isp.invalid/boleto" });
+    expect(contato.texto).not.toMatch(/400|Silva|https|dívida|boleto/);
+    expect(client.prepararPrimeiroContato).not.toHaveBeenCalled();
   });
 });
 

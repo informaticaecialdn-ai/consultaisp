@@ -1,3 +1,4 @@
+import { CATEGORIAS_PAINEL } from "@/components/painel/OrganizacaoPainel";
 /**
  * O console de agentes, costurado ponta a ponta.
  *
@@ -17,7 +18,16 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { abaValida, ABAS_DO_CONSOLE, API_AGENTES, API_EXECUCOES, API_RESUMO, API_SKILLS, API_TOOLS, ROTA_AGENTES, textoDeDolar, textoDeDuracao } from "./tipos";
 
-const ler = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+/**
+ * Lê o fonte com a terminação de linha NORMALIZADA.
+ *
+ * Sem isto, toda âncora com `\n` deste arquivo quebra quando alguém salva o
+ * alvo em CRLF — e é o que aconteceu em 08/09/2026: o painel voltou do editor
+ * de outra sessão com CRLF, dois testes ficaram vermelhos e o comportamento
+ * que eles guardam estava intacto. Guarda que acusa o que não é defeito ensina
+ * a próxima pessoa a apagar a asserção.
+ */
+const ler = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const FONTES = {
   execucoes: ler("./AbaExecucoes.tsx"),
   agentes: ler("./AbaAgentes.tsx"),
@@ -116,7 +126,7 @@ describe("o console e uma ABA do Painel do Provedor", () => {
   });
 
   it("o painel monta a aba, e o menu nao tem mais item proprio", () => {
-    expect(painel).toContain('<TabsTrigger value="agentes"');
+    expect(CATEGORIAS_PAINEL.flatMap(c=>c.itens).some(i=>i.id==="agentes")).toBe(true);
     // O gatilho e o corpo TEM de casar pelo mesmo `value`: dois toContain
     // soltos passariam com o corpo pendurado em outra aba, e o clique abriria
     // um painel vazio.

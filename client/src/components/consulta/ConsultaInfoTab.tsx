@@ -140,7 +140,7 @@ export default function ConsultaInfoTab() {
             </p>
           </div>
           <div>
-            <Kicker style={{ color: "var(--gated)" }}>Tetos · guard-rails da decisão</Kicker>
+            <Kicker style={{ color: "var(--gated)" }}>Limites da pontuação</Kicker>
             <div style={{ marginTop: 6 }}>
               {TETOS.map(d => <LinhaValor key={d.rotulo} {...d} cor="var(--gated)" />)}
             </div>
@@ -188,7 +188,7 @@ export default function ConsultaInfoTab() {
             unico solto, e ficou com 1531px quando a pagina passou a usar a
             largura cheia. */}
         <p style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55, marginTop: 10, maxWidth: "75ch" }}>
-          A sugestão é um gate, não uma sentença: dívida ativa nunca sai como "aprovar" puro,
+          A sugestão apoia sua análise e não determina a decisão: dívida ativa nunca sai como "aprovar" puro,
           e a decisão final é sempre do provedor.
         </p>
       </div>
@@ -199,7 +199,7 @@ export default function ConsultaInfoTab() {
           <Kicker>Custos</Kicker>
           <div style={{ marginTop: 10 }}>
             <LinhaValor rotulo="Registro do seu próprio ERP" valor="grátis" cor="var(--ok)" />
-            <LinhaValor rotulo="Resultado nada consta" valor="grátis" cor="var(--ok)" />
+            <LinhaValor rotulo="Consulta sem registros" valor="grátis" cor="var(--ok)" />
             <LinhaValor rotulo="Ocorrência revelada de parceiro" valor="1 crédito" />
           </div>
           <p style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.6, marginTop: 10 }}>

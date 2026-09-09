@@ -20,10 +20,10 @@
  * aparelhos com MAC. Quando ele responde, a ficha é REMONTADA aqui com o
  * mesmo `montarFicha360` do servidor — uma fórmula, dois lugares.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearch } from "wouter";
-import { carteiraDaNavegacao } from "@/components/cobranca/carteiras";
+import { carteiraDaNavegacao, caminhoNaCarteira } from "@/components/cobranca/carteiras";
 import {
   AlertTriangle, ArrowLeft, Ban, CheckCheck, ChevronRight, CircleDashed, Coins, FileSignature, FileText, GitBranch, Hammer, History,
   Info, Inbox, Lock, MapPin, MessageCircle, MessagesSquare, Milestone, PhoneCall, QrCode, RefreshCw, Settings, Shield, ShieldCheck, Sparkles,
@@ -53,6 +53,7 @@ import { dataBr, dataCivilBr, dataHoraBr, deInputDataHora, paraInputDataHora, pr
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { lerPolitica } from "@/components/cobranca/politica-form";
 import { ConversaDoChat } from "@/components/cobranca/ConversaDoChat";
+import { PagamentosDoCliente, type RecebimentosDoCliente } from "@/components/cobranca/PagamentosDoCliente";
 import { IdentificacaoTecnica, origemDoSnapshot, SeloOrigem } from "@/components/cobranca/IdentificacaoTecnica";
 import {
   API_CHAT_BULLQ, API_EQUIPE, API_POLITICA, api360, api360AoVivo, apiEnviarCasoParaChat, chatProntoParaEnviar, lerEquipe, lerIntegracaoDoChat, numero, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_POLITICA, ROTA_REGUA,
@@ -136,8 +137,8 @@ export const ORIGEM_DO_VALOR: Record<"plano_cadastrado" | "faturas_do_erp", { ro
 /** O `<ACriar>` do Provedor.ai: sem backend ainda. */
 function ACriar({ oque }: { oque: string }) {
   return (
-    <SeloCobranca tom="neutro" titulo={`Sem backend ainda — A-CRIAR: ${oque}`} className="normal-case tracking-normal">
-      <Hammer className="h-3 w-3" aria-hidden /> A-CRIAR
+    <SeloCobranca tom="neutro" titulo={`Recurso ainda indisponível: ${oque}`} className="normal-case tracking-normal">
+      <Hammer className="h-3 w-3" aria-hidden /> Em desenvolvimento
     </SeloCobranca>
   );
 }
@@ -211,6 +212,12 @@ function unirEquipamentos(doBanco: EquipamentoDoCliente[], snapshot: SnapshotAoV
 
 export default function Cliente360Page() {
   const { id } = useParams<{ id: string }>();
+  const carteira = carteiraDaNavegacao(`/cobranca/cliente/${id}`, useSearch());
+  return <FichaDaCarteira key={`${carteira}:${id}`} />;
+}
+
+function FichaDaCarteira() {
+  const { id } = useParams<{ id: string }>();
   const customerId = Number(id);
   const carteiraDeOrigem = carteiraDaNavegacao(`/cobranca/cliente/${id}`, useSearch());
   const { toast } = useToast();
@@ -219,8 +226,9 @@ export default function Cliente360Page() {
   const hoje = useMemo(() => new Date(), []);
   const idValido = Number.isFinite(customerId) && customerId > 0;
 
-  const { data, isLoading, isError, error, refetch } = useQuery<Cliente360>({ queryKey: [api360(customerId)], enabled: idValido, staleTime: 15_000 });
-  const { data: snapshot, isFetching: lendoErp, refetch: relerErp } = useQuery<SnapshotAoVivo>({ queryKey: [api360AoVivo(customerId)], enabled: idValido && !!data, staleTime: 10 * 60_000 });
+  const { data, isLoading, isError, error, refetch } = useQuery<Cliente360>({ queryKey: [caminhoNaCarteira(api360(customerId), carteiraDeOrigem)], enabled: idValido, staleTime: 15_000 });
+  const { data: recebimentos } = useQuery<RecebimentosDoCliente>({ queryKey: [caminhoNaCarteira(`/api/cobranca/clientes/${customerId}/pagamentos`, carteiraDeOrigem)], enabled: idValido && !!data, staleTime: 15_000 });
+  const { data: snapshot, isFetching: lendoErp, refetch: relerErp } = useQuery<SnapshotAoVivo>({ queryKey: [caminhoNaCarteira(api360AoVivo(customerId), carteiraDeOrigem)], enabled: idValido && !!data, staleTime: 10 * 60_000 });
   const { data: politicaCrua } = useQuery<unknown>({ queryKey: [API_POLITICA], staleTime: 300_000 });
   const politica = useMemo(() => (politicaCrua === undefined ? null : lerPolitica(politicaCrua)), [politicaCrua]);
   const { data: equipeCrua } = useQuery<unknown>({ queryKey: [API_EQUIPE], staleTime: 300_000 });
@@ -275,7 +283,7 @@ export default function Cliente360Page() {
       const proximo = deInputDataHora(form.proximoContatoEm);
       if ((proximo ?? null) !== (caso.proximoContatoEm ? new Date(caso.proximoContatoEm).toISOString() : null)) corpo.proximoContatoEm = proximo;
       if (Object.keys(corpo).length === 0) throw new Error("Nada mudou para salvar");
-      return (await apiRequest("PATCH", `/api/cobranca/casos/${caso.id}`, corpo)).json();
+      return (await apiRequest("PATCH", caminhoNaCarteira(`/api/cobranca/casos/${caso.id}`, carteiraDeOrigem), corpo)).json();
     },
     onSuccess: () => { invalidarCobranca(); toast({ title: "Caso atualizado" }); },
     onError: (erro: Error) => toast({ title: "Não foi possível salvar o caso", description: mensagemDoErro(erro), variant: "destructive" }),
@@ -283,29 +291,36 @@ export default function Cliente360Page() {
   const fecharCaso = useMutation({
     mutationFn: async () => {
       if (!caso || !fechar) throw new Error("Sem caso aberto");
-      return (await apiRequest("PATCH", `/api/cobranca/casos/${caso.id}`, { status: fechar.status, ...(fechar.motivo.trim() ? { motivo: fechar.motivo.trim() } : {}) })).json();
+      return (await apiRequest("PATCH", caminhoNaCarteira(`/api/cobranca/casos/${caso.id}`, carteiraDeOrigem), { status: fechar.status, ...(fechar.motivo.trim() ? { motivo: fechar.motivo.trim() } : {}) })).json();
     },
     onSuccess: () => { invalidarCobranca(); toast({ title: `Caso ${ROTULO_STATUS_DE_CASO[fechar!.status].toLowerCase()}` }); setFechar(null); },
     onError: (erro: Error) => toast({ title: "Não foi possível fechar o caso", description: mensagemDoErro(erro), variant: "destructive" }),
   });
   const mudarNegociacao = useMutation({
     mutationFn: async ({ id: negociacaoId, casoId, status }: { id: number; casoId: number; status: StatusDeNegociacao }) =>
-      (await apiRequest("PATCH", `/api/cobranca/negociacoes/${negociacaoId}`, { casoId, status })).json(),
+      (await apiRequest("PATCH", caminhoNaCarteira(`/api/cobranca/negociacoes/${negociacaoId}`, carteiraDeOrigem), { casoId, status })).json(),
     onSuccess: (_d, v) => { invalidarCobranca(); toast({ title: `Negociação ${ROTULO_STATUS_DE_NEGOCIACAO[v.status].toLowerCase()}` }); },
     onError: (erro: Error) => toast({ title: "Não foi possível mudar a negociação", description: mensagemDoErro(erro), variant: "destructive" }),
   });
   const enviarParaChat = useMutation({
     mutationFn: async () => {
       if (!caso) throw new Error("Sem caso aberto");
-      return (await apiRequest("POST", apiEnviarCasoParaChat(caso.id), { acaoDaEtapa: data?.regua?.etapa?.acao ?? undefined })).json();
+      return (await apiRequest("POST", caminhoNaCarteira(apiEnviarCasoParaChat(caso.id), carteiraDeOrigem), { acaoDaEtapa: data?.regua?.etapa?.acao ?? undefined })).json();
     },
     onSuccess: (r: { reaproveitada?: boolean }) => { invalidarCobranca(); toast({ title: r.reaproveitada ? "Conversa existente aberta" : "Primeiro contato enviado pelo chat" }); },
     onError: (erro: Error) => toast({ title: "Não foi possível enviar para o chat", description: mensagemDoErro(erro), variant: "destructive" }),
   });
+  const pagamentosPendentes = useRef(new Map<number, { valor: number; chaveIdempotencia: string; pagoEm: string }>());
   const pagarParcela = useMutation({
-    mutationFn: async ({ id: parcelaId, negociacaoId, valor }: { id: number; negociacaoId: number; valor: number }) =>
-      (await apiRequest("POST", `/api/cobranca/parcelas/${parcelaId}/pagar`, { negociacaoId, valorPago: valor, pagoEm: new Date().toISOString() })).json(),
-    onSuccess: () => { invalidarCobranca(); toast({ title: "Parcela paga" }); },
+    mutationFn: async ({ id: parcelaId, negociacaoId, valor }: { id: number; negociacaoId: number; valor: number }) => {
+      let tentativa = pagamentosPendentes.current.get(parcelaId);
+      if (!tentativa || tentativa.valor !== valor) {
+        tentativa = { valor, chaveIdempotencia: crypto.randomUUID(), pagoEm: new Date().toISOString() };
+        pagamentosPendentes.current.set(parcelaId, tentativa);
+      }
+      return (await apiRequest("POST", caminhoNaCarteira(`/api/cobranca/parcelas/${parcelaId}/pagar`, carteiraDeOrigem), { negociacaoId, valorPago: valor, pagoEm: tentativa.pagoEm, chaveIdempotencia: tentativa.chaveIdempotencia })).json();
+    },
+    onSuccess: (_resposta, variaveis) => { pagamentosPendentes.current.delete(variaveis.id); invalidarCobranca(); toast({ title: "Recebimento confirmado" }); },
     onError: (erro: Error) => toast({ title: "Não foi possível baixar a parcela", description: mensagemDoErro(erro), variant: "destructive" }),
   });
 
@@ -344,10 +359,10 @@ export default function Cliente360Page() {
     { erpSource: varredura?.erpSource, lidoEm: varredura?.lastSyncAt },
     "Valor em aberto e dias de atraso vêm sempre da varredura gravada em customers; a leitura ao vivo traz plano, contrato, corte e aparelhos.",
   );
-  const alvoDoContato = (): AlvoDoContato | null => (caso && cliente ? { casoId: caso.id, clienteNome: cliente.nome, canalSugerido: regua?.etapa?.canalSugerido ?? null } : null);
+  const alvoDoContato = (): AlvoDoContato | null => (caso && cliente ? { casoId: caso.id, carteira: carteiraDeOrigem, clienteNome: cliente.nome, canalSugerido: regua?.etapa?.canalSugerido ?? null } : null);
   const abrirNegociacao = () => {
     if (!cliente) return;
-    if (caso) setNegociacao({ casoId: caso.id, clienteNome: cliente.nome, valorAtual: caso.valorAtual });
+    if (caso) setNegociacao({ casoId: caso.id, carteira: carteiraDeOrigem, diasAtraso: cliente.diasAtraso, clienteNome: cliente.nome, valorAtual: caso.valorAtual });
     else setAbrirCaso(true);
   };
 
@@ -432,7 +447,7 @@ export default function Cliente360Page() {
 
             {/* 1e · Ações */}
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3" data-testid="acoes-360">
-              <button type="button" className={cn(BOTAO_SECUNDARIO, "opacity-60")} disabled title="PIX à vista standalone — A-CRIAR (ramo Asaas)"><QrCode className="h-3.5 w-3.5" aria-hidden /> Gerar PIX à vista</button>
+              <button type="button" className={cn(BOTAO_SECUNDARIO, "opacity-60")} disabled title="Geração de PIX à vista ainda indisponível"><QrCode className="h-3.5 w-3.5" aria-hidden /> Gerar PIX à vista</button>
               <ACriar oque="POST PIX à vista standalone (Asaas)" />
               {caso ? (
                 <button type="button" className={BOTAO_MARCA} onClick={abrirNegociacao} data-testid="acao-abrir-negociacao"><MessagesSquare className="h-3.5 w-3.5" aria-hidden /> Abrir negociação</button>
@@ -449,7 +464,7 @@ export default function Cliente360Page() {
               <Pendente motivo="sem assinatura eletrônica (ZapSign) nem parecer jurídico do modelo" ext="GATED" />
               <Link href={`${ROTA_REGUA}?carteira=${cliente.carteira}`} className={BOTAO_SECUNDARIO} data-testid="acao-ver-regua"><GitBranch className="h-3.5 w-3.5" aria-hidden /> Ver na Régua DNA</Link>
               <a href="#linha-do-tempo" className={BOTAO_SECUNDARIO} data-testid="acao-historico"><History className="h-3.5 w-3.5" aria-hidden /> Histórico completo</a>
-              <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-[var(--gated)]"><Lock className="h-3.5 w-3.5" aria-hidden /> Escritas sensíveis passam pelo administrador (gate de compliance)</span>
+              <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-[var(--gated)]"><Lock className="h-3.5 w-3.5" aria-hidden /> Ações sensíveis exigem aprovação do administrador</span>
             </div>
             {faturasAbertas !== null && faturasAbertas > 1 && <p className="mt-2 text-[11.5px] text-[var(--text-muted)]">{num(faturasAbertas)} faturas vencidas em aberto — detalhe na coluna Passado.</p>}
             {snapshot && !snapshot.ok && (
@@ -472,10 +487,10 @@ export default function Cliente360Page() {
               <Let k="Faturas vencidas">
                 {vencido > 0
                   ? <span title="só faturas vencidas — a-vencer listadas à parte"><b className={NUM}>{money(vencido)}</b> em {faturasAbertas !== null ? <>{num(faturasAbertas)} fatura{faturasAbertas === 1 ? "" : "s"}</> : "— faturas"}</span>
-                  : <span className="text-[var(--ok)]">sem faturas em aberto</span>}
-                {vencido > 0 && <p className="mt-1 text-[11px] text-[var(--text-faint)]"><Pendente motivo="fatura a fatura (número, vencimento, PIX copia-e-cola, 2ª via) ainda não sincronizada do ERP — fase 2" ext="SYNC" /> <span className="ml-1">o sync grava só o agregado</span></p>}
+                  : <span className="text-[var(--text-muted)]">sem débito vencido informado no saldo agregado</span>}
+                <p className="mt-1 text-[11px] text-[var(--text-faint)]">Confira os títulos e eventuais divergências na seção Faturas e recebimentos confirmados.</p>
               </Let>
-              <Let k="A vencer (no prazo · não é inadimplência)"><Pendente motivo="faturas a vencer ainda não sincronizadas do ERP — fase 2" ext="SYNC" /></Let>
+              <Let k="A vencer (no prazo · não é inadimplência)"><span className="text-[var(--text-muted)]">Consulte vencimentos na relação de faturas abaixo. Somente títulos abertos representam valores a pagar.</span></Let>
               <Let k="Encargos (CDC 52 · transparente)">
                 {vencido > 0 && encargos > 0 ? <>multa + juros <b className={NUM}>{money(encargos)}</b> — já no valor atualizado (<span className={NUM}>{money(data?.divida?.atualizado.total)}</span>)</>
                   : vencido > 0 ? <>sem encargos aplicados ainda — valor atualizado = original</>
@@ -532,10 +547,9 @@ export default function Cliente360Page() {
                   : <>prescreve em <b className={NUM}>{dataCivilBr(ficha.prescricao.data_prescricao)}</b> <span className="text-[var(--text-muted)]">· <span className={NUM}>{num(ficha.prescricao.dias_restantes)}</span> dias restantes</span></>)
                   : <span className="text-[var(--text-muted)]">sem dívida vencida — nada a prescrever</span>}
               </Let>
-              <Let k="Histórico de pagamento"><Pendente motivo="faturas liquidadas ainda não sincronizadas — habilitar fatura a fatura no ERP e rodar o histórico (fase 2)" ext="SYNC" /></Let>
-              <Let k="Pontualidade · últimos 12 meses">
-                <div className="grid grid-cols-12 gap-1" aria-hidden>{Array.from({ length: 12 }, (_, i) => <div key={i} className="h-[18px] rounded border border-[var(--border-faint)]" />)}</div>
-                <p className="mt-1 text-[11.5px] text-[var(--text-muted)]">nenhuma fatura sincronizada nos últimos 12 meses <Pendente motivo="a grade lê fatura a fatura — fase 2" ext="SYNC" /></p>
+              <Let k="Histórico de pagamento">{recebimentos && !recebimentos.historico.historicoInsuficiente ? <><b className={NUM}>{recebimentos.historico.faturasPagas}</b> faturas pagas com data confirmada</> : <span className="text-[var(--text-muted)]">Sem histórico confirmado disponível.</span>}</Let>
+              <Let k="Pontualidade observada">
+                {recebimentos?.historico.taxaAtraso !== null && recebimentos?.historico.taxaAtraso !== undefined ? <><b className={NUM}>{Math.round((1 - recebimentos.historico.taxaAtraso) * 100)}%</b> em dia · somente pagamentos com data, no histórico disponível</> : <span className="text-[var(--text-muted)]">Aguardando pagamentos com data para calcular.</span>}
               </Let>
               <Let k="Histórico (suspensões · negativações)">
                 <HistoricoExecucao cliente={cliente} casosAnteriores={data?.casosAnteriores ?? []} vivo={vivo} />
@@ -570,7 +584,7 @@ export default function Cliente360Page() {
                   : vencido > 0 ? <span className="text-[var(--text-muted)]">{regua?.motivoRotulo ?? (regua?.motivo ? (ROTULO_MOTIVO_SEM_ETAPA[regua.motivo as MotivoSemEtapa] ?? regua.motivo) : "fora da régua")}</span>
                   : <span className="text-[var(--text-muted)]">fora da régua — sem fatura aberta</span>}
               </Let>
-              <Let k="Próximo vencimento · risco de atraso"><Pendente motivo="sem fatura a vencer sincronizada nem histórico de pagamento — fase 2" /></Let>
+              <Let k="Próximo vencimento · risco de atraso"><span className="text-[var(--text-muted)]">A régua acompanha as faturas a vencer em D-7, D-3 e D-1 quando o pré-aviso está habilitado.</span></Let>
               <Let k="Próximo passo (NBA)" testId="proximo-passo">
                 {regua?.etapa ? (
                   <>
@@ -663,6 +677,7 @@ export default function Cliente360Page() {
           <SecaoR24 economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} politicaConfirmada={!!politica?.economia.confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} evidencia={evidenciaDaMensalidade} />
 
           {/* 6 · Transversal */}
+          <PagamentosDoCliente key={`${carteiraDeOrigem}:${customerId}`} customerId={customerId} carteira={carteiraDeOrigem} podeAdministrar={podeAdministrar} saldoAgregado={vencido} />
           <Transversal data={data!} />
         </>
       )}
@@ -1027,7 +1042,7 @@ function Transversal({ data }: { data: Cliente360 }) {
                 ))}
               </ul>
             )}
-            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"><Lock className="h-3 w-3 text-[var(--gated)]" aria-hidden /> Gate sempre visível — nenhum desfecho às cegas.</p>
+            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"><Lock className="h-3 w-3 text-[var(--gated)]" aria-hidden /> Confira as aprovações antes de concluir uma ação.</p>
           </div>
           <div className={CARD}>
             <h4 className={H4}>Memória da equipe · o que sabemos</h4>
@@ -1076,14 +1091,15 @@ function CartaoNegociacao({ n, onStatus, onPagar, ocupado }: { n: NegociacaoDeCo
           <tbody>
             {n.parcelamento.map(p => {
               const valor = numero(p.valor) ?? 0;
-              const pendente = p.status === "pendente" || p.status === "atrasada";
+              const restante = Math.max(0, Math.round((valor - (numero(p.valorPago) ?? 0)) * 100) / 100);
+              const pendente = p.status === "pendente" || p.status === "atrasada" || p.status === "conciliacao_pendente";
               return (
                 <tr key={p.id}>
-                  <Td num alinhamento="esquerda">{p.numero}/{n.parcelamento.length}</Td>
+                  <Td num alinhamento="esquerda">{p.numero === 0 ? "Entrada" : `${p.numero}/${n.parcelas}`}</Td>
                   <Td num alinhamento="esquerda">{dataCivilBr(p.vencimento)}</Td>
                   <Td num>{brl(valor)}</Td>
                   <Td><SeloCobranca tom={p.status === "paga" ? "ok" : p.status === "atrasada" ? "danger" : p.status === "cancelada" ? "neutro" : "gated"}>{ROTULO_STATUS_DE_PARCELA[p.status as StatusDeParcela] ?? p.status}</SeloCobranca>{p.pagoEm && <span className={cn(NUM, "ml-1 text-[10px] text-[var(--text-muted)]")}>{dataBr(p.pagoEm)}</span>}</Td>
-                  <Td alinhamento="direita">{pendente && !encerrada && <button type="button" className={cn(BOTAO_SECUNDARIO, "!min-h-7 px-2 text-[11px]")} disabled={ocupado} onClick={() => onPagar(p.id, valor)} data-testid={`pagar-parcela-${p.id}`}><Coins className="h-3 w-3" aria-hidden /> pagar</button>}</Td>
+                  <Td alinhamento="direita">{pendente && !encerrada && status !== "proposta" && <button type="button" className={cn(BOTAO_SECUNDARIO, "!min-h-7 px-2 text-[11px]")} disabled={ocupado} onClick={() => onPagar(p.id, restante)} data-testid={`pagar-parcela-${p.id}`}><Coins className="h-3 w-3" aria-hidden /> confirmar recebido {brl(restante)}</button>}</Td>
                 </tr>
               );
             })}

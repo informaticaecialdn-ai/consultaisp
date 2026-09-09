@@ -21,15 +21,15 @@ export interface TrabalhoAutonomia { id: number; provider_id: number; conversati
 export interface EstadoAutonomia { turnos: number; humano: boolean; proposta: PropostaAutonomia | null; motivo: string | null }
 export type ResumoDaFila = Record<StatusDaFila, number>;
 
-const TABELAS_DA_0028 = ["chat_autonomia_config", "chat_autonomia_estado", "chat_autonomia_fila"] as const;
+const TABELAS_DA_AUTONOMIA = ["chat_autonomia_config", "chat_autonomia_estado", "chat_autonomia_fila", "chat_autonomia_seguranca", "chat_autonomia_autorizacao", "cobranca_quitacoes"] as const;
 
 export const autonomiaStorage = {
-  /** As tres tabelas da 0028 existem? Uma leitura so, no boot — a fila nao pode girar sobre um banco sem elas. */
+  /** Uma leitura no boot: fila, identidade e quitações (0028/0034/0035) devem existir. */
   async tabelasExistem(): Promise<{ ok: boolean; faltam: string[] }> {
-    const r = await db.execute<{ table_name: string }>(sql`select table_name from information_schema.tables where table_schema = 'public' and table_name in (${sql.join(TABELAS_DA_0028.map(t => sql`${t}`), sql`, `)})`);
+    const r = await db.execute<{ table_name: string }>(sql`select table_name from information_schema.tables where table_schema = 'public' and table_name in (${sql.join(TABELAS_DA_AUTONOMIA.map(t => sql`${t}`), sql`, `)})`);
     const linhas = (Array.isArray(r) ? r : (r as { rows?: { table_name: string }[] }).rows ?? []) as { table_name: string }[];
     const achadas = new Set(linhas.map(l => l.table_name));
-    const faltam = TABELAS_DA_0028.filter(t => !achadas.has(t));
+    const faltam = TABELAS_DA_AUTONOMIA.filter(t => !achadas.has(t));
     return { ok: faltam.length === 0, faltam };
   },
   async config(providerId: number): Promise<ConfigAutonomia> {

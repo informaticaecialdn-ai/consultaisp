@@ -20,6 +20,8 @@ import {
   type StatusCasoFechado,
 } from "../storage/cobranca.storage";
 import type { FaturaDoCliente, FaturasDoCliente } from "../storage/faturas.storage";
+import { FaturasStorage } from "../storage/faturas.storage";
+import type { HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
 import type { CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela, Customer, Equipment } from "@shared/schema";
 import {
   ABORDAGEM_POR_QUADRANTE,
@@ -179,7 +181,7 @@ function conflitoDeCobranca(res: Response, e: unknown): boolean {
   const codigo = codigoDeCobranca(e);
   if (!codigo) return false;
   const message = MENSAGEM_DO_CONFLITO[codigo] ?? (e instanceof Error && e.message ? e.message : "Conflito com o estado atual do caso");
-  res.status(409).json({ message, code: codigo });
+  res.status(codigo === "APROVACAO_OBRIGATORIA" ? 403 : 409).json({ message, code: codigo });
   return true;
 }
 
@@ -196,27 +198,6 @@ function exigirAdminDoProvedor(acao: string) {
     }
     next();
   };
-}
-
-/**
- * A marca de EXCECAO de uma negociacao (politica de acordo, 0029), lida da
- * linha do tempo do caso. `cobranca_negociacoes` NAO tem coluna de aprovacao:
- * o registro da excecao e a NOTA que o POST grava com `metadata.exigeAprovacao`
- * e o `negociacaoId` — imutavel, porque a proposta nao muda de faixa depois de
- * criada. Uma coluna nova custaria migracao + backfill (e um segundo lugar
- * onde a verdade poderia divergir) para guardar o que ja esta gravado.
- *
- * Devolve os motivos que a criacao registrou (lista possivelmente vazia)
- * quando a negociacao nasceu como excecao, e `null` quando ela e comum.
- */
-function pedidoDeAprovacaoPendente(eventos: readonly CobrancaEvento[], negociacaoId: number): string[] | null {
-  for (const evento of eventos) {
-    const m = evento.metadata as Record<string, unknown> | null;
-    if (!m || m.exigeAprovacao !== true) continue;
-    if (Number(m.negociacaoId) !== negociacaoId) continue;
-    return Array.isArray(m.motivos) ? m.motivos.map(String) : [];
-  }
-  return null;
 }
 
 /**
@@ -428,12 +409,13 @@ interface Classificacao {
 /**
  * O DNA do cliente como ele esta HOJE. Sem data de contrato nao ha DNA
  * (`mesesDeContrato` devolve null) — e a tela mostra "—", nunca "novo".
- * `historicoInsuficiente` e sempre true na fase 1: o sync grava agregados, e
- * a taxa de atraso historica que separa "oscila" de "em dia" nao existe.
+ * Pagamentos com data confirmada complementam o atraso atual. Ausência de
+ * histórico nunca vira uma taxa fictícia de pontualidade.
  */
 export function classificarCliente(
   c: { contractStartDate: string | null; diasAtraso: number; faturasAbertas: number },
   hoje: Date,
+  historico?: HistoricoDePagamentos | null,
 ): Classificacao {
   const meses = mesesDeContrato(c.contractStartDate, hoje);
   if (meses === null) return { mesesComoCliente: null, dna: null, tom: tomEfetivo(null, VULNERAVEL_FASE_1) };
@@ -441,7 +423,9 @@ export function classificarCliente(
     mesesComoCliente: meses,
     diasAtrasoMax: c.diasAtraso,
     faturasAbertas: c.faturasAbertas,
-    historicoInsuficiente: true,
+    historicoInsuficiente: historico?.historicoInsuficiente ?? true,
+    faturasPagas: historico?.faturasPagas,
+    faturasPagasComAtraso: historico?.faturasPagasComAtraso,
   });
   return { mesesComoCliente: meses, dna, tom: tomEfetivo(dna, VULNERAVEL_FASE_1) };
 }
@@ -1039,6 +1023,7 @@ const PatchNegociacaoSchema = z.object({
 }).strict();
 
 const PagarSchema = z.object({
+  chaveIdempotencia: z.string().uuid().optional(),
   /** Opcional desde `obterParcela(providerId, id)`; quando vem, tem de bater com a parcela. */
   negociacaoId: z.number().int().positive().optional(),
   /** Pode ser menos que a parcela: o storage acumula, e a parcela so vira `paga` quando fecha o valor. */
@@ -1376,6 +1361,8 @@ export function registerCobrancaRoutes(): Router {
    * fatura vinda do ERP, `live: false` e o motivo: a tela mostra "—".
    */
   router.get("/api/cobranca/carteira/mes", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.literal("ativo").optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const parsed = MesQuerySchema.safeParse(semVazios(req.query));
     if (!parsed.success) return recusar(res, parsed.error);
     const providerId = providerDaSessao(req);
@@ -1396,19 +1383,21 @@ export function registerCobrancaRoutes(): Router {
   // ── Cliente 360 ───────────────────────────────────────────────────────
 
   router.get("/api/cobranca/clientes/:customerId/360", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const customerId = idDaRota(req.params.customerId);
     if (!customerId) return res.status(400).json({ message: "Cliente invalido" });
     const providerId = providerDaSessao(req);
     const hoje = new Date();
     try {
       const cliente = await clienteDoProvedor(providerId, customerId);
-      if (!cliente) return res.status(404).json({ message: "Cliente nao encontrado" });
+      if (!cliente || (escopo.data && carteiraDoStatusErp(cliente.status) !== escopo.data)) return res.status(404).json({ message: "Cliente nao encontrado" });
 
       // A busca por documento e por prefixo de digitos; com o documento
       // inteiro so o proprio cliente (ou um CNPJ que o contenha) volta, e o
       // filtro por id abaixo tira o resto.
       const digitos = cliente.cpfCnpj.replace(/\D/g, "");
-      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade] = await Promise.all([
+      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade, historicoPagamentos] = await Promise.all([
         carregarPolitica(providerId),
         storage.listarCasosDeCobranca(providerId, { status: "todos", busca: digitos.length >= 3 ? digitos : cliente.name }, { pagina: 1, porPagina: 200 }),
         storage.listarEventosDoCliente(providerId, customerId),
@@ -1426,6 +1415,7 @@ export function registerCobrancaRoutes(): Router {
         // guarda o nome do plano a Economia ficava PENDENTE para a base
         // inteira. Falha aqui nao derruba a ficha — ela so volta a "—".
         storage.mensalidadeDoCliente(providerId, customerId).catch(() => null),
+        new FaturasStorage().historicoDePagamentosDoCliente(providerId, customerId).catch(() => null),
       ]);
       const ha30d = new Date(hoje.getTime() - 30 * 86_400_000);
       const deOutros = consultasRecentes.filter(c => c.providerId !== providerId);
@@ -1463,8 +1453,8 @@ export function registerCobrancaRoutes(): Router {
       const diasAtraso = num(cliente.maxDaysOverdue);
       const dividaAtual = num(cliente.totalOverdueAmount);
       const faturasAbertas = num(cliente.overdueInvoicesCount);
-      const carteira = vivo ? carteiraValida(vivo.carteira) : carteiraDoStatusErp(cliente.status);
-      const cls = classificarCliente({ contractStartDate: cliente.contractStartDate, diasAtraso, faturasAbertas }, hoje);
+      const carteira = carteiraDoStatusErp(cliente.status);
+      const cls = classificarCliente({ contractStartDate: cliente.contractStartDate, diasAtraso, faturasAbertas }, hoje, historicoPagamentos);
       const regua = reguaParaHoje(diasAtraso, carteira, etapas);
 
       // A ficha do Provedor.ai, montada com o que o banco tem. O navegador a
@@ -1556,6 +1546,7 @@ export function registerCobrancaRoutes(): Router {
         equipamentos: equipamentos.map(equipamentoParaApi),
         ficha,
         fichaEntrada,
+        historicoPagamentos,
         chat: conversaDoChat ? { conversationId: conversaDoChat.conversationId, status: conversaDoChat.status } : null,
         rede,
         alertas,
@@ -1592,12 +1583,14 @@ export function registerCobrancaRoutes(): Router {
    * depois. `?forcar=1` fura o cache de dez minutos.
    */
   router.get("/api/cobranca/clientes/:customerId/360/ao-vivo", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const customerId = idDaRota(req.params.customerId);
     if (!customerId) return res.status(400).json({ message: "Cliente invalido" });
     const providerId = providerDaSessao(req);
     try {
       const cliente = await clienteDoProvedor(providerId, customerId);
-      if (!cliente) return res.status(404).json({ message: "Cliente nao encontrado" });
+      if (!cliente || (escopo.data && carteiraDoStatusErp(cliente.status) !== escopo.data)) return res.status(404).json({ message: "Cliente nao encontrado" });
       const forcar = req.query.forcar === "1" || req.query.forcar === "true";
       const snapshot = await snapshotAoVivoDoCliente(providerId, cliente.cpfCnpj, { forcar });
       res.json(snapshot);
@@ -1609,6 +1602,8 @@ export function registerCobrancaRoutes(): Router {
   // ── Casos ─────────────────────────────────────────────────────────────
 
   router.post("/api/cobranca/casos", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const parsed = AbrirCasoSchema.safeParse(req.body);
     if (!parsed.success) return recusar(res, parsed.error);
     const { customerId, prioridade, responsavelUserId, proximoContatoEm } = parsed.data;
@@ -1620,7 +1615,7 @@ export function registerCobrancaRoutes(): Router {
     const userId = usuarioDaSessao(req);
     try {
       const cliente = await clienteDoProvedor(providerId, customerId);
-      if (!cliente) return res.status(404).json({ message: "Cliente nao encontrado" });
+      if (!cliente || (escopo.data && carteiraDoStatusErp(cliente.status) !== escopo.data)) return res.status(404).json({ message: "Cliente nao encontrado" });
 
       const diasAtraso = num(cliente.maxDaysOverdue);
       const dividaAtual = num(cliente.totalOverdueAmount);
@@ -1684,6 +1679,8 @@ export function registerCobrancaRoutes(): Router {
   });
 
   router.patch("/api/cobranca/casos/:id", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const id = idDaRota(req.params.id);
     if (!id) return res.status(400).json({ message: "Caso invalido" });
     const parsed = PatchCasoSchema.safeParse(req.body);
@@ -1702,7 +1699,7 @@ export function registerCobrancaRoutes(): Router {
     const userId = usuarioDaSessao(req);
     try {
       const caso = await storage.obterCasoDeCobranca(providerId, id);
-      if (!caso) return res.status(404).json({ message: "Caso nao encontrado" });
+      if (!caso || (escopo.data && caso.carteira !== escopo.data)) return res.status(404).json({ message: "Caso nao encontrado" });
 
       if (b.responsavelUserId !== undefined) {
         if (!podeAtribuir(req, b.responsavelUserId, caso)) {
@@ -1779,6 +1776,8 @@ export function registerCobrancaRoutes(): Router {
    * fatura — nao se pendura isso na abertura de um painel.
    */
   router.get("/api/cobranca/casos/:id/detalhe", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const id = idDaRota(req.params.id);
     if (!id) return res.status(400).json({ message: "Caso invalido" });
     const providerId = providerDaSessao(req);
@@ -1786,7 +1785,7 @@ export function registerCobrancaRoutes(): Router {
       // O caso primeiro, e so dele: e ele que prova que o cliente e deste
       // provedor antes de qualquer leitura por customerId.
       const caso = await storage.obterCasoDeCobranca(providerId, id);
-      if (!caso) return res.status(404).json({ message: "Caso nao encontrado" });
+      if (!caso || (escopo.data && caso.carteira !== escopo.data)) return res.status(404).json({ message: "Caso nao encontrado" });
 
       const [faturas, eventos, negociacoes, equipe] = await Promise.all([
         storage.faturasDoCliente(providerId, caso.cliente.id, { limite: TETO_DE_FATURAS_NO_DETALHE }),
@@ -1821,12 +1820,14 @@ export function registerCobrancaRoutes(): Router {
   // ── Eventos ───────────────────────────────────────────────────────────
 
   router.get("/api/cobranca/casos/:id/eventos", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const id = idDaRota(req.params.id);
     if (!id) return res.status(400).json({ message: "Caso invalido" });
     const providerId = providerDaSessao(req);
     try {
       const caso = await storage.obterCasoDeCobranca(providerId, id);
-      if (!caso) return res.status(404).json({ message: "Caso nao encontrado" });
+      if (!caso || (escopo.data && caso.carteira !== escopo.data)) return res.status(404).json({ message: "Caso nao encontrado" });
       const [eventos, equipe] = await Promise.all([storage.listarEventosDoCaso(providerId, id), equipeDoProvedor(providerId)]);
       const nomes = new Map(equipe.map(u => [u.id, u.nome]));
       res.json(eventos.map(e => eventoParaApi(e, nomes)));
@@ -1836,6 +1837,8 @@ export function registerCobrancaRoutes(): Router {
   });
 
   router.post("/api/cobranca/casos/:id/eventos", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const id = idDaRota(req.params.id);
     if (!id) return res.status(400).json({ message: "Caso invalido" });
     const parsed = EventoSchema.safeParse(req.body);
@@ -1865,7 +1868,7 @@ export function registerCobrancaRoutes(): Router {
     const userId = usuarioDaSessao(req);
     try {
       const caso = await storage.obterCasoDeCobranca(providerId, id);
-      if (!caso) return res.status(404).json({ message: "Caso nao encontrado" });
+      if (!caso || (escopo.data && caso.carteira !== escopo.data)) return res.status(404).json({ message: "Caso nao encontrado" });
       if (casoFechado(caso.status)) {
         return res.status(409).json({ message: `Caso ${ROTULO_STATUS_DE_CASO[caso.status as StatusDeCaso].toLowerCase()} nao recebe registro.` });
       }
@@ -1921,6 +1924,8 @@ export function registerCobrancaRoutes(): Router {
   // ── Negociacoes ───────────────────────────────────────────────────────
 
   router.post("/api/cobranca/casos/:id/negociacoes", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const id = idDaRota(req.params.id);
     if (!id) return res.status(400).json({ message: "Caso invalido" });
     const parsed = NegociacaoSchema.safeParse(req.body);
@@ -1941,7 +1946,7 @@ export function registerCobrancaRoutes(): Router {
     const userId = usuarioDaSessao(req);
     try {
       const caso = await storage.obterCasoDeCobranca(providerId, id);
-      if (!caso) return res.status(404).json({ message: "Caso nao encontrado" });
+      if (!caso || (escopo.data && caso.carteira !== escopo.data)) return res.status(404).json({ message: "Caso nao encontrado" });
       if (casoFechado(caso.status)) {
         return res.status(409).json({ message: `Caso ${ROTULO_STATUS_DE_CASO[caso.status as StatusDeCaso].toLowerCase()} nao recebe negociacao.` });
       }
@@ -2005,6 +2010,7 @@ export function registerCobrancaRoutes(): Router {
           entrada,
           primeiroVencimento,
           criadoPorUserId: userId,
+          aprovacao: { exigeAprovacao: excecao !== null, motivos: excecao ?? [], faixa: decisao.faixa, carteira: caso.carteira },
           // Proposta de EXCECAO nao nasce aceita, mesmo com a marca "o cliente
           // ja aceitou": ela depende de aprovacao, e um caso em `acordo_ativo`
           // diria que o acordo esta valendo. Fica proposta ate alguem aprovar.
@@ -2015,27 +2021,6 @@ export function registerCobrancaRoutes(): Router {
         // (NEGOCIACAO_VIVA); o storage recusa na transacao, e a rota diz o caminho.
         if (conflitoDeCobranca(res, e)) return;
         throw e;
-      }
-      // Nao ha coluna de aprovacao em `cobranca_negociacoes` (ver o relatorio):
-      // o pedido de aprovacao fica como NOTA na linha do tempo do caso, com os
-      // motivos e a faixa que ele estourou — e o operador ve na ficha. Esta
-      // nota nao e so registro: e ela que o PATCH le
-      // (`pedidoDeAprovacaoPendente`) para recusar o aceite de quem nao e
-      // admin. Mexer no `metadata` daqui muda o freio de la.
-      if (excecao) {
-        await storage.registrarEventoDeCobranca(providerId, {
-          casoId: id,
-          userId,
-          tipo: "nota",
-          notas: `Proposta #${criada.id} fora da faixa da politica: ${excecao.join(" ")} Cabe no teto de excecao e precisa da aprovacao de um administrador antes de valer como acordo.`,
-          metadata: {
-            exigeAprovacao: true,
-            negociacaoId: criada.id,
-            motivos: excecao,
-            faixa: decisao.faixa,
-            carteira: caso.carteira,
-          },
-        });
       }
       logger.info(
         { providerId, casoId: id, negociacaoId: criada.id, userId, tipo: b.tipo, parcelas: parcelas.length, aceita: b.aceita === true, exigeAprovacao: excecao !== null },
@@ -2052,6 +2037,8 @@ export function registerCobrancaRoutes(): Router {
   });
 
   router.patch("/api/cobranca/negociacoes/:id", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const id = idDaRota(req.params.id);
     if (!id) return res.status(400).json({ message: "Negociacao invalida" });
     const parsed = PatchNegociacaoSchema.safeParse(req.body);
@@ -2068,27 +2055,17 @@ export function registerCobrancaRoutes(): Router {
       // Um `casoId` que nao bate e a tela falando de outro caso: nao se
       // corrige em silencio, porque o operador esta olhando para o errado.
       if (!atual || (casoId !== undefined && atual.casoId !== casoId)) return res.status(404).json({ message: "Negociacao nao encontrada" });
+      if (escopo.data) {
+        const casoDoEscopo = await storage.obterCasoDeCobranca(providerId, atual.casoId);
+        if (!casoDoEscopo || casoDoEscopo.carteira !== escopo.data) return res.status(404).json({ message: "Negociacao nao encontrada" });
+      }
       const transicao = transicaoDeNegociacao(atual.status as StatusDeNegociacao, status);
       if (!transicao.ok) return res.status(409).json({ message: transicao.motivo });
 
-      // O FREIO DA EXCECAO. A tela de politica promete que a proposta acima da
-      // faixa "entra, mas fica esperando um administrador aprovar" — e ate aqui
-      // era so texto: o mesmo operador que propos 15% onde a faixa da 5%
-      // aceitava no segundo seguinte, e o caso ia para `acordo_ativo`. Nao ha o
-      // que aprovar em recusar, quebrar ou cancelar: o freio e so na entrada
-      // do acordo (`aceita`), que e o unico status que faz o desconto valer.
-      if (status === "aceita" && !podeAdministrarOProvedor(req.session)) {
-        const motivos = pedidoDeAprovacaoPendente(await storage.listarEventosDoCaso(providerId, atual.casoId), id);
-        if (motivos) {
-          logger.info({ providerId, casoId: atual.casoId, negociacaoId: id, userId }, "COBRANCA aceite de excecao recusado: falta um admin");
-          return res.status(403).json({
-            message: "Esta proposta passou da faixa da politica de acordo: so um administrador do provedor pode aceita-la.",
-            motivos,
-          });
-        }
-      }
-
-      const nova = await storage.atualizarStatusDaNegociacao(providerId, id, status, userId);
+      // A aprovação é conferida com a proposta bloqueada na transação do aceite.
+      const nova = await storage.atualizarStatusDaNegociacao(providerId, id, status, userId, {
+        podeAprovarExcecao: podeAdministrarOProvedor(req.session),
+      });
       if (!nova) return res.status(404).json({ message: "Negociacao nao encontrada" });
       const [parcelamento, caso] = await Promise.all([
         storage.listarParcelasDaNegociacao(providerId, id),
@@ -2097,6 +2074,7 @@ export function registerCobrancaRoutes(): Router {
       logger.info({ providerId, casoId: atual.casoId, negociacaoId: id, userId, de: atual.status, para: status }, "COBRANCA status da negociacao mudou");
       res.json({ negociacao: negociacaoParaApi(nova, parcelamento), caso: caso ? casoParaApi(caso) : null });
     } catch (e) {
+      if (conflitoDeCobranca(res, e)) return;
       falha(res, e);
     }
   });
@@ -2104,6 +2082,8 @@ export function registerCobrancaRoutes(): Router {
   // ── Parcelas ──────────────────────────────────────────────────────────
 
   router.post("/api/cobranca/parcelas/:id/pagar", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const id = idDaRota(req.params.id);
     if (!id) return res.status(400).json({ message: "Parcela invalida" });
     const parsed = PagarSchema.safeParse(req.body);
@@ -2122,12 +2102,17 @@ export function registerCobrancaRoutes(): Router {
       if (!parcela || (negociacaoId !== undefined && parcela.negociacaoId !== negociacaoId)) {
         return res.status(404).json({ message: "Parcela nao encontrada" });
       }
-      if (parcela.status === "paga") return res.status(409).json({ message: `Parcela ${parcela.numero} ja esta paga.` });
+      if (escopo.data) {
+        const negociacao = await storageFase2.obterNegociacao(providerId, parcela.negociacaoId);
+        const casoDoEscopo = negociacao ? await storage.obterCasoDeCobranca(providerId, negociacao.casoId) : undefined;
+        if (!casoDoEscopo || casoDoEscopo.carteira !== escopo.data) return res.status(404).json({ message: "Parcela nao encontrada" });
+      }
+      if (parcela.status === "paga" && !parsed.data.chaveIdempotencia) return res.status(409).json({ message: `Parcela ${parcela.numero} ja esta paga.` });
       if (parcela.status === "cancelada") return res.status(409).json({ message: `Parcela ${parcela.numero} foi cancelada com a negociacao.` });
 
       let r;
       try {
-        r = await storage.marcarParcelaPaga(providerId, id, valorPago, pagoEm, userId);
+        r = await storage.marcarParcelaPaga(providerId, id, valorPago, pagoEm, userId, parsed.data.chaveIdempotencia);
       } catch (e) {
         // Pagar parcela de PROPOSTA (NEGOCIACAO_NAO_ACEITA) faria proposta →
         // ativa por baixo da maquina de estados e deixaria o caso em
@@ -2276,13 +2261,16 @@ export function registerCobrancaRoutes(): Router {
   // ── Regua e DNA ───────────────────────────────────────────────────────
 
   router.get("/api/cobranca/regua", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const providerId = providerDaSessao(req);
     try {
-      const [{ politica, etapas, configurada }, contagens, equipe] = await Promise.all([
+      const [{ politica, etapas, configurada }, contagensGlobais, equipe] = await Promise.all([
         carregarPolitica(providerId),
         storage.contarCasosPorEtapa(providerId),
         equipeDoProvedor(providerId),
       ]);
+      const contagens = contagensGlobais.filter(c => !escopo.data || c.carteira === escopo.data);
       const nomes = new Map(equipe.map(u => [u.id, u.nome]));
       const comNome = (lista: Etapa[]) => lista.map(e => ({
         ...e,
@@ -2290,7 +2278,7 @@ export function registerCobrancaRoutes(): Router {
         responsavelNome: e.responsavelUserId === null ? null : nomes.get(e.responsavelUserId) ?? null,
       }));
       res.json({
-        etapas: comNome(etapas),
+        etapas: comNome(escopo.data ? etapasDaCarteira(escopo.data, etapas) : etapas),
         porCarteira: { ativo: comNome(etapasDaCarteira("ativo", etapas)), ex_cliente: comNome(etapasDaCarteira("ex_cliente", etapas)) },
         contagens,
         pausada: politica.pausada,
@@ -2303,9 +2291,11 @@ export function registerCobrancaRoutes(): Router {
   });
 
   router.get("/api/cobranca/dna", requireAuth, requireProvider, async (req, res) => {
+    const escopo = z.enum(CARTEIRAS).optional().safeParse(req.query.carteira);
+    if (!escopo.success) return recusar(res, escopo.error);
     const providerId = providerDaSessao(req);
     try {
-      const contagens = await storage.contarCasosPorQuadrante(providerId);
+      const contagens = (await storage.contarCasosPorQuadrante(providerId)).filter(c => !escopo.data || c.carteira === escopo.data);
       const porQuadrante = new Map<string, { casos: number; valor: number; porCarteira: Record<string, { casos: number; valor: number }> }>();
       let semClassificacao = 0;
       let valorSemClassificacao = 0;

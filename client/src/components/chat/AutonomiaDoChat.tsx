@@ -24,9 +24,10 @@ import { lerConfigAutonomia, lerFilaDaAutonomia, O_QUE_A_IA_NUNCA_FAZ, ROTULOS_D
 export const API_AUTONOMIA = "/api/chat-bullq/autonomia";
 export const API_AUTONOMIA_ESTADO = `${API_AUTONOMIA}/estado`;
 
-const PERMISSOES: { chave: "permitirSegundaVia" | "permitirPromessa" | "permitirAgendamento"; rotulo: string; detalhe: string }[] = [
+const PERMISSOES: { chave: "permitirSegundaVia" | "permitirPromessa" | "permitirAgendamento" | "permitirNegociacao"; rotulo: string; detalhe: string }[] = [
   { chave: "permitirSegundaVia", rotulo: "Enviar segunda via", detalhe: "o link e o valor vêm do ERP, nunca do modelo" },
   { chave: "permitirPromessa", rotulo: "Registrar promessa de pagamento integral", detalhe: "só pelo valor em aberto no ERP, em data citada pelo cliente e confirmada com “sim”" },
+  { chave: "permitirNegociacao", rotulo: "Oferecer acordos dentro da política", detalhe: "cliente escolhe a opção e confirma; valores são recalculados pela carteira antes do registro e a equipe prepara a cobrança" },
   { chave: "permitirAgendamento", rotulo: "Agendar devolução de equipamento", detalhe: "agendamento local para a equipe acompanhar; não confirma retirada nem baixa" },
 ];
 
@@ -71,7 +72,7 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
           : <SeloCobranca tom={configDaRota?.ativa ? "ok" : "neutro"} testId="selo-autonomia">{configDaRota?.ativa ? "ligada" : "desligada"}</SeloCobranca>}
       </div>
       <p className="mt-2 text-xs leading-5 text-[var(--text-2)]">
-        Com a autonomia ligada, o assistente continua a conversa depois da primeira resposta do cliente, sem esperar a equipe. A execução é do Consulta ISP: o modelo só escolhe a intenção; texto, valor e data são do servidor, e tudo que sai da política vai ao atendente.
+        Com a autonomia ligada, o assistente continua a conversa depois da primeira resposta do cliente. Antes de divulgar saldo ou boletos, confirma nome e últimos quatro dígitos do CPF; a confirmação vale por 15 minutos. O servidor controla valores e ações, e o tom da carteira orienta a conversa. Tudo que sai da política vai ao atendente.
       </p>
 
       {estado.isPending ? <div className="mt-4"><LinhasSkeleton linhas={3} /></div> : (
@@ -107,7 +108,7 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
             <div className="mt-2 space-y-2">
               {PERMISSOES.map(p => (
                 <label key={p.chave} className="flex items-start gap-2 text-xs text-[var(--text-2)]">
-                  <input type="checkbox" className="mt-0.5" checked={config[p.chave]} onChange={e => setConfig(c => ({ ...c, [p.chave]: e.target.checked }))} data-testid={`autonomia-${p.chave}`} />
+                  <input type="checkbox" className="mt-0.5" checked={Boolean(config[p.chave])} onChange={e => setConfig(c => ({ ...c, [p.chave]: e.target.checked }))} data-testid={`autonomia-${p.chave}`} />
                   <span><span className="text-[var(--text)]">{p.rotulo}</span> <span className="text-[var(--text-faint)]">· {p.detalhe}</span></span>
                 </label>
               ))}

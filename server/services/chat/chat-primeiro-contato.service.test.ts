@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const fake = vi.hoisted(() => ({ integracoesComContatoAutomatico: vi.fn(), getIntegracaoDoChat: vi.fn(), getUsersByProvider: vi.fn(), getPoliticaDeCobranca: vi.fn(), contatosIniciadosNoDia: vi.fn(), candidatosAoPrimeiroContato: vi.fn() }));
 const ponte = vi.hoisted(() => ({ enviarCasoParaCobranca: vi.fn(), enviarRecuperacaoParaChat: vi.fn() }));
+const pre = vi.hoisted(() => ({ prepararPreAvisos: vi.fn(), contatosReservadosNoDia: vi.fn(), listarPreAvisosPendentes: vi.fn(), executarPreAviso: vi.fn() }));
+vi.mock("../../storage/cobranca-preventivo.storage", () => ({ CobrancaPreventivoStorage: class { prepararPreAvisos = pre.prepararPreAvisos; contatosReservadosNoDia = pre.contatosReservadosNoDia; listarPreAvisosPendentes = pre.listarPreAvisosPendentes; } }));
+vi.mock("./chat-preventivo.service", () => ({ executarPreAviso: pre.executarPreAviso }));
 vi.mock("../../storage", () => ({ storage: fake }));
 vi.mock("../../logger", () => ({ logger: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("./chat-ponte.service", () => ponte);
@@ -10,6 +13,10 @@ import { executarPrimeirosContatos } from "./chat-primeiro-contato.service";
 const duranteExpediente = new Date("2026-09-08T15:00:00Z");
 beforeEach(() => {
   vi.resetAllMocks();
+  pre.contatosReservadosNoDia.mockResolvedValue(0);
+  pre.prepararPreAvisos.mockResolvedValue(0);
+  pre.listarPreAvisosPendentes.mockResolvedValue([{ id: 21 }]);
+  pre.executarPreAviso.mockResolvedValue({ enviado: true });
   fake.integracoesComContatoAutomatico.mockResolvedValue([{ providerId: 6 }]);
   fake.getIntegracaoDoChat.mockResolvedValue({ agenteConfig: { primeiroContatoUserId: 3, primeiroContato: { ligada: true, limiteDiario: 2, cobranca: true, equipamentos: true } } });
   fake.getUsersByProvider.mockResolvedValue([{ id: 3, role: "admin", isActive: true }]);
@@ -20,6 +27,16 @@ beforeEach(() => {
   ponte.enviarRecuperacaoParaChat.mockResolvedValue({ conversationId: "c2", enviado: true });
 });
 describe("agenda de primeiros contatos", () => {
+  it("pré-aviso usa o mesmo teto diário e exige opção explícita", async () => {
+    await executarPrimeirosContatos(duranteExpediente);
+    expect(pre.executarPreAviso).not.toHaveBeenCalled();
+    fake.getIntegracaoDoChat.mockResolvedValue({ agenteConfig: { primeiroContatoUserId: 3, primeiroContato: { ligada: true, preventivo: true, limiteDiario: 1 } } });
+    await executarPrimeirosContatos(duranteExpediente);
+    expect(pre.executarPreAviso).toHaveBeenCalledExactlyOnceWith(6, 21, 3, "2026-09-08");
+    pre.contatosReservadosNoDia.mockResolvedValue(1);
+    await executarPrimeirosContatos(duranteExpediente);
+    expect(pre.executarPreAviso).toHaveBeenCalledTimes(1);
+  });
   it("uma desativação no meio da rodada impede o próximo contato", async () => {
     ponte.enviarCasoParaCobranca.mockImplementationOnce(async () => {
       fake.getIntegracaoDoChat.mockResolvedValue({ agenteConfig: { primeiroContato: { ligada: false } } });

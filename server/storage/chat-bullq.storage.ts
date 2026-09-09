@@ -10,6 +10,7 @@
  */
 import { and, asc, desc, eq, isNotNull, isNull, ilike, ne, notExists, gt, count, gte, sql, inArray, or } from "drizzle-orm";
 import { db } from "../db";
+import { carteiraDoStatusErp, clienteDaCarteira } from "./cobranca.storage";
 import {
   chatBullqConversas, chatBullqIntegracoes, customers, cobrancaCasos, equipmentRecoveryCases, equipmentRecoveryEvents, cobrancaEventos, invoices, contracts,
   type ChatBullqConversa, type ChatBullqIntegracao,
@@ -385,17 +386,17 @@ export class ChatBullqStorage {
 
   async listarAtendimentosDoChat(providerId: number, filtro: { origem: OrigemDeConversa; carteira?: string; status?: string; busca?: string; pagina: number }) {
     const c = chatBullqConversas;
-    const linhas = await db.select({ conversa: c, nome: customers.name, telefone: customers.phone, carteira: cobrancaCasos.carteira })
+    const linhas = await db.select({ conversa: c, nome: customers.name, telefone: customers.phone, statusErp: customers.status })
       .from(c)
       .innerJoin(customers, and(eq(customers.id, c.customerId), eq(customers.providerId, providerId)))
       .leftJoin(cobrancaCasos, and(eq(cobrancaCasos.id, c.casoId), eq(cobrancaCasos.providerId, providerId)))
       .where(and(eq(c.providerId, providerId),
-        filtro.origem === "cobranca" ? isNotNull(c.casoId) : isNotNull(c.recuperacaoId),
-        filtro.origem === "cobranca" && filtro.carteira ? eq(cobrancaCasos.carteira, filtro.carteira) : undefined,
+        filtro.origem === "cobranca" ? or(isNotNull(c.casoId), eq(c.origem, "cobranca")) : isNotNull(c.recuperacaoId),
+        filtro.origem === "cobranca" && (filtro.carteira === "ativo" || filtro.carteira === "ex_cliente") ? clienteDaCarteira(filtro.carteira) : undefined,
         filtro.status ? eq(c.status, filtro.status) : undefined,
         filtro.busca ? or(ilike(customers.name, `%${filtro.busca.replace(/[%_\\]/g, "\\$&")}%`), filtro.busca.replace(/\D/g, "").length >= 3 ? sql`regexp_replace(${customers.phone}, '[^0-9]', '', 'g') like ${`%${filtro.busca.replace(/\D/g, "")}%`}` : undefined) : undefined,
       )).orderBy(desc(c.ultimoEventoEm), desc(c.id)).limit(31).offset((filtro.pagina - 1) * 30);
-    return { itens: linhas.slice(0, 30).map(l => ({ ...l.conversa, nome: l.nome, telefone: l.telefone, carteira: l.carteira })), temMais: linhas.length > 30, pagina: filtro.pagina };
+    return { itens: linhas.slice(0, 30).map(l => ({ ...l.conversa, nome: l.nome, telefone: l.telefone, carteira: carteiraDoStatusErp(l.statusErp) })), temMais: linhas.length > 30, pagina: filtro.pagina };
   }
 
   /**

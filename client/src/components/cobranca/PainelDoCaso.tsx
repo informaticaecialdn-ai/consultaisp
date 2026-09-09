@@ -241,7 +241,7 @@ function CartaoDeAcordo({ n }: { n: NegociacaoDeCobranca }) {
         <ul className="mt-1.5 divide-y divide-[var(--border-faint)] rounded border border-[var(--border)] bg-[var(--surface)]">
           {n.parcelamento.map(p => (
             <li key={p.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-[11.5px]" data-testid={`parcela-${p.id}`}>
-              <span className={cn(NUM, "text-[var(--text-2)]")}>{p.numero}/{n.parcelas} · vence {dataCivilBr(p.vencimento)}</span>
+              <span className={cn(NUM, "text-[var(--text-2)]")}>{p.numero === 0 ? "Entrada" : `${p.numero}/${n.parcelas}`} · vence {dataCivilBr(p.vencimento)}</span>
               <span className="flex items-center gap-2">
                 <span className={cn(NUM, "text-[var(--text)]")}>{brl(p.valor)}</span>
                 <SeloCobranca tom={p.status === "paga" ? "ok" : p.status === "atrasada" ? "danger" : p.status === "cancelada" ? "neutro" : "gated"}>
@@ -269,7 +269,7 @@ export function PainelDoCaso({ item, etapas, hoje, aberto, onFechar, acoes }: {
 }) {
   const casoId = item?.id ?? null;
   const { data, isLoading, isError, error, refetch } = useQuery<unknown>({
-    queryKey: [casoId === null ? "sem-caso" : apiDetalheDoCaso(casoId)],
+    queryKey: [casoId === null ? "sem-caso" : `${apiDetalheDoCaso(casoId)}?carteira=${item?.carteira}`],
     enabled: aberto && casoId !== null,
     staleTime: 15_000,
   });

@@ -50,6 +50,11 @@ describe("os dois lados falam do mesmo endereco", () => {
 });
 
 describe("o contador da automacao", () => {
+  it("pré-aviso é opt-in e explica a continuidade pela equipe", () => {
+    expect(painel).toContain("checked={config.preventivo}");
+    expect(painel).toContain("D-7, D-3 e D-1");
+    expect(painel).toContain("A equipe confirma a identidade");
+  });
   it("a tela le a rota nova, e nao inventa a contagem no navegador", () => {
     expect(painel).toContain("API_INDICADOR_AUTOMACAO");
     expect(painel).toContain("lerAutomacaoDoPrimeiroContato(");

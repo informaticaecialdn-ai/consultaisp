@@ -72,6 +72,7 @@ describe("prévia do console", () => {
     };
 
     const abas: Record<string, [string, unknown][]> = {
+      cobranca: [],
       resumo: [["/api/chat-bullq/console/resumo?periodo=7d", {
         periodo: "7d",
         execucoes: { total: 128, concluidas: 121, falhas: 5, puladas: 2, taxaSucesso: 0.945 },
@@ -114,6 +115,7 @@ describe("prévia do console", () => {
      * conter a própria marca e NENHUMA das outras.
      */
     const MARCA: Record<string, string> = {
+      cobranca: 'data-testid="console-operacao-cobranca"',
       resumo: 'data-testid="console-kpi-sucesso"',
       agentes: 'data-testid="console-agente-ag-2"',
       skills: 'data-testid="console-skill-consultarCaso"',

@@ -181,7 +181,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   const query = queryDoKanban({ escopo, etapa, carteira, busca, atraso });
   const chaveDoQuadro = useMemo(() => [`${API_KANBAN}${query}`], [query]);
   const { data, isLoading, isError, error, refetch } = useQuery<unknown>({ queryKey: chaveDoQuadro, staleTime: 15_000 });
-  const { data: regua } = useQuery<RespostaDaRegua>({ queryKey: [API_REGUA], staleTime: 300_000 });
+  const { data: regua } = useQuery<RespostaDaRegua>({ queryKey: [caminhoNaCarteira(API_REGUA, carteira)], staleTime: 300_000 });
   const { data: politicaCrua } = useQuery<unknown>({ queryKey: [API_POLITICA], staleTime: 300_000 });
   const politica = useMemo(() => (politicaCrua === undefined ? null : lerPolitica(politicaCrua)), [politicaCrua]);
 
@@ -196,7 +196,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   const enviarParaChat = useMutation({
     mutationFn: async (item: ItemDaFila) => {
       const { etapa: e } = etapaDoCard(item, regua?.etapas);
-      return (await apiRequest("POST", apiEnviarCasoParaChat(item.id), { acaoDaEtapa: e?.acao ?? undefined })).json();
+      return (await apiRequest("POST", caminhoNaCarteira(apiEnviarCasoParaChat(item.id), carteira), { acaoDaEtapa: e?.acao ?? undefined })).json();
     },
     onSuccess: (r: { reaproveitada?: boolean }) => {
       invalidarCobranca();
@@ -206,19 +206,19 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   });
 
   const pegar = useMutation({
-    mutationFn: async (casoId: number) => (await apiRequest("PATCH", `${API_CASOS}/${casoId}`, { responsavelUserId: user?.id })).json(),
+    mutationFn: async (casoId: number) => (await apiRequest("PATCH", caminhoNaCarteira(`${API_CASOS}/${casoId}`, carteira), { responsavelUserId: user?.id })).json(),
     onSuccess: () => { invalidarCobranca(); toast({ title: "Caso é seu" }); },
     onError: (erro: Error) => toast({ title: "Não foi possível pegar o caso", description: mensagemDoErro(erro), variant: "destructive" }),
   });
 
   const abrirContato = (item: ItemDaFila) => {
     const { etapa: e } = etapaDoCard(item, regua?.etapas);
-    setContato({ casoId: item.id, clienteNome: item.cliente.nome, canalSugerido: e?.canalSugerido ?? null });
+    setContato({ casoId: item.id, carteira, clienteNome: item.cliente.nome, canalSugerido: e?.canalSugerido ?? null });
   };
   const abrirNegociacao = (item: ItemDaFila) =>
-    setNegociacao({ casoId: item.id, clienteNome: item.cliente.nome, valorAtual: item.valorAtual });
+    setNegociacao({ casoId: item.id, carteira, diasAtraso: item.cliente.diasAtraso, clienteNome: item.cliente.nome, valorAtual: item.valorAtual });
   const abrirCancelamento = (item: ItemDaFila) =>
-    setCancelamento({ casoId: item.id, customerId: item.cliente.id, clienteNome: item.cliente.nome });
+    setCancelamento({ casoId: item.id, carteira, customerId: item.cliente.id, clienteNome: item.cliente.nome });
 
   const acoes = {
     onContato: abrirContato,
@@ -237,12 +237,12 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   /**
    * O que a cobrança RECUPEROU depois de um contato (C6 do 2Safe): faturas que
    * sumiram dos pendentes do ERP numa varredura completa, até `janelaDias`
-   * depois de um contato registrado. É do PROVEDOR inteiro, não do recorte do
-   * quadro — a fatura é do cliente, não do caso —, e o card diz isso.
+   * depois de um contato registrado. É da carteira selecionada, sem os filtros
+   * adicionais do quadro — a fatura é do cliente, não do caso.
    * Sem fatura vinda do ERP o valor é "—" com o motivo, nunca R$ 0,00.
    */
   const { data: recuperacaoCrua, isLoading: carregandoRecuperacao } = useQuery<unknown>({
-    queryKey: [apiRecuperacao(DIAS_DA_RECUPERACAO)],
+    queryKey: [caminhoNaCarteira(apiRecuperacao(DIAS_DA_RECUPERACAO), carteira)],
     staleTime: 300_000,
   });
   const recuperacao = useMemo(() => (recuperacaoCrua === undefined ? null : lerRecuperacao(recuperacaoCrua)), [recuperacaoCrua]);

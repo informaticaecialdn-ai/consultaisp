@@ -559,6 +559,7 @@ Bases públicas e cadastrais consolidadas, com credencial própria do seu
         )}
 
         <LgpdDisclaimerModal
+          purpose="cadastro"
           open={lgpdDisclaimerOpen}
           accepted={lgpdAccepted}
           onAccept={handleLgpdAcceptAndSearch}

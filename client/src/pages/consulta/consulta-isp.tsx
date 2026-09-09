@@ -1,4 +1,6 @@
-import { useState } from "react";
+import "./consulta-spc.css";
+import "./consulta-isp.css";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -11,7 +13,7 @@ import { formatCpfCnpj } from "@/components/consulta/utils";
 import { generatePDF } from "@/components/consulta/PdfReportGenerator";
 import { Kicker } from "@/components/consulta/report-ui";
 import LoadingCard from "@/components/consulta/LoadingCard";
-import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
+
 import ConsultaSearchBar from "@/components/consulta/ConsultaSearchBar";
 import ConsultaResultSummary from "@/components/consulta/ConsultaResultSummary";
 import ConsultaHistoryTab from "@/components/consulta/ConsultaHistoryTab";
@@ -27,26 +29,31 @@ import {
 } from "@/components/consulta/identificacao";
 
 const ABAS = [
-  ["nova", "Nova consulta"],
+  ["nova", "Consultar documento"],
   ["historico", "Histórico"],
-  ["timeline", "Timeline"],
+  ["timeline", "Linha do tempo"],
   ["relatorios", "Relatórios"],
-  ["info", "Informações"],
+  ["info", "Guia de leitura"],
 ] as const;
 
 type Aba = (typeof ABAS)[number][0];
 
 /** O que a Consulta ISP entrega — fica visível enquanto não há resultado. */
 const CARDS_OCIOSO = [
-  { icon: Network, title: "Rede colaborativa.", text: "Ocorrências reais dos ERPs de provedores parceiros, anonimizadas." },
-  { icon: BarChart3, title: "Score 0–1000.", text: "Base 700 e deduções por sinal — o método completo está na aba Informações." },
+  { icon: Network, title: "Rede colaborativa.", text: "Registros compartilhados pelos provedores participantes da rede." },
+  { icon: BarChart3, title: "Score 0–1000.", text: "Base 700 e deduções por sinal — o método completo está no Guia de leitura." },
   { icon: Router, title: "Equipamentos retidos.", text: "Ocorrências de comodato não devolvido, validadas no bureau." },
-  { icon: MapPin, title: "Cruzamento por endereço.", text: "Inadimplência no mesmo imóvel, mesmo com CPF limpo." },
+  { icon: MapPin, title: "Cruzamento por endereço.", text: "Verifique registros associados ao endereço e confira o vínculo com o cliente." },
 ];
 
 export default function ConsultaISPPage() {
   const { toast } = useToast();
+  const resultRef = useRef<HTMLDivElement>(null);
+
   const [result, setResult] = useState<ConsultaResult | null>(null);
+  useEffect(() => {
+    if (result) resultRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+  }, [result]);
   const [consultation, setConsultation] = useState<any>(null);
   /* O identificador é da REQUISIÇÃO, não do registro: existe também quando não
      houve linha gravada (nada consta, sem cobertura) e quando a consulta falhou.
@@ -101,8 +108,8 @@ export default function ConsultaISPPage() {
 
       if (data.result?.notFound) {
         toast(data.result?.source === "no_erp"
-          ? { title: "Sem cobertura na região", description: "Nenhum ERP ativo para consultar. Nada foi varrido." }
-          : { title: "Nada consta", description: "Nenhum registro na rede ISP. Consulta gratuita." });
+          ? { title: "Sem cobertura na região", description: "Não há integrações ativas disponíveis. O histórico não pôde ser verificado." }
+          : { title: "Nenhum registro encontrado", description: "Sem registros nas fontes consultadas. Nenhum crédito foi cobrado." });
       } else if (otherCount > 0) {
         toast({
           title: "Consulta registrada",
@@ -204,58 +211,16 @@ export default function ConsultaISPPage() {
   const semCobertura = result?.source === "no_erp";
 
   return (
-    <div style={{ background: "var(--bg)", minHeight: "100%" }} data-testid="consulta-isp-page">
-      {/* Largura cheia, como o resto do app.
-          Esta tela era a unica com cap centralizado (1080px). Num monitor de
-          1900px isso deixava ~400px vazios de cada lado, e o custo nao e
-          estetico: o relatorio da consulta e feito de tabelas e grades de
-          ocorrencia, e cada pixel a menos e uma linha a menos por tela para
-          quem escaneia a carteira o dia todo. */}
-      <div style={{
-        padding: "26px 32px 56px",
-        display: "flex", flexDirection: "column", gap: 18,
-      }}>
-
-        {/* ── CABEÇALHO ── */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div>
-            <h1
-              style={{ fontSize: 19, fontWeight: 600, letterSpacing: "var(--track-tight)", lineHeight: 1.2, color: "var(--text)" }}
-              data-testid="text-consulta-isp-title"
-            >
-              Consulta ISP
-            </h1>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 3 }}>
-              Análise de crédito colaborativa entre provedores
-            </p>
-          </div>
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            border: "1px solid var(--border)", background: "var(--surface)",
-            borderRadius: 8, padding: "7px 12px",
-          }}>
-            <CreditCard size={15} style={{ color: "var(--text-2)" }} />
-            <span
-              style={{
-                fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600,
-                fontVariantNumeric: "tabular-nums",
-                color: (data?.credits ?? 1) === 0 ? "var(--danger)" : "var(--text)",
-              }}
-              data-testid="text-isp-credits"
-            >
-              {data?.credits ?? "…"}
-            </span>
-            <span style={{
-              fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase",
-              letterSpacing: "var(--track-wide)", color: "var(--text-muted)",
-            }}>
-              créditos
-            </span>
-          </div>
-        </div>
+    <div className="spc-page isp-page" data-testid="consulta-isp-page">
+      <div className="isp-content">
+        <header className="spc-hero">
+          <div className="spc-hero-main"><span className="spc-symbol"><Network size={26}/></span><div><span className="spc-kicker">ANÁLISE DE CRÉDITO · REDE COLABORATIVA</span><h1 data-testid="text-consulta-isp-title">Consulta ISP</h1><p>Histórico em provedores para apoiar sua decisão.</p></div></div>
+          <div className="spc-balance"><CreditCard size={19}/><div><span>Seu saldo</span><strong data-testid="text-isp-credits">{data?.credits ?? "—"} <small>créditos</small></strong></div></div>
+        </header>
+        <div className="spc-activity"><span><Network size={14}/>Rede de provedores de internet</span><span className="spc-source"><Shield size={14}/>Fonte: rede ISP</span></div>
 
         {/* ── ABAS ── */}
-        <div role="tablist" aria-label="Seções da Consulta ISP" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--border)", width: "100%", flexWrap: "wrap" }}>
+        <div role="tablist" aria-label="Seções da Consulta ISP" className="isp-tabs">
           {ABAS.map(([id, label]) => (
             <button
               key={id}
@@ -267,13 +232,7 @@ export default function ConsultaISPPage() {
               onClick={() => setActiveTab(id)}
               className="ds-ctl"
               data-testid={`tab-${id}`}
-              style={{
-                padding: "9px 14px", fontSize: 13, cursor: "pointer", marginBottom: -1,
-                background: "none", fontFamily: "var(--font-sans)",
-                border: "none", borderBottom: `2px solid ${activeTab === id ? "var(--action)" : "transparent"}`,
-                color: activeTab === id ? "var(--text)" : "var(--text-muted)",
-                fontWeight: activeTab === id ? 600 : 500,
-              }}
+
             >
               {label}
             </button>
@@ -284,6 +243,13 @@ export default function ConsultaISPPage() {
         {activeTab === "nova" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <ConsultaSearchBar
+              heading="Quem você deseja consultar?"
+              description="Informe um CPF ou CNPJ. Para pesquisar um imóvel, use o CEP e o número."
+              kicker="CONSULTA NA REDE ISP"
+              initialDocument={(() => {
+                const doc = new URLSearchParams(window.location.search).get("doc")?.replace(/\D/g, "") ?? "";
+                return [11, 14].includes(doc.length) ? doc : "";
+              })()}
               onSearch={handleSearch}
               isLoading={mutation.isPending}
               hasResult={!!result}
@@ -295,19 +261,10 @@ export default function ConsultaISPPage() {
 
             {!mutation.isPending && erro && <ConsultaErroCard erro={erro} testId="consulta-isp-erro" />}
 
-            {!mutation.isPending && !result && !erro && (
-              <ConsultaIdleState
-                totalConsultas={consultations.length}
-                cards={CARDS_OCIOSO}
-                emptyTitle="Nenhuma consulta ainda"
-                emptyDescription="Digite o CPF de um candidato antes de liberar a instalação. Você recebe o score de risco e o histórico dele em toda a rede de provedores."
-                emptyCta="Fazer primeira consulta"
-                searchInputTestId="input-isp-search"
-              />
-            )}
+            {!mutation.isPending && !result && !erro && <div className="spc-included"><h3>Uma visão do cliente na rede de provedores</h3><div>{CARDS_OCIOSO.map(item => <section key={item.title}><item.icon size={20}/><h4>{item.title}</h4><p>{item.text}</p></section>)}</div><p className="spc-included-foot">A cobertura depende dos provedores integrados. Ausência de registros não é aprovação automática.</p></div>}
 
             {!mutation.isPending && result && (
-              <div data-testid="consultation-result">
+              <div ref={resultRef} style={{ scrollMarginTop: 64 }} data-testid="consultation-result">
                 {nadaConsta ? (
                   <div style={{
                     background: "var(--surface)", border: "1px solid var(--border)",
@@ -323,7 +280,7 @@ export default function ConsultaISPPage() {
                         : <CheckCircle size={20} style={{ color: "var(--ok)", flexShrink: 0 }} />}
                       <div>
                         <Kicker style={{ color: semCobertura ? "var(--gated)" : "var(--ok)" }}>
-                          {semCobertura ? "Sem cobertura na rede" : "Nada consta"}
+                          {semCobertura ? "Consulta indisponível nesta rede" : "Nenhum registro encontrado"}
                         </Kicker>
                         <div style={{
                           fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700,
@@ -340,8 +297,8 @@ export default function ConsultaISPPage() {
                           consta na rede" seria afirmar uma varredura que não houve. */}
                       <p style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.55 }}>
                         {semCobertura
-                          ? "Nenhum provedor da rede tem integração de ERP ativa, então não houve o que consultar. Isto não é um \"nada consta\": a rede não foi varrida. Fale com o suporte para integrar o seu ERP e a consulta passa a valer."
-                          : "Nenhum registro na rede ISP colaborativa: nem no seu ERP, nem em nenhum provedor parceiro. Ausência de ocorrência não é histórico de bom pagamento — significa apenas que a rede não tem o que informar sobre este documento."}
+                          ? "Não há integrações ativas disponíveis para esta consulta. Não foi possível verificar o histórico. Fale com o suporte para conferir a cobertura da rede."
+                          : "Não encontramos registros deste documento nas fontes consultadas. Isso não comprova bom histórico de pagamento. Considere outras informações antes de decidir."}
                       </p>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{
@@ -353,7 +310,7 @@ export default function ConsultaISPPage() {
                         }}>
                           <Shield size={11} /> Consulta gratuita
                         </span>
-                        <Kicker>Gate · decisão final é sua</Kicker>
+                        <Kicker>A decisão de crédito é sua</Kicker>
                       </div>
                       {/* O código aparece TAMBÉM aqui, e é neste caminho que ele
                           mais faz falta: "consultei e não veio nada" é a
@@ -384,7 +341,15 @@ export default function ConsultaISPPage() {
           </div>
         )}
 
-        {activeTab === "historico" && <div role="tabpanel" id="painel-historico" aria-labelledby="aba-historico"><ConsultaHistoryTab consultations={consultations} /></div>}
+        {activeTab === "historico" && <div role="tabpanel" id="painel-historico" aria-labelledby="aba-historico"><ConsultaHistoryTab consultations={consultations} onOpen={(id) => {
+          const saved = consultations.find((entry: { id: number }) => entry.id === id);
+          if (!saved?.result || typeof saved.result !== "object") return;
+          setResult(saved.result);
+          setConsultation(saved);
+          setIdentificacao(lerIdentificacao({ consultation: saved, result: saved.result }));
+          setErro(null);
+          setActiveTab("nova");
+        }} /></div>}
         {activeTab === "timeline" && <div role="tabpanel" id="painel-timeline" aria-labelledby="aba-timeline"><TimelineTab timelineData={timelineData} cpfCnpj={timelineCpf} isLoading={timelineLoading} /></div>}
         {activeTab === "relatorios" && <div role="tabpanel" id="painel-relatorios" aria-labelledby="aba-relatorios"><ConsultaReportsTab consultations={consultations} approvedCount={approvedCount} rejectedCount={rejectedCount} avgScore={avgScore} /></div>}
         {activeTab === "info" && <div role="tabpanel" id="painel-info" aria-labelledby="aba-info"><ConsultaInfoTab /></div>}

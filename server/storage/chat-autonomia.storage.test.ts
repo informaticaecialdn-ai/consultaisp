@@ -176,13 +176,13 @@ describe("agendamento local de devolucao", () => {
   });
 });
 
-describe("as tabelas da 0028", () => {
-  it("conta as tres no information_schema; falta uma, diz qual", async () => {
+describe("as tabelas da autonomia e identidade", () => {
+  it("só sobe o worker com as tabelas 0028/0034; lista qualquer ausência", async () => {
     banco.responder = () => [{ table_name: "chat_autonomia_config" }, { table_name: "chat_autonomia_fila" }];
-    expect(await autonomiaStorage.tabelasExistem()).toEqual({ ok: false, faltam: ["chat_autonomia_estado"] });
+    expect(await autonomiaStorage.tabelasExistem()).toEqual({ ok: false, faltam: ["chat_autonomia_estado", "chat_autonomia_seguranca", "chat_autonomia_autorizacao", "cobranca_quitacoes"] });
     expect(banco.consultas[0].method).toBe("execute");
-    expect(banco.consultas[0].params).toEqual(["chat_autonomia_config", "chat_autonomia_estado", "chat_autonomia_fila"]);
-    banco.responder = () => [{ table_name: "chat_autonomia_config" }, { table_name: "chat_autonomia_estado" }, { table_name: "chat_autonomia_fila" }];
+    expect(banco.consultas[0].params).toEqual(["chat_autonomia_config", "chat_autonomia_estado", "chat_autonomia_fila", "chat_autonomia_seguranca", "chat_autonomia_autorizacao", "cobranca_quitacoes"]);
+    banco.responder = () => [{ table_name: "chat_autonomia_config" }, { table_name: "chat_autonomia_estado" }, { table_name: "chat_autonomia_fila" }, { table_name: "chat_autonomia_seguranca" }, { table_name: "chat_autonomia_autorizacao" }, { table_name: "cobranca_quitacoes" }];
     expect(await autonomiaStorage.tabelasExistem()).toEqual({ ok: true, faltam: [] });
   });
 });

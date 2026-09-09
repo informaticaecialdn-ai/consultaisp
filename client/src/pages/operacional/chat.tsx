@@ -39,7 +39,6 @@ import {
   useSkeletonAtrasado,
 } from "@/components/cobranca/ui";
 import { dataHoraBr } from "@/components/cobranca/formatacao";
-import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
 import { carteiraDaNavegacao } from "@/components/cobranca/carteiras";
 import {
   API_CHAT_BULLQ,
@@ -222,7 +221,7 @@ function CasoSemConversa({
 
   const iniciar = useMutation({
     mutationFn: async () =>
-      (await apiRequest("POST", apiEnviarCasoParaChat(casoId), {})).json() as Promise<{
+      (await apiRequest("POST", `${apiEnviarCasoParaChat(casoId)}?carteira=${carteira}`, {})).json() as Promise<{
         conversationId: string;
         reaproveitada?: boolean;
       }>,
@@ -300,10 +299,14 @@ export default function ChatOperacional() {
    */
   const casoDoLink = origem === "cobranca" ? Number(new URLSearchParams(search).get("caso")) || null : null;
   const conversaDoCaso = useQuery<{ conversationId: string } | null>({
-    queryKey: [apiConversaDoCaso(casoDoLink ?? 0)],
+    queryKey: [`${apiConversaDoCaso(casoDoLink ?? 0)}?carteira=${carteira}`],
     queryFn: async () => {
-      const r = await fetch(apiConversaDoCaso(casoDoLink!), { credentials: "include" });
-      if (r.status === 404) return null;
+      const r = await fetch(`${apiConversaDoCaso(casoDoLink!)}?carteira=${carteira}`, { credentials: "include" });
+      if (r.status === 404) {
+        const erro = await r.json();
+        if (erro.codigo === "ESCOPO_DIVERGENTE") throw new Error(erro.message);
+        return null;
+      }
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
@@ -366,19 +369,7 @@ export default function ChatOperacional() {
             )}
           </div>
         </div>
-        <Link
-          href={
-            origem === "cobranca"
-              ? `/cobranca/esteira?carteira=${carteira}`
-              : "/recuperacao"
-          }
-          className={cn(LINK_CHAT, "text-xs")}
-        >
-          {origem === "cobranca"
-            ? "Abrir a esteira de cobrança"
-            : "Abrir recuperação"}{" "}
-          →
-        </Link>
+
       </header>
       <div className="flex min-h-0 flex-1 overflow-hidden bg-[var(--surface)]">
         <aside
@@ -388,14 +379,6 @@ export default function ChatOperacional() {
           )}
           aria-label="Fila de conversas"
         >
-          {origem === "cobranca" && (
-            <div className="px-3 pt-3">
-              <NavegacaoCarteiras
-                carteira={carteira}
-                destino="/cobranca/chat"
-              />
-            </div>
-          )}
           <div className="shrink-0 space-y-3 border-b border-[var(--border)] p-3">
             <label className="flex items-center gap-2 rounded border border-[var(--border-strong)] bg-[var(--surface)] px-2 focus-within:shadow-[var(--focus-ring)]">
               <Search
@@ -527,9 +510,10 @@ export default function ChatOperacional() {
           {selecionada ? (
             <div className="min-h-0 flex-1">
               <Atendimento
-                key={`${origem}-${selecionada}`}
+                key={`${origem}-${carteira}-${selecionada}`}
                 conversationId={selecionada}
                 origem={origem}
+                carteira={origem === "cobranca" ? carteira : undefined}
               />
             </div>
           ) : casoDoLink ? (

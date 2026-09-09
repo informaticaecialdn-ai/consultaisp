@@ -36,6 +36,7 @@ const banco = vi.hoisted(() => ({
   vazias: [] as RegExp[],
   transacoes: 0,
   dentro: false,
+  falhar: null as RegExp | null,
   db: null as any,
 }));
 
@@ -49,16 +50,27 @@ vi.mock("../db", () => ({
 import { getTableColumns, getTableName, type SQL } from "drizzle-orm";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pg-proxy";
+import { cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
 
 describe("indicadores e fila por carteira", () => {
+  it.each([['active', 'ex_cliente', 'ativo'], ['suspended', 'ex_cliente', 'ativo'], ['cancelled', 'ativo', 'ex_cliente']])('caso %s acompanha ERP preservando a abertura', async (status, antiga, atual) => {
+    banco.linhas.get('customers')![0].status = status;
+    banco.linhas.get('cobranca_casos')![0].carteira = antiga;
+    const caso = await storage.obterCasoDeCobranca(PROVEDOR, 10);
+    expect(caso).toMatchObject({ carteira: atual, carteiraAbertura: antiga });
+  });
   it.each(["ativo", "ex_cliente"] as const)("restringe contatos, parcelas, casos e entradas a %s", async carteira => {
     await storage.kpisDaCobranca(PROVEDOR, new Date(2026, 8, 6), carteira);
     const [saldo, ...movimentos] = banco.consultas;
     expect(saldo.sql).toMatch(/where .*"customers"\."status"/);
-    expect(movimentos).toHaveLength(4);
+    expect(movimentos).toHaveLength(3);
     for (const consulta of movimentos) {
-      expect(consulta.sql).toContain('"cobranca_casos"."carteira"');
-      expect(consulta.params).toContain(carteira);
+      if (consulta.sql.includes('from "cobranca_quitacoes"')) {
+        expect(consulta.sql).toContain('"customers"."status"');
+      } else {
+        expect(consulta.sql).toContain('"customers"."status"');
+        expect(consulta.params).toContain('active');
+      }
       expect(consulta.params).toContain(PROVEDOR);
     }
   });
@@ -66,7 +78,7 @@ describe("indicadores e fila por carteira", () => {
   it.each(["ativo", "ex_cliente"] as const)("a fila restringe %s antes do limite", async carteira => {
     await storage.filaDeCobranca(PROVEDOR, { carteira, limite: 20 });
     expect(banco.consultas[0].sql).toContain('"cobranca_casos"."carteira"');
-    expect(banco.consultas[0].params).toContain(carteira);
+    expect(banco.consultas[0].sql).toMatch(/where .*"customers"\."status"/);
   });
 
   it("os bairros de ex-clientes excluem os contratos atuais no banco", async () => {
@@ -88,7 +100,7 @@ const PROVEDOR = 6;
 const OUTRO_PROVEDOR = 9;
 const OPERADOR = 3;
 
-const TABELAS = [cobrancaCasos, cobrancaEventos, cobrancaNegociacoes, cobrancaParcelas, cobrancaPolitica, customers, users];
+const TABELAS = [cobrancaCasos, cobrancaEventos, cobrancaNegociacoes, cobrancaParcelas, cobrancaPolitica, customers, users, cobrancaQuitacoes];
 const tabelaPorNome = new Map(TABELAS.map(t => [getTableName(t), t]));
 const chavePorColuna = new Map(
   TABELAS.map(t => [
@@ -221,8 +233,10 @@ beforeEach(() => {
   banco.linhas.clear();
   banco.transacoes = 0;
   banco.dentro = false;
+  banco.falhar = null;
   const proxy = drizzle(async (sqlTexto, params, method) => {
     banco.consultas.push({ sql: sqlTexto, params, method, dentroDaTransacao: banco.dentro });
+    if (banco.falhar?.test(sqlTexto)) throw new Error("Falha deliberada na aprovação");
     return { rows: responder(sqlTexto, method) };
   });
   banco.db = Object.assign(proxy, {
@@ -260,6 +274,110 @@ const casoEm = (status: string) => banco.linhas.set("cobranca_casos", [{ ...caso
 const negociacaoEm = (status: string) =>
   banco.linhas.set("cobranca_negociacoes", [{ ...banco.linhas.get("cobranca_negociacoes")![0], status }]);
 
+describe("integridade financeira da entrada e aprovação", () => {
+  it("nota falsa de dispensa não libera aprovação de proposta legada", async () => {
+    negociacaoEm("proposta");
+    banco.linhas.set("cobranca_eventos", [{ id: 900, tipo: "nota", metadata: { negociacaoId: 77, versaoAprovacao: 1, exigeAprovacao: false } }]);
+    await expect(storage.atualizarStatusDaNegociacao(PROVEDOR, 77, "aceita", OPERADOR))
+      .rejects.toMatchObject({ codigo: "APROVACAO_OBRIGATORIA" });
+  });
+
+  it("administrador revalidado no banco aprova o legado, com trilha transacional", async () => {
+    negociacaoEm("proposta");
+    await storage.atualizarStatusDaNegociacao(PROVEDOR, 77, "aceita", OPERADOR, { podeAprovarExcecao: true });
+    const consulta = banco.consultas.find(c => c.sql.includes('from "users"'));
+    expect(consulta?.params).toEqual(expect.arrayContaining([OPERADOR, PROVEDOR, "admin", "superadmin"]));
+    expect(consulta?.dentroDaTransacao).toBe(true);
+    expect(inserts("cobranca_eventos")[0].params.some(p => typeof p === "string" && p.includes('"aprovacaoConferida":true'))).toBe(true);
+  });
+
+  it("permissão administrativa revogada impede o aceite mesmo com sessão antiga", async () => {
+    negociacaoEm("proposta");
+    banco.linhas.set("users", []);
+    await expect(storage.atualizarStatusDaNegociacao(PROVEDOR, 77, "aceita", OPERADOR, { podeAprovarExcecao: true }))
+      .rejects.toMatchObject({ codigo: "APROVACAO_OBRIGATORIA" });
+  });
+
+  it("pagamento repetido com mesma chave retorna registro existente sem outra escrita", async () => {
+    banco.linhas.set("cobranca_eventos", [{ id: 900, tipo: "parcela_paga", metadata: { parcelaId: 501, valorPago: 40, parcial: true } }]);
+    const resultado = await storage.marcarParcelaPaga(PROVEDOR, 501, 40, new Date(), OPERADOR, "00000000-0000-4000-8000-000000000001");
+    expect(resultado?.parcial).toBe(true);
+    expect(updates("cobranca_parcelas")).toHaveLength(0);
+    expect(inserts("cobranca_eventos")).toHaveLength(0);
+  });
+
+  it("chave reutilizada com outro valor não altera o recebimento", async () => {
+    banco.linhas.set("cobranca_eventos", [{ id: 900, tipo: "parcela_paga", metadata: { parcelaId: 501, valorPago: 40 } }]);
+    await expect(storage.marcarParcelaPaga(PROVEDOR, 501, 50, new Date(), OPERADOR, "00000000-0000-4000-8000-000000000001"))
+      .rejects.toMatchObject({ codigo: "IDEMPOTENCIA_CONFLITO" });
+  });
+
+  it("última prestação sem entrada confirmada mantém o acordo vivo", async () => {
+    banco.linhas.get("cobranca_negociacoes")![0].entrada = "80.00";
+    banco.agregados.push({ quando: /^select count\(\*\) from "cobranca_parcelas"/, linha: [0] });
+    banco.vazias.push(/^select "id" from "cobranca_parcelas"/);
+    const r = await storage.marcarParcelaPaga(PROVEDOR, 501, 100, new Date(), OPERADOR);
+    expect(r?.acordoCumprido).toBe(false);
+    expect(updates("cobranca_casos")).toHaveLength(0);
+  });
+
+  it("recibo direto concorrente impede negociação sobre saldo já recebido", async () => {
+    semNegociacaoVivaNoCaso();
+    banco.linhas.set("cobranca_quitacoes", [{ id: 1 }]);
+    await expect(storage.criarNegociacao(PROVEDOR, {
+      casoId: 10, tipo: "quitacao_desconto", valorOriginal: 350, valorNegociado: 300,
+      criadoPorUserId: OPERADOR, aprovacao: { exigeAprovacao: false }, aceita: true,
+    }, [{ numero: 1, valor: 300, vencimento: "2026-09-10" }])).rejects.toMatchObject({ codigo: "SALDO_ALTERADO" });
+    expect(inserts("cobranca_negociacoes")).toHaveLength(0);
+  });
+  it("materializa entrada pendente e grava exigência na mesma transação", async () => {
+    semNegociacaoVivaNoCaso();
+    await storage.criarNegociacao(PROVEDOR, {
+      casoId: 10, tipo: "parcelamento", valorOriginal: 350, valorNegociado: 300,
+      entrada: 100, criadoPorUserId: OPERADOR, aceita: true,
+      aprovacao: { exigeAprovacao: true, motivos: ["Desconto excepcional"] },
+    }, [{ numero: 1, valor: 200, vencimento: "2026-09-10" }]);
+    const parcelas = inserts("cobranca_parcelas")[0];
+    expect(parcelas.params).toContain(0);
+    expect(parcelas.params).toContain("100.00");
+    expect(parcelas.params).not.toContain("paga");
+    const registro = inserts("cobranca_eventos")[0];
+    expect(registro.dentroDaTransacao).toBe(true);
+    expect(registro.params.some(p => typeof p === "string" && p.includes('"exigeAprovacao":true'))).toBe(true);
+    expect(inserts("cobranca_negociacoes")[0].params).toContain("proposta");
+  });
+
+  it("erro no registro obrigatório aborta criação em vez de publicar proposta sem bloqueio", async () => {
+    semNegociacaoVivaNoCaso();
+    banco.falhar = /^insert into "cobranca_eventos"/;
+    await expect(storage.criarNegociacao(PROVEDOR, {
+      casoId: 10, tipo: "parcelamento", valorOriginal: 350, valorNegociado: 300,
+      criadoPorUserId: OPERADOR, aprovacao: { exigeAprovacao: true },
+    }, [{ numero: 1, valor: 300, vencimento: "2026-09-10" }])).rejects.toThrow("Falha deliberada");
+    expect(banco.consultas.every(c => c.dentroDaTransacao)).toBe(true);
+  });
+
+  it.each([true, undefined])("aceite de exceção/legado sem decisão (%s) exige autorização dentro da transação", async exigida => {
+    negociacaoEm("proposta");
+    if (exigida) banco.linhas.set("cobranca_eventos", [{
+      id: 900, tipo: "negociacao_proposta", metadata: { negociacaoId: 77, versaoAprovacao: 1, exigeAprovacao: true },
+    }]);
+    await expect(storage.atualizarStatusDaNegociacao(PROVEDOR, 77, "aceita", OPERADOR))
+      .rejects.toMatchObject({ codigo: "APROVACAO_OBRIGATORIA" });
+    expect(updates("cobranca_negociacoes")).toHaveLength(0);
+    expect(banco.consultas.some(c => c.sql.includes('from "cobranca_negociacoes"') && c.sql.includes("for update"))).toBe(true);
+  });
+
+  it("pagamento trava a negociação e a parcela antes de acumular o parcial", async () => {
+    await storage.marcarParcelaPaga(PROVEDOR, 501, 40, new Date(), OPERADOR);
+    const leituras = so("select");
+    const acordo = leituras.findIndex(c => c.sql.includes('from "cobranca_negociacoes"') && c.sql.includes("for update"));
+    const parcela = leituras.findIndex(c => c.sql.includes('from "cobranca_parcelas"') && c.sql.includes("for update"));
+    expect(acordo).toBeGreaterThanOrEqual(0);
+    expect(parcela).toBeGreaterThan(acordo);
+  });
+});
+
 describe("todo WHERE carrega o provider_id", () => {
   const cenarios: Array<[string, () => Promise<unknown>]> = [
     ["getPoliticaDeCobranca", () => storage.getPoliticaDeCobranca(PROVEDOR)],
@@ -284,7 +402,7 @@ describe("todo WHERE carrega o provider_id", () => {
     ["criarNegociacao", () => {
       semNegociacaoVivaNoCaso();
       return storage.criarNegociacao(PROVEDOR, {
-        casoId: 10, tipo: "parcelamento", valorOriginal: 350, valorNegociado: 300, criadoPorUserId: OPERADOR,
+        casoId: 10, tipo: "parcelamento", valorOriginal: 350, valorNegociado: 300, entrada: 100, criadoPorUserId: OPERADOR,
       }, [{ numero: 1, valor: 100, vencimento: "2026-09-10" }, { numero: 2, valor: 100, vencimento: "2026-10-10" }]);
     }],
     ["atualizarStatusDaNegociacao", () => storage.atualizarStatusDaNegociacao(PROVEDOR, 77, "quebrada", OPERADOR)],
@@ -441,7 +559,7 @@ describe("negociacao + parcelas: uma transacao, e o caso e o evento vao junto", 
 
   it("nascendo aceita, o caso vai direto a acordo_ativo", async () => {
     await storage.criarNegociacao(PROVEDOR, {
-      casoId: 10, tipo: "quitacao_desconto", valorOriginal: 350, valorNegociado: 250, descontoPct: 28.57, criadoPorUserId: OPERADOR, aceita: true,
+      casoId: 10, tipo: "quitacao_desconto", valorOriginal: 350, valorNegociado: 250, descontoPct: 28.57, criadoPorUserId: OPERADOR, aceita: true, aprovacao: { exigeAprovacao: false },
     }, [{ numero: 1, valor: 250, vencimento: "2026-09-10" }]);
     expect(updates("cobranca_casos")[0].params).toContain("acordo_ativo");
     expect(inserts("cobranca_eventos")[0].params).toContain("acordo_aceito");
@@ -464,7 +582,7 @@ describe("negociacao + parcelas: uma transacao, e o caso e o evento vao junto", 
     banco.linhas.set("cobranca_casos", [{ ...banco.linhas.get("cobranca_casos")![0], status: "acordo_ativo" }]);
     await storage.atualizarStatusDaNegociacao(PROVEDOR, 77, "quebrada", OPERADOR);
     const [parcelas] = updates("cobranca_parcelas");
-    expect(parcelas.sql).toMatch(/"cobranca_parcelas"\."status" in \(\$\d+, \$\d+\)/);
+    expect(parcelas.sql).toMatch(/"cobranca_parcelas"\."status" in \(\$\d+, \$\d+, \$\d+\)/);
     expect(parcelas.params).toEqual(expect.arrayContaining(["cancelada", "pendente", "atrasada", 77, PROVEDOR]));
     expect(updates("cobranca_casos")[0].params).toContain("aberto");
     expect(inserts("cobranca_eventos")[0].params).toContain("acordo_quebrado");
@@ -669,11 +787,11 @@ describe("a carteira", () => {
 
   it("contagens por etapa e quadrante agrupam so casos vivos", async () => {
     await storage.contarCasosPorEtapa(PROVEDOR);
-    expect(banco.consultas[0].sql).toMatch(/group by "cobranca_casos"\."etapa_atual", "cobranca_casos"\."carteira"/);
+    expect(banco.consultas[0].sql).toMatch(/group by "cobranca_casos"\."etapa_atual", case when "customers"\."status"/);
     expect(banco.consultas[0].sql).toMatch(/"status" not in/);
     banco.consultas.length = 0;
     await storage.contarCasosPorQuadrante(PROVEDOR);
-    expect(banco.consultas[0].sql).toMatch(/group by "cobranca_casos"\."quadrante_dna", "cobranca_casos"\."carteira"/);
+    expect(banco.consultas[0].sql).toMatch(/group by "cobranca_casos"\."quadrante_dna", case when "customers"\."status"/);
   });
 });
 
@@ -681,7 +799,7 @@ describe("os numeros do cabecalho", () => {
   it("kpis: ativo com divida, ex com divida e em aberto vem de customers; contatados hoje conta cliente distinto desde a meia-noite local", async () => {
     const hoje = new Date(2026, 8, 5, 15, 45);
     await storage.kpisDaCobranca(PROVEDOR, hoje);
-    const [carteira, contatos, parcelas, casos, entradas] = banco.consultas;
+    const [carteira, contatos, recebimentos] = banco.consultas;
     expect(carteira.sql).toContain(`count(*) filter (where "customers"."status" in ($1, $2) and coalesce("customers"."total_overdue_amount", 0) > 0)`);
     expect(carteira.sql).toContain(`not ("customers"."status" in (`);
     expect(carteira.params.slice(0, 2)).toEqual([...STATUS_DE_CLIENTE_ATUAL]);
@@ -690,26 +808,18 @@ describe("os numeros do cabecalho", () => {
     expect(contatos.params).toContain("contato");
     expect(contatos.params).toContain(new Date(2026, 8, 5, 0, 0, 0, 0).toISOString());
 
-    expect(parcelas.sql).toMatch(/sum\((?:"cobranca_parcelas"\.)?"valor_pago"\)/);
-    expect(parcelas.params).toContain("paga");
-
-    // Caso pago SEM acordo — o que teve acordo ja esta nas parcelas.
-    expect(casos.sql).toMatch(/not exists \(select 1 from "cobranca_negociacoes"/);
-    expect(casos.params).toEqual(expect.arrayContaining(["aceita", "ativa", "cumprida", "pago"]));
-
-    // A entrada e paga no aceite: negociacoes aceitas nos 30 dias. Quebrada fica fora ("aceita mas a entrada nunca veio").
-    expect(entradas.sql).toMatch(/sum\((?:"cobranca_negociacoes"\.)?"entrada"\)/);
-    expect(entradas.sql).toMatch(/"cobranca_negociacoes"\."aceita_em" >= \$\d+/);
-    expect(entradas.params).toEqual(expect.arrayContaining(["aceita", "ativa", "cumprida"]));
-    expect(entradas.params).not.toContain("quebrada");
+    expect(recebimentos.sql).toContain("'valorPago'");
+    expect(recebimentos.sql).toContain('"ocorrido_em" >=');
+    expect(recebimentos.sql).toContain('"ocorrido_em" <=');
+    expect(recebimentos.params).toContain("parcela_paga");
+    expect(banco.consultas).toHaveLength(4);
   });
 
-  it("recuperado30d soma as tres fontes: parcelas pagas, entradas aceitas e casos pagos sem acordo", async () => {
-    banco.agregados.push({ quando: /sum\((?:"cobranca_parcelas"\.)?"valor_pago"\)/, linha: ["450.00"] });
-    banco.agregados.push({ quando: /sum\((?:"cobranca_casos"\.)?"valor_atual"\)/, linha: ["120.50"] });
-    banco.agregados.push({ quando: /sum\((?:"cobranca_negociacoes"\.)?"entrada"\)/, linha: ["200.10"] });
+  it("recuperado30d soma eventos recebidos, inclusive parciais; não presume entrada/baixa", async () => {
+    banco.agregados.push({ quando: /sum\(case/, linha: ["450.00"] });
     const k = await storage.kpisDaCobranca(PROVEDOR);
-    expect(k.recuperado30d).toBe(770.6);
+    expect(k.recuperado30d).toBe(450);
+    expect(banco.consultas.some(c => c.sql.includes('"aceita_em"'))).toBe(false);
   });
 
   it("composicao: em dia + em cobranca + ex com divida, de customers", async () => {
@@ -741,6 +851,19 @@ describe("a fila do operador", () => {
 });
 
 describe("candidatos a caso — o que o job abre", () => {
+  it("reentrada após saldo zerado exige novas faturas completas e mantém ambiguidades para revisão", async () => {
+    await storage.clientesParaAbrirCaso(PROVEDOR, 20);
+    const consulta = banco.consultas[0];
+    expect(consulta.params).toContain("divida_zerada_sem_recebimento_confirmado");
+    expect(consulta.sql).toContain('"cobranca_casos"."encerrado_em" is not null');
+    expect(consulta.sql).toContain('"invoices"."due_date"::date >');
+    expect(consulta.sql).toContain('"invoices"."due_date"::date <=');
+    expect(consulta.sql).toContain('sum("invoices"."value") = coalesce("customers"."total_overdue_amount", 0)');
+    expect(consulta.sql).toContain('count(*) = coalesce("customers"."overdue_invoices_count", 0)');
+    expect(consulta.sql).toContain('min("invoices"."due_date")::date');
+    expect(consulta.sql).toContain("not coalesce(");
+    provaProviderId(consulta, PROVEDOR);
+  });
   it("divida acima do minimo, ao menos 1 dia, sem caso vivo, sem baixa anterior, sem pago recente", async () => {
     await storage.clientesParaAbrirCaso(PROVEDOR, 20);
     const { sql: s, params } = banco.consultas[0];
@@ -862,7 +985,7 @@ describe("achados da revisao — pagamento de parcela", () => {
     const r = await storage.marcarParcelaPaga(PROVEDOR, 501, 100, new Date(), OPERADOR);
     expect(r).toBeUndefined();
     const [upd] = updates("cobranca_parcelas");
-    expect(upd.sql).toMatch(/"cobranca_parcelas"\."status" in \(\$\d+, \$\d+\)/);
+    expect(upd.sql).toMatch(/"cobranca_parcelas"\."status" in \(\$\d+, \$\d+, \$\d+\)/);
     expect(upd.params).toEqual(expect.arrayContaining(["pendente", "atrasada"]));
     expect(inserts("cobranca_eventos")).toHaveLength(0);
     expect(updates("cobranca_negociacoes")).toHaveLength(0);
@@ -883,7 +1006,7 @@ describe("achados da revisao — pagamento de parcela", () => {
     const set = upd.sql.slice(0, upd.sql.indexOf(" where "));
     expect(set).toContain('"valor_pago"');
     expect(set).not.toContain('"status"');
-    expect(set).not.toContain('"pago_em"');
+    expect(set).toContain('"pago_em"');
     expect(upd.params).toContain("40.00");
     expect(updates("cobranca_negociacoes")).toHaveLength(0);
     expect(updates("cobranca_casos")).toHaveLength(0);
@@ -1233,7 +1356,7 @@ describe("fluxoDaEsteira", () => {
     provaProviderId(c, PROVEDOR);
     expect(c.sql).toContain('"cobranca_casos"."aberto_em"');
     expect(c.sql).toContain('"cobranca_casos"."encerrado_em"');
-    expect(c.params).toContain("ativo");
+    expect(c.params).toContain("active");
     // O corte vai como Date: o parametro nasce de um sql`` cru, sem o mapeamento da coluna.
     expect(c.params).toContainEqual(desde);
     // Desfecho e a lista de fechados — negativado continua vivo e nao conta.

@@ -1,3 +1,4 @@
+import { CATEGORIAS_PAINEL } from "@/components/painel/OrganizacaoPainel";
 /**
  * A aba Chat do painel do provedor, travada pelo fonte: fala com as rotas da
  * ponte, o token e a senha nunca ficam no estado depois de enviados, so o
@@ -46,7 +47,7 @@ describe("aba Chat", () => {
     expect(aba).not.toMatch(/rounded-full|\b(?:text|bg|border)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/);
   });
   it("esta no painel do provedor como aba `chat`, com a permissao do painel", () => {
-    expect(painel).toContain('<TabsTrigger value="chat" className="gap-1.5" data-testid="tab-chat">');
+    expect(CATEGORIAS_PAINEL.flatMap(c=>c.itens).some(i=>i.id==="chat")).toBe(true);
     expect(painel).toContain("<AbaChat podeAdministrar={podeAdministrar} />");
     expect(painel).toContain('import { AbaChat } from "@/components/painel/AbaChat";');
   });

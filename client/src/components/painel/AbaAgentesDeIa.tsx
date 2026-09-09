@@ -27,6 +27,9 @@ import { AbaAgentes } from "@/components/agentes/AbaAgentes";
 import { AbaSkills } from "@/components/agentes/AbaSkills";
 import { AbaConexoes } from "@/components/agentes/AbaConexoes";
 import { AbaExecucoes, AbaResumo } from "@/components/agentes/AbaExecucoes";
+import { AgentesDoChat } from "@/components/chat/AgentesDoChat";
+import { AutomacaoPrimeiroContato } from "@/components/chat/AutomacaoPrimeiroContato";
+import { AutonomiaDoChat } from "@/components/chat/AutonomiaDoChat";
 import { ABAS_DO_CONSOLE, abaValida, ROTA_AGENTES, type AbaDoConsole } from "@/components/agentes/tipos";
 
 interface EstadoDaIntegracao { ligado?: boolean; canal?: { id: string } | null }
@@ -77,7 +80,7 @@ export function AbaAgentesDeIa({ podeAdministrar }: { podeAdministrar: boolean }
             key={a.chave} role="tab" aria-selected={aba === a.chave}
             onClick={() => trocar(a.chave)}
             className={cn(
-              "min-h-[36px] rounded px-3 text-[12.5px] font-medium motion-safe:transition-colors",
+              "min-h-[44px] rounded px-3 text-[12.5px] font-medium motion-safe:transition-colors",
               aba === a.chave
                 ? "bg-[var(--surface)] text-[var(--text)] shadow-[0_0_0_1px_var(--border)]"
                 : "text-[var(--text-muted)] hover:text-[var(--text-2)]",
@@ -90,6 +93,21 @@ export function AbaAgentesDeIa({ podeAdministrar }: { podeAdministrar: boolean }
       </div>
 
       {aba === "resumo" && <AbaResumo />}
+      {aba === "cobranca" && (
+        <div className="space-y-4" data-testid="console-operacao-cobranca">
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+            <h3 className="text-sm font-semibold">Da régua ao atendimento</h3>
+            <ol className="mt-2 grid gap-3 text-xs leading-5 text-[var(--text-2)] md:grid-cols-3">
+              <li><b>1. Definir a política.</b> A régua escolhe quando contatar; o DNA orienta o tom. <Link href="/painel-provedor?tab=cobranca" className="text-[var(--brand)] underline">Revisar política</Link></li>
+              <li><b>2. Configurar os agentes.</b> Escolha os perfis e os limites abaixo. O cliente confirma a identidade antes de receber informações de dívida.</li>
+              <li><b>3. Acompanhar as respostas.</b> A equipe assume os casos que precisam de atendimento humano. <Link href="/cobranca/chat?carteira=ativo" className="text-[var(--brand)] underline">Abrir conversas</Link></li>
+            </ol>
+          </section>
+          <AgentesDoChat podeAdministrar={podeAdministrar} />
+          <AutomacaoPrimeiroContato podeAdministrar={podeAdministrar} />
+          <AutonomiaDoChat podeAdministrar={podeAdministrar} />
+        </div>
+      )}
       {aba === "agentes" && <AbaAgentes podeAdministrar={podeAdministrar} />}
       {aba === "skills" && <AbaSkills podeAdministrar={podeAdministrar} />}
       {aba === "conexoes" && <AbaConexoes podeAdministrar={podeAdministrar} />}

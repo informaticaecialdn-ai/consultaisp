@@ -77,7 +77,7 @@ describe("enviar leva a próxima ação opcional", () => {
 describe("devolver ao assistente", () => {
   it("chama a rota da autonomia e fica desabilitado, com o motivo, quando o assistente está desligado", () => {
     expect(API_AUTONOMIA).toBe("/api/chat-bullq/autonomia");
-    expect(fonte).toContain("`${API_AUTONOMIA}/conversas/${encodeURIComponent(conversationId)}/devolver`");
+    expect(fonte).toContain("`${API_AUTONOMIA}/conversas/${encodeURIComponent(conversationId)}/devolver?${escopo}`");
     expect(fonte).toContain('data-testid="chat-devolver-assistente"');
     expect(fonte).toMatch(/const assistenteLigado = autonomia\.data\?\.config\?\.ativa === true/);
     expect(fonte).toMatch(/disabled=\{\s*!assistenteLigado \|\| devolver\.isPending \|\| acao\.isPending\s*\}/);
@@ -233,5 +233,19 @@ describe("o painel do cliente é a terceira coluna", () => {
     expect(fonte).toMatch(/xl:w-\[344px\][^"]*2xl:w-\[360px\]/);
     expect(fonte).toContain("overflow-y-auto");
     expect(fonte).toContain('mostrarContexto ? "absolute inset-0 z-20" : "hidden"');
+  });
+});
+
+
+describe("isolamento da carteira no atendimento", () => {
+  it("inclui escopo no cache e em todas as operações da conversa", () => {
+    expect(fonte).toContain('new URLSearchParams({ origem, ...(carteira ? { carteira } : {}) })');
+    expect(fonte).toContain('queryKey: [url, escopo]');
+    expect(fonte).toContain('`${url}/contexto?${escopo}');
+    expect(fonte).toContain('`${url}?${escopo}&pagina=');
+    expect(fonte).toContain('`${url}/acoes?${escopo}');
+    expect(fonte).toContain('/midia?${escopo}&pagina=');
+    expect(fonte).toContain('escopo={escopo}');
+    expect(fonte).toContain('if (!dados || query.isError)');
   });
 });

@@ -158,8 +158,12 @@ describe("comportamento", () => {
     await storage.listarAtendimentosDoChat(PROVEDOR, { origem: "cobranca", carteira: "ex_cliente", pagina: 1 });
     const cobranca = banco.consultas.at(-1)!;
     provaProviderId(cobranca, PROVEDOR);
-    expect(cobranca.sql).toContain('"caso_id" is not null');
-    expect(cobranca.params).toContain("ex_cliente");
+    expect(cobranca.sql).toContain('"caso_id" is not null or "chat_bullq_conversas"."origem" =');
+    expect(cobranca.params).toContain("cobranca");
+    expect(cobranca.sql).toContain('not ("customers"."status" in');
+    expect(cobranca.params).toContain("active");
+    expect(cobranca.params).toContain("suspended");
+    expect(cobranca.sql).not.toMatch(/"cobranca_casos"\."carteira" =/);
     await storage.listarAtendimentosDoChat(PROVEDOR, { origem: "equipamentos", pagina: 1 });
     const equipamentos = banco.consultas.at(-1)!;
     provaProviderId(equipamentos, PROVEDOR);

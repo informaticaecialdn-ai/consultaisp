@@ -912,3 +912,24 @@
     transform: translateY(-50%);
   }
 }
+
+/* Rolagem discreta, sem trilho sólido nem setas de controles nativos. */
+:root { --scroll-thumb: rgba(90, 96, 118, .18); --scroll-thumb-hover: rgba(90, 96, 118, .42); }
+.dark { --scroll-thumb: rgba(177, 183, 205, .20); --scroll-thumb-hover: rgba(177, 183, 205, .48); }
+* { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+*::-webkit-scrollbar { width: 5px; height: 5px; }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
+*::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+/* Chromium prioriza scrollbar-width/color sobre os pseudo-elementos. */
+@supports selector(::-webkit-scrollbar) {
+  * { scrollbar-width: auto; scrollbar-color: auto; }
+}
+.ds-scrollbar { background: transparent; }
+.ds-scrollbar-thumb { background: var(--scroll-thumb); transition: background-color 160ms; }
+.ds-scrollbar:hover .ds-scrollbar-thumb { background: var(--scroll-thumb-hover); }
+@media (forced-colors: active) {
+  * { scrollbar-color: auto; scrollbar-width: auto; }
+  *::-webkit-scrollbar-thumb, .ds-scrollbar-thumb { background: CanvasText; }
+}

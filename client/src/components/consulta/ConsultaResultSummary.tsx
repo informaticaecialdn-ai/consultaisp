@@ -128,11 +128,11 @@ export default function ConsultaResultSummary({
         background: "var(--surface)", border: "1px solid var(--border)",
         borderRadius: 10, overflow: "hidden",
       }}
-      className="ds-report-card"
+      className="ds-report-card isp-result"
       data-testid="consultation-result-cards"
     >
       {/* ═══ CABEÇALHO ═══ */}
-      <div style={{
+      <div className="isp-report-heading" style={{
         padding: "20px 24px 18px", display: "flex", alignItems: "flex-start",
         justifyContent: "space-between", gap: 16, flexWrap: "wrap",
       }}>
@@ -176,11 +176,11 @@ export default function ConsultaResultSummary({
       </div>
 
       {/* ═══ 01 · SCORE | 02 · SUGESTÃO ═══ */}
-      <div className="ds-score-grid" style={{ borderTop: "1px solid var(--border)" }}>
+      <div className="ds-score-grid isp-result-overview" style={{ borderTop: "1px solid var(--border)" }}>
         {/* A hairline entre as colunas e do CSS (.ds-score-grid), nao inline:
             inline venceria a regra que a remove quando o card empilha. */}
-        <div style={{ padding: "20px 24px" }}>
-          <Kicker>01 · Score de crédito</Kicker>
+        <div className="isp-score-panel" style={{ padding: "20px 24px" }}>
+          <h2 className="isp-result-label">Score de crédito</h2>
           <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 12 }}>
             <span style={{
               fontFamily: "var(--font-mono)", fontSize: 46, fontWeight: 600,
@@ -200,11 +200,12 @@ export default function ConsultaResultSummary({
             </span>
           </div>
           <ScoreBar score={score} />
+          <p className="isp-score-explainer">Leia a pontuação junto das ocorrências abaixo. Um score alto não elimina pendências de equipamentos ou de endereço.</p>
         </div>
 
-        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column" }}>
+        <div className="isp-decision-panel" data-tone={decisao.tone} style={{ padding: "20px 24px", display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <Kicker>02 · Sugestão de ação</Kicker>
+            <h2 className="isp-result-label">Como interpretar este resultado</h2>
             <span style={{
               fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase",
               letterSpacing: "var(--track-wide)", color: "var(--text-faint)", whiteSpace: "nowrap",
@@ -235,7 +236,7 @@ export default function ConsultaResultSummary({
               { valor: String(equipamentos), rotulo: "Equip. retidos", ruim: equipamentos > 0, mono18: true },
               { valor: debitoEstimado, rotulo: "Débito estimado", ruim: temDebito, mono18: false },
             ].map(sin => (
-              <div key={sin.rotulo}>
+              <div key={sin.rotulo} data-attention={sin.ruim}>
                 <div style={{
                   fontFamily: "var(--font-mono)", fontSize: sin.mono18 ? 18 : 15, fontWeight: 600,
                   fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" as const,
@@ -258,13 +259,19 @@ export default function ConsultaResultSummary({
         </div>
       </div>
 
+      <nav className="isp-report-nav" aria-label="Seções do resultado">
+        {result.searchType !== "cep" && <><a href="#isp-ocorrencias">Histórico na rede</a><a href="#isp-equipamentos">Equipamentos</a></>}
+        <a href="#isp-endereco">Endereço</a>
+      </nav>
+
       {/* ═══ 03 · OCORRÊNCIAS NA REDE ISP ═══
           A composição do score (extrato de deduções) NÃO aparece aqui, por
           decisão do dono do produto: o relatório entrega o número e a decisão;
           o MÉTODO do cálculo vive documentado na aba Informações. */}
       {result.searchType !== "cep" && (
         <ReportSection
-          title="03 · Ocorrências na rede ISP"
+          id="isp-ocorrencias" title="Histórico na rede de provedores"
+          description="Confira a origem de cada registro, a situação financeira e os valores disponíveis."
           trailing={
             <div style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--text-faint)" }}>
               <Lock size={10} />
@@ -333,7 +340,8 @@ export default function ConsultaResultSummary({
       {/* ═══ 04 · EQUIPAMENTO EM COMODATO ═══ */}
       {result.searchType !== "cep" && (
         <ReportSection
-          title="04 · Equipamento em comodato"
+          id="isp-equipamentos" title="Equipamentos e devoluções"
+          description="Uma pendência de devolução merece atenção mesmo quando não há faturas vencidas."
           trailing={
             <span style={pillStyle(equipamentos > 0
               ? (equipParceiro?.equipmentSignalValidated ? "gated" : "danger")
@@ -371,7 +379,8 @@ export default function ConsultaResultSummary({
 
       {/* ═══ 05 · VERIFICAÇÃO POR ENDEREÇO ═══ */}
       <ReportSection
-        title="05 · Verificação por endereço"
+        id="isp-endereco" title="Verificação do endereço"
+        description="Confira se o registro pertence ao mesmo imóvel. A associação por endereço, sozinha, não atribui a dívida ao cliente."
         trailing={
           result.autoAddressCrossRef === true ? (
             <span style={{
@@ -466,12 +475,12 @@ export default function ConsultaResultSummary({
 
       {/* ═══ 06 · ALERTAS | 07 · AÇÕES RECOMENDADAS ═══ */}
       {((result.alerts?.length ?? 0) > 0 || (result.recommendedActions?.length ?? 0) > 0) && (
-        <div className="ds-duo" style={{
+        <div className="ds-duo isp-next-steps" style={{
           borderTop: "1px solid var(--border)", padding: "18px 24px",
           marginTop: 0, gap: 28,
         }}>
           <div>
-            <Kicker>06 · Alertas</Kicker>
+            <h3>Pontos de atenção</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
               {(result.alerts?.length ?? 0) > 0
                 ? result.alerts.map((a, i) => (
@@ -484,7 +493,7 @@ export default function ConsultaResultSummary({
             </div>
           </div>
           <div>
-            <Kicker>07 · Ações recomendadas</Kicker>
+            <h3>O que fazer a seguir</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
               {(result.recommendedActions?.length ?? 0) > 0
                 ? result.recommendedActions.map((a, i) => (

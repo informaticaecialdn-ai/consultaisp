@@ -5,6 +5,7 @@ import { normalizarCodigo } from "./identificacao";
 
 interface Props {
   consultations: any[];
+  onOpen?: (id: number) => void;
 }
 
 /**
@@ -39,7 +40,7 @@ function Cabecalho({ children, alinharDireita }: { children: React.ReactNode; al
   );
 }
 
-export default function ConsultaHistoryTab({ consultations }: Props) {
+export default function ConsultaHistoryTab({ consultations, onOpen }: Props) {
   return (
     <div style={{
       background: "var(--surface)", border: "1px solid var(--border)",
@@ -70,6 +71,7 @@ export default function ConsultaHistoryTab({ consultations }: Props) {
             <Cabecalho alinharDireita>Score</Cabecalho>
             <Cabecalho>Parecer</Cabecalho>
             <Cabecalho alinharDireita>Custo</Cabecalho>
+            <Cabecalho>Resultado</Cabecalho>
           </div>
 
           {consultations.map((c: any) => {
@@ -132,6 +134,7 @@ export default function ConsultaHistoryTab({ consultations }: Props) {
                 }}>
                   {c.cost === 0 ? "grátis" : `${c.cost} cred.`}
                 </span>
+                {onOpen && <button type="button" className="ds-ctl" disabled={!c.result || typeof c.result !== "object"} onClick={() => onOpen(c.id)} style={{ color: "var(--action)", fontFamily: "inherit", fontSize: 12, justifySelf: "start", whiteSpace: "nowrap" }}>Ver resultado</button>}
               </div>
             );
           })}

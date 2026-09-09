@@ -75,6 +75,6 @@ describe("faixa de atraso no SQL", () => {
     );
     const c = consultaDaListagem();
     expect(c.sql).toContain('coalesce("customers"."max_days_overdue", 0)');
-    expect(c.params).toEqual(expect.arrayContaining([31, 60, "ativo", "negociacao_recuperacao", 8]));
+    expect(c.params).toEqual(expect.arrayContaining([31, 60, "active", "suspended", "negociacao_recuperacao", 8]));
   });
 });

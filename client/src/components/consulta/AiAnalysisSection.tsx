@@ -89,7 +89,7 @@ export default function AiAnalysisSection({ result }: Props) {
         }
       }
     } catch (err: any) {
-      setAiError(err.message || "Erro desconhecido");
+      setAiError(err.message || "Não foi possível gerar a análise. Tente novamente.");
     } finally {
       setAiLoading(false);
       setAiDone(true);

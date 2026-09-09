@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
+import "./consulta-spc.css";
 import IdentificacaoConsulta from "@/components/consulta/IdentificacaoConsulta";
 import ConsultaErroCard from "@/components/consulta/ConsultaErroCard";
 import {
@@ -238,100 +238,37 @@ export default function ConsultaSPCPage() {
   };
 
   return (
-    <div className="p-4 lg:p-6 space-y-6" data-testid="consulta-spc-page">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[var(--color-brand)] to-[var(--color-brand)] flex items-center justify-center">
-            <BarChart3 className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold" data-testid="text-consulta-spc-title">Consulta SPC</h1>
-            <p className="text-sm text-muted-foreground">Consulta oficial no SPC Brasil</p>
-          </div>
-        </div>
-        <Badge variant="secondary" className="gap-1.5 px-3 py-1.5 text-sm">
-          <CreditCard className="w-4 h-4 text-[var(--color-brand)]" />
-          Creditos: <span className="font-bold" data-testid="text-spc-credits">{data?.credits ?? "..."}</span>
-        </Badge>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-5 bg-gradient-to-br bg-[var(--color-brand-bg)] border-[var(--color-brand)]/10">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <span className="text-sm font-medium text-muted-foreground">Consultas Hoje</span>
-            <TrendingUp className="w-5 h-5 text-[var(--color-brand)]" />
-          </div>
-          <div className="text-2xl font-bold" data-testid="text-spc-today">{isLoading ? <Skeleton className="h-7 w-8" /> : data?.todayCount}</div>
-        </Card>
-        <Card className="p-5 bg-gradient-to-br bg-[var(--color-gold-bg)] border-[var(--color-gold)]/10">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <span className="text-sm font-medium text-muted-foreground">Consultas Mês</span>
-            <CalendarDays className="w-5 h-5 text-[var(--color-gold)]" />
-          </div>
-          <div className="text-2xl font-bold" data-testid="text-spc-month">{isLoading ? <Skeleton className="h-7 w-8" /> : data?.monthCount}</div>
-        </Card>
-        <Card className="p-5 bg-gradient-to-br bg-[var(--color-success-bg)] border-[var(--color-success)]/10">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <span className="text-sm font-medium text-muted-foreground">Taxa Limpo</span>
-            <CheckCircle className="w-5 h-5 text-[var(--color-success)]" />
-          </div>
-          <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-7 w-8" /> : (
-              data?.consultations?.length > 0
-                ? Math.round((data.consultations.filter((c: any) => c.result?.status === "clean").length / data.consultations.length) * 100) + "%"
-                : "0%"
-            )}
-          </div>
-        </Card>
-        <Card className="p-5 bg-gradient-to-br bg-[var(--color-danger-bg)] border-[var(--color-danger)]/10">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <span className="text-sm font-medium text-muted-foreground">Score Médio</span>
-            <BarChart3 className="w-5 h-5 text-[var(--color-danger)]" />
-          </div>
-          <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-7 w-8" /> : (
-              (() => {
-                const comScore = (data?.consultations ?? []).filter((c: any) => c.score != null);
-                return comScore.length > 0
-                  ? Math.round(comScore.reduce((acc: number, c: any) => acc + c.score, 0) / comScore.length)
-                  : "—";
-              })()
-            )}
-          </div>
-        </Card>
-      </div>
+    <div className="spc-page" data-testid="consulta-spc-page">
+      <header className="spc-hero">
+        <div className="spc-hero-main"><span className="spc-symbol"><BarChart3 size={26}/></span><div><span className="spc-kicker">ANÁLISE DE CRÉDITO · CONSULTA ISP</span><h1 data-testid="text-consulta-spc-title">Consulta SPC</h1><p>Informações do SPC Brasil para apoiar sua análise.</p></div></div>
+        <div className="spc-balance"><CreditCard size={19}/><div><span>Seu saldo</span><strong data-testid="text-spc-credits">{data?.credits ?? "—"} <small>créditos</small></strong></div></div>
+      </header>
+      <div className="spc-activity"><span><TrendingUp size={14}/>Hoje <strong data-testid="text-spc-today">{isLoading ? "—" : data?.todayCount ?? "—"}</strong></span><span><CalendarDays size={14}/>Neste mês <strong data-testid="text-spc-month">{isLoading ? "—" : data?.monthCount ?? "—"}</strong></span><span className="spc-source"><Shield size={14}/>Fonte: SPC Brasil</span></div>
 
       <Tabs value={aba} onValueChange={setAba} className="space-y-4">
-        <TabsList>
+        <TabsList className="spc-tabs">
           <TabsTrigger value="nova" className="gap-1.5" data-testid="tab-spc-nova">
             <Search className="w-4 h-4" />
-            Nova Consulta
+            Consultar documento
           </TabsTrigger>
           <TabsTrigger value="historico" className="gap-1.5" data-testid="tab-spc-historico">
             <Clock className="w-3.5 h-3.5" />
-            Historico
-          </TabsTrigger>
-          <TabsTrigger value="relatorios" className="gap-1.5">
-            <FileText className="w-3.5 h-3.5" />
-            Relatorios
+            Histórico
           </TabsTrigger>
           <TabsTrigger value="info" className="gap-1.5">
             <Info className="w-3.5 h-3.5" />
-            Informacoes
+            Guia de leitura
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="nova">
-          <Card className="p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <BarChart3 className="w-5 h-5 text-[var(--color-brand)]" />
-              <h2 className="text-lg font-semibold">Realizar Consulta SPC</h2>
-            </div>
-
-            <div className="flex gap-3 items-center">
+        <TabsContent value="nova" className="spc-new">
+          <Card className="spc-consultation">
+            <div className="spc-search-heading"><div><span className="spc-kicker">SPC MIX TOP +</span><h2>Quem você deseja consultar?</h2><p>Informe o CPF da pessoa ou o CNPJ da empresa.</p></div><span className="spc-cost"><b>{CUSTO_EM_CREDITOS.spc}</b> créditos por consulta</span></div>
+            <label htmlFor="spc-documento" className="spc-field-label">CPF ou CNPJ</label>
+            <div className="spc-search-controls">
               <div className="relative flex-1">
                 <Input
-                  data-testid="input-spc-search"
+                  id="spc-documento" inputMode="numeric" autoComplete="off" data-testid="input-spc-search"
                   placeholder="Digite CPF ou CNPJ"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -345,7 +282,7 @@ export default function ConsultaSPCPage() {
                       if (text) setQuery(text);
                     }).catch(() => {});
                   }}
-                  title="Colar da area de transferencia"
+                  aria-label="Colar CPF ou CNPJ" title="Colar da área de transferência"
                   data-testid="button-spc-paste"
                 >
                   <ClipboardCopy className="w-4 h-4" />
@@ -357,7 +294,7 @@ export default function ConsultaSPCPage() {
               <Button
                 onClick={handleSearch}
                 disabled={!query.trim() || mutation.isPending}
-                className="bg-gradient-to-r from-[var(--color-brand)] to-[var(--color-brand)]"
+                className="spc-search-button"
                 data-testid="button-consultar-spc"
               >
                 {mutation.isPending ? "Consultando..." : "Consultar SPC"}
@@ -371,13 +308,8 @@ export default function ConsultaSPCPage() {
               </div>
             )}
 
-            <div className="mt-4 bg-[var(--color-brand-bg)] rounded-lg p-4 flex items-start gap-3">
-              <Info className="w-5 h-5 text-[var(--color-brand)] mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-muted-foreground">
-                <span className="font-semibold text-foreground">Consulta Oficial SPC:</span> Cada consulta consome{" "}
-                <span className="font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.spc} creditos</span> e retorna, pelo produto SPC MIX TOP +: situação do CPF ou CNPJ, registros de inadimplência no SPC, cheques devolvidos e CCF, alertas de documento e quem consultou o documento nos últimos 90 dias.
-              </p>
-            </div>
+            <div className="spc-search-note"><Shield size={15}/><span>Consulta ao produto SPC MIX TOP + · <strong>{CUSTO_EM_CREDITOS.spc} créditos</strong> por consulta. Score e informações adicionais dependem do produto contratado.</span></div>
+            {mutation.isPending && <div className="spc-loading" role="status" aria-label="Consultando SPC Brasil"><p>Buscando informações no SPC Brasil…</p><Skeleton className="h-5 w-2/3"/><Skeleton className="h-20 w-full"/></div>}
 
             {!mutation.isPending && erro && (
               <div className="mt-6">
@@ -385,27 +317,21 @@ export default function ConsultaSPCPage() {
               </div>
             )}
 
-            {!mutation.isPending && !result && !erro && (
-              <div className="mt-6">
-                <ConsultaIdleState
-                  totalConsultas={(data?.consultations ?? []).length}
-                  emptyTitle="Nenhuma consulta SPC ainda"
-                  emptyDescription={`A consulta oficial no SPC Brasil (produto SPC MIX TOP +) retorna situação cadastral, registros de inadimplência, cheques devolvidos, alertas de documento e quem consultou o documento. Cada consulta consome ${CUSTO_EM_CREDITOS.spc} créditos.`}
-                  emptyCta="FAZER PRIMEIRA CONSULTA"
-                  searchInputTestId="input-spc-search"
-                />
-              </div>
-            )}
+            {!mutation.isPending && !result && !erro && <div className="spc-included"><h3>Informações para uma análise mais completa</h3><div>{[
+              { icon: User, title: "Identificação cadastral", text: "Nome, documento e situação cadastral retornados na consulta." },
+              { icon: Shield, title: "Restrições e ocorrências", text: "Registros, credores, valores e detalhes disponíveis no produto." },
+              { icon: Clock, title: "Histórico de consultas", text: "Consultas anteriores ao documento e identificação da origem." },
+            ].map(item => <section key={item.title}><item.icon size={20}/><h4>{item.title}</h4><p>{item.text}</p></section>)}</div><p className="spc-included-foot">Já consultou este documento? Reabra o resultado salvo em <button onClick={() => setAba("historico")}>Histórico</button>.</p></div>}
 
             {result && (
-              <div className="mt-6 space-y-5" data-testid="spc-result">
+              <div className="spc-report" data-testid="spc-result">
                 <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-gradient-to-r from-[var(--color-brand)] to-[var(--color-brand)] text-white px-6 py-4">
+                  <div className="spc-report-header">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <BarChart3 className="w-5 h-5" />
                         <div>
-                          <h3 className="text-lg font-semibold">Consulta SPC - {result.cadastralData.tipo === "PF" ? "CPF" : "CNPJ"}: {formatCpfCnpj(result.cpfCnpj)}</h3>
+                          <h3 className="text-lg font-semibold">Relatório SPC · {result.cadastralData.tipo === "PF" ? "CPF" : "CNPJ"}: {formatCpfCnpj(result.cpfCnpj)}</h3>
                           {/* O protocolo do SPC saiu daqui: em 12px branco sobre
                               a faixa da marca ele era decoração, e é um número
                               para ser lido e ditado. Desceu para o bloco de
@@ -417,19 +343,20 @@ export default function ConsultaSPCPage() {
                         </div>
                       </div>
                       <Badge className={`border-0 ${result.status === "clean" ? "bg-[var(--color-success)] text-white" : "bg-rose-500 text-white"}`}>
-                        {result.status === "clean" ? "Limpo" : "Com Restricoes"}
+                        {result.status === "clean" ? "Sem restrições" : "Com restrições"}
                       </Badge>
                     </div>
                   </div>
 
-                  <div className="p-6 space-y-6">
+                  <div className="spc-report-body space-y-6">
+                    <nav className="spc-report-nav" aria-label="Seções do relatório SPC"><a href="#spc-cadastro">Dados cadastrais</a><a href="#spc-analise">Análise de crédito</a>{result.restrictions.length > 0 && <a href="#spc-restricoes">Restrições ({result.restrictions.length})</a>}</nav>
                     <IdentificacaoConsulta
                       consultaId={identificacao?.consultaId}
                       protocoloDaOrigem={identificacao?.protocoloDaOrigem}
                       testIdPrefixo="identificacao-spc"
                     />
 
-                    <Card className="p-4 bg-slate-50 dark:bg-slate-900/30">
+                    <Card id="spc-cadastro" className="spc-report-section p-4">
                       <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                         <User className="w-4 h-4" />
                         Dados Cadastrais
@@ -474,7 +401,7 @@ export default function ConsultaSPCPage() {
                       </div>
                     </Card>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div id="spc-analise" className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <Card className="p-4">
                         <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                           <BarChart3 className="w-4 h-4" />
@@ -503,7 +430,7 @@ export default function ConsultaSPCPage() {
                       <Card className="p-4">
                         <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                           <Target className="w-4 h-4" />
-                          Recomendacao
+                          Análise do Consulta ISP
                         </h4>
                         <div className="flex flex-col gap-3">
                           <p className="text-lg font-semibold" data-testid="text-spc-recommendation">{result.recommendation}</p>
@@ -514,7 +441,7 @@ export default function ConsultaSPCPage() {
                             </div>
                             <div className="p-2 bg-muted/50 rounded">
                               <span className="text-muted-foreground">Total Dividas:</span>
-                              <p className="font-bold text-lg">R$ {result.totalRestrictions.toFixed(2)}</p>
+                              <p className="font-bold text-lg">R$ {result.totalRestrictions.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</p>
                             </div>
                           </div>
                         </div>
@@ -522,7 +449,7 @@ export default function ConsultaSPCPage() {
                     </div>
 
                     {result.restrictions.length > 0 && (
-                      <Card className="p-4">
+                      <Card id="spc-restricoes" className="spc-report-section p-4">
                         <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-[var(--color-danger)]">
                           <AlertTriangle className="w-4 h-4" />
                           Restricoes Encontradas: {result.restrictions.length}
@@ -531,7 +458,7 @@ export default function ConsultaSPCPage() {
                           {result.restrictions.map((r, i) => (
                             <div
                               key={i}
-                              className="p-3 rounded-lg border bg-white dark:bg-slate-900 space-y-2"
+                              className="spc-restriction space-y-2"
                               data-testid={`restriction-${i}`}
                             >
                               <div className="flex items-start justify-between gap-3">
@@ -553,14 +480,14 @@ export default function ConsultaSPCPage() {
                               {/* Tudo que o SPC devolveu sobre o registro: e com isto que o
                                   operador cobra ou confere com o cliente. */}
                               {(r.detalhes?.length ?? 0) > 0 && (
-                                <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5 text-xs border-t border-[var(--border-faint)] pt-2" data-testid={`restriction-${i}-detalhes`}>
+                                <details className="spc-restriction-details"><summary>Detalhes do registro</summary><dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5 text-xs border-t border-[var(--border-faint)] pt-2" data-testid={`restriction-${i}-detalhes`}>
                                   {r.detalhes!.map((d, j) => (
                                     <div key={j} className="min-w-0">
                                       <dt className="text-muted-foreground">{d.rotulo}</dt>
                                       <dd className="font-medium tabular-nums break-words">{d.valor}</dd>
                                     </div>
                                   ))}
-                                </dl>
+                                </dl></details>
                               )}
                             </div>
                           ))}
@@ -573,10 +500,10 @@ export default function ConsultaSPCPage() {
                     )}
 
                     {result.status === "clean" && (
-                      <Card className="p-6 bg-[var(--color-success-bg)] border-[var(--color-success)] text-center">
+                      <Card className="p-5 bg-[var(--color-success-bg)] border-[var(--color-success)] text-center">
                         <Shield className="w-10 h-10 mx-auto mb-2 text-[var(--color-success)]" />
                         <p className="text-lg font-semibold text-[var(--color-success)]">Nenhuma restricao encontrada</p>
-                        <p className="text-sm text-[var(--color-success)] mt-1">Este documento esta limpo no SPC Brasil</p>
+                        <p className="text-sm text-[var(--color-success)] mt-1">Nenhuma restrição foi retornada para este documento nesta consulta.</p>
                       </Card>
                     )}
 
@@ -611,7 +538,7 @@ export default function ConsultaSPCPage() {
                           {result.alerts.map((alert, i) => (
                             <div key={i} className="flex items-start gap-2 text-sm" data-testid={`spc-alert-${i}`}>
                               <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${alert.severity === "critical" ? "bg-rose-500" : alert.severity === "high" ? "bg-orange-500" : "bg-amber-500"}`} />
-                              <span className="text-amber-900">{alert.message}</span>
+                              <span className="text-amber-900 dark:text-amber-200">{alert.message}</span>
                             </div>
                           ))}
                         </div>
@@ -626,7 +553,7 @@ export default function ConsultaSPCPage() {
 
         <TabsContent value="historico">
           <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4">Historico de Consultas SPC</h2>
+            <h2 className="text-lg font-semibold mb-4">Histórico de consultas SPC</h2>
             {data?.consultations?.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -646,7 +573,7 @@ export default function ConsultaSPCPage() {
                       role="button"
                       tabIndex={0}
                       title="Abrir o resultado desta consulta"
-                      className="flex items-center justify-between p-3 bg-muted/30 rounded-lg cursor-pointer hover:bg-muted/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand)]"
+                      className="spc-history-row cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand)]"
                       onClick={() => abrirDoHistorico(c)}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirDoHistorico(c); } }}
                       data-testid={`spc-consultation-${c.id}`}
@@ -686,24 +613,14 @@ export default function ConsultaSPCPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="relatorios">
-          <Card className="p-6">
-            <div className="text-center py-12 text-muted-foreground">
-              <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">Relatorios em breve</p>
-              <p className="text-sm mt-1">Funcionalidade em desenvolvimento</p>
-            </div>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="info">
           <Card className="p-6">
             <h2 className="text-lg font-semibold mb-4">Sobre a Consulta SPC</h2>
             <div className="space-y-4 text-sm text-muted-foreground">
-              <p>Integracao com o SPC Brasil (Servico de Protecao ao Credito), um dos maiores bureaus de credito do pais. Permite consultar a situacao financeira completa de CPF ou CNPJ.</p>
+              <p>A consulta apresenta os dados devolvidos pelo produto SPC contratado. A ausência de uma informação não significa valor zero. Confira a data, o protocolo e o contexto dos registros antes de decidir.</p>
 
               <div>
-                <h3 className="font-semibold text-foreground mb-2">Classificacao de Score (0-1000)</h3>
+                <h3 className="font-semibold text-foreground mb-2">Faixas de leitura do Consulta ISP (quando há score)</h3>
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
                   <Card className="p-3">
                     <div className="flex items-center gap-2 mb-1">
@@ -798,7 +715,7 @@ export default function ConsultaSPCPage() {
                     <span className="font-bold text-blue-600">1.</span>
                     <div>
                       <p className="font-medium text-foreground">Consulta ISP (rapida e barata)</p>
-                      <p className="text-xs">Verifica historico em provedores. Se encontrar restricoes, recusar.</p>
+                      <p className="text-xs">Verifique o histórico em provedores e o contexto de eventuais pendências.</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
@@ -812,7 +729,7 @@ export default function ConsultaSPCPage() {
                     <span className="font-bold text-[var(--color-success)]">3.</span>
                     <div>
                       <p className="font-medium text-foreground">Decisao Final</p>
-                      <p className="text-xs">ISP limpo + SPC limpo = Aprovar. ISP com pendencia = Recusar ou garantias.</p>
+                      <p className="text-xs">Use os registros como apoio à política de crédito do seu provedor. A análise exibida pelo Consulta ISP não é uma aprovação concedida pelo SPC.</p>
                     </div>
                   </div>
                 </div>

@@ -5,13 +5,14 @@ export function confirmacaoExplicita(texto: string): boolean {
 }
 /**
  * O que tira a conversa da IA e entrega ao humano. Negativar, baixar, retirar
- * (o nome do SPC/Serasa, o equipamento), órgão de defesa, advogado, desconto,
+ * o nome do SPC/Serasa, órgão de defesa, advogado, desconto,
  * parcelamento, pagamento informado e contestação: NUNCA pela IA — quem decide
  * é o atendente. `negativ` sem borda final pega negativar, negativado e
  * negativação (o `\b` não fecha em `ç`/`ã`).
  */
-export function exigeHumano(texto: string): boolean {
-  return /\b(humano|atendente|advogado|procon|processo|falecid[oa]|fraude|golpe|desconto|parcelar|parcelamento|paguei|pago|paga|comprovante|devolvi|devolvido|retiraram|spc|serasa)\b|\bnegativ|\bbaixa\w*|\bretira(r|da)\b|n[aã]o (me |quero )?(cobre|cobrem|mande|mandem|contat|mensage)|n[aã]o (sou|conhe[cç]o|reconhe[cç]o)|n[uú]mero errado|pare de|cancelar|contesta/i.test(texto);
+export function exigeHumano(texto: string, permitirNegociacao = false): boolean {
+  if (permitirNegociacao) texto = texto.replace(/\b(desconto|parcelar|parcelamento)\b/gi, "");
+  return /\b(humano|atendente|advogado|procon|processo|falecid[oa]|fraude|golpe|desconto|parcelar|parcelamento|paguei|pago|paga|comprovante|devolvi|devolvido|retiraram|spc|serasa)\b|\bnegativ|\bbaixa\w*|\bretira(r|da)\b.{0,30}\bnome\b|\bj[aá]\b.{0,20}\bretirad[oa]\b|n[aã]o (me |quero )?(cobre|cobrem|mande|mandem|contat|mensage)|n[aã]o (sou|conhe[cç]o|reconhe[cç]o)|n[uú]mero errado|pare de|cancelar|contesta/i.test(texto);
 }
 export function dataLocal(agora: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(agora);
@@ -28,7 +29,7 @@ export function validarProposta(plano: PlanoResposta, mensagem: string, saldo: n
   const data = new Date(`${dia}T12:00:00-03:00`);
   if (!Number.isFinite(data.getTime()) || data.toISOString().slice(0, 10) !== dia || dia < dataLocal(agora) || data.getTime() > agora.getTime() + 90 * 86400000) return null;
   const [ano, mes, d] = dia.split("-");
-  const literal = new RegExp(`(?:^|\\D)${Number(d)}[/.-]0?${Number(mes)}(?:[/.-](?:${ano}|${ano.slice(2)}))?(?:$|\\D)`);
+  const literal = new RegExp(`(?:^|\\D)0?${Number(d)}[/.-]0?${Number(mes)}(?:[/.-](?:${ano}|${ano.slice(2)}))?(?:$|\\D)`);
   const amanha = dataLocal(new Date(agora.getTime() + 86400000));
   const citada = mensagem.includes(dia) || literal.test(mensagem) || (dia === dataLocal(agora) && /\bhoje\b/i.test(mensagem)) || (dia === amanha && /amanh[aã]/i.test(mensagem));
   if (!citada) return null;
@@ -57,7 +58,17 @@ export function textoDaProposta(p: PropostaAutonomia): string {
  * ninguém mediu nesta rodada. Nenhum ramo desta função inventa número a partir
  * de null — sem leitura, a frase não cita valor e a conferência vai ao atendente.
  */
-export function respostaControlada(plano: PlanoResposta, saldo: number | null, recuperacao: boolean): string {
+export function respostaControlada(plano: PlanoResposta, saldo: number | null, recuperacao: boolean, orientacao: { tom?: string | null; vulneravel?: boolean } = {}): string {
+  const aberturas: Record<string, string> = {
+    boas_vindas: "Vou orientar você. ", parceiro: "Vamos conferir juntos. ", acolhedor: "Obrigado pela parceria. ",
+    orientador: "Vamos organizar os próximos passos. ", firme_gentil: "Podemos organizar a regularização. ", cuidado: "Vamos conversar com tranquilidade. ",
+    firme_objetivo: "Vamos conferir a situação e definir o próximo passo. ", recuperacao: "Vamos avaliar uma solução. ", negociar_reter: "Queremos encontrar uma solução que preserve nossa relação. ",
+    humanizado_vulneravel: "Vamos conversar com tranquilidade e respeitar suas possibilidades. ",
+  };
+  const abertura = aberturas[orientacao.vulneravel ? "humanizado_vulneravel" : orientacao.tom ?? ""] ?? "";
+  return abertura + respostaFactual(plano, saldo, recuperacao);
+}
+function respostaFactual(plano: PlanoResposta, saldo: number | null, recuperacao: boolean): string {
   switch (plano.resposta) {
     case "informar_divida": return !recuperacao && saldo !== null && saldo > 0 ? `O ERP informa ${brl(saldo)} em aberto na leitura de agora. Posso consultar a segunda via ou registrar uma promessa de pagamento pelo valor integral. Para qual data você pretende pagar?` : "Vou encaminhar a conferência da situação ao atendente.";
     case "pedir_data": return recuperacao ? "Qual dia e horário você propõe para a devolução? Informe a data no formato dia/mês e o horário como 14:00." : "Para qual data você pretende pagar? Informe dia e mês, por exemplo, no formato dia/mês.";

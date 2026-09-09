@@ -17,6 +17,13 @@ beforeEach(() => {
   client.listarTemplatesWhatsapp.mockResolvedValue({ ok: true, valor: { data } });
 });
 describe("templates Datafy por provedor", () => {
+  it("recusa template financeiro aprovado e revalida o conteúdo antes de preparar", async () => {
+    state.i.agenteConfig = { whatsapp: { provider: "DATAFY" }, templatesDatafy: config };
+    client.listarTemplatesWhatsapp.mockResolvedValue({ ok: true, valor: { data: [{ ...data[0], components: [{ type: "BODY", text: "Olá {{1}}, sua fatura venceu. Pague {{2}}." }] }] } });
+    await expect(salvarTemplatesWhatsapp(6, config)).rejects.toMatchObject({ codigo: "CONFLITO" });
+    await expect(prepararTemplateWhatsapp(6, "cobranca_ativos", { nomeCliente: "Maria", nomeProvedor: "ISP" })).rejects.toMatchObject({ codigo: "CONFLITO" });
+    expect(db.guardarAgenteDoChat).not.toHaveBeenCalled();
+  });
   it("consulta somente o canal da organização do provedor", async () => {
     await catalogoTemplatesWhatsapp(6);
     expect(client.listarTemplatesWhatsapp).toHaveBeenCalledWith("org6", "ch6");

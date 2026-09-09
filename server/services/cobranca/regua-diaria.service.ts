@@ -10,13 +10,10 @@
  * de pagar, cancela o caso de quem cancelou o contrato no ERP e tira de cena a
  * dívida prescrita — e o funcionário abre o kanban de manhã com tudo no lugar.
  *
- * ── Fase 1: por CLIENTE, sobre `max_days_overdue` ────────────────────────────
- *
- * Medido em produção em 05/09/2026: não existe fatura a fatura. O sync grava
- * só agregados em `customers`, então cada decisão daqui lê a foto de HOJE do
- * cliente (dívida, dias de atraso, faturas abertas, status no ERP) e o caso
- * guarda a foto da abertura. A etapa preventiva (D-7..D0) fica no catálogo mas
- * nunca dispara — `etapaParaAtraso` a pula com `depende_de_fatura`.
+ * O atraso usa a foto atual do cliente. Pré-avisos usam faturas a vencer e
+ * uma fila própria, sem abrir caso de inadimplência. O DNA recebe pagamentos
+ * explicitamente pagos e datados, consultados em lote por provedor. Fontes
+ * que só listam abertas continuam com histórico insuficiente.
  *
  * ── Idempotente por construção ───────────────────────────────────────────────
  *
@@ -55,6 +52,9 @@ import type { CobrancaCaso } from "@shared/schema";
 import { etapaParaAtraso, prescrita, resolverEtapas, type Etapa, type EtapaId } from "@shared/cobranca/regua";
 import { TOM_VULNERAVEL, classificarDna, mesesDeContrato, tomEfetivo } from "@shared/cobranca/dna";
 import type { Carteira, Prioridade } from "@shared/cobranca/estados";
+import type { HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
+import { FaturasStorage } from "../../storage/faturas.storage";
+import { CobrancaPreventivoStorage } from "../../storage/cobranca-preventivo.storage";
 
 /**
  * Contrato da frente do storage (05/09/2026), já implementado em
@@ -122,7 +122,7 @@ export const ATRASO_DA_PASSADA_DE_BOOT_MS = 20_000;
 
 /** Motivos gravados em `motivo_encerramento` — a tela lê estas chaves. */
 export const MOTIVO_PRESCRITA = "prescrita";
-export const MOTIVO_DIVIDA_ZERADA = "divida_zerada_no_sync";
+export const MOTIVO_DIVIDA_ZERADA = "divida_zerada_sem_recebimento_confirmado";
 /** Motivo do `cancelamento` automático — frase, como o motivo que o funcionário digita no kanban. */
 export const MOTIVO_CANCELADO_NO_ERP = "contrato cancelado no ERP";
 
@@ -184,10 +184,9 @@ export function prioridadeSugerida(valor: number, etapa: EtapaId | null): Priori
 /* ── DNA do caso ─────────────────────────────────────────────────────────── */
 
 /**
- * O DNA com os agregados da fase 1, na forma que `atualizarDnaDoCaso` grava.
- * `historicoInsuficiente` é sempre true: sem fatura paga não há taxa de
- * atraso, e a confiabilidade sai só do atraso atual e das faturas abertas
- * (`dna.ts` explica).
+ * O DNA combina o histórico confirmado disponível com o atraso atual.
+ * Sem pagamentos datados, a ausência permanece explícita e a confiabilidade
+ * usa somente o atraso atual e as faturas abertas (`dna.ts` explica).
  *
  * Sem a data do contrato NÃO há DNA — é a regra de `dna.ts` e a da casa (só
  * dado real). Arbitrar "médio" mandaria o funcionário ligar com o tom de
@@ -201,6 +200,7 @@ export function prioridadeSugerida(valor: number, etapa: EtapaId | null): Priori
 export function dnaDoCaso(
   cliente: { contractStartDate: string | null; diasAtraso: number; faturasAbertas: number },
   hoje: Date,
+  historico?: HistoricoDePagamentos,
 ): DnaDoCaso {
   const meses = mesesDeContrato(cliente.contractStartDate, hoje);
   if (meses === null) return { quadranteDna: null, tom: null, arbitrado: false };
@@ -208,7 +208,9 @@ export function dnaDoCaso(
     mesesComoCliente: meses,
     diasAtrasoMax: cliente.diasAtraso,
     faturasAbertas: cliente.faturasAbertas,
-    historicoInsuficiente: true,
+    historicoInsuficiente: historico?.historicoInsuficiente ?? true,
+    faturasPagas: historico?.faturasPagas,
+    faturasPagasComAtraso: historico?.faturasPagasComAtraso,
   });
   return { quadranteDna: dna.quadrante, tom: tomEfetivo(dna, VULNERAVEL_NA_FASE_1), arbitrado: false };
 }
@@ -228,6 +230,8 @@ export interface ResultadoDoProvedor {
   valoresEspelhados: number;
   dnaAtualizados: number;
   pagos: number;
+  conciliacoes: number;
+  preAvisosPreparados: number;
   prescritosEncerrados: number;
   /** Contrato cancelado no ERP com o caso vivo: caso levado a `cancelamento`. */
   cancelados: number;
@@ -249,7 +253,7 @@ function resultadoVazio(providerId: number): ResultadoDoProvedor {
   return {
     providerId, pulado: false, motivo: null,
     abertos: 0, jaAbertos: 0, naoAbertosPrescritos: 0, etapasMudadas: 0, valoresEspelhados: 0, dnaAtualizados: 0,
-    pagos: 0, prescritosEncerrados: 0, cancelados: 0, parcelasAtrasadas: 0, acordosQuebrados: 0, erros: 0,
+    pagos: 0, conciliacoes: 0, preAvisosPreparados: 0, prescritosEncerrados: 0, cancelados: 0, parcelasAtrasadas: 0, acordosQuebrados: 0, erros: 0,
   };
 }
 
@@ -257,13 +261,14 @@ function somarTotais(provedores: ResultadoDoProvedor[]): TotaisDaPassada {
   const t: TotaisDaPassada = {
     provedores: provedores.length, pulados: 0,
     abertos: 0, jaAbertos: 0, naoAbertosPrescritos: 0, etapasMudadas: 0, valoresEspelhados: 0, dnaAtualizados: 0,
-    pagos: 0, prescritosEncerrados: 0, cancelados: 0, parcelasAtrasadas: 0, acordosQuebrados: 0, erros: 0,
+    pagos: 0, conciliacoes: 0, preAvisosPreparados: 0, prescritosEncerrados: 0, cancelados: 0, parcelasAtrasadas: 0, acordosQuebrados: 0, erros: 0,
   };
   for (const p of provedores) {
     if (p.pulado) t.pulados++;
     t.abertos += p.abertos; t.jaAbertos += p.jaAbertos; t.naoAbertosPrescritos += p.naoAbertosPrescritos;
     t.etapasMudadas += p.etapasMudadas; t.valoresEspelhados += p.valoresEspelhados; t.dnaAtualizados += p.dnaAtualizados;
     t.pagos += p.pagos; t.prescritosEncerrados += p.prescritosEncerrados; t.cancelados += p.cancelados;
+    t.conciliacoes += p.conciliacoes; t.preAvisosPreparados += p.preAvisosPreparados;
     t.parcelasAtrasadas += p.parcelasAtrasadas; t.acordosQuebrados += p.acordosQuebrados; t.erros += p.erros;
   }
   return t;
@@ -322,6 +327,7 @@ async function abrirCaso(
   etapas: readonly Etapa[],
   hoje: Date,
   r: ResultadoDoProvedor,
+  historico?: HistoricoDePagamentos,
 ): Promise<void> {
   // Vigia da prescrição (CC art. 206 §5º I): dívida com cinco anos NUNCA
   // entra na cobrança — nem para o funcionário "só dar uma olhada".
@@ -332,7 +338,7 @@ async function abrirCaso(
 
   const decisao = etapaParaAtraso(c.diasAtraso, c.carteira, etapas);
   const etapa = decisao.etapa?.id ?? null;
-  const dna = dnaDoCaso(c, hoje);
+  const dna = dnaDoCaso(c, hoje, historico);
 
   let casoId: number;
   try {
@@ -456,6 +462,7 @@ async function revisarCaso(
   hoje: Date,
   r: ResultadoDoProvedor,
   canceladosNestaPassada: Set<number>,
+  historico?: HistoricoDePagamentos,
 ): Promise<void> {
   const cliente = linha.cliente;
 
@@ -491,15 +498,15 @@ async function revisarCaso(
     return;
   }
 
-  // Antes do cancelamento de propósito: quem pagou tudo e cancelou o contrato
-  // pagou — `pago` é o desfecho verdadeiro, e o que a recuperação em 30 dias conta.
+  // Zero no agregado pode ser cancelamento/renegociação. Só o recebimento
+  // explícito confirma dinheiro; o sync encerra a cobrança para conciliação.
   if (cliente.dividaAtual <= 0) {
-    await storage.fecharCasoDeCobranca(providerId, linha.id, "pago", MOTIVO_DIVIDA_ZERADA, null);
-    r.pagos++;
+    await storage.fecharCasoDeCobranca(providerId, linha.id, "encerrado", MOTIVO_DIVIDA_ZERADA, null);
+    r.conciliacoes++;
     return;
   }
 
-  if (carteiraDaLinha(linha.carteira) === "ativo" && carteiraDoStatusErp(cliente.statusErp) === "ex_cliente") {
+  if (carteiraDaLinha(linha.carteiraAbertura ?? linha.carteira) === "ativo" && carteiraDoStatusErp(cliente.statusErp) === "ex_cliente") {
     await cancelarPeloErp(providerId, linha, r, canceladosNestaPassada);
     return;
   }
@@ -524,7 +531,7 @@ async function revisarCaso(
   // aqui, antes de chamar: o quadrante acompanha o atraso, o tom não. Sem
   // data de contrato o quadrante calculado é nulo, e nulo é o que se grava —
   // "sem DNA" é dado, e é o que a grade conta.
-  const dna = dnaDoCaso(cliente, hoje);
+  const dna = dnaDoCaso(cliente, hoje, historico);
   const tom = linha.tom === TOM_VULNERAVEL ? TOM_VULNERAVEL : dna.tom;
   if (dna.quadranteDna !== linha.quadranteDna || tom !== linha.tom) {
     await storage.atualizarDnaDoCaso(providerId, linha.id, { ...dna, tom }, null);
@@ -553,6 +560,8 @@ export async function rodarReguaDoProvedor(providerId: number, hoje: Date = new 
   }
   // Sem linha de política vale o catálogo inteiro; config de outra versão cai no padrão (regua.ts explica).
   const etapas = resolverEtapas(politica);
+  const historicos = await new FaturasStorage().historicosDePagamentosDoProvedor(providerId);
+  r.preAvisosPreparados = await new CobrancaPreventivoStorage().prepararPreAvisos(providerId, hoje, etapas);
 
   // Parcelas ANTES dos casos: a quebra do acordo devolve o caso a `aberto`, e
   // a revisão logo abaixo já o coloca na etapa certa na mesma passada.
@@ -568,7 +577,7 @@ export async function rodarReguaDoProvedor(providerId: number, hoje: Date = new 
   const casos = await todosOsCasosVivos(providerId);
   for (const caso of casos) {
     try {
-      await revisarCaso(providerId, caso, etapas, hoje, r, canceladosNestaPassada);
+      await revisarCaso(providerId, caso, etapas, hoje, r, canceladosNestaPassada, historicos.get(caso.cliente.id));
     } catch (err) {
       r.erros++;
       logger.warn({ err, providerId, casoId: caso.id }, "Régua de cobrança: caso não pôde ser revisado");
@@ -579,7 +588,7 @@ export async function rodarReguaDoProvedor(providerId: number, hoje: Date = new 
   for (const c of candidatos) {
     if (canceladosNestaPassada.has(c.customerId)) continue;
     try {
-      await abrirCaso(providerId, c, etapas, hoje, r);
+      await abrirCaso(providerId, c, etapas, hoje, r, historicos.get(c.customerId));
     } catch (err) {
       r.erros++;
       logger.warn({ err, providerId, customerId: c.customerId }, "Régua de cobrança: caso não pôde ser aberto");
@@ -589,7 +598,7 @@ export async function rodarReguaDoProvedor(providerId: number, hoje: Date = new 
   // `movidos` e `fechados` são as palavras do operador; os contadores finos
   // seguem junto para quem depurar a passada.
   logger.info(
-    { ...r, movidos: r.etapasMudadas, fechados: r.pagos + r.prescritosEncerrados },
+    { ...r, movidos: r.etapasMudadas, fechados: r.pagos + r.prescritosEncerrados + r.conciliacoes },
     "Régua de cobrança: provedor concluído",
   );
   return r;

@@ -29,6 +29,7 @@ import { registerPrecosRoutes } from "./precos.routes";
 import { registerSuporteAcessoRoutes } from "./suporte-acesso.routes";
 import { registerCobrancaRoutes } from "./cobranca.routes";
 import { registerCobrancaIndicadoresRoutes } from "./cobranca-indicadores.routes";
+import { registerCobrancaRecebimentosRoutes } from "./cobranca-recebimentos.routes";
 import { registerChatBullqRoutes } from "./chat-bullq.routes";
 import { registerChatBullqAgenteRoutes } from "./chat-bullq-agente.routes";
 import { registerChatConsoleRoutes } from "./chat-console.routes";
@@ -83,6 +84,7 @@ export async function registerRoutes(
   // Router proprio: os caminhos sao `/api/cobranca/indicadores/*` e nenhuma
   // rota do de cima usa parametro nessa posicao, entao a ordem e indiferente.
   app.use(registerCobrancaIndicadoresRoutes());
+  app.use(registerCobrancaRecebimentosRoutes());
   // A ponte com o Chat BullQ (chat com o cliente em cobranca e equipamentos).
   app.use(registerChatBullqRoutes());
   // O console de agentes do provedor: agentes, skills, conexoes e execucoes (sessao).

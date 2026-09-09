@@ -21,6 +21,7 @@ import { BOTAO_MARCA, BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO } from "@/componen
 import { agoraInput, deInputDataHora, validarProximoContato } from "./formatacao";
 import { API_CASOS, type MembroDaEquipe } from "./tipos";
 import { descricaoDoErro, invalidarCobranca, SeloCarteira } from "./ui";
+import { caminhoNaCarteira } from "./carteiras";
 
 export interface ClienteParaCaso {
   customerId: number;
@@ -59,9 +60,10 @@ export function DialogoAbrirCaso({ cliente, equipe, podeAtribuir, usuarioAtual, 
   const abrir = useMutation({
     mutationFn: async () => {
       if (!cliente) throw new Error("Escolha o cliente");
+      if (cliente.carteira !== "ativo" && cliente.carteira !== "ex_cliente") throw new Error("Atualize a carteira do cliente antes de abrir o caso");
       // Sem responsável a chave nem vai: a rota trata `null` como atribuição e a recusa a quem não é admin.
       const proximo = deInputDataHora(form.proximoContatoEm);
-      const resposta = await apiRequest("POST", API_CASOS, {
+      const resposta = await apiRequest("POST", caminhoNaCarteira(API_CASOS, cliente.carteira), {
         customerId: cliente.customerId,
         prioridade: form.prioridade,
         ...(form.responsavelUserId ? { responsavelUserId: Number(form.responsavelUserId) } : {}),

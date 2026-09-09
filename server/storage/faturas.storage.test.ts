@@ -53,6 +53,88 @@ describe("datas: dia de calendario, sem fuso", () => {
   });
 });
 
+describe("recebimentos e DNA", () => {
+  it("recibo local bloqueia título que o ERP ainda oferece, isolando cliente/fonte", async () => {
+    banco.responder = () => [[10]];
+    expect(await storage.faturasQuitadasAindaAbertas(PROVEDOR, 42, ["mk-10"], "mk")).toBe(true);
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].params).toEqual(expect.arrayContaining([PROVEDOR, 42, "mk-10", "mk"]));
+    expect(banco.consultas[0].sql).toContain('inner join "cobranca_quitacoes"');
+    banco.consultas.length = 0;
+    expect(await storage.faturasQuitadasAindaAbertas(PROVEDOR, 42, [], "mk")).toBe(false);
+    expect(banco.consultas).toHaveLength(0);
+  });
+  function transacaoSimulada() {
+    banco.db.transaction = async (fn: (tx: typeof banco.db) => Promise<unknown>) => fn(banco.db);
+  }
+  const quitacao = { faturaId: 10, origem: "comprovante_conferido" as const, referencia: "recibo-10", pagoEm: "2026-08-10", valorPago: 100, userId: 9 };
+  it.each(["cancelada", "renegociada", "desconhecido"])("não quita status %s", async status => {
+    transacaoSimulada();
+    banco.responder = texto => texto.includes('from "customers"') ? [[42]] : texto.includes('from "users"') ? [[9, "admin", PROVEDOR]] : texto.includes('from "invoices"') ? [[10, "100.00", status, "mk"]] : [];
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).rejects.toThrow("Esta fatura não permite confirmação de recebimento");
+    expect(banco.consultas.some(c => c.sql.startsWith("insert") || c.sql.startsWith("update"))).toBe(false);
+  });
+  it("traduz apenas a constraint de referência usada", async () => {
+    const erro = Object.assign(new Error("duplicate key"), { code: "23505", constraint: "cobranca_quitacoes_referencia_uq" });
+    banco.db.transaction = async () => { throw erro; };
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).rejects.toThrow("Esta referência de recebimento já foi usada");
+    erro.constraint = "outra_constraint";
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).rejects.toBe(erro);
+  });
+  it("grava evidência e paid na mesma transação scoped; parcial não quita", async () => {
+    transacaoSimulada();
+    banco.responder = texto => texto.includes('from "customers"') ? [[42]] : texto.includes('from "invoices"') ? [[10, "100.00", "aberta", "mk"]] : texto.includes('from "users"') ? [[9, "admin", PROVEDOR]] : [];
+    expect(await storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).toEqual({ faturaId: 10, repetida: false });
+    expect(banco.consultas.some(c => c.sql.includes('for update'))).toBe(true);
+    expect(banco.consultas.some(c => c.sql.startsWith('insert into "cobranca_quitacoes"'))).toBe(true);
+    expect(banco.consultas.at(-1)?.params).toContain("paid");
+    banco.consultas.length = 0;
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, { ...quitacao, valorPago: 99 })).rejects.toThrow(/integral/);
+    expect(banco.consultas).toHaveLength(3);
+  });
+  it("não aceita fatura alheia e não sobrescreve recibo existente", async () => {
+    transacaoSimulada();
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).rejects.toThrow(/não encontrada/);
+    conferirTenant(banco.consultas[0]);
+    banco.responder = texto => texto.includes('from "customers"') ? [[42]] : texto.includes('from "users"') ? [[9, "admin", PROVEDOR]] : texto.includes('from "invoices"') ? [[10, "100.00", "paid", "mk"]] : texto.includes('from "cobranca_quitacoes"') ? [[1, PROVEDOR, 42, 10, "comprovante_conferido", "recibo-10", "2026-08-10", "100.00", 9, "2026-08-10T00:00:00Z", null]] : [];
+    expect(await storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).toEqual({ faturaId: 10, repetida: true });
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, { ...quitacao, referencia: "outro" })).rejects.toThrow(/outra confirmação/);
+    expect(banco.consultas.some(c => c.sql.startsWith("insert") || c.sql.startsWith("update"))).toBe(false);
+  });
+  it("acordo vivo impede receber a mesma dívida por outro caminho", async () => {
+    transacaoSimulada();
+    banco.responder = texto => texto.includes('from "customers"') ? [[42]] : texto.includes('from "users"') ? [[9, "admin", PROVEDOR]] : texto.includes('from "invoices"') ? [[10, "100.00", "aberta", "mk"]] : texto.includes('from "cobranca_negociacoes"') ? [[80]] : [];
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).rejects.toThrow(/acordo/);
+    expect(banco.consultas.some(c => c.sql.startsWith("insert") || c.sql.startsWith("update"))).toBe(false);
+  });
+  it("histórico só conta paid com data e isola cliente/provedor", async () => {
+    banco.responder = () => [[42, 4, 1, "2026-08-12T00:00:00Z"]];
+    const r = await storage.historicoDePagamentosDoCliente(PROVEDOR, 42);
+    expect(r).toMatchObject({ faturasPagas: 4, faturasPagasComAtraso: 1, taxaAtraso: 0.25, historicoInsuficiente: false });
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].params).toContain("paid");
+    expect(banco.consultas[0].sql).toContain('"paid_date" is not null');
+    expect(banco.consultas[0].params).toContain(42);
+  });
+  it("revalida o papel atual e só libera superadmin com contexto de suporte", async () => {
+    transacaoSimulada();
+    let papel = "employee";
+    banco.responder = texto => texto.includes('from "customers"') ? [[42]] : texto.includes('from "users"') ? [[9, papel, papel === "superadmin" ? null : PROVEDOR]] : texto.includes('from "invoices"') ? [[10, "100.00", "aberta", "mk"]] : [];
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).rejects.toThrow(/administrador atual/);
+    expect(banco.consultas.some(c => c.sql.endsWith("for share"))).toBe(true);
+    papel = "superadmin";
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao)).rejects.toThrow(/suporte autorizado/);
+    expect(await storage.registrarQuitacaoConfirmada(PROVEDOR, 42, quitacao, { suporteProviderId: PROVEDOR })).toEqual({ faturaId: 10, repetida: false });
+  });
+  it("somente abertas deixa histórico desconhecido", async () => {
+    expect(await storage.historicoDePagamentosDoCliente(PROVEDOR, 42)).toMatchObject({ historicoInsuficiente: true, taxaAtraso: null });
+  });
+  it("recusa quitação sem referência, data civil válida e ator manual", async () => {
+    await expect(storage.registrarQuitacaoConfirmada(PROVEDOR, 42, { faturaId: 10, origem: "comprovante_conferido", referencia: "", pagoEm: "2026-02-30", valorPago: 100 })).rejects.toThrow();
+    expect(banco.consultas).toHaveLength(0);
+  });
+});
+
 describe("upsertFaturasDoErp", () => {
   it("insere por (provider, fonte, ref) e no conflito regrava valor, vencimento e volta a aberta", async () => {
     const n = await storage.upsertFaturasDoErp(PROVEDOR, "mk", 42, [
@@ -60,13 +142,17 @@ describe("upsertFaturasDoErp", () => {
       { ref: "12", vencimento: "2026-10-10", valor: 99.9 },
     ]);
     expect(n).toBe(2);
-    expect(banco.consultas).toHaveLength(1);
+    expect(banco.consultas).toHaveLength(2);
     const c = banco.consultas[0];
     expect(c.sql).toMatch(/^insert into "invoices"/);
     expect(c.sql).toContain('on conflict ("provider_id","erp_source","erp_ref") where erp_ref IS NOT NULL do update set');
     expect(c.sql).toContain('"customer_id" = excluded.customer_id');
     expect(c.sql).toContain('"value" = excluded.value');
     expect(c.sql).toContain('"due_date" = excluded.due_date');
+    expect(c.sql).toContain('where "invoices"."status" <>');
+    expect(c.params).toContain("paid");
+    expect(banco.consultas[1].sql).toContain('update "cobranca_quitacoes" set "divergencia_erp_em"');
+    conferirTenant(banco.consultas[1]);
     // `baixada_em` volta a nulo: fatura que reapareceu nos pendentes nao esta baixada.
     const baixada = c.sql.match(/"baixada_em" = \$(\d+)/);
     expect(baixada).not.toBeNull();
@@ -103,7 +189,7 @@ describe("upsertFaturasDoErpPorDocumento", () => {
       { ref: "1", vencimento: "2026-09-20", valor: 80 },
     ]);
     expect(n).toBe(1);
-    expect(banco.consultas).toHaveLength(2);
+    expect(banco.consultas).toHaveLength(3);
     const busca = banco.consultas[0];
     expect(busca.sql).toMatch(/from "customers"/);
     conferirTenant(busca);
@@ -175,6 +261,11 @@ function responderResumo(o: {
 }
 
 describe("resumoDoMes", () => {
+  it("recebimento explícito com data torna o indicador confirmado", async () => {
+    responderResumo({ faturas: ["100", "100", "0", "0", "0", "0", "0"], base: ["1", null] });
+    expect(await storage.resumoDoMes(PROVEDOR, "2026-09", HOJE)).toMatchObject({ recebido: 100, recebidoConfirmado: true });
+    expect(banco.consultas[0].sql).toContain('"paid_date" is not null');
+  });
   it("sem fatura do ERP: base=false, tudo zero e recebido nunca confirmado — a tela mostra '—'", async () => {
     responderResumo({});
     const r = await storage.resumoDoMes(PROVEDOR, "2026-09", HOJE);
@@ -276,6 +367,18 @@ describe("recuperacaoAposContato", () => {
       return linhas.total ?? [[0, 0, 0]];
     };
   };
+
+  it.each(['ativo', 'ex_cliente'] as const)('recuperacao %s recorta base e todas as agregacoes pelo cliente atual', async carteira => {
+    responderComBase({});
+    await storage.recuperacaoAposContato(PROVEDOR, { hoje: HOJE, carteira });
+    expect(banco.consultas).toHaveLength(4);
+    for (const q of banco.consultas) {
+      expect(q.sql).toContain('"customers"."status"');
+      expect(q.params).toContain('active');
+      expect(q.params).toContain('suspended');
+      conferirTenant(q);
+    }
+  });
 
   it("sem fatura vinda do ERP: base falsa, motivo escrito, valores nulos", async () => {
     banco.responder = () => [[0, 0]];

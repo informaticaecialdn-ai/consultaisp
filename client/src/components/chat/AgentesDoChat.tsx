@@ -122,7 +122,8 @@ function ConfiguracaoDoAgente({ agente, modelos, credencialAusente, podeAdminist
     </div>
     {credencialAusente && <p role="alert" className="text-[11px] leading-4 text-[var(--gated)]">{SEM_CREDENCIAL}</p>}
     {mudou && <p className="text-xs text-[var(--text-muted)]">Salve as alterações antes de aplicar ou testar.</p>}
-    {previa && <div className="rounded border border-[var(--border)] bg-[var(--surface)] p-3"><p className="text-xs leading-5 text-[var(--text)]">{previa.texto}</p><p className="mt-2 break-all font-mono text-[10px] text-[var(--text-muted)] tabular-nums">IA · {previa.modelo} · {previa.runId}</p></div>}
+    {agente.tipo !== "recuperacao_equipamentos" && <p className="text-xs leading-5 text-[var(--text-muted)]">A abertura é neutra e não usa geração de IA. Modelo, tom e preferências orientam a continuidade após a identificação.</p>}
+    {previa && <div className="rounded border border-[var(--border)] bg-[var(--surface)] p-3"><p className="text-xs leading-5 text-[var(--text)]">{previa.texto}</p><p className="mt-2 break-all font-mono text-[10px] text-[var(--text-muted)] tabular-nums">{previa.modo === "abertura_controlada" ? "Abertura controlada · sem geração de IA" : <>IA · {previa.modelo} · {previa.runId}</>}</p></div>}
 
     {podeAdministrar && <details className="rounded border border-[var(--border)] bg-[var(--surface)]" onToggle={e => setPromptAberto((e.currentTarget as HTMLDetailsElement).open)} data-testid={`prompt-${agente.tipo}`}>
       <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[var(--text-2)]">O que o agente recebe</summary>

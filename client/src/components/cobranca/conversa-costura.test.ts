@@ -56,7 +56,9 @@ describe("a tela lê o link", () => {
   });
 
   it("404 é a RESPOSTA (não há conversa), não erro — por isso a leitura é crua", () => {
-    expect(tela).toContain("if (r.status === 404) return null;");
+    expect(tela).toContain("if (r.status === 404) {");
+    expect(tela).toContain('if (erro.codigo === "ESCOPO_DIVERGENTE") throw new Error(erro.message);');
+    expect(tela).toContain("return null;");
     expect(tela).toContain("enabled: casoDoLink !== null && !selecionada");
   });
 });
@@ -65,7 +67,7 @@ describe("os dois lados falam do mesmo endereço", () => {
   it("a rota do caso vem do vocabulário, e não é digitada à mão", () => {
     expect(tipos).toContain("export const apiConversaDoCaso");
     expect(tela).toContain("apiConversaDoCaso(casoDoLink!)");
-    expect(tela).toContain("queryKey: [apiConversaDoCaso(casoDoLink ?? 0)]");
+    expect(tela).toContain("queryKey: [`${apiConversaDoCaso(casoDoLink ?? 0)}?carteira=${carteira}`]");
   });
 });
 
@@ -91,7 +93,7 @@ describe("sem conversa, a tela diz o que falta — e não mostra um controle mor
   });
 
   it("iniciar é o MESMO envio do quadro, e abre a conversa que ele devolve", () => {
-    expect(tela).toContain('apiRequest("POST", apiEnviarCasoParaChat(casoId), {})');
+    expect(tela).toContain('apiRequest("POST", `${apiEnviarCasoParaChat(casoId)}?carteira=${carteira}`, {})');
     expect(tela).toContain("if (r.conversationId) onAbrir(r.conversationId)");
   });
 

@@ -120,3 +120,19 @@ describe("alerta de fuga: para onde o link leva", () => {
     expect(linksEnviados().urlBaseDoEmail).toBe("https://nslink.consultaisp.com.br");
   });
 });
+
+
+it("desligar canais mantém o aviso na tela sem enviar mensagens", async () => {
+  storageMock.getProvider.mockImplementation(async id => id === DONO ? { ...PROVEDOR_DONO, proactiveAlertsEnabled: false } : { id, name: "Outro" });
+  await notifyOwnerProviders("12345678901", CLIENTE_AO_VIVO, CONSULENTE);
+  expect(storageMock.createAlert).toHaveBeenCalledOnce();
+  expect(storageMock.createProactiveAlert).toHaveBeenCalledWith(expect.objectContaining({ channel: "nenhum" }));
+  expect(emailMock.sendProactiveAlertEmail).not.toHaveBeenCalled();
+  expect(zapiMock.sendText).not.toHaveBeenCalled();
+});
+it("não substitui preferências por padrões quando a leitura das regras falha", async () => {
+  storageMock.getAntiFraudRules.mockRejectedValueOnce(new Error("indisponível"));
+  await notifyOwnerProviders("12345678901", CLIENTE_AO_VIVO, CONSULENTE);
+  expect(storageMock.createAlert).not.toHaveBeenCalled();
+  expect(emailMock.sendProactiveAlertEmail).not.toHaveBeenCalled();
+});

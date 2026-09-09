@@ -22,6 +22,7 @@ export const ROTA_AGENTES = "/painel-provedor?tab=agentes";
 
 export const ABAS_DO_CONSOLE = [
   { chave: "resumo", rotulo: "Visão geral" },
+  { chave: "cobranca", rotulo: "Operação de cobrança" },
   { chave: "agentes", rotulo: "Agentes" },
   { chave: "skills", rotulo: "Skills" },
   { chave: "conexoes", rotulo: "Conexões" },

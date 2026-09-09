@@ -10,7 +10,7 @@
  * constantes daqui são só a reserva.
  *
  * O CONTADOR É O DO WORKER, não uma segunda conta: `hoje` vem de
- * `contatosIniciadosNoDia` — contato que SAIU pelo WhatsApp, na virada de dia
+ * `contatosIniciadosNoDia` mais as reservas de pré-aviso, na virada de dia
  * do fuso de São Paulo. Conversa reaproveitada não entra (nenhuma mensagem
  * saiu) e não gasta cota. O banco NÃO separa o disparo da rodada automática do
  * clique do operador em "Enviar p/ cobrança": os dois gravam o mesmo evento —
@@ -98,7 +98,7 @@ export function AutomacaoPrimeiroContato({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h3 className="text-sm font-semibold">Primeiros contatos automáticos</h3>
-        <p
+        <div
           className="text-xs text-[var(--text-muted)]"
           data-testid="automacao-contatos-hoje"
         >
@@ -120,11 +120,12 @@ export function AutomacaoPrimeiroContato({
                 query.data?.limiteDiario ?? <Traco titulo="Teto diário não carregado" />}
             </span>
           )}
-        </p>
+        </div>
       </div>
       <p className="text-xs text-[var(--text-muted)]">
-        O assistente inicia apenas casos ainda sem conversa, usando mensagens
-        por contexto e tom DNA. A primeira resposta vai para a equipe. Respeita
+        O assistente inicia o contato com uma apresentação sem valores ou documentos.
+        A resposta segue para a equipe ou para o assistente, conforme a autonomia
+        configurada abaixo. Após confirmar a identidade, o tom DNA orienta a cobrança. Respeita
         a janela da Política de Cobrança, feriados nacionais e datas pausadas
         abaixo. A rodada corre a cada minuto e inicia no máximo{" "}
         <span className={NUM_CHAT}>
@@ -134,7 +135,7 @@ export function AutomacaoPrimeiroContato({
       </p>
       <p className="text-xs text-[var(--text-faint)]">
         A contagem do dia é a mesma que o worker usa para decidir se ainda pode
-        contatar: mensagem que <b>saiu</b> pelo WhatsApp, virada de dia no fuso
+        contatar: contatos enviados e reservas de pré-aviso (incluindo envio ainda sem confirmação), com virada de dia no fuso
         de Brasília. Conversa já existente não entra — nada foi enviado. O
         registro não separa o disparo automático do botão “Enviar p/ cobrança”:
         os dois contam.
@@ -161,6 +162,11 @@ export function AutomacaoPrimeiroContato({
         </label>
         <div className="flex flex-wrap gap-4 text-xs">
           <label className={CAIXA}>
+            <input type="checkbox" className={MARCADOR} checked={config.preventivo}
+              onChange={(e) => setConfig((c) => ({ ...c, preventivo: e.target.checked }))} />
+            Pré-aviso de faturas a vencer (D-7, D-3 e D-1)
+          </label>
+          <label className={CAIXA}>
             <input
               type="checkbox"
               className={MARCADOR}
@@ -183,6 +189,11 @@ export function AutomacaoPrimeiroContato({
             Recuperação de equipamentos
           </label>
         </div>
+        {config.preventivo && <p className="text-xs text-[var(--text-muted)]">
+          Clientes ativos em dia recebem uma abertura sem valores ou documentos. A equipe confirma a identidade e continua o atendimento.
+          O mesmo boleto não recebe outro contato no mesmo dia. Conversas abertas são encaminhadas à equipe sem novo envio.
+          Envios sem confirmação reservam a cota até a conferência.
+        </p>}
         {config.cobranca && (
           <div className="flex flex-wrap gap-4 text-xs">
             {(["ativo", "ex_cliente"] as const).map((carteira) => (

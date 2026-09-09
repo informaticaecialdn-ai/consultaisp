@@ -13,7 +13,7 @@ const ler = (caminho: string) => readFileSync(new URL(caminho, import.meta.url),
 /** A fonte sem comentário — o que a tela realmente executa. */
 const executavel = (fonte: string) => fonte.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 const tela = executavel(ler("./AutonomiaDoChat.tsx"));
-const aba = executavel(ler("../painel/AbaChat.tsx"));
+const aba = executavel(ler("../painel/AbaAgentesDeIa.tsx"));
 
 describe("AutonomiaDoChat", () => {
   it("le a configuracao e a fila, e grava, pelas rotas da autonomia", () => {
@@ -49,7 +49,7 @@ describe("AutonomiaDoChat", () => {
     expect(tela).toContain("O que a IA nunca faz, ligada ou não");
     expect(tela).toContain("nuncaDaRota(estado.data).map(item =>");
     expect(tela).toContain("Negativar, dar baixa e desconto fora da política são decisões do atendente.");
-    expect(tela).toContain("o modelo só escolhe a intenção; texto, valor e data são do servidor");
+    expect(tela).toContain("O servidor controla valores e ações");
   });
   it("carrega com esqueleto e respeita o sistema de desenho (sem paleta crua, sombra, pill ou 'Carregando')", () => {
     expect(tela).toContain("<LinhasSkeleton linhas={3} />");
@@ -59,7 +59,7 @@ describe("AutonomiaDoChat", () => {
     expect(tela).not.toMatch(/rounded-(?:full|xl|2xl)/);
     expect(tela).not.toMatch(/localStorage|console\.log/);
   });
-  it("esta montado na aba Chat do painel, com a permissao da aba", () => {
+  it("esta montado em Agentes de IA do painel, com a permissao da aba", () => {
     expect(aba).toContain('import { AutonomiaDoChat } from "@/components/chat/AutonomiaDoChat";');
     expect(aba).toContain("<AutonomiaDoChat podeAdministrar={podeAdministrar} />");
   });

@@ -11,10 +11,18 @@ import { criarAgrupadorDeBairro, criarCasadorDeBairro, normalizarLocalidade } fr
 import { cidadesNoMapa, MIN_CLIENTES_CIDADE } from "../services/cidades-do-mapa";
 import { carregarTerritorio, carregarCaixasMunicipio } from "../services/geo-bases.service";
 import {
-  calcularBenchmarkBairro, benchmarkParaTela, chaveCidadeBenchmark, ordenarCanonicosPorTamanho,
+  calcularBenchmarkBairro, calcularBenchmarkCidade, resumirBenchmark, benchmarkParaTela, chaveCidadeBenchmark, ordenarCanonicosPorTamanho,
 } from "../services/benchmark-bairro.service";
 import { geocodeAddress, geocodeCity } from "../services/geocoding";
 import type { GeoPrecisao } from "@shared/geo-precisao";
+
+export type CarteiraLocalizacao = "ativo" | "ex_cliente" | "todas";
+const percentual = (parte: number, total: number) => total > 0 ? Math.round(parte / total * 1000) / 10 : 0;
+const dividaPositiva = (valor: string | number | null) => {
+  const n = Number(valor);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+const clienteAtual = (status: string | null) => !["cancelled", "inactive"].includes((status || "").trim().toLowerCase());
 
 export interface LocalizacaoPonto {
   id: number;
@@ -40,14 +48,17 @@ export interface LocalizacaoBairro {
   bairro: string; cidade: string;
   clientes: number; inadimplentes: number; exComDivida: number;
   /**
-   * inadimplentes / universo, uma casa. O denominador NAO e `clientes`: e a
-   * mesma regua do benchmark e do Provedor.ai (cliente atual OU com divida),
-   * senao o proprio numero sai deflacionado pelos cancelados quitados e o
-   * "melhor/pior que o mercado" aponta para o lado errado.
+   * Devedores / todos os clientes do bairro na carteira selecionada,
+   * inclusive sem coordenada. A mesma carteira e usada pelo benchmark.
    */
   pctInadimplencia: number; dividaTotal: number;
-  /** Denominador da taxa: quem ainda e cliente ou saiu devendo. */
+  /** Denominador da taxa, igual a clientes na carteira selecionada. */
   universo: number;
+  clientesCidade: number;
+  pctBaseProvedor: number;
+  /** Devedores deste bairro / todos os clientes da carteira do provedor. */
+  pctInadimplentesBaseProvedor: number;
+  pctBaseCidade: number;
   /** Clientes que ainda sao seus: ativos + suspensos. Numerador da penetracao. */
   atuais: number;
   /**
@@ -65,6 +76,14 @@ export interface LocalizacaoBairro {
 
 export interface LocalizacaoCidade {
   cidade: string;
+  uf: string | null;
+  ufAmbigua: boolean;
+  universo: number;
+  pctInadimplencia: number;
+  semCoordenada: number;
+  pontosNoMapa: number;
+  benchmarkPct: number | null;
+  benchmark: { pct: number; provedores: number; clientes: number; inadimplentes: number } | null;
   clientes: number;
   inadimplentes: number;
   dividaTotal: number;
@@ -104,6 +123,9 @@ export interface LocalizacaoCidadeCatalogo {
 }
 
 export interface LocalizacaoResposta {
+  carteira: CarteiraLocalizacao;
+  totalCarteira: number;
+  resumo: { clientes: number; inadimplentes: number; dividaTotal: number; pctInadimplencia: number; pontosNoMapa: number; semCoordenada: number };
   origemArea: OrigemArea;
   /** Endereco cadastrado do provedor: ancora o mapa e marca o ponto de partida. */
   sede: LocalizacaoSede | null;
@@ -211,6 +233,7 @@ export class LocalizacaoStorage {
     bairros: LocalizacaoBairro[],
     providerId: number,
     ufDaCidade: (cidade: string) => string | null,
+    carteira: CarteiraLocalizacao,
   ): Promise<void> {
     if (bairros.length === 0) return;
 
@@ -231,7 +254,7 @@ export class LocalizacaoStorage {
       const cidadeNorm = chaveDaCidade(b.cidade);
       return [cidadeNorm, { cidadeNorm, uf: ufDaCidade(b.cidade) }] as const;
     })).values()).filter(p => p.cidadeNorm);
-    const benchmark = await calcularBenchmarkBairro(pedidos, territorio).catch((err: unknown) => {
+    const benchmark = await calcularBenchmarkBairro(pedidos, territorio, carteira).catch((err: unknown) => {
       console.warn("[benchmark-bairro] falhou, card fica em aguardando:", (err as Error)?.message ?? err);
       return null;
     });
@@ -285,13 +308,15 @@ export class LocalizacaoStorage {
    * O recorte territorial vem da cascata — nunca mais de providers.addressState
    * sozinho, que nao filtrava nada quando a UF era nula.
    */
-  async getLocalizacao(providerId: number): Promise<LocalizacaoResposta> {
+  async getLocalizacao(providerId: number, carteira: CarteiraLocalizacao = "ativo"): Promise<LocalizacaoResposta> {
     const area = await resolverAreaAtendida(providerId);
     const [prov] = await db.select().from(providers).where(eq(providers.id, providerId));
     const sede = await this.buscarSede(providerId, area);
 
     const todos = await db.select().from(customers)
       .where(eq(customers.providerId, providerId));
+    const selecionados = todos.filter(c => carteira === "todas" || (carteira === "ativo" ? clienteAtual(c.status) : !clienteAtual(c.status)));
+    const totalCarteira = selecionados.length;
 
     const cidadesAlvo = area.cidades
       ? new Set(area.cidades.map(normalizarCidade))
@@ -345,7 +370,7 @@ export class LocalizacaoStorage {
       if (!k) continue;
       const e = porCidadeBruta.get(k) ?? { nome: (c.city || "").trim(), clientes: 0, inadimplentes: 0 };
       e.clientes++;
-      if (c.paymentStatus === "overdue") e.inadimplentes++;
+      if (dividaPositiva(c.totalOverdueAmount) > 0) e.inadimplentes++;
       porCidadeBruta.set(k, e);
     }
 
@@ -372,7 +397,15 @@ export class LocalizacaoStorage {
     );
 
     const noMapa = (c: { city: string | null }) => cidadesDoMapa.has(normalizarCidade(c.city));
-    const naArea = todos.filter(noMapa);
+    const naArea = selecionados.filter(noMapa);
+    const contagemSelecionada = new Map<string, { clientes: number; inadimplentes: number }>();
+    for (const c of selecionados) {
+      const chave = normalizarCidade(c.city);
+      const item = contagemSelecionada.get(chave) ?? { clientes: 0, inadimplentes: 0 };
+      item.clientes++;
+      if (dividaPositiva(c.totalOverdueAmount) > 0) item.inadimplentes++;
+      contagemSelecionada.set(chave, item);
+    }
 
     /*
      * O CATALOGO DE CIDADES — o que a tela precisa para deixar escolher.
@@ -385,8 +418,8 @@ export class LocalizacaoStorage {
     const catalogoCidades: LocalizacaoCidadeCatalogo[] = Array.from(porCidadeBruta.entries())
       .map(([k, v]) => ({
         cidade: v.nome || "Sem cidade",
-        clientes: v.clientes,
-        inadimplentes: v.inadimplentes,
+        clientes: contagemSelecionada.get(k)?.clientes ?? 0,
+        inadimplentes: contagemSelecionada.get(k)?.inadimplentes ?? 0,
         noMapa: cidadesDoMapa.has(k),
         motivo: excluidas.has(k)
           ? ("excluida" as const)
@@ -396,7 +429,7 @@ export class LocalizacaoStorage {
       }))
       .sort((a, b) => b.clientes - a.clientes);
 
-    const foraLista = todos.filter(c => !noMapa(c));
+    const foraLista = selecionados.filter(c => !noMapa(c));
     const cidadesForaDoMapa = catalogoCidades
       .filter(c => !c.noMapa)
       .map(({ cidade, clientes, inadimplentes }) => ({ cidade, clientes, inadimplentes }));
@@ -416,23 +449,21 @@ export class LocalizacaoStorage {
     // taxa de inadimplencia que nao descreve lugar nenhum. Um agrupador POR
     // CIDADE: bairros homonimos em cidades diferentes sao lugares diferentes.
     const agrupadores = new Map<string, ReturnType<typeof criarAgrupadorDeBairro>>();
-    // UF de cada cidade pela maioria dos cadastros: o benchmark chaveia cidade
-    // com UF, e a area declarada nem sempre tem uma.
+    // UFs divergentes impedem o benchmark: maioria não resolve homônimos.
     const ufsPorCidade = new Map<string, Map<string, number>>();
 
     for (const c of naArea) {
       const cidade = canonizar(c.city);
       const ct = porCidade.get(cidade) || {
-        cidade, clientes: 0, inadimplentes: 0, dividaTotal: 0, lat: null, lon: null,
+        cidade, uf: null, ufAmbigua: false, universo: 0, pctInadimplencia: 0, semCoordenada: 0, pontosNoMapa: 0, benchmarkPct: null, benchmark: null, clientes: 0, inadimplentes: 0, dividaTotal: 0, lat: null, lon: null,
       };
       ct.clientes++;
 
-      const estado = estadoDoPonto(c);
+      const emAberto = dividaPositiva(c.totalOverdueAmount);
+      const estado = estadoDoPonto({ status: (c.status || "").trim(), totalOverdueAmount: emAberto });
       if (c.lastSyncAt && (!sincronizadoEm || c.lastSyncAt > sincronizadoEm)) {
         sincronizadoEm = c.lastSyncAt;
       }
-      const emAberto = Number(c.totalOverdueAmount || 0) || 0;
-
       // A legenda descreve o MAPA, e o mapa so tem quem deve — ver o corte
       // adiante. Contar a carteira inteira aqui poria "Ativo em dia 980" numa
       // legenda de pontos onde nenhum adimplente aparece.
@@ -450,14 +481,14 @@ export class LocalizacaoStorage {
       const chave = `${cidade.toUpperCase()}||${grupo?.chave ?? "SEM BAIRRO"}`;
       const b = porBairro.get(chave) || {
         bairro, cidade, clientes: 0, inadimplentes: 0, exComDivida: 0,
-        pctInadimplencia: 0, dividaTotal: 0, universo: 0, atuais: 0,
+        pctInadimplencia: 0, dividaTotal: 0, universo: 0, atuais: 0, clientesCidade: 0, pctBaseProvedor: 0, pctInadimplentesBaseProvedor: 0, pctBaseCidade: 0,
         hps: null, ucsVivas: null, pctPenetracao: null, benchmarkPct: null,
       };
       b.clientes++;
       if (emAberto > 0) { b.inadimplentes++; b.dividaTotal += emAberto; }
       if (estado === 'ex_divida') b.exComDivida++;
       const uf = (c.state || "").trim().toUpperCase();
-      if (uf) {
+      if (/^[A-Z]{2}$/.test(uf)) {
         const contagem = ufsPorCidade.get(cidade) ?? new Map<string, number>();
         contagem.set(uf, (contagem.get(uf) ?? 0) + 1);
         ufsPorCidade.set(cidade, contagem);
@@ -469,13 +500,11 @@ export class LocalizacaoStorage {
       // contava como atual todo ex-cliente que ja quitou — 1.380 dos 2.633
       // cancelados da NsLink em 28/08/2026. A penetracao por bairro saia inflada
       // justamente onde o provedor mais perdeu cliente.
-      const situacao = (c.status || "").toLowerCase();
-      const atual = situacao !== 'cancelled' && situacao !== 'inactive';
+      const atual = clienteAtual(c.status);
       if (atual) b.atuais++;
-      // O universo da taxa e o do benchmark (e o do Provedor.ai): quem ainda e
-      // cliente ou saiu devendo. Cancelado quitado fica em `clientes` — e
-      // carteira historica, o operador quer ve-la — mas nao no denominador.
-      if (atual || emAberto > 0) b.universo++;
+      // A seleção de carteira já ocorreu: quitados e sem coordenada também
+      // pertencem ao denominador. Os pontos continuam restritos a devedores.
+      b.universo++;
       porBairro.set(chave, b);
 
       if (emAberto > 0) { ct.inadimplentes++; ct.dividaTotal += emAberto; }
@@ -487,6 +516,7 @@ export class LocalizacaoStorage {
       const valida = coordenadaValida(c.latitude, c.longitude);
       if (!valida) {
         semCoordenada++;
+        ct.semCoordenada++;
         // Mesmo criterio de TEM_ENDERECO no backfill: cidade ou CEP resolvem;
         // rua sozinha existe em mil cidades e nao geocodifica.
         if ((c.city || "").trim() || (c.cep || "").trim()) plotaveis++;
@@ -532,14 +562,33 @@ export class LocalizacaoStorage {
       ...b,
       pctInadimplencia: b.universo > 0 ? Math.round((b.inadimplentes / b.universo) * 1000) / 10 : 0,
       dividaTotal: Math.round(b.dividaTotal * 100) / 100,
+      clientesCidade: porCidade.get(b.cidade)?.clientes ?? 0,
+      pctBaseProvedor: percentual(b.clientes, totalCarteira),
+      pctInadimplentesBaseProvedor: percentual(b.inadimplentes, totalCarteira),
+      pctBaseCidade: percentual(b.clientes, porCidade.get(b.cidade)?.clientes ?? 0),
     }));
 
     const ufDaCidade = (cidade: string): string | null => {
       const contagem = ufsPorCidade.get(cidade);
       if (!contagem) return area.uf ?? null;
-      return Array.from(contagem.entries()).sort((x, y) => y[1] - x[1])[0][0];
+      if (contagem.size > 1) return null;
+      return Array.from(contagem.keys())[0] ?? null;
     };
-    await this.aplicarTerritorio(bairros, providerId, ufDaCidade);
+    await this.aplicarTerritorio(bairros, providerId, ufDaCidade, carteira);
+    const pedidosCidade = Array.from(porCidade.keys(), cidade => ({ cidadeNorm: normalizarLocalidade(normalizarCidade(cidade)), uf: ufDaCidade(cidade) }));
+    const benchmarkCidades = await calcularBenchmarkCidade(pedidosCidade, carteira).catch((err: unknown) => {
+      console.warn("[benchmark-cidade] indisponível:", err instanceof Error ? err.message : "erro desconhecido");
+      return new Map();
+    });
+    for (const ct of porCidade.values()) {
+      ct.uf = ufDaCidade(ct.cidade);
+      ct.ufAmbigua = (ufsPorCidade.get(ct.cidade)?.size ?? 0) > 1;
+      ct.universo = ct.clientes;
+      ct.pctInadimplencia = percentual(ct.inadimplentes, ct.universo);
+      ct.dividaTotal = Math.round(ct.dividaTotal * 100) / 100;
+      ct.benchmark = resumirBenchmark(benchmarkCidades.get(chaveCidadeBenchmark(ct.uf, normalizarLocalidade(normalizarCidade(ct.cidade)))), providerId);
+      ct.benchmarkPct = ct.benchmark?.pct ?? null;
+    }
 
     // Um ponto errado a centenas de km estica o enquadramento e a tela abre
     // numa regiao onde o provedor nao atende. Fora do mapa, mas contado — e
@@ -577,6 +626,7 @@ export class LocalizacaoStorage {
       const ct = porCidade.get(cidade);
       if (!ct) continue;
       const centro = centroMediano(lista.map(p => ({ lat: p.lat, lon: p.lon, cidade })));
+      ct.pontosNoMapa = lista.length;
       ct.lat = centro.lat;
       ct.lon = centro.lon;
     }
@@ -590,7 +640,12 @@ export class LocalizacaoStorage {
       .filter(n => !comCliente.has(normalizarCidade(n)))
       .sort((a, b) => a.localeCompare(b, "pt-BR"));
 
+    const inadimplentes = Array.from(porCidade.values()).reduce((s, c) => s + c.inadimplentes, 0);
+    const dividaTotal = Math.round(Array.from(porCidade.values()).reduce((s, c) => s + c.dividaTotal, 0) * 100) / 100;
     return {
+      carteira,
+      totalCarteira,
+      resumo: { clientes: naArea.length, inadimplentes, dividaTotal, pctInadimplencia: percentual(inadimplentes, naArea.length), pontosNoMapa: coerentes.length, semCoordenada },
       origemArea: area.origem,
       sede,
       semCoordenada,

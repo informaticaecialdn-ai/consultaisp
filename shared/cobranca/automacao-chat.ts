@@ -4,6 +4,7 @@ import { POLITICA_PADRAO, JanelaContatoSchema } from "./politica";
 export const AutomacaoChatSchema = z.object({
   ligada: z.boolean().default(false),
   cobranca: z.boolean().default(true),
+  preventivo: z.boolean().default(false),
   equipamentos: z.boolean().default(false),
   limiteDiario: z.number().int().min(1).max(100).default(10),
   carteiras: z

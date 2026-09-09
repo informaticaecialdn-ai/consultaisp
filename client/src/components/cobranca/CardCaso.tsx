@@ -130,7 +130,7 @@ export function resumoDoAcordo(n: NegociacaoResumo): string {
   } else {
     partes.push(`à vista ${brl(n.valorNegociado)}`);
   }
-  if (n.proximaParcela) partes.push(`próxima ${dataCivilBr(n.proximaParcela.vencimento)}${n.proximaParcela.atrasada ? " (atrasada)" : ""}`);
+  if (n.proximaParcela) partes.push(`${n.proximaParcela.numero === 0 ? "entrada" : "próxima"} ${dataCivilBr(n.proximaParcela.vencimento)}${n.proximaParcela.atrasada ? " (atrasada)" : ""}`);
   return partes.join(" · ");
 }
 

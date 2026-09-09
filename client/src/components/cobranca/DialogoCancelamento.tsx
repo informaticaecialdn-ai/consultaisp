@@ -23,10 +23,13 @@ import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { BOTAO_MARCA, BOTAO_SECUNDARIO, Campo } from "@/components/painel/ui";
 import { API_CASOS } from "./tipos";
+import type { Carteira } from "@shared/cobranca";
+import { caminhoNaCarteira } from "./carteiras";
 import { descricaoDoErro, invalidarCobranca } from "./ui";
 
 export interface AlvoDoCancelamento {
   casoId: number;
+  carteira?: Carteira;
   customerId: number;
   clienteNome: string;
 }
@@ -50,7 +53,8 @@ export function DialogoCancelamento({ alvo, aberto, onFechar, onCancelado }: {
       if (!alvo) throw new Error("Nenhum caso selecionado");
       const texto = motivo.trim();
       if (texto.length < MOTIVO_MIN) throw new Error("Diga o motivo do cancelamento (ao menos algumas palavras).");
-      const resposta = await apiRequest("PATCH", `${API_CASOS}/${alvo.casoId}`, { status: "cancelamento", motivo: texto });
+      const rota = `${API_CASOS}/${alvo.casoId}`;
+      const resposta = await apiRequest("PATCH", alvo.carteira ? caminhoNaCarteira(rota, alvo.carteira) : rota, { status: "cancelamento", motivo: texto });
       return resposta.json();
     },
     onSuccess: () => {

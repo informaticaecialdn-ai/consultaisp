@@ -3,6 +3,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { db } from "../db";
+import { cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
 import {
   cobrancaCasos,
   cobrancaEventos,
@@ -10,6 +11,7 @@ import {
   cobrancaParcelas,
   cobrancaPolitica,
   customers,
+  invoices,
   users,
   STATUS_CASO_FECHADO,
   type CarteiraDeCobranca,
@@ -26,7 +28,9 @@ import {
 import {
   STATUS_VIVOS_DE_NEGOCIACAO,
   negociacaoEncerrada,
+  transicaoDeNegociacao,
   statusAposNegociacaoDesfeita,
+  type StatusDeNegociacao,
   type StatusDeCaso,
 } from "@shared/cobranca/estados";
 import { arredondar, brl } from "@shared/cobranca/politica";
@@ -94,6 +98,10 @@ export type TipoNegociacao = "parcelamento" | "quitacao_desconto" | "baixa_negoc
  *   VALOR_INVALIDO         pagamento de zero ou negativo
  */
 export const CODIGOS_DE_ERRO_DE_COBRANCA = [
+  "APROVACAO_OBRIGATORIA",
+  "TRANSICAO_INVALIDA",
+  "SALDO_ALTERADO",
+  "IDEMPOTENCIA_CONFLITO",
   "NEGOCIACAO_NAO_ACEITA",
   "NEGOCIACAO_ENCERRADA",
   "NEGOCIACAO_VIVA",
@@ -213,6 +221,8 @@ export interface LinhaDaCarteira {
   /** Desde quando o caso esta NESTE status — o tempo parado na coluna do quadro. */
   statusDesde: Date;
   carteira: string;
+  /** Foto preservada da abertura; a carteira operacional acompanha o ERP. */
+  carteiraAbertura?: string;
   abertoEm: Date;
   etapaAtual: string | null;
   diasAtrasoAbertura: number;
@@ -319,8 +329,15 @@ export interface NovaNegociacao {
   /** `YYYY-MM-DD`. Ausente = vencimento da primeira parcela. */
   primeiroVencimento?: string | null;
   criadoPorUserId: number;
+  /** Decisão calculada no servidor. Ausência exige revisão por administrador. */
+  aprovacao?: { exigeAprovacao: boolean; motivos?: string[]; faixa?: unknown; carteira?: string };
   /** O cliente ja disse sim na ligacao: nasce `aceita` e o caso vai a `acordo_ativo`. */
   aceita?: boolean;
+}
+
+export interface AutorizacaoDaNegociacao {
+  /** Derivada da sessão autenticada, nunca do corpo do pedido. */
+  podeAprovarExcecao: boolean;
 }
 
 export interface NovaParcela {
@@ -339,7 +356,7 @@ export interface KpisDaCobranca {
   /** Soma da divida de hoje, as duas carteiras. */
   emAberto: number;
   contatadosHoje: number;
-  /** Parcelas pagas + casos pagos sem acordo, nos ultimos 30 dias. */
+  /** Recebimentos de entrada/parcelas e quitações diretas confirmadas nos últimos 30 dias. */
   recuperado30d: number;
 }
 
@@ -377,6 +394,20 @@ export interface CandidatoACaso {
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+/** Compartilha o lock com quitações de faturas, antes de qualquer acordo. */
+async function travarRecebimentosDoCliente(tx: Tx, providerId: number, customerId: number): Promise<void> {
+  await tx.select({ id: customers.id }).from(customers)
+    .where(and(eq(customers.providerId, providerId), eq(customers.id, customerId))).limit(1).for("update");
+}
+
+async function conferirQuitacoesDoCaso(tx: Tx, providerId: number, customerId: number, desde: Date): Promise<void> {
+  const [quitacao] = await tx.select({ id: cobrancaQuitacoes.id }).from(cobrancaQuitacoes).where(and(
+    eq(cobrancaQuitacoes.providerId, providerId), eq(cobrancaQuitacoes.customerId, customerId),
+    gte(cobrancaQuitacoes.confirmadoEm, desde),
+  )).limit(1);
+  if (quitacao) throw new ErroDeCobranca("SALDO_ALTERADO", "Há recebimento de fatura após a abertura deste saldo. Concilie os títulos antes de aceitar um acordo.");
+}
+
 /** DECIMAL no Drizzle e string. Recusa NaN aqui para nao virar erro de banco sem contexto. */
 function dinheiro(v: number): string {
   if (!Number.isFinite(v)) throw new Error(`Valor monetario invalido: ${v}`);
@@ -388,7 +419,7 @@ const num = (v: unknown): number => Number(v ?? 0);
 const casoVivo = () => notInArray(cobrancaCasos.status, [...STATUS_CASO_FECHADO]);
 const casoFechado = (status: string) => (STATUS_CASO_FECHADO as readonly string[]).includes(status);
 const clienteAtual = () => inArray(customers.status, [...STATUS_DE_CLIENTE_ATUAL]);
-const clienteDaCarteira = (carteira?: CarteiraDeCobranca) => carteira === undefined
+export const clienteDaCarteira = (carteira?: CarteiraDeCobranca) => carteira === undefined
   ? undefined
   : carteira === "ativo" ? clienteAtual() : sql`not (${clienteAtual()})`;
 const comDivida = () => sql`coalesce(${customers.totalOverdueAmount}, 0) > 0`;
@@ -439,7 +470,8 @@ function montarLinha(l: LinhaCrua): LinhaDaCarteira {
     // linha antiga em replica que ainda nao aplicou a migracao — e ali
     // `aberto_em` e a mesma aproximacao que o backfill usaria.
     statusDesde: (l.statusDesde ?? l.abertoEm) as Date,
-    carteira: l.carteira as string,
+    carteira: carteiraDoStatusErp(l.clienteStatusErp),
+    carteiraAbertura: l.carteira as string,
     abertoEm: l.abertoEm as Date,
     etapaAtual: l.etapaAtual,
     diasAtrasoAbertura: num(l.diasAtrasoAbertura),
@@ -524,7 +556,7 @@ function condicoesDaCarteira(providerId: number, f: FiltrosDaCarteira): SQL | un
   } else {
     conds.push(casoVivo());
   }
-  if (f.carteira) conds.push(eq(cobrancaCasos.carteira, f.carteira));
+  if (f.carteira) conds.push(clienteDaCarteira(f.carteira));
   if (f.etapa) conds.push(eq(cobrancaCasos.etapaAtual, f.etapa));
   if (f.meusMaisFilaGeral !== undefined) {
     // Meus + sem dono, numa condicao so: e o recorte com que o operador abre o dia.
@@ -896,12 +928,12 @@ export class CobrancaStorage {
   async contarCasosPorEtapa(providerId: number): Promise<ContagemPorEtapa[]> {
     const linhas = await db.select({
       etapa: cobrancaCasos.etapaAtual,
-      carteira: cobrancaCasos.carteira,
+      carteira: sql<string>`case when ${customers.status} in ('active', 'suspended') then 'ativo' else 'ex_cliente' end`,
       casos: count(),
       valor: sql<number>`coalesce(sum(${cobrancaCasos.valorAtual}), 0)`.mapWith(Number),
-    }).from(cobrancaCasos)
+    }).from(cobrancaCasos).innerJoin(customers, and(eq(customers.id, cobrancaCasos.customerId), eq(customers.providerId, cobrancaCasos.providerId)))
       .where(and(eq(cobrancaCasos.providerId, providerId), casoVivo()))
-      .groupBy(cobrancaCasos.etapaAtual, cobrancaCasos.carteira);
+      .groupBy(cobrancaCasos.etapaAtual, sql<string>`case when ${customers.status} in ('active', 'suspended') then 'ativo' else 'ex_cliente' end`);
     return linhas.map(l => ({ etapa: l.etapa, carteira: l.carteira, casos: num(l.casos), valor: num(l.valor) }));
   }
 
@@ -909,12 +941,12 @@ export class CobrancaStorage {
   async contarCasosPorQuadrante(providerId: number): Promise<ContagemPorQuadrante[]> {
     const linhas = await db.select({
       quadrante: cobrancaCasos.quadranteDna,
-      carteira: cobrancaCasos.carteira,
+      carteira: sql<string>`case when ${customers.status} in ('active', 'suspended') then 'ativo' else 'ex_cliente' end`,
       casos: count(),
       valor: sql<number>`coalesce(sum(${cobrancaCasos.valorAtual}), 0)`.mapWith(Number),
-    }).from(cobrancaCasos)
+    }).from(cobrancaCasos).innerJoin(customers, and(eq(customers.id, cobrancaCasos.customerId), eq(customers.providerId, cobrancaCasos.providerId)))
       .where(and(eq(cobrancaCasos.providerId, providerId), casoVivo()))
-      .groupBy(cobrancaCasos.quadranteDna, cobrancaCasos.carteira);
+      .groupBy(cobrancaCasos.quadranteDna, sql<string>`case when ${customers.status} in ('active', 'suspended') then 'ativo' else 'ex_cliente' end`);
     return linhas.map(l => ({ quadrante: l.quadrante, carteira: l.carteira, casos: num(l.casos), valor: num(l.valor) }));
   }
 
@@ -1018,13 +1050,17 @@ export class CobrancaStorage {
     parcelas: NovaParcela[],
   ): Promise<NegociacaoComParcelas> {
     return db.transaction(async (tx) => {
+      const [referencia] = await tx.select({ customerId: cobrancaCasos.customerId }).from(cobrancaCasos)
+        .where(and(eq(cobrancaCasos.id, dados.casoId), eq(cobrancaCasos.providerId, providerId))).limit(1);
+      if (referencia) await travarRecebimentosDoCliente(tx, providerId, referencia.customerId);
       const [caso] = await tx.select().from(cobrancaCasos)
         .where(and(eq(cobrancaCasos.id, dados.casoId), eq(cobrancaCasos.providerId, providerId)))
-        .limit(1);
+        .limit(1).for("update");
       if (!caso) throw new Error(`Caso ${dados.casoId} nao pertence ao provedor ${providerId}`);
       if (casoFechado(caso.status)) {
         throw new ErroDeCobranca("CASO_ENCERRADO", `Caso ${dados.casoId} esta encerrado (${caso.status}) e nao recebe negociacao`);
       }
+      await conferirQuitacoesDoCaso(tx, providerId, caso.customerId, caso.abertoEm);
       const [viva] = await tx.select({ id: cobrancaNegociacoes.id, status: cobrancaNegociacoes.status })
         .from(cobrancaNegociacoes)
         .where(and(
@@ -1041,7 +1077,22 @@ export class CobrancaStorage {
       }
 
       const agora = new Date();
-      const aceita = dados.aceita === true;
+      if (Math.abs(num(caso.valorAtual) - dados.valorOriginal) > 0.005) {
+        throw new ErroDeCobranca("SALDO_ALTERADO", "A dívida mudou. Recarregue o caso antes de negociar.");
+      }
+      const exigeAprovacao = dados.aprovacao?.exigeAprovacao !== false;
+      const aceita = dados.aceita === true && !exigeAprovacao;
+      const entrada = arredondar(dados.entrada ?? 0);
+      const vencimento = dados.primeiroVencimento ?? parcelas[0]?.vencimento;
+      const recebiveis = entrada > 0 && vencimento
+        ? [{ numero: 0, valor: entrada, vencimento }, ...parcelas]
+        : parcelas;
+      if (!Number.isFinite(dados.valorNegociado) || dados.valorNegociado <= 0 || !Number.isFinite(entrada)
+        || entrada < 0 || (entrada > 0 && !vencimento) || parcelas.some(p => !Number.isInteger(p.numero) || p.numero < 1 || !Number.isFinite(p.valor) || p.valor <= 0)
+        || new Set(parcelas.map(p => p.numero)).size !== parcelas.length
+        || Math.abs(recebiveis.reduce((total, p) => total + p.valor, 0) - dados.valorNegociado) > 0.005) {
+        throw new ErroDeCobranca("VALOR_INVALIDO", "Entrada e parcelas devem representar exatamente o total do acordo.");
+      }
       const [negociacao] = await tx.insert(cobrancaNegociacoes).values({
         providerId,
         casoId: caso.id,
@@ -1061,8 +1112,8 @@ export class CobrancaStorage {
         aceitaEm: aceita ? agora : null,
       }).returning();
 
-      const linhas = parcelas.length === 0 ? [] : await tx.insert(cobrancaParcelas).values(
-        parcelas.map(p => ({
+      const linhas = recebiveis.length === 0 ? [] : await tx.insert(cobrancaParcelas).values(
+        recebiveis.map(p => ({
           providerId,
           negociacaoId: negociacao.id,
           numero: p.numero,
@@ -1081,9 +1132,13 @@ export class CobrancaStorage {
       await tx.insert(cobrancaEventos).values({
         providerId, casoId: caso.id, customerId: caso.customerId, userId: dados.criadoPorUserId,
         tipo: aceita ? "acordo_aceito" : "negociacao_proposta",
+        notas: exigeAprovacao ? `Proposta exige aprovação de um administrador: ${(dados.aprovacao?.motivos ?? ["Avaliação da política pendente"]).join(" ")}` : null,
         metadata: {
           negociacaoId: negociacao.id, tipo: dados.tipo,
           valorNegociado: dados.valorNegociado, parcelas: parcelas.length,
+          versaoAprovacao: 1, exigeAprovacao, motivos: dados.aprovacao?.motivos ?? [],
+          faixa: dados.aprovacao?.faixa ?? null, carteira: dados.aprovacao?.carteira ?? caso.carteira,
+          entrada: entrada > 0 ? { numero: 0, valor: entrada, vencimento, origem: "acordo", recebimentoConfirmado: false } : null,
         },
         ocorridoEm: agora,
       });
@@ -1105,17 +1160,46 @@ export class CobrancaStorage {
     id: number,
     status: StatusNegociacao,
     userId: number | null = null,
+    autorizacao?: AutorizacaoDaNegociacao,
   ): Promise<CobrancaNegociacao | undefined> {
     if (!(STATUS_NEGOCIACAO as readonly string[]).includes(status)) {
       throw new Error(`Status de negociacao desconhecido: ${status}`);
     }
     return db.transaction(async (tx) => {
+      const [referencia] = await tx.select({ customerId: cobrancaNegociacoes.customerId }).from(cobrancaNegociacoes)
+        .where(and(eq(cobrancaNegociacoes.id, id), eq(cobrancaNegociacoes.providerId, providerId))).limit(1);
+      if (referencia) await travarRecebimentosDoCliente(tx, providerId, referencia.customerId);
       const [negociacao] = await tx.select().from(cobrancaNegociacoes)
         .where(and(eq(cobrancaNegociacoes.id, id), eq(cobrancaNegociacoes.providerId, providerId)))
-        .limit(1);
+        .limit(1).for("update");
       if (!negociacao) return undefined;
       if (negociacaoEncerrada(negociacao.status)) {
         throw new ErroDeCobranca("NEGOCIACAO_ENCERRADA", `Negociacao #${id} esta ${negociacao.status} e nao muda mais`);
+      }
+
+      const transicao = transicaoDeNegociacao(negociacao.status as StatusDeNegociacao, status);
+      if (!transicao.ok || status === "cumprida") {
+        throw new ErroDeCobranca("TRANSICAO_INVALIDA", transicao.ok ? "Acordo só é cumprido pelo recebimento de todas as parcelas e da entrada." : transicao.motivo);
+      }
+      if (status === "aceita" || status === "ativa") {
+        const eventos = await tx.select().from(cobrancaEventos).where(and(
+          eq(cobrancaEventos.providerId, providerId), eq(cobrancaEventos.casoId, negociacao.casoId),
+        ));
+        const registros = eventos.map(e => e.metadata as Record<string, unknown> | null)
+          .filter(m => m && Number(m.negociacaoId) === id);
+        const exigeAprovacao = registros.some(m => m?.exigeAprovacao === true)
+          || !eventos.some(e => (e.tipo === "negociacao_proposta" || e.tipo === "acordo_aceito")
+            && Number(e.metadata?.negociacaoId) === id && e.metadata?.versaoAprovacao === 1 && e.metadata.exigeAprovacao === false);
+        if (exigeAprovacao && (autorizacao?.podeAprovarExcecao !== true || userId === null)) {
+          throw new ErroDeCobranca("APROVACAO_OBRIGATORIA", "Esta proposta exige aprovação de um administrador do provedor.");
+        }
+        if (exigeAprovacao && userId !== null) {
+          const [administrador] = await tx.select({ id: users.id }).from(users).where(and(
+            eq(users.id, userId), or(and(eq(users.providerId, providerId), eq(users.role, "admin")), eq(users.role, "superadmin")),
+          )).limit(1).for("share");
+          if (!administrador) throw new ErroDeCobranca("APROVACAO_OBRIGATORIA", "A permissão de administrador não está mais ativa.");
+        }
+        await conferirQuitacoesDoCaso(tx, providerId, negociacao.customerId, negociacao.createdAt ?? new Date(0));
       }
 
       const agora = new Date();
@@ -1131,7 +1215,7 @@ export class CobrancaStorage {
           .where(and(
             eq(cobrancaParcelas.negociacaoId, id),
             eq(cobrancaParcelas.providerId, providerId),
-            inArray(cobrancaParcelas.status, ["pendente", "atrasada"]),
+            inArray(cobrancaParcelas.status, ["pendente", "atrasada", "conciliacao_pendente"]),
           ));
       }
 
@@ -1139,28 +1223,21 @@ export class CobrancaStorage {
         .where(and(eq(cobrancaCasos.id, negociacao.casoId), eq(cobrancaCasos.providerId, providerId)))
         .limit(1);
       if (caso && !casoFechado(caso.status)) {
-        if (status === "cumprida") {
-          await encerrarCaso(tx, providerId, caso, "pago", `acordo #${id} cumprido`, agora, userId);
-        } else {
-          const statusDoCaso = status === "aceita" || status === "ativa" ? "acordo_ativo"
-            : status === "quebrada" || status === "cancelada"
-              ? statusAposNegociacaoDesfeita(await statusDeFundoDoCaso(tx, providerId, caso))
-              : null;
-          if (statusDoCaso && statusDoCaso !== caso.status) {
-            await tx.update(cobrancaCasos).set({ status: statusDoCaso, statusDesde: agora, updatedAt: agora })
-              .where(and(eq(cobrancaCasos.id, caso.id), eq(cobrancaCasos.providerId, providerId)));
-          }
+        const statusDoCaso = status === "aceita" || status === "ativa" ? "acordo_ativo"
+          : status === "quebrada" || status === "cancelada"
+            ? statusAposNegociacaoDesfeita(await statusDeFundoDoCaso(tx, providerId, caso))
+            : null;
+        if (statusDoCaso && statusDoCaso !== caso.status) {
+          await tx.update(cobrancaCasos).set({ status: statusDoCaso, statusDesde: agora, updatedAt: agora })
+            .where(and(eq(cobrancaCasos.id, caso.id), eq(cobrancaCasos.providerId, providerId)));
         }
       }
-
-      if (status !== "cumprida") {
-        await tx.insert(cobrancaEventos).values({
-          providerId, casoId: negociacao.casoId, customerId: negociacao.customerId, userId,
-          tipo: status === "aceita" ? "acordo_aceito" : status === "quebrada" ? "acordo_quebrado" : "nota",
-          metadata: { negociacaoId: id, status },
-          ocorridoEm: agora,
-        });
-      }
+      await tx.insert(cobrancaEventos).values({
+        providerId, casoId: negociacao.casoId, customerId: negociacao.customerId, userId,
+        tipo: status === "aceita" ? "acordo_aceito" : status === "quebrada" ? "acordo_quebrado" : "nota",
+        metadata: { negociacaoId: id, status, ...(status === "aceita" ? { aprovacaoConferida: true, aprovadoPorUserId: userId } : {}) },
+        ocorridoEm: agora,
+      });
       return nova;
     });
   }
@@ -1207,8 +1284,8 @@ export class CobrancaStorage {
     for (const n of vivas) {
       if (mapa.has(n.casoId)) continue; // a mais recente vence
       const lista = porNegociacao.get(n.id) ?? [];
-      const pagas = lista.filter(p => p.status === "paga").length;
-      const proxima = lista.find(p => p.status === "pendente" || p.status === "atrasada") ?? null;
+      const pagas = lista.filter(p => p.numero > 0 && p.status === "paga").length;
+      const proxima = lista.find(p => p.status === "pendente" || p.status === "atrasada" || p.status === "conciliacao_pendente") ?? null;
       mapa.set(n.casoId, {
         id: n.id,
         tipo: n.tipo,
@@ -1257,23 +1334,44 @@ export class CobrancaStorage {
     valorPago: number,
     pagoEm: Date,
     userId: number | null = null,
+    chaveIdempotencia?: string,
   ): Promise<ResultadoDoPagamento | undefined> {
-    if (!Number.isFinite(valorPago) || valorPago <= 0) {
+    if (!Number.isFinite(valorPago) || arredondar(valorPago) <= 0) {
       throw new ErroDeCobranca("VALOR_INVALIDO", "O valor pago precisa ser maior que zero");
     }
     return db.transaction(async (tx) => {
-      const [parcela] = await tx.select().from(cobrancaParcelas)
+      const [referencia] = await tx.select({ negociacaoId: cobrancaParcelas.negociacaoId }).from(cobrancaParcelas)
         .where(and(eq(cobrancaParcelas.id, parcelaId), eq(cobrancaParcelas.providerId, providerId)))
         .limit(1);
-      if (!parcela) return undefined;
+      if (!referencia) return undefined;
 
+      // Todos os pagamentos/status do acordo usam a mesma ordem de locks.
+      // Assim dois parciais não perdem saldo e duas parcelas finais não deixam o acordo aberto.
       const [negociacao] = await tx.select().from(cobrancaNegociacoes)
         .where(and(
-          eq(cobrancaNegociacoes.id, parcela.negociacaoId),
+          eq(cobrancaNegociacoes.id, referencia.negociacaoId),
           eq(cobrancaNegociacoes.providerId, providerId),
         ))
-        .limit(1);
+        .limit(1).for("update");
       if (!negociacao) throw new Error(`Parcela ${parcelaId} aponta para negociacao inexistente`);
+      const [parcela] = await tx.select().from(cobrancaParcelas)
+        .where(and(eq(cobrancaParcelas.id, parcelaId), eq(cobrancaParcelas.providerId, providerId)))
+        .limit(1).for("update");
+      if (!parcela) return undefined;
+      if (chaveIdempotencia) {
+        const [anterior] = await tx.select().from(cobrancaEventos).where(and(
+          eq(cobrancaEventos.providerId, providerId), eq(cobrancaEventos.casoId, negociacao.casoId),
+          eq(cobrancaEventos.tipo, "parcela_paga"),
+          sql`${cobrancaEventos.metadata}->>'chaveIdempotencia' = ${chaveIdempotencia}`,
+        )).limit(1);
+        if (anterior) {
+          const dados = anterior.metadata as Record<string, unknown>;
+          if (Number(dados.parcelaId) !== parcelaId || Number(dados.valorPago) !== arredondar(valorPago)) {
+            throw new ErroDeCobranca("IDEMPOTENCIA_CONFLITO", "Este identificador de recebimento já foi usado para outro pagamento.");
+          }
+          return { parcela, negociacao, acordoCumprido: negociacao.status === "cumprida", parcial: dados.parcial === true };
+        }
+      }
       if (negociacao.status === "proposta") {
         throw new ErroDeCobranca(
           "NEGOCIACAO_NAO_ACEITA",
@@ -1290,11 +1388,11 @@ export class CobrancaStorage {
       const [gravada] = await tx.update(cobrancaParcelas)
         .set(cobre
           ? { status: "paga", pagoEm, valorPago: dinheiro(acumulado) }
-          : { valorPago: dinheiro(acumulado) })
+          : { valorPago: dinheiro(acumulado), pagoEm })
         .where(and(
           eq(cobrancaParcelas.id, parcelaId),
           eq(cobrancaParcelas.providerId, providerId),
-          inArray(cobrancaParcelas.status, ["pendente", "atrasada"]),
+          inArray(cobrancaParcelas.status, ["pendente", "atrasada", "conciliacao_pendente"]),
         ))
         .returning();
       // Ja paga ou cancelada entre a leitura e a escrita: nada aconteceu.
@@ -1305,8 +1403,8 @@ export class CobrancaStorage {
         await tx.insert(cobrancaEventos).values({
           providerId, casoId: negociacao.casoId, customerId: negociacao.customerId, userId,
           tipo: "parcela_paga",
-          notas: `Pagamento parcial da parcela ${parcela.numero}: ${brl(valorPago)} de ${brl(valorDaParcela)} (restam ${brl(restante)}).`,
-          metadata: { negociacaoId: negociacao.id, parcelaId, numero: parcela.numero, valorPago, acumulado, restante, parcial: true },
+          notas: `Pagamento parcial ${parcela.numero === 0 ? "da entrada" : `da parcela ${parcela.numero}`}: ${brl(valorPago)} de ${brl(valorDaParcela)} (restam ${brl(restante)}).`,
+          metadata: { negociacaoId: negociacao.id, parcelaId, numero: parcela.numero, valorPago: arredondar(valorPago), acumulado, restante, parcial: true, origem: "confirmacao_operador", recebimentoConfirmado: true, chaveIdempotencia },
           ocorridoEm: pagoEm,
         });
         return { parcela: gravada, negociacao, acordoCumprido: false, parcial: true };
@@ -1316,9 +1414,15 @@ export class CobrancaStorage {
         .where(and(
           eq(cobrancaParcelas.negociacaoId, negociacao.id),
           eq(cobrancaParcelas.providerId, providerId),
-          inArray(cobrancaParcelas.status, ["pendente", "atrasada"]),
+          ne(cobrancaParcelas.status, "paga"),
         ));
-      const cumprida = num(contagem?.restantes) === 0;
+      // Legado sem entrada materializada nunca é quitado por suposição.
+      const [entradaRegistrada] = num(negociacao.entrada) > 0 ? await tx.select({ id: cobrancaParcelas.id })
+        .from(cobrancaParcelas).where(and(
+          eq(cobrancaParcelas.providerId, providerId), eq(cobrancaParcelas.negociacaoId, negociacao.id),
+          eq(cobrancaParcelas.numero, 0), eq(cobrancaParcelas.status, "paga"),
+        )).limit(1) : [];
+      const cumprida = num(contagem?.restantes) === 0 && (num(negociacao.entrada) === 0 || !!entradaRegistrada);
 
       const novoStatus: StatusNegociacao = cumprida ? "cumprida"
         : negociacao.status === "aceita" ? "ativa"
@@ -1334,7 +1438,7 @@ export class CobrancaStorage {
       await tx.insert(cobrancaEventos).values({
         providerId, casoId: negociacao.casoId, customerId: negociacao.customerId, userId,
         tipo: "parcela_paga",
-        metadata: { negociacaoId: negociacao.id, parcelaId, numero: parcela.numero, valorPago, acumulado, parcial: false },
+        metadata: { negociacaoId: negociacao.id, parcelaId, numero: parcela.numero, valorPago: arredondar(valorPago), acumulado, parcial: false, origem: "confirmacao_operador", recebimentoConfirmado: true, chaveIdempotencia },
         ocorridoEm: pagoEm,
       });
 
@@ -1375,27 +1479,19 @@ export class CobrancaStorage {
    * hoje" contar o dia do PROVEDOR (meia-noite local do processo, como o
    * dashboard faz), e nao o dia UTC do banco.
    *
-   * `recuperado30d` soma tres fontes que nao se sobrepoem: parcelas pagas no
-   * periodo; a ENTRADA das negociacoes aceitas no periodo (e paga no aceite,
-   * nao e parcela — achado da revisao: ficava fora da conta); e casos
-   * encerrados como `pago` no periodo que NAO tiveram acordo — os que tiveram
-   * ja estao contados pelas parcelas e pela entrada. Pagamento parcial ainda
-   * em curso nao entra: a parcela so conta quando fecha.
+   * Recuperação soma cada recebimento confirmado, na data do evento.
+   * Inclui parciais e entrada; aceite e encerramento não comprovam recebimento.
+   * Eventos legados parcela_paga já registravam cada valor recebido.
    */
   async kpisDaCobranca(providerId: number, hoje: Date = new Date(), escopo?: CarteiraDeCobranca): Promise<KpisDaCobranca> {
     const inicioDoDia = new Date(hoje);
     inicioDoDia.setHours(0, 0, 0, 0);
     const ha30Dias = new Date(hoje.getTime() - 30 * 24 * 60 * 60 * 1000);
-    // Movimentos pertencem à carteira do caso, inclusive depois de encerrado.
+    // O recorte operacional acompanha a carteira atual do cliente, sem alterar o histórico.
     const casosDoEscopo = db.select({ id: cobrancaCasos.id }).from(cobrancaCasos).where(and(
       eq(cobrancaCasos.providerId, providerId),
-      escopo ? eq(cobrancaCasos.carteira, escopo) : undefined,
+      escopo ? inArray(cobrancaCasos.customerId, db.select({ id: customers.id }).from(customers).where(and(eq(customers.providerId, providerId), clienteDaCarteira(escopo)))) : undefined,
     ));
-    const acordosDoEscopo = db.select({ id: cobrancaNegociacoes.id }).from(cobrancaNegociacoes).where(and(
-      eq(cobrancaNegociacoes.providerId, providerId),
-      inArray(cobrancaNegociacoes.casoId, casosDoEscopo),
-    ));
-
     const [carteira] = await db.select({
       ativosComDivida: sql<number>`count(*) filter (where ${clienteAtual()} and ${comDivida()})`.mapWith(Number),
       exClientesComDivida: sql<number>`count(*) filter (where not (${clienteAtual()}) and ${comDivida()})`.mapWith(Number),
@@ -1411,46 +1507,35 @@ export class CobrancaStorage {
       escopo ? inArray(cobrancaEventos.casoId, casosDoEscopo) : undefined,
     ));
 
-    const [parcelas] = await db.select({
-      total: sql<number>`coalesce(sum(${cobrancaParcelas.valorPago}), 0)`.mapWith(Number),
-    }).from(cobrancaParcelas).where(and(
-      eq(cobrancaParcelas.providerId, providerId),
-      eq(cobrancaParcelas.status, "paga"),
-      gte(cobrancaParcelas.pagoEm, ha30Dias),
-      escopo ? inArray(cobrancaParcelas.negociacaoId, acordosDoEscopo) : undefined,
+    const [recebimentos] = await db.select({
+      total: sql<number>`coalesce(sum(case
+        when ${cobrancaEventos.metadata}->>'valorPago' ~ '^[0-9]+([.][0-9]+)?$'
+        then (${cobrancaEventos.metadata}->>'valorPago')::numeric else 0 end), 0)`.mapWith(Number),
+    }).from(cobrancaEventos).where(and(
+      eq(cobrancaEventos.providerId, providerId),
+      eq(cobrancaEventos.tipo, "parcela_paga"),
+      gte(cobrancaEventos.ocorridoEm, ha30Dias), lte(cobrancaEventos.ocorridoEm, hoje),
+      sql`coalesce(${cobrancaEventos.metadata}->>'recebimentoConfirmado', 'true') = 'true'`,
+      escopo ? inArray(cobrancaEventos.casoId, casosDoEscopo) : undefined,
     ));
 
-    const comAcordo = db.select({ um: sql`1` }).from(cobrancaNegociacoes).where(and(
-      eq(cobrancaNegociacoes.casoId, cobrancaCasos.id),
-      eq(cobrancaNegociacoes.providerId, providerId),
-      inArray(cobrancaNegociacoes.status, ["aceita", "ativa", "cumprida"]),
-    ));
-    const [casos] = await db.select({
-      total: sql<number>`coalesce(sum(${cobrancaCasos.valorAtual}), 0)`.mapWith(Number),
-    }).from(cobrancaCasos).where(and(
-      eq(cobrancaCasos.providerId, providerId),
-      eq(cobrancaCasos.status, "pago"),
-      gte(cobrancaCasos.encerradoEm, ha30Dias),
-      notExists(comAcordo),
-      escopo ? eq(cobrancaCasos.carteira, escopo) : undefined,
-    ));
-
-    const [entradas] = await db.select({
-      total: sql<number>`coalesce(sum(${cobrancaNegociacoes.entrada}), 0)`.mapWith(Number),
-    }).from(cobrancaNegociacoes).where(and(
-      eq(cobrancaNegociacoes.providerId, providerId),
-      // Quebrada fica de fora: "aceita mas a entrada nunca veio" e o que a quebra de uma aceita significa.
-      inArray(cobrancaNegociacoes.status, ["aceita", "ativa", "cumprida"]),
-      gte(cobrancaNegociacoes.aceitaEm, ha30Dias),
-      escopo ? inArray(cobrancaNegociacoes.casoId, casosDoEscopo) : undefined,
-    ));
+    // Quitações diretas têm comprovante próprio e não duplicam recebimentos de acordos.
+    // Sem carteira histórica no recibo, este recorte segue a carteira atual do cliente.
+    const [quitacoes] = await db.select({ total: sql<number>`coalesce(sum(${cobrancaQuitacoes.valorPago}), 0)`.mapWith(Number) })
+      .from(cobrancaQuitacoes).where(and(
+        eq(cobrancaQuitacoes.providerId, providerId),
+        gte(cobrancaQuitacoes.pagoEm, dataSemHora(ha30Dias)), lte(cobrancaQuitacoes.pagoEm, dataSemHora(hoje)),
+        escopo ? inArray(cobrancaQuitacoes.customerId, db.select({ id: customers.id }).from(customers).where(and(
+          eq(customers.providerId, providerId), clienteDaCarteira(escopo),
+        ))) : undefined,
+      ));
 
     return {
       ativosComDivida: num(carteira?.ativosComDivida),
       exClientesComDivida: num(carteira?.exClientesComDivida),
       emAberto: num(carteira?.emAberto),
       contatadosHoje: num(contatos?.total),
-      recuperado30d: arredondar(num(parcelas?.total) + num(entradas?.total) + num(casos?.total)),
+      recuperado30d: arredondar(num(recebimentos?.total) + num(quitacoes?.total)),
     };
   }
 
@@ -1520,7 +1605,7 @@ export class CobrancaStorage {
   ): Promise<LinhaDaCarteira[]> {
     const hoje = opcoes.hoje ?? new Date();
     const conds: (SQL | undefined)[] = [eq(cobrancaCasos.providerId, providerId), casoVivo()];
-    if (opcoes.carteira) conds.push(eq(cobrancaCasos.carteira, opcoes.carteira));
+    if (opcoes.carteira) conds.push(clienteDaCarteira(opcoes.carteira));
     if (opcoes.responsavelUserId !== undefined) {
       conds.push(or(
         eq(cobrancaCasos.responsavelUserId, opcoes.responsavelUserId),
@@ -1544,11 +1629,14 @@ export class CobrancaStorage {
    * Para o job de abertura: cliente com divida acima do minimo, ao menos um
    * dia de atraso e SEM caso vivo.
    *
-   * Duas exclusoes a mais, porque a fase 1 nao tem fatura para saber se a
-   * divida de hoje e a mesma de ontem:
+   * Duas exclusões adicionais para não cobrar de novo a mesma dívida:
    *   · cliente com caso `baixado` ou `encerrado` nao volta sozinho. O
    *     provedor desistiu dessa divida (ou ela prescreveu — CC 206 §5); abrir
    *     de novo no dia seguinte desfaria a decisao. Reabrir e ato manual.
+   *     Exceção: encerramento automático por saldo zerado, somente se todas
+   *     as faturas vencidas forem novas, identificadas no mesmo ERP e sua soma,
+   *     quantidade e atraso coincidirem com o agregado. Título antigo que
+   *     reaparece ou prova incompleta mantém o caso encerrado para revisão.
    *   · caso `pago` ha menos de 7 dias: o ERP ainda nao sincronizou a baixa e
    *     `customers` segue mostrando a divida que acabou de ser paga.
    */
@@ -1558,10 +1646,41 @@ export class CobrancaStorage {
       eq(cobrancaCasos.customerId, customers.id),
       casoVivo(),
     ));
+    const hoje = sql`(now() at time zone 'America/Sao_Paulo')::date`;
+    // due_date guarda o DIA da fatura em UTC; encerrado_em guarda um instante.
+    // A fronteira é o dia civil brasileiro em que a cobrança foi encerrada.
+    const diaEncerramento = sql`(${cobrancaCasos.encerradoEm} at time zone 'UTC' at time zone 'America/Sao_Paulo')::date`;
+    const faturaAberta = inArray(invoices.status, ["aberta", "pending", "overdue"]);
+    const antigasOuSemProva = db.select({ um: sql`1` }).from(invoices).where(and(
+      eq(invoices.providerId, providerId), eq(invoices.customerId, customers.id), faturaAberta,
+      sql`${invoices.dueDate}::date < ${hoje}`,
+      or(sql`${invoices.dueDate}::date <= ${diaEncerramento}`, isNull(invoices.erpSource), isNull(invoices.erpRef),
+        sql`length(trim(coalesce(${invoices.erpRef}, ''))) = 0`,
+        ne(invoices.erpSource, customers.erpSource), sql`coalesce(${invoices.value}, 0) <= 0`),
+    ));
+    const novasConferidas = db.select({ um: sql`1` }).from(invoices).where(and(
+      eq(invoices.providerId, providerId), eq(invoices.customerId, customers.id), faturaAberta,
+      eq(invoices.erpSource, customers.erpSource), isNotNull(invoices.erpRef), sql`length(trim(${invoices.erpRef})) > 0`,
+      sql`${invoices.dueDate}::date > ${diaEncerramento}`, sql`${invoices.dueDate}::date < ${hoje}`,
+      sql`${invoices.value} > 0`,
+    )).having(and(
+      sql`count(*) > 0`,
+      sql`sum(${invoices.value}) = coalesce(${customers.totalOverdueAmount}, 0)`,
+      sql`count(*) = coalesce(${customers.overdueInvoicesCount}, 0)`,
+      sql`${hoje} - min(${invoices.dueDate})::date = coalesce(${customers.maxDaysOverdue}, 0)`,
+    ));
+    const novaDividaAposSaldoZerado = and(
+      eq(cobrancaCasos.status, "encerrado"),
+      eq(cobrancaCasos.motivoEncerramento, "divida_zerada_sem_recebimento_confirmado"),
+      isNotNull(cobrancaCasos.encerradoEm), isNotNull(customers.erpSource), sql`length(trim(${customers.erpSource})) > 0`,
+      notExists(antigasOuSemProva), sql`exists (${novasConferidas})`,
+    );
     const desistido = db.select({ um: sql`1` }).from(cobrancaCasos).where(and(
       eq(cobrancaCasos.providerId, providerId),
       eq(cobrancaCasos.customerId, customers.id),
       inArray(cobrancaCasos.status, ["baixado", "encerrado"]),
+      // NULL (motivo/data desconhecidos) nunca concede reabertura automática.
+      sql`not coalesce((${novaDividaAposSaldoZerado}), false)`,
     ));
     const pagoHaPouco = db.select({ um: sql`1` }).from(cobrancaCasos).where(and(
       eq(cobrancaCasos.providerId, providerId),
@@ -1745,7 +1864,7 @@ async function desfazerNegociacoesVivas(
     .where(and(
       eq(cobrancaParcelas.providerId, providerId),
       inArray(cobrancaParcelas.negociacaoId, ids),
-      inArray(cobrancaParcelas.status, ["pendente", "atrasada"]),
+      inArray(cobrancaParcelas.status, ["pendente", "atrasada", "conciliacao_pendente"]),
     ));
   await tx.insert(cobrancaEventos).values(vivas.map(v => ({
     providerId, casoId: caso.id, customerId: caso.customerId, userId,

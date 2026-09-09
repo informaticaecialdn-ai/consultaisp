@@ -82,13 +82,15 @@ export class AntifraudeStorage {
     providerId: number,
     linhas: Array<{ tipo: string; ativo: boolean; parametros: Record<string, number> }>,
   ): Promise<void> {
-    for (const l of linhas) {
-      await db.insert(antiFraudRules)
+    await db.transaction(async tx => {
+      for (const l of linhas) {
+      await tx.insert(antiFraudRules)
         .values({ providerId, tipo: l.tipo, ativo: l.ativo, parametros: l.parametros, updatedAt: new Date() })
         .onConflictDoUpdate({
           target: [antiFraudRules.providerId, antiFraudRules.tipo],
           set: { ativo: l.ativo, parametros: l.parametros, updatedAt: new Date() },
         });
-    }
+      }
+    });
   }
 }

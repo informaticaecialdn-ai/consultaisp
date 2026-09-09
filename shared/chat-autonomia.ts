@@ -7,9 +7,19 @@ export const ConfigAutonomiaSchema = z.object({
   permitirPromessa: z.boolean().default(true),
   permitirSegundaVia: z.boolean().default(true),
   permitirAgendamento: z.boolean().default(true),
+  permitirNegociacao: z.boolean().optional(),
   tipos: z.array(z.enum(TIPOS_DE_AGENTE)).min(1).max(3).default([...TIPOS_DE_AGENTE]),
 }).strict();
 export type ConfigAutonomia = z.infer<typeof ConfigAutonomiaSchema>;
+export interface VinculoIdentidade { providerId: number; conversationId: string; customerId: number; telefone: string }
+export interface EstadoIdentidade extends VinculoIdentidade {
+  cadastroHash: string;
+  tentativas: number;
+  desafiadaEm: string;
+  ultimaMensagemId: string;
+  confirmadaEm: string | null;
+  validaAte: string | null;
+}
 export const PlanoRespostaSchema = z.object({
   acao: z.enum(["responder", "transferir", "segunda_via", "promessa", "agendar"]),
   resposta: z.enum(["acolher", "informar_divida", "pedir_data", "pedir_confirmacao", "orientar_devolucao", "agradecer"]).optional(),
@@ -44,7 +54,7 @@ export const O_QUE_A_IA_NUNCA_FAZ: Record<string, string> = {
   negativar: "negativar o cliente",
   baixar: "dar baixa em fatura ou equipamento",
   desconto_fora_da_politica: "conceder desconto fora da política de cobrança",
-  parcelar: "parcelar a dívida",
+  parcelar_fora_da_politica: "parcelar fora da política de cobrança",
   confirmar_pagamento: "confirmar pagamento sem o ERP",
   confirmar_devolucao: "confirmar a devolução do equipamento",
 };

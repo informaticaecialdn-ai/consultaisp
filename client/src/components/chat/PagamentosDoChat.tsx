@@ -32,6 +32,7 @@ export function PagamentosDoChat({
   contexto,
   carregando,
   url,
+  escopo,
   referencia,
   inserir,
 }: {
@@ -40,6 +41,7 @@ export function PagamentosDoChat({
   contexto?: ContextoDoChat;
   carregando: boolean;
   url: string;
+  escopo?: string;
   referencia?: string;
   inserir: (texto: string) => void;
 }) {
@@ -47,7 +49,7 @@ export function PagamentosDoChat({
   const [aviso, setAviso] = useState<string | null>(null);
   const consulta = useMutation({
     mutationFn: async (ref: string): Promise<PagamentoDoChat> =>
-      (await apiRequest("POST", `${url}/segunda-via`, { ref })).json(),
+      (await apiRequest("POST", `${url}/segunda-via${escopo ? `?${escopo}` : ""}`, { ref })).json(),
     retry: false,
   });
   useEffect(() => {

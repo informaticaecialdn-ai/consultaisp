@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { chipsDoMes, deslocarMes, ESPACO_META, mesAtual, rotuloDoMes } from "./carteira";
+import { brl } from "@/components/localizacao/ui";
 import type { RespostaDoMes } from "@/components/cobranca/tipos";
 
 const semNbsp = (s: string | null) => (s ?? "").replace(/ /g, " ");
@@ -56,5 +57,47 @@ describe("os dois espaços", () => {
   it("ativos e ex têm carteira, rota e situação ERP próprias", () => {
     expect(ESPACO_META.ativos).toMatchObject({ carteira: "ativo", rota: "/cobranca/ativos", situacaoErp: "Ativo ou suspenso" });
     expect(ESPACO_META.ex).toMatchObject({ carteira: "ex_cliente", rota: "/cobranca/ex-clientes", situacaoErp: "Ex-cliente" });
+  });
+});
+
+/**
+ * O chip "Pagou o mês" mostra a SOMA dos dois baldes.
+ *
+ * Até 08/09/2026 ele mostrava um OU outro (`recebidoConfirmado ? recebido :
+ * emConciliacao`). Enquanto o servidor cravava `recebidoConfirmado: false` o
+ * ramo confirmado era código morto e ninguém viu; a entrega de recebimentos
+ * ligou os dois lados ao mesmo tempo — passou a existir `status:'paid'` por
+ * confirmação individual E o campo virou `recebido > 0`. A partir do primeiro
+ * comprovante conferido, o card trocava de balde e escondia toda a conciliação
+ * do mês, ao lado de uma porcentagem que continuava somando os dois.
+ */
+describe("Pagou o mês — número, porcentagem e lista têm de concordar", () => {
+  const doMes = (recebido: number, emConciliacao: number, faturado = 1000) => chipsDoMes({
+    live: true,
+    resumo: { faturado, recebido, emConciliacao, recebidoConfirmado: recebido > 0, inadimplente: 0, aVencer: 0, semFatura: 0 },
+  } as never)[0];
+
+  it("soma confirmado e conciliação, em vez de escolher um", () => {
+    expect(doMes(100, 45_000).valor).toBe(brl(45_100));
+  });
+
+  it("o primeiro comprovante conferido NÃO apaga a conciliação da tela", () => {
+    const antes = doMes(0, 45_000).valor;
+    const depois = doMes(100, 45_000).valor;
+    expect(antes).toBe(brl(45_000));
+    expect(depois).toBe(brl(45_100));
+    // A regressão que existia: `depois` virava R$ 100,00.
+    expect(depois).not.toBe(brl(100));
+  });
+
+  it("separa no texto o que é comprovado do que é apenas provável", () => {
+    expect(doMes(100, 45_000).sub).toContain("confirmado, o resto baixado no ERP");
+    expect(doMes(0, 45_000).sub).toContain("sem o valor pago confirmado");
+    expect(doMes(100, 0).sub).toContain("confirmado com comprovante");
+  });
+
+  it("sem faturado no mês não inventa 0% — não há porcentagem a afirmar", () => {
+    expect(doMes(0, 0, 0).sub).toContain("sem faturado no mês");
+    expect(doMes(0, 0, 0).sub).not.toContain("0% do faturado");
   });
 });

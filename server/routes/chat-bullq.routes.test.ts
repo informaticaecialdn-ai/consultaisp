@@ -35,7 +35,7 @@ const agentes = vi.hoisted(() => ({
   comTravaDaConfiguracaoDoChat: async (_p: number, fn: () => Promise<unknown>) => fn(),
 }));
 vi.mock("../services/chat/chat-agentes.service", () => agentes);
-const lista = vi.hoisted(() => ({ listarAtendimentosDoChat: vi.fn(async () => ({ itens: [], temMais: false })), getIntegracaoDoChat: vi.fn(), guardarAgenteDoChat: vi.fn() }));
+const lista = vi.hoisted(() => ({ getConversaDoChat: vi.fn(), obterCasoDeCobranca: vi.fn(), clienteDoAtendimento: vi.fn(), listarAtendimentosDoChat: vi.fn(async () => ({ itens: [], temMais: false })), getIntegracaoDoChat: vi.fn(), guardarAgenteDoChat: vi.fn() }));
 vi.mock("../storage", () => ({ storage: lista }));
 // O erro de dados e o limite da acao sao os REAIS: a rota mapeia o primeiro
 // para 400 e valida o tamanho pelo segundo.
@@ -319,4 +319,56 @@ describe("canal", () => {
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ canalOk: false, integracao: { status: "erro", ultimoErro: "instancia desconectada" } });
   });
+});
+
+
+describe("escopo exclusivo da carteira no atendimento", () => {
+  beforeEach(() => {
+    sessao = OPERADOR;
+    lista.getConversaDoChat.mockResolvedValue({ casoId: 11, recuperacaoId: null });
+    lista.obterCasoDeCobranca.mockResolvedValue({ id: 11, carteira: "ex_cliente" });
+  });
+  it.each([
+    ["GET", "/atendimentos/c1", undefined],
+    ["GET", "/atendimentos/c1/contexto", undefined],
+    ["GET", "/atendimentos/c1/mensagens/m1/midia", undefined],
+    ["POST", "/atendimentos/c1/acoes", { acao: "assumir" }],
+    ["POST", "/atendimentos/c1/segunda-via", { ref: "f1" }],
+    ["GET", "/cobranca/casos/11/conversa", undefined],
+    ["POST", "/cobranca/casos/11/enviar", {}],
+  ])("recusa %s %s de outra carteira antes de qualquer serviço", async (method, caminho, body) => {
+    const resposta = await json(method, "/api/chat-bullq" + caminho + "?origem=cobranca&carteira=ativo", body);
+    expect(resposta.status).toBe(404);
+    expect((await resposta.json()).codigo).toBe("ESCOPO_DIVERGENTE");
+    expect(inbox.detalheDoAtendimento).not.toHaveBeenCalled();
+    expect(inbox.acaoNaConversa).not.toHaveBeenCalled();
+    expect(inbox.midiaDoAtendimento).not.toHaveBeenCalled();
+    expect(contexto.contextoDoAtendimento).not.toHaveBeenCalled();
+    expect(contexto.segundaViaDoAtendimento).not.toHaveBeenCalled();
+    expect(servico.enviarCasoParaCobranca).not.toHaveBeenCalled();
+    expect(servico.conversaDoCaso).not.toHaveBeenCalled();
+    expect(lista.obterCasoDeCobranca).toHaveBeenCalledWith(42, 11);
+  });
+  it("permite somente a carteira atual do caso e separa equipamentos", async () => {
+    expect((await json("GET", "/api/chat-bullq/atendimentos/c1?origem=cobranca&carteira=ex_cliente")).status).toBe(200);
+    expect(inbox.detalheDoAtendimento).toHaveBeenCalledWith(42, "c1", 1);
+    expect((await json("GET", "/api/chat-bullq/atendimentos/c1?origem=equipamentos")).status).toBe(404);
+    expect((await json("GET", "/api/chat-bullq/atendimentos/c1?carteira=ambas")).status).toBe(400);
+    lista.getConversaDoChat.mockResolvedValue(null);
+    expect((await json("GET", "/api/chat-bullq/atendimentos/c1?carteira=ex_cliente")).status).toBe(404);
+  });
+});
+
+
+it("pré-aviso sem caso fica na carteira atual do cliente", async () => {
+  sessao = OPERADOR;
+  lista.getConversaDoChat.mockResolvedValue({ casoId: null, recuperacaoId: null, origem: "cobranca", customerId: 77 });
+  lista.clienteDoAtendimento.mockResolvedValue({ id: 77, statusContrato: "active" });
+  expect((await json("GET", "/api/chat-bullq/atendimentos/preaviso?origem=cobranca&carteira=ativo")).status).toBe(200);
+  expect(lista.clienteDoAtendimento).toHaveBeenCalledWith(42, 77);
+  expect((await json("GET", "/api/chat-bullq/atendimentos/preaviso?origem=cobranca&carteira=ex_cliente")).status).toBe(404);
+  expect((await json("GET", "/api/chat-bullq/atendimentos/preaviso?origem=equipamentos")).status).toBe(404);
+  lista.clienteDoAtendimento.mockResolvedValue({ id: 77, statusContrato: "cancelled" });
+  expect((await json("GET", "/api/chat-bullq/atendimentos/preaviso?origem=cobranca&carteira=ativo")).status).toBe(404);
+  expect((await json("GET", "/api/chat-bullq/atendimentos/preaviso?origem=cobranca&carteira=ex_cliente")).status).toBe(200);
 });

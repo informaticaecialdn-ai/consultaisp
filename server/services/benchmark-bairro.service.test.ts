@@ -50,7 +50,7 @@ vi.mock("./geo-bases.service", () => ({
 }));
 
 import {
-  agregarBenchmarkBairro, benchmarkParaTela, calcularBenchmarkBairro, chaveCidadeBenchmark,
+  agregarBenchmarkBairro, agregarBenchmarkCidade, benchmarkParaTela, calcularBenchmarkBairro, calcularBenchmarkCidade, chaveCidadeBenchmark,
   normalizarUf, ordenarCanonicosPorTamanho, resumirBenchmark,
   BENCHMARK_K_MINIMO, BENCHMARK_MIN_CLIENTES_POR_PROVEDOR, BENCHMARK_MIN_CLIENTES_TOTAL,
   _limparCacheDeBenchmarkParaTestes, type LinhaAgregadaBenchmark,
@@ -157,19 +157,18 @@ describe("a UF faz parte da cidade — homônimas de estados diferentes são mer
     expect(Array.from(r.get(SC_SANTA_HELENA)!.get("CENTRO")!.keys())).toEqual([3]);
   });
 
-  it("linha sem estado não contradiz ninguém: entra nas duas; pedido sem UF aceita qualquer estado", () => {
+  it("linha sem estado e pedido sem UF não misturam cidades homônimas", () => {
     const r = agregarBenchmarkBairro([
       linha({ providerId: 1, state: null, city: "Santa Helena", neighborhood: "Centro" }),
       linha({ providerId: 2, state: "Paraná", city: "Santa Helena", neighborhood: "Centro" }),
     ], duasSantaHelena);
-    expect(r.get(PR_SANTA_HELENA)!.get("CENTRO")!.size).toBe(2);
-    expect(r.get(SC_SANTA_HELENA)!.get("CENTRO")!.size).toBe(2);
+    expect(r.size).toBe(0);
 
     const semUf = agregarBenchmarkBairro([
       linha({ providerId: 1, state: "PR", city: "Santa Helena", neighborhood: "Centro" }),
       linha({ providerId: 3, state: "SC", city: "Santa Helena", neighborhood: "Centro" }),
     ], new Map([[chaveCidadeBenchmark(null, "SANTA HELENA"), ["CENTRO"]]]));
-    expect(semUf.get("|SANTA HELENA")!.get("CENTRO")!.size).toBe(2);
+    expect(semUf.size).toBe(0);
   });
 
   it("normalizarUf só aceita sigla; chaveCidadeBenchmark é 'UF|CIDADE'", () => {
@@ -202,22 +201,21 @@ describe("resumirBenchmark — as travas que separam mercado de concorrente", ()
   });
 
   it("o observador está fora do número que vê — variar a própria base não muda nada", () => {
-    const antes = contrib({ 1: [100, 10], 2: [100, 30], 3: [100, 20] });
-    const depois = contrib({ 1: [150, 10], 2: [100, 30], 3: [100, 20] });
-    expect(resumirBenchmark(antes, 1)).toEqual({ provedores: 3, clientes: 200, inadimplentes: 50, pct: 25 });
+    const antes = contrib({ 1: [100, 10], 2: [100, 30], 3: [100, 20], 4: [100, 10] });
+    const depois = contrib({ 1: [150, 10], 2: [100, 30], 3: [100, 20], 4: [100, 10] });
+    expect(resumirBenchmark(antes, 1)).toEqual({ provedores: 3, clientes: 300, inadimplentes: 60, pct: 20 });
     expect(resumirBenchmark(depois, 1)).toEqual(resumirBenchmark(antes, 1));
-    // Cada observador vê a soma dos OUTROS dois.
-    expect(resumirBenchmark(antes, 2)?.pct).toBe(15);
-    expect(resumirBenchmark(antes, 3)?.pct).toBe(20);
-    // Quem não está no bairro vê os três.
-    expect(resumirBenchmark(antes, DE_FORA)?.pct).toBe(20);
+    expect(resumirBenchmark(antes, 2)?.pct).toBe(13.3);
+    expect(resumirBenchmark(antes, 3)?.pct).toBe(16.7);
+    expect(resumirBenchmark(antes, DE_FORA)?.pct).toBe(17.5);
   });
 
-  it("o observador conta no k, mas os outros dois precisam ter piso de universo juntos", () => {
+  it("o observador não conta no k: exige três outros provedores com massa", () => {
     // Três contribuintes, mas sem o observador sobram 20 clientes: abaixo do
     // piso, o percentual vira contagem e não sai.
     expect(benchmarkParaTela(contrib({ 1: [500, 50], 2: [10, 1], 3: [10, 1] }), 1)).toBeNull();
-    expect(benchmarkParaTela(contrib({ 1: [500, 50], 2: [15, 1], 3: [15, 1] }), 1)).toBeCloseTo(6.7, 1);
+    expect(benchmarkParaTela(contrib({ 1: [500, 50], 2: [15, 1], 3: [15, 1] }), 1)).toBeNull();
+    expect(benchmarkParaTela(contrib({ 1: [500, 50], 2: [10, 1], 3: [10, 1], 4: [10, 0] }), 1)).toBe(6.7);
   });
 
   it("provedor sem massa no bairro não conta no k nem entra na soma", () => {
@@ -229,6 +227,72 @@ describe("resumirBenchmark — as travas que separam mercado de concorrente", ()
 describe("ordenarCanonicosPorTamanho — o dominante vem primeiro", () => {
   it("é a ordem que o casador usa para desempatar o fuzzy", () => {
     expect(ordenarCanonicosPorTamanho(new Map([["A", 5], ["B", 50], ["C", 20]]))).toEqual(["B", "C", "A"]);
+  });
+});
+
+describe("benchmark municipal — amostra ponderada independente do censo", () => {
+  beforeEach(() => {
+    _limparCacheDeBenchmarkParaTestes(); banco.chamadas = 0; censo.chamadas = 0;
+  });
+
+  it("inclui bairros sem correspondência e sem nome; soma provedor antes do piso", () => {
+    const r = agregarBenchmarkCidade([
+      linha({ providerId: 1, neighborhood: null, clientes: 100, inadimplentes: 10 }),
+      linha({ providerId: 2, neighborhood: "Sem censo", clientes: 5, inadimplentes: 3 }),
+      linha({ providerId: 2, neighborhood: null, clientes: 5, inadimplentes: 2 }),
+      linha({ providerId: 3, clientes: 10, inadimplentes: 5 }),
+    ], [{ cidadeNorm: "LONDRINA", uf: "PR" }]);
+    expect(resumirBenchmark(r.get(PR_LONDRINA), DE_FORA)).toEqual({ provedores: 3, clientes: 120, inadimplentes: 20, pct: 16.7 });
+  });
+
+  it("não mistura UF desconhecida nem cidades homônimas", () => {
+    const r = agregarBenchmarkCidade([
+      linha({ state: "PR", city: "Santa Helena" }),
+      linha({ state: "SC", city: "Santa Helena" }),
+      linha({ state: null, city: "Santa Helena" }),
+    ], [{ cidadeNorm: "SANTA HELENA", uf: "PR" }, { cidadeNorm: "SANTA HELENA", uf: null }]);
+    expect(r.get("PR|SANTA HELENA")?.get(1)?.clientes).toBe(50);
+    expect(r.has("|SANTA HELENA")).toBe(false);
+  });
+
+  it("funciona sem censo e compartilha consulta apenas dentro da mesma carteira", async () => {
+    const pedidos = [{ cidadeNorm: "LONDRINA", uf: "PR" }];
+    banco.atual = [linha({ providerId: 1, neighborhood: null }), linha({ providerId: 2 }), linha({ providerId: 3 })];
+    const ativo = await calcularBenchmarkCidade(pedidos, "ativo");
+    expect(resumirBenchmark(ativo.get(PR_LONDRINA), DE_FORA)?.pct).toBe(10);
+    banco.atual = [linha({ providerId: 1, inadimplentes: 25 }), linha({ providerId: 2, inadimplentes: 25 }), linha({ providerId: 3, inadimplentes: 25 })];
+    const ex = await calcularBenchmarkCidade(pedidos, "ex_cliente");
+    expect(resumirBenchmark(ex.get(PR_LONDRINA), DE_FORA)?.pct).toBe(50);
+    expect(resumirBenchmark((await calcularBenchmarkCidade(pedidos, "ativo")).get(PR_LONDRINA), DE_FORA)?.pct).toBe(10);
+    expect(banco.chamadas).toBe(2);
+    expect(censo.chamadas).toBe(0);
+    const { sql } = new PgDialect().sqlToQuery(banco.where as any);
+    expect(sql).toContain("in ('cancelled', 'inactive')");
+    expect(sql).not.toContain("not in");
+    expect(sql).not.toContain("total_overdue_amount");
+  });
+
+  it("carteira todas não condiciona denominador à dívida ou status", async () => {
+    banco.atual = [];
+    await calcularBenchmarkCidade([{ cidadeNorm: "LONDRINA", uf: "PR" }], "todas");
+    const { sql } = new PgDialect().sqlToQuery(banco.where as any);
+    expect(sql).not.toContain('"customers"."status"');
+    expect(sql).not.toContain("total_overdue_amount");
+  });
+
+  it("cidade e bairro dividem leitura; cache derivado não mistura carteiras", async () => {
+    const pedidos = [{ cidadeNorm: "LONDRINA", uf: "PR" }];
+    const territorio = new Map([["LONDRINA", { hps: new Map([["JARDIM BANDEIRANTES", 100]]), ucs: new Map<string, number>() }]]);
+    banco.atual = [linha({ providerId: 1 }), linha({ providerId: 2 }), linha({ providerId: 3 })];
+    await calcularBenchmarkCidade(pedidos, "ativo");
+    const ativos = await calcularBenchmarkBairro(pedidos, territorio, "ativo");
+    banco.atual = [linha({ providerId: 1, inadimplentes: 25 }), linha({ providerId: 2, inadimplentes: 25 }), linha({ providerId: 3, inadimplentes: 25 })];
+    const ex = await calcularBenchmarkBairro(pedidos, territorio, "ex_cliente");
+    const ativosDeNovo = await calcularBenchmarkBairro(pedidos, territorio, "ativo");
+    expect(benchmarkParaTela(ativos.get(PR_LONDRINA)?.get("JARDIM BANDEIRANTES"), DE_FORA)).toBe(10);
+    expect(benchmarkParaTela(ex.get(PR_LONDRINA)?.get("JARDIM BANDEIRANTES"), DE_FORA)).toBe(50);
+    expect(ativosDeNovo.get(PR_LONDRINA)).toBe(ativos.get(PR_LONDRINA));
+    expect(banco.chamadas).toBe(2);
   });
 });
 
@@ -249,9 +313,9 @@ describe("lerAgregado — o que o SQL corta antes de qualquer coisa chegar à me
     const plano = sql.replace(/\s+/g, " ");
     expect(plano).toMatch(/"providers"\."status" = 'active'/);
     expect(plano).toMatch(/"providers"\."verification_status" = 'approved'/);
-    expect(plano).toMatch(/"customers"\."neighborhood" is not null/);
-    expect(plano).toMatch(/"customers"\."neighborhood" <> ''/);
-    expect(plano).toMatch(/lower\("customers"\."status"\) not in \('cancelled', 'inactive'\)/);
+    expect(plano).not.toMatch(/"customers"\."neighborhood" is not null/);
+    expect(plano).toContain("not in ('cancelled', 'inactive')");
+    expect(plano).not.toContain("total_overdue_amount");
   });
 });
 

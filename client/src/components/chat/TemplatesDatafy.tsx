@@ -23,11 +23,11 @@ export function TemplatesDatafy({ podeAdministrar }: { podeAdministrar: boolean 
       {TIPOS_DE_AGENTE.map(tipo => {
         const atual = templates[tipo];
         const selecionado = catalogo.data?.data.find(t => t.name === atual?.nome && t.language === atual.idioma);
-        const analise = selecionado ? analisarTemplateDeAbertura(selecionado) : null;
+        const analise = selecionado ? analisarTemplateDeAbertura(selecionado, tipo !== "recuperacao_equipamentos") : null;
         return <div key={tipo} className="space-y-3 rounded-md border border-[var(--border)] p-3"><label className="space-y-2 text-xs"><span className="block font-semibold">{CATALOGO_DE_AGENTES[tipo].nome}</span><select className={CONTROLE_CAMPO} value={atual ? `${atual.nome}|${atual.idioma}` : ""} onChange={e => {
           const t = catalogo.data?.data.find(t => `${t.name}|${t.language}` === e.target.value);
-          setTemplates(v => { const novo = { ...v }; if (!t) delete novo[tipo]; else novo[tipo] = { nome: t.name, idioma: t.language, variaveis: Array.from({ length: analisarTemplateDeAbertura(t).variaveis }, () => "nomeCliente" as const) }; return novo; });
-        }}><option value="">Selecione um template</option>{catalogo.data?.data.map(t => { const a = analisarTemplateDeAbertura(t); return <option key={`${t.name}|${t.language}`} value={`${t.name}|${t.language}`} disabled={!a.compativel}>{t.name} · {t.language}{!a.compativel ? ` · ${a.motivo}` : ""}</option>; })}</select></label>
+          setTemplates(v => { const novo = { ...v }; if (!t) delete novo[tipo]; else novo[tipo] = { nome: t.name, idioma: t.language, variaveis: Array.from({ length: analisarTemplateDeAbertura(t, tipo !== "recuperacao_equipamentos").variaveis }, () => "nomeCliente" as const) }; return novo; });
+        }}><option value="">Selecione um template</option>{catalogo.data?.data.map(t => { const a = analisarTemplateDeAbertura(t, tipo !== "recuperacao_equipamentos"); return <option key={`${t.name}|${t.language}`} value={`${t.name}|${t.language}`} disabled={!a.compativel}>{t.name} · {t.language}{!a.compativel ? ` · ${a.motivo}` : ""}</option>; })}</select></label>
         {analise && <p className="whitespace-pre-wrap text-xs leading-5 text-[var(--text-2)]">{analise.texto}</p>}
         {atual?.variaveis.map((v, i) => <label key={i} className="block space-y-1 text-xs"><span>Variável {`{{${i + 1}}}`}</span><select className={CONTROLE_CAMPO} value={v} onChange={e => { const valor = e.target.value as "nomeCliente" | "nomeProvedor"; setTemplates(c => ({ ...c, [tipo]: { ...atual, variaveis: atual.variaveis.map((x, j) => j === i ? valor : x) } })); }}><option value="nomeCliente">Primeiro nome do cliente</option><option value="nomeProvedor">Nome do provedor</option></select></label>)}
         </div>;

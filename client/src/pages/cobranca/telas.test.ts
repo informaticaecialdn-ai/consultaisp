@@ -1,3 +1,4 @@
+import { CATEGORIAS_PAINEL } from "@/components/painel/OrganizacaoPainel";
 /**
  * As quatro telas da cobrança, as rotas e o menu — travados pelo texto da fonte.
  *
@@ -17,7 +18,9 @@ import { NAV_PROVEDOR, itemDeProvedorAtivo } from "../../components/app-sidebar"
 import { ROTA_ESTEIRA, ROTA_POLITICA } from "../../components/cobranca/tipos";
 
 const raiz = join(__dirname, "..", "..");
-const ler = (relativo: string) => readFileSync(join(raiz, relativo), "utf8");
+// Terminação de linha normalizada: âncora com `\n` contra arquivo salvo em
+// CRLF acusa defeito que não existe. Ver o comentário em console.test.ts.
+const ler = (relativo: string) => readFileSync(join(raiz, relativo), "utf8").replace(/\r\n/g, "\n");
 
 /** A fonte sem comentário — o que a tela realmente executa. */
 const executavel = (fonte: string) => fonte.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
@@ -294,8 +297,8 @@ describe("cliente 360", () => {
 describe("régua e DNA", () => {
   const f = PAGINAS.regua;
 
-  it("bloco A com cartões por carteira, bloco B com a grade, pausa", () => {
-    for (const id of ["cobranca-regua", "bloco-regua", "abas-regua", "etapas-regua", "bloco-dna", "grade-dna", "botao-pausar-regua", "aviso-regua-pausada", "dialogo-pausar", "nota-ex-cliente", "link-politica"]) {
+  it("bloco A com cartões da carteira, bloco B com a grade e aviso de pausa", () => {
+    for (const id of ["cobranca-regua", "bloco-regua", "etapas-regua", "bloco-dna", "grade-dna", "aviso-regua-pausada", "nota-ex-cliente", "link-politica"]) {
       expect(f, id).toContain(`"${id}"`);
     }
   });
@@ -304,11 +307,14 @@ describe("régua e DNA", () => {
     expect(f).toContain("regua?.porCarteira?.[carteira] ?? etapasDaCarteira(carteira, catalogo)");
   });
 
-  it("pausar e atribuir responsável gravam a política pela mesma mutação, só admin", () => {
-    expect(f).toContain('apiRequest("PUT", API_POLITICA, corpo)');
-    expect(f).toContain("corpoDaPausa(politica, !pausada, pausa.motivo)");
-    expect(f).toContain("editarEtapa(form.etapas, id, { responsavelUserId: userId })");
-    expect(f).toContain("podeEditar={podeAdministrar && politica !== null}");
+  it("a carteira não oferece controles que mudam a política das outras carteiras", () => {
+    expect(f).not.toContain('apiRequest("PUT"');
+    expect(f).not.toContain("botao-pausar-regua");
+    expect(f).not.toContain("TabsTrigger");
+    expect(f).toContain("podeEditar={false}");
+    expect(f).toContain("Configurações do provedor");
+    expect(f).toContain("caminhoNaCarteira(API_REGUA, carteira)");
+    expect(f).toContain("caminhoNaCarteira(API_DNA, carteira)");
   });
 
   it("os pisos legais aparecem por constante, não por número solto", () => {
@@ -474,7 +480,6 @@ describe("diálogos de contato e de abrir caso", () => {
 
 describe("os toasts de erro mostram todas as frases da API", () => {
   const comToast: Array<readonly [string, string]> = [
-    ["pages/regua.tsx", PAGINAS.regua],
     ["pages/politica.tsx", PAGINAS.politica],
     ...componentes.filter(([n]) => n === "DialogoContato.tsx" || n === "DialogoAbrirCaso.tsx"),
   ];
@@ -591,8 +596,8 @@ describe("a política de cobrança mora no Painel do Provedor", () => {
   });
 
   it("o painel tem a aba, e ela renderiza a política", () => {
-    expect(painel).toContain('<TabsTrigger value="cobranca"');
-    expect(painel).toContain('data-testid="tab-cobranca"');
+    expect(CATEGORIAS_PAINEL.flatMap(c=>c.itens).some(i=>i.id==="cobranca")).toBe(true);
+    expect(painel).toContain("<NavegacaoPainel");
     expect(painel).toContain("<AbaCobranca />");
   });
 

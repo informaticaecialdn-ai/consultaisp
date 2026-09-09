@@ -234,10 +234,11 @@ export function transicaoDeNegociacao(de: StatusDeNegociacao, para: StatusDeNego
 
 /* ── Parcela ──────────────────────────────────────────────────────────── */
 
-export const STATUS_DE_PARCELA = ["pendente", "paga", "atrasada", "cancelada"] as const;
+export const STATUS_DE_PARCELA = ["pendente", "paga", "atrasada", "cancelada", "conciliacao_pendente"] as const;
 export type StatusDeParcela = (typeof STATUS_DE_PARCELA)[number];
 
 export const ROTULO_STATUS_DE_PARCELA: Record<StatusDeParcela, string> = {
+  conciliacao_pendente: "Conciliação pendente",
   pendente: "Pendente",
   paga: "Paga",
   atrasada: "Atrasada",

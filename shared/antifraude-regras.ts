@@ -26,6 +26,8 @@ export const TIPOS_DE_REGRA = [
 export type TipoDeRegra = (typeof TIPOS_DE_REGRA)[number];
 
 export interface RegrasAntiFraude {
+  /** Ausente preserva o comportamento das configurações anteriores. */
+  combinacao?: "qualquer" | "todas";
   /** Cliente ativo com fatura vencida — o alerta de fuga classico. */
   ativo_inadimplente: { ativo: boolean; valorMinimo: number; diasMinimo: number };
   /** Cliente com pouco tempo de contrato, em dia ou nao. */
@@ -56,27 +58,28 @@ export const CATALOGO_DE_REGRAS: Record<TipoDeRegra, DescricaoDeRegra> = {
   ativo_inadimplente: {
     titulo: "Cliente ativo com pendência financeira",
     descricao: "Um cliente seu, com contrato ativo ou suspenso por atraso, tem fatura vencida e foi consultado por outro provedor.",
-    porQue: "É o momento de cobrar, renegociar ou recolher o equipamento antes que ele instale no concorrente devendo aqui.",
+    porQue: "Ajuda a priorizar uma conversa sobre a pendência e entender se o cliente precisa de uma negociação.",
   },
   contrato_novo: {
     titulo: "Cliente novo consultado",
     descricao: "Um cliente com pouco tempo de contrato, em dia ou não, foi consultado por outro provedor.",
-    porQue: "Quem acabou de instalar e já procura outro provedor é o perfil do migrador serial: contrata, não paga as primeiras mensalidades e muda.",
-    aviso: "Depende da data de contrato que o ERP devolve na consulta ao vivo. Na base sincronizada essa data não existe, então a regra não dispara por ela.",
+    porQue: "Permite acompanhar o início do relacionamento. Combine com pendência financeira para monitorar apenas novos clientes inadimplentes.",
+    aviso: "Usa a data de início do contrato informada pelo ERP ou pela base sincronizada. Sem data válida, este critério não é atendido.",
   },
   consultas_repetidas: {
     titulo: "Cliente consultado por vários provedores",
     descricao: "Um cliente ativo seu foi consultado por dois ou mais provedores diferentes nos últimos 30 dias.",
-    porQue: "Uma consulta pode ser acaso. Várias, em semanas, é alguém cotando ativamente a concorrência.",
+    porQue: "Destaca consultas de origens distintas; consultas repetidas pelo mesmo provedor contam apenas uma vez.",
   },
   ativo_qualquer: {
     titulo: "Qualquer cliente ativo consultado",
     descricao: "Todo cliente ativo seu, mesmo em dia, consultado por outro provedor.",
-    porQue: "Sinal de retenção: o cliente está olhando para fora. Gera mais avisos — ligue só se a equipe vai agir em cada um.",
+    porQue: "Amplia o acompanhamento de retenção. A consulta é um sinal para analisar, não comprovação de fraude ou de intenção de cancelar.",
   },
 };
 
 export const regrasAntiFraudeSchema = z.object({
+  combinacao: z.enum(["qualquer", "todas"]).optional(),
   ativo_inadimplente: z.object({
     ativo: z.boolean(),
     valorMinimo: z.number().min(0).max(100_000),
@@ -101,6 +104,8 @@ export interface LinhaDeRegra {
   parametros: unknown;
 }
 
+const pModo = (raw: unknown) => raw && typeof raw === "object" && "todas" in raw ? raw.todas : 0;
+
 const numero = (v: unknown, padrao: number): number =>
   typeof v === "number" && Number.isFinite(v) ? v : padrao;
 
@@ -119,7 +124,9 @@ export function montarRegras(linhas: LinhaDeRegra[]): RegrasAntiFraude {
   const ativo = (tipo: TipoDeRegra): boolean =>
     porTipo.has(tipo) ? porTipo.get(tipo)!.ativo : REGRAS_PADRAO[tipo].ativo;
 
+  const combinacao = porTipo.get("combinacao");
   return {
+    ...(combinacao ? { combinacao: (pModo(combinacao.parametros) === 1 ? "todas" : "qualquer") as "todas" | "qualquer" } : {}),
     ativo_inadimplente: {
       ativo: ativo("ativo_inadimplente"),
       valorMinimo: numero(p("ativo_inadimplente").valorMinimo, REGRAS_PADRAO.ativo_inadimplente.valorMinimo),
@@ -140,8 +147,9 @@ export function montarRegras(linhas: LinhaDeRegra[]): RegrasAntiFraude {
 }
 
 /** Regras completas -> uma linha por tipo, prontas para gravar. */
-export function desmontarRegras(regras: RegrasAntiFraude): Array<{ tipo: TipoDeRegra; ativo: boolean; parametros: Record<string, number> }> {
+export function desmontarRegras(regras: RegrasAntiFraude): Array<{ tipo: TipoDeRegra | "combinacao"; ativo: boolean; parametros: Record<string, number> }> {
   return [
+    ...(regras.combinacao ? [{ tipo: "combinacao" as const, ativo: true, parametros: { todas: regras.combinacao === "todas" ? 1 : 0 } }] : []),
     {
       tipo: "ativo_inadimplente",
       ativo: regras.ativo_inadimplente.ativo,

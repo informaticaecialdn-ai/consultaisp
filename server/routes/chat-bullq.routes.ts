@@ -24,6 +24,7 @@ import { AutomacaoChatSchema, lerAutomacaoChat } from "@shared/cobranca/automaca
 import { contextoDoAtendimento, segundaViaDoAtendimento } from "../services/chat/chat-contexto.service";
 import { podeAdministrarOProvedor } from "./provider.routes";
 import { storage } from "../storage";
+import { exigirEscopoDoChat } from "./chat-escopo";
 import { acaoNaConversa, detalheDoAtendimento, ErroDeDadosDoAtendimento, midiaDoAtendimento, TAMANHO_MAXIMO_DA_ACAO } from "../services/chat/chat-atendimento.service";
 import { ConfiguracaoDeAgenteSchema, TipoDeAgenteSchema, type TipoDeAgente } from "@shared/chat-agentes";
 import { comTravaDaConfiguracaoDoChat, configurarAgenteDoChat, exigirAgentesProntos, listarAgentesDoChat, modelosDosAgentesDoChat, prepararPrimeiroContatoDoAgente, promptDoAgenteDoChat, provisionarAgenteDoChat } from "../services/chat/chat-agentes.service";
@@ -140,31 +141,31 @@ export function registerChatBullqRoutes(): Router {
     try { res.json(await storage.listarAtendimentosDoChat(providerDaSessao(req), filtro.data)); } catch (e) { falha(res, e); }
   });
 
-  router.get("/api/chat-bullq/atendimentos/:conversaId", requireAuth, requireProvider, async (req, res) => {
+  router.get("/api/chat-bullq/atendimentos/:conversaId", requireAuth, requireProvider, exigirEscopoDoChat, async (req, res) => {
     const id = z.string().trim().min(1).max(120).safeParse(req.params.conversaId);
     const pagina = z.coerce.number().int().min(1).max(10000).default(1).safeParse(req.query.pagina);
     if (!id.success || !pagina.success) return res.status(400).json({ message: "Conversa ou página inválida" });
     try { res.json(await detalheDoAtendimento(providerDaSessao(req), id.data, pagina.data)); } catch (e) { falha(res, e); }
   });
 
-  router.get("/api/chat-bullq/atendimentos/:conversaId/contexto", requireAuth, requireProvider, async (req, res) => {
+  router.get("/api/chat-bullq/atendimentos/:conversaId/contexto", requireAuth, requireProvider, exigirEscopoDoChat, async (req, res) => {
     const p = z.object({ id: z.string().min(1).max(120), atualizar: z.enum(["true", "false"]).default("false") }).safeParse({ id: req.params.conversaId, atualizar: req.query.atualizar });
     if (!p.success) return res.status(400).json({ message: "Conversa inválida" });
     try { res.json(await contextoDoAtendimento(providerDaSessao(req), p.data.id, p.data.atualizar === "true")); } catch (e) { falha(res, e); }
   });
-  router.post("/api/chat-bullq/atendimentos/:conversaId/segunda-via", requireAuth, requireProvider, async (req, res) => {
+  router.post("/api/chat-bullq/atendimentos/:conversaId/segunda-via", requireAuth, requireProvider, exigirEscopoDoChat, async (req, res) => {
     const p = z.object({ id: z.string().min(1).max(120), ref: z.string().trim().min(1).max(160) }).safeParse({ id: req.params.conversaId, ref: req.body?.ref });
     if (!p.success) return res.status(400).json({ message: "Informe a fatura" });
     try { res.json(await segundaViaDoAtendimento(providerDaSessao(req), p.data.id, p.data.ref)); } catch (e) { falha(res, e); }
   });
 
-  router.get("/api/chat-bullq/atendimentos/:conversaId/mensagens/:messageId/midia", requireAuth, requireProvider, async (req, res) => {
+  router.get("/api/chat-bullq/atendimentos/:conversaId/mensagens/:messageId/midia", requireAuth, requireProvider, exigirEscopoDoChat, async (req, res) => {
     const dados = z.object({ conversaId: z.string().min(1).max(120), messageId: z.string().min(1).max(120), pagina: z.coerce.number().int().min(1).max(10000).default(1) }).safeParse({ ...req.params, pagina: req.query.pagina });
     if (!dados.success) return res.status(400).json({ message: "Anexo inválido" });
     try { res.json(await midiaDoAtendimento(providerDaSessao(req), dados.data.conversaId, dados.data.messageId, dados.data.pagina)); } catch (e) { falha(res, e); }
   });
 
-  router.post("/api/chat-bullq/atendimentos/:conversaId/acoes", requireAuth, requireProvider, async (req, res) => {
+  router.post("/api/chat-bullq/atendimentos/:conversaId/acoes", requireAuth, requireProvider, exigirEscopoDoChat, async (req, res) => {
     const id = z.string().trim().min(1).max(120).safeParse(req.params.conversaId);
     const acao = AcaoDoAtendimentoSchema.safeParse(req.body);
     if (!id.success || !acao.success) return res.status(400).json({ message: "Ação de atendimento inválida" });
@@ -265,7 +266,7 @@ export function registerChatBullqRoutes(): Router {
     }
   });
 
-  router.post("/api/chat-bullq/cobranca/casos/:id/enviar", requireAuth, requireProvider, async (req, res) => {
+  router.post("/api/chat-bullq/cobranca/casos/:id/enviar", requireAuth, requireProvider, exigirEscopoDoChat, async (req, res) => {
     const casoId = idDaRota(req.params.id);
     if (!casoId) return res.status(400).json({ message: "Caso invalido" });
     const parsed = EnvioSchema.safeParse(req.body ?? {});
@@ -277,7 +278,7 @@ export function registerChatBullqRoutes(): Router {
     }
   });
 
-  router.get("/api/chat-bullq/cobranca/casos/:id/conversa", requireAuth, requireProvider, async (req, res) => {
+  router.get("/api/chat-bullq/cobranca/casos/:id/conversa", requireAuth, requireProvider, exigirEscopoDoChat, async (req, res) => {
     const casoId = idDaRota(req.params.id);
     if (!casoId) return res.status(400).json({ message: "Caso invalido" });
     try {

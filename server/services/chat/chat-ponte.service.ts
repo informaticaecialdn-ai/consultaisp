@@ -21,6 +21,7 @@ import { logger } from "../../logger";
 import { randomBytes } from "node:crypto";
 import { orientarContato } from "@shared/cobranca/contato";
 import { TIPOS_DE_AGENTE, type TipoDeAgente, type PrimeiroContatoPreparado } from "@shared/chat-agentes";
+import { textoNeutroAntesDaIdentificacao } from "@shared/chat-templates";
 import type { CanalWhatsapp, ProvedorWhatsapp } from "@shared/chat-whatsapp";
 import { prescrita } from "@shared/cobranca/regua";
 import { storage } from "../../storage";
@@ -393,6 +394,9 @@ async function abrirOuMandarComTrava(providerId: number, customerId: number, tel
   const template = usaTemplate ? await prepararTemplateWhatsapp(providerId, tipo, { nomeCliente: nome.trim().split(/\s+/)[0], nomeProvedor }, { organizationId: intg.organizationId, canalId: intg.canalId }) : undefined;
   const preparada = !usaTemplate && typeof texto === "function" ? await texto() : null;
   const mensagem = preparada?.texto ?? (typeof texto === "string" ? texto : "");
+  if (!usaTemplate && tipo !== "recuperacao_equipamentos" && !textoNeutroAntesDaIdentificacao(mensagem, { nomeCliente: nome, nomeProvedor })) {
+    throw new ErroDaPonteDoChat("CONFLITO", "Antes da identificação, envie somente uma saudação e a identificação do provedor. Dados financeiros, documentos e links ficam para depois.");
+  }
   // A primeira resposta pertence à equipe humana; o runner permanece desligado.
   const nova = await comTravaDoChat(`config:${providerId}`, async () => {
     const atual = await storage.getIntegracaoDoChat(providerId);
@@ -404,7 +408,7 @@ async function abrirOuMandarComTrava(providerId: number, customerId: number, tel
   });
   if (!nova) throw new ErroDaPonteDoChat("CONFLITO", "O canal está sendo atualizado. Tente novamente em instantes.");
   if (falhou(nova)) throw new ErroDaPonteDoChat("CHAT_FALHOU", `O chat nao abriu a conversa: ${nova.erro}`);
-  return { conversationId: nova.valor.conversationId, messageId: nova.valor.messageId, reaproveitada: false, canalId: intg.canalId, status: "WAITING", ...(template ? { template: { nome: template.name, idioma: template.language.code } } : {}), ...(preparada ? { preparacao: { agenteId: preparada.agenteId, modelo: preparada.modelo, runId: preparada.runId } } : {}) };
+  return { conversationId: nova.valor.conversationId, messageId: nova.valor.messageId, reaproveitada: false, canalId: intg.canalId, status: "WAITING", ...(template ? { template: { nome: template.name, idioma: template.language.code } } : {}), ...(preparada ? { preparacao: { agenteId: preparada.agenteId, modelo: preparada.modelo, runId: preparada.runId, ...(preparada.modo ? { modo: preparada.modo } : {}) } } : {}) };
 }
 
 /**
@@ -414,6 +418,19 @@ async function abrirOuMandarComTrava(providerId: number, customerId: number, tel
  */
 export async function enviarCasoParaCobranca(providerId: number, casoId: number, userId: number, texto?: string | null, acaoDaEtapa?: string | null): Promise<ConversaAberta> {
   return umaOperacao(`cobranca:${providerId}:${casoId}`, () => iniciarContatoDaCobranca(providerId, casoId, userId, texto));
+}
+
+/** Abertura preventiva sem divulgar fatura antes da identificação; continuidade humana. */
+export async function enviarPreAvisoParaChat(providerId: number, cliente: { customerId: number; nome: string; telefone: string | null }, userId: number): Promise<ConversaAberta> {
+  const provedor = await storage.getProvider(providerId);
+  const nomeProvedor = provedor?.tradeName || provedor?.name || "seu provedor";
+  const nome = cliente.nome.trim().split(/\s+/)[0];
+  const texto = `Olá, ${nome}. Sou o assistente virtual da ${nomeProvedor}. Podemos ajudar com os próximos vencimentos do seu contrato? Confirma que posso falar com você por aqui? Nossa equipe continuará o atendimento após sua resposta.`;
+  const conversa = await abrirOuMandar(providerId, cliente.customerId, cliente.telefone, cliente.nome, texto, "cobranca_ativos", nomeProvedor);
+  await storage.registrarConversaDoChat(providerId, { customerId: cliente.customerId, origem: "cobranca", casoId: null,
+    conversationId: conversa.conversationId, canalId: conversa.canalId, abertaPorUserId: userId, status: conversa.status });
+  return { conversationId: conversa.conversationId, messageId: conversa.messageId, reaproveitada: conversa.reaproveitada,
+    enviado: !conversa.reaproveitada, inboxUrl: urlDoInbox(), motivo: conversa.reaproveitada ? MOTIVO_SEM_NOVO_ENVIO : "Aguardando identificação para atendimento humano" };
 }
 async function iniciarContatoDaCobranca(providerId: number, casoId: number, userId: number, texto?: string | null): Promise<ConversaAberta> {
   const caso = await storage.obterCasoDeCobranca(providerId, casoId);
@@ -450,7 +467,7 @@ async function iniciarContatoDaCobranca(providerId: number, casoId: number, user
     canal: "whatsapp",
     resultado: null,
     notas: "Primeiro contato enviado; aguardando resposta para atendimento humano",
-    metadata: { chat: { conversationId: conversa.conversationId, messageId: conversa.messageId, ...(conversa.preparacao ? { agente: conversa.preparacao } : {}), ...(conversa.template ? { template: conversa.template } : {}) }, origemTexto: conversa.template ? "template_aprovado" : conversa.preparacao ? "agente_ia" : "operador", orientacao },
+    metadata: { chat: { conversationId: conversa.conversationId, messageId: conversa.messageId, ...(conversa.preparacao ? { agente: conversa.preparacao } : {}), ...(conversa.template ? { template: conversa.template } : {}) }, origemTexto: conversa.template ? "template_aprovado" : conversa.preparacao?.modo ?? (conversa.preparacao ? "agente_ia" : "operador"), orientacao },
   });
   if (caso.status === "aberto") {
     await storage.atualizarCasoDeCobranca(providerId, caso.id, { status: "em_contato" }, userId);

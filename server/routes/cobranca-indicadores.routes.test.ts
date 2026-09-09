@@ -55,6 +55,8 @@ const chatMock = vi.hoisted(() => ({
     { em: new Date("2026-09-06T13:00:00Z"), origem: "cobranca", canal: "whatsapp", clienteId: 42, clienteNome: "Ana Maria Souza", resultado: null },
   ]),
 }));
+const preventivoMock = vi.hoisted(() => ({ contatosReservadosNoDia: vi.fn(async () => 0) }));
+vi.mock("../storage/cobranca-preventivo.storage", () => ({ CobrancaPreventivoStorage: class { constructor() { return preventivoMock; } } }));
 vi.mock("../storage/chat-bullq.storage", () => ({
   ChatBullqStorage: class { constructor() { return chatMock as any; } },
 }));
@@ -154,6 +156,14 @@ describe("a porta: sessao de provedor, e so ela", () => {
 /* ── O contador da automacao ─────────────────────────────────────────── */
 
 describe(`GET ${API_AUTOMACAO}`, () => {
+  it("inclui reservas de pré-aviso no mesmo teto diário do executor", async () => {
+    preventivoMock.contatosReservadosNoDia.mockResolvedValueOnce(2);
+    const c = await (await pegar(API_AUTOMACAO)).json();
+    expect(c.hoje).toBe(5);
+    expect(c.cobrancaHoje).toBe(3);
+    expect(c.preAvisosReservados).toBe(2);
+    expect(preventivoMock.contatosReservadosNoDia).toHaveBeenCalledWith(AMPLINET, c.dia);
+  });
   it("devolve a contagem do worker, o teto do dia e o diario com o nome mascarado", async () => {
     const r = await pegar(API_AUTOMACAO);
     expect(r.status).toBe(200);
@@ -227,6 +237,11 @@ describe(`GET ${API_RECUPERACAO}`, () => {
     expect(c.valor).toBeNull();
     expect(c.faturas).toBeNull();
     expect(c.motivo).toMatch(/ERP/);
+  });
+
+  it.each(['ativo', 'ex_cliente'])('recuperacao propaga carteira %s ao banco', async carteira => {
+    await pegar(API_RECUPERACAO + '?carteira=' + carteira);
+    expect(faturasMock.recuperacaoAposContato).toHaveBeenLastCalledWith(AMPLINET, { dias: 30, janelaDias: 7, carteira });
   });
 
   it("periodo e janela vem da query, aparados; lixo cai no padrao de 30 e 7 dias", async () => {

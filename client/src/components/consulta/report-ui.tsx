@@ -53,20 +53,23 @@ export function Kicker({ children, style }: { children: ReactNode; style?: CSSPr
 }
 
 /** Seção do relatório — separada da anterior por hairline, nunca por card novo. */
-export function ReportSection({ title, trailing, children, style }: {
+export function ReportSection({ title, trailing, children, style, id, description }: {
+  id?: string;
+  description?: string;
   title?: ReactNode;
   trailing?: ReactNode;
   children: ReactNode;
   style?: CSSProperties;
 }) {
   return (
-    <div style={{ borderTop: "1px solid var(--border)", padding: "18px 24px", ...style }}>
+    <div id={id} className="report-section" style={{ borderTop: "1px solid var(--border)", padding: "18px 24px", ...style }}>
       {(title || trailing) && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          {title ? <Kicker>{title}</Kicker> : <span />}
+          {title ? <h3 className="report-section-title">{title}</h3> : <span />}
           {trailing}
         </div>
       )}
+      {description && <p className="report-section-description">{description}</p>}
       {children}
     </div>
   );

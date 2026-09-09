@@ -17,6 +17,9 @@ interface SearchPayload {
 }
 
 interface Props {
+  heading?: string;
+  description?: string;
+  initialDocument?: string;
   onSearch: (payload: SearchPayload) => void;
   isLoading: boolean;
   hasResult: boolean;
@@ -84,18 +87,18 @@ function BotaoBarra({ variant = "ghost", ...rest }: {
 }
 
 export default function ConsultaSearchBar({
-  onSearch, isLoading, hasResult, autoAddressCrossRef, onClear,
+  heading, description, onSearch, isLoading, hasResult, autoAddressCrossRef, onClear, initialDocument = "",
   kicker = "Nova consulta · documento ou endereço",
   selo = "Rede ISP colaborativa",
   custos = [
     "Registro do seu ERP · grátis",
     "Ocorrência em parceiro · 1 crédito",
-    "Nada consta · grátis",
+    "Sem registros · grátis",
   ],
   notaLegal = "Consulta registrada para auditoria · LGPD art. 7º, X — proteção ao crédito",
   inputTestId = "input-isp-search",
 }: Props) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialDocument);
   const [cepData, setCepData] = useState<CepData | null>(null);
   const [cepLoading, setCepLoading] = useState(false);
   const [cepError, setCepError] = useState("");
@@ -133,7 +136,7 @@ export default function ConsultaSearchBar({
             setCepData(d);
           }
         })
-        .catch(() => { if (!cancelado) setCepError("Erro ao buscar CEP. Tente novamente."); })
+        .catch(() => { if (!cancelado) setCepError("Não foi possível localizar o endereço. Confira o CEP e tente novamente."); })
         .finally(() => { if (!cancelado) setCepLoading(false); });
     } else {
       setCepData(null);
@@ -166,7 +169,7 @@ export default function ConsultaSearchBar({
             setInstallCepData(d);
           }
         })
-        .catch(() => { if (!cancelado) setInstallCepError("Erro ao buscar CEP. Tente novamente."); })
+        .catch(() => { if (!cancelado) setInstallCepError("Não foi possível localizar o endereço. Confira o CEP e tente novamente."); })
         .finally(() => { if (!cancelado) setInstallCepLoading(false); });
     } else {
       setInstallCepData(null);
@@ -220,8 +223,8 @@ export default function ConsultaSearchBar({
           : null;
 
   return (
-    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 }}>
-      <div style={{ padding: "18px 22px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="consulta-search-shell" style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 }}>
+      <div className="consulta-search-content" style={{ padding: "18px 22px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
 
         {/* Kicker + selo */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -236,11 +239,14 @@ export default function ConsultaSearchBar({
           )}
         </div>
 
+        {heading && <div className="consulta-search-heading"><h2>{heading}</h2>{description && <p>{description}</p>}</div>}
+        {heading && <label htmlFor={inputTestId} className="isp-search-label">CPF, CNPJ ou CEP</label>}
         {/* Input + ações */}
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div className="consulta-search-actions" style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 220 }}>
             <input
               className="ds-input"
+              id={inputTestId}
               data-testid={inputTestId}
               placeholder="CPF, CNPJ ou CEP"
               value={query}
@@ -468,7 +474,7 @@ export default function ConsultaSearchBar({
 
       {/* Rodapé: o preço antes da consulta, e a base legal */}
       {(custos.length > 0 || notaLegal) && (
-        <div style={{
+        <div className="consulta-search-footer" style={{
           borderTop: "1px solid var(--border-faint)", padding: "10px 22px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           gap: 14, flexWrap: "wrap",

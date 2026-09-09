@@ -47,6 +47,7 @@ export interface ClienteDaBase {
   providerId: number;
   name: string;
   status: string | null;
+  contractStartDate?: string | null;
   totalOverdueAmount: string | number | null;
   maxDaysOverdue: number | null;
 }
@@ -120,6 +121,7 @@ export function escolherDonos(
       customerId: r.id,
       name: r.name,
       contractStatus: statusDaBase(r.status),
+      contractStartDate: r.contractStartDate ?? undefined,
       totalOverdueAmount: Number(r.totalOverdueAmount ?? 0) || 0,
       maxDaysOverdue: Number(r.maxDaysOverdue ?? 0) || 0,
       origem: "base",
@@ -170,12 +172,12 @@ async function destinatariosDeEmail(provider: { id: number; contactEmail?: strin
 }
 
 /** As regras do dono. Sem acesso ao banco, vale o padrao — o aviso nao pode depender disso. */
-async function regrasDoProvedor(providerId: number): Promise<RegrasAntiFraude> {
+async function regrasDoProvedor(providerId: number): Promise<RegrasAntiFraude | null> {
   try {
     return montarRegras(await storage.getAntiFraudRules(providerId));
   } catch (err) {
-    logger.warn({ err, providerId }, "Alerta de fuga: regras do provedor indisponiveis — usando o padrao");
-    return montarRegras([]);
+    logger.warn({ err, providerId }, "Alerta de fuga: regras do provedor indisponiveis — avaliação suspensa até recuperar as regras");
+    return null;
   }
 }
 
@@ -211,7 +213,7 @@ export async function notifyOwnerProviders(
   let daBase: ClienteDaBase[] = [];
   try {
     daBase = (await storage.getCustomerByCpfCnpj(cpfCnpj)).map(c => ({
-      id: c.id, providerId: c.providerId, name: c.name, status: c.status,
+      id: c.id, providerId: c.providerId, name: c.name, status: c.status, contractStartDate: c.contractStartDate,
       totalOverdueAmount: c.totalOverdueAmount, maxDaysOverdue: c.maxDaysOverdue,
     }));
   } catch (err) {
@@ -234,6 +236,7 @@ export async function notifyOwnerProviders(
       // sentido para quem ainda e cliente e esta devendo.
       // As regras sao do DONO: e ele quem escolhe o que quer vigiar na base.
       const regras = await regrasDoProvedor(dono.providerId);
+      if (!regras) continue;
       const consultasDeOutros = new Set(provedoresConsultando.filter(id => id !== dono.providerId)).size;
       const avaliacao = avaliarRiscoDeFuga(
         {
@@ -255,11 +258,6 @@ export async function notifyOwnerProviders(
 
       const ownerProvider = await storage.getProvider(dono.providerId);
       if (!ownerProvider) continue;
-
-      if (ownerProvider.proactiveAlertsEnabled === false) {
-        logger.info({ providerId: ownerProvider.id }, "Proactive alerts disabled for provider, skipping");
-        continue;
-      }
 
       // Trava: no maximo 1 alerta por CPF por dono a cada 24h. O mesmo CPF
       // consultado tres vezes e UM caso a tratar, nao tres.
@@ -292,7 +290,7 @@ export async function notifyOwnerProviders(
           message: resumo,
           riskScore: severidade === "critical" ? 90 : severidade === "high" ? 70 : 50,
           riskLevel: severidade === "critical" ? "critico" : severidade === "high" ? "alto" : "medio",
-          riskFactors: ["consulta_outro_provedor", ...avaliacao.motivos, dono.origem === "base" ? "base_sincronizada" : "erp_ao_vivo"],
+          riskFactors: ["consulta_outro_provedor", ...avaliacao.motivos, ...(avaliacao.diasDeContrato !== undefined ? [`dias_contrato:${avaliacao.diasDeContrato}`] : []), `combinacao:${regras.combinacao ?? "qualquer"}`, dono.origem === "base" ? "base_sincronizada" : "erp_ao_vivo"],
           daysOverdue: dono.maxDaysOverdue,
           overdueAmount: dono.totalOverdueAmount.toFixed(2),
           recentConsultations: consultasDeOutros,
@@ -301,6 +299,11 @@ export async function notifyOwnerProviders(
         });
       } catch (err) {
         logger.error({ err, providerId: ownerProvider.id }, "Alerta de fuga: falha ao gravar o registro");
+      }
+
+      if (ownerProvider.proactiveAlertsEnabled === false) {
+        await storage.createProactiveAlert({ providerId: ownerProvider.id, cpfCnpj, consultingProviderId, channel: "nenhum", acknowledged: false });
+        continue;
       }
 
       // ── 2. OS AVISOS ───────────────────────────────────────────────────
@@ -367,6 +370,7 @@ export async function notifyOwnerProviders(
             body: JSON.stringify(webhookPayload),
             signal: AbortSignal.timeout(10_000),
           });
+          if (!response.ok) throw new Error(`Webhook respondeu HTTP ${response.status}`);
           canais.push("hook");
           logger.info({ providerId: ownerProvider.id, channel: "webhook", status: response.status }, "Proactive alert webhook sent");
         } catch (webhookErr) {

@@ -225,8 +225,7 @@ describe("fiação", () => {
    * teste trava a permanencia dele.
    */
   it("a carteira abre o quadro, e o endereco antigo da fila so redireciona", () => {
-    expect(carteira).toContain('data-testid="link-kanban"');
-    expect(carteira).toContain("ROTA_ESTEIRA");
+    expect(carteira).toContain('<NavegacaoCarteiras carteira={meta.carteira} />');
     expect(app).toContain('<Route path="/cobranca/fila"><RedirecionarFila /></Route>');
     expect(app).not.toContain('import("@/pages/cobranca/fila")');
   });

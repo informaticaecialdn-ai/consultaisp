@@ -115,7 +115,7 @@ export interface IStorage {
   getInvoicesByCustomer(customerId: number): Promise<Invoice[]>;
   getOverdueInvoicesByProvider(providerId: number): Promise<Invoice[]>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
-  getLocalizacao(providerId: number): ReturnType<LocalizacaoStorage["getLocalizacao"]>;
+  getLocalizacao(providerId: number, carteira?: Parameters<LocalizacaoStorage["getLocalizacao"]>[1]): ReturnType<LocalizacaoStorage["getLocalizacao"]>;
 
   getBigdataIntegration(providerId: number): ReturnType<BigdataStorage["getIntegration"]>;
   upsertBigdataIntegration(providerId: number, data: any): ReturnType<BigdataStorage["upsertIntegration"]>;
@@ -330,11 +330,11 @@ export interface IStorage {
   listarEventosDoCaso(providerId: number, casoId: number): Promise<CobrancaEvento[]>;
   listarEventosDoCliente(providerId: number, customerId: number, limite?: number): Promise<CobrancaEvento[]>;
   criarNegociacao(providerId: number, dados: NovaNegociacao, parcelas: NovaParcela[]): Promise<NegociacaoComParcelas>;
-  atualizarStatusDaNegociacao(providerId: number, id: number, status: StatusNegociacao, userId?: number | null): Promise<CobrancaNegociacao | undefined>;
+  atualizarStatusDaNegociacao(providerId: number, id: number, status: StatusNegociacao, userId?: number | null, autorizacao?: { podeAprovarExcecao: boolean }): Promise<CobrancaNegociacao | undefined>;
   listarNegociacoesDoCaso(providerId: number, casoId: number): Promise<NegociacaoComParcelas[]>;
   negociacoesVivasPorCaso(providerId: number): Promise<Map<number, ResumoDaNegociacao>>;
   listarParcelasDaNegociacao(providerId: number, negociacaoId: number): Promise<CobrancaParcela[]>;
-  marcarParcelaPaga(providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null): Promise<{ parcela: CobrancaParcela; negociacao: CobrancaNegociacao; acordoCumprido: boolean } | undefined>;
+  marcarParcelaPaga(providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null, chaveIdempotencia?: string): Promise<{ parcela: CobrancaParcela; negociacao: CobrancaNegociacao; acordoCumprido: boolean } | undefined>;
   marcarParcelasAtrasadas(providerId: number, hoje: Date): Promise<{ marcadas: number; negociacoes: number[] }>;
   kpisDaCobranca(providerId: number, hoje?: Date, carteira?: CarteiraDeCobranca): Promise<KpisDaCobranca>;
   fluxoDaEsteira(providerId: number, filtros: FiltrosDaCarteira, desde: Date): Promise<FluxoDaEsteira>;
@@ -509,7 +509,7 @@ class DatabaseStorage implements IStorage {
   updateProviderDocumentStatus = (id: number, status: string, reviewedById: number, reviewerName: string, rejectionReason?: string) => this._financial.updateProviderDocumentStatus(id, status, reviewedById, reviewerName, rejectionReason);
 
   // Equipment
-  getLocalizacao = (providerId: number) => this._localizacao.getLocalizacao(providerId);
+  getLocalizacao = (providerId: number, carteira?: Parameters<LocalizacaoStorage["getLocalizacao"]>[1]) => this._localizacao.getLocalizacao(providerId, carteira);
   getBigdataIntegration = (providerId: number) => this._bigdata.getIntegration(providerId);
   upsertBigdataIntegration = (providerId: number, data: any) => this._bigdata.upsertIntegration(providerId, data);
   createBigdataConsultation = (data: any) => this._bigdata.createConsultation(data);
@@ -636,11 +636,11 @@ class DatabaseStorage implements IStorage {
   listarEventosDoCaso = (providerId: number, casoId: number) => this._cobranca.listarEventosDoCaso(providerId, casoId);
   listarEventosDoCliente = (providerId: number, customerId: number, limite?: number) => this._cobranca.listarEventosDoCliente(providerId, customerId, limite);
   criarNegociacao = (providerId: number, dados: NovaNegociacao, parcelas: NovaParcela[]) => this._cobranca.criarNegociacao(providerId, dados, parcelas);
-  atualizarStatusDaNegociacao = (providerId: number, id: number, status: StatusNegociacao, userId?: number | null) => this._cobranca.atualizarStatusDaNegociacao(providerId, id, status, userId);
+  atualizarStatusDaNegociacao = (providerId: number, id: number, status: StatusNegociacao, userId?: number | null, autorizacao?: { podeAprovarExcecao: boolean }) => this._cobranca.atualizarStatusDaNegociacao(providerId, id, status, userId, autorizacao);
   listarNegociacoesDoCaso = (providerId: number, casoId: number) => this._cobranca.listarNegociacoesDoCaso(providerId, casoId);
   negociacoesVivasPorCaso = (providerId: number) => this._cobranca.negociacoesVivasPorCaso(providerId);
   listarParcelasDaNegociacao = (providerId: number, negociacaoId: number) => this._cobranca.listarParcelasDaNegociacao(providerId, negociacaoId);
-  marcarParcelaPaga = (providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null) => this._cobranca.marcarParcelaPaga(providerId, parcelaId, valorPago, pagoEm, userId);
+  marcarParcelaPaga = (providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null, chaveIdempotencia?: string) => this._cobranca.marcarParcelaPaga(providerId, parcelaId, valorPago, pagoEm, userId, chaveIdempotencia);
   marcarParcelasAtrasadas = (providerId: number, hoje: Date) => this._cobranca.marcarParcelasAtrasadas(providerId, hoje);
   kpisDaCobranca = (providerId: number, hoje?: Date, carteira?: CarteiraDeCobranca) => this._cobranca.kpisDaCobranca(providerId, hoje, carteira);
   fluxoDaEsteira = (providerId: number, filtros: FiltrosDaCarteira, desde: Date) => this._cobranca.fluxoDaEsteira(providerId, filtros, desde);
@@ -669,6 +669,24 @@ class DatabaseStorage implements IStorage {
   faturasDoCliente = (providerId: number, customerId: number, opcoes?: { limite?: number; hoje?: Date }) => this._faturas.faturasDoCliente(providerId, customerId, opcoes);
   mensalidadeDoCliente = (providerId: number, customerId: number) => this._faturas.mensalidadeDoCliente(providerId, customerId);
   coberturaDaMensalidade = (providerId: number) => this._faturas.coberturaDaMensalidade(providerId);
+  // Os sete do recebimento de acordos (08/09/2026). Chegaram no `FaturasStorage`
+  // sem delegação aqui, e `storage-fachada.test.ts` acusou — que é exatamente o
+  // trabalho dele. Hoje as chamadas instanciam `FaturasStorage` direto, então
+  // não havia `undefined` em runtime; mas a fachada é o contrato da casa
+  // (CLAUDE.md, regra 10: query vai por `storage`), e o dia em que alguém
+  // chamar `storage.registrarQuitacaoConfirmada` não pode ser o dia em que
+  // descobrimos que ela não existe — foi assim que a régua fechou com 7.041
+  // erros em 06/09.
+  //
+  // `Parameters<…>` em vez de repetir a assinatura: assinatura copiada à mão
+  // envelhece calada quando o método ganha um argumento.
+  clienteExiste = (...args: Parameters<FaturasStorage["clienteExiste"]>) => this._faturas.clienteExiste(...args);
+  clienteDaFatura = (...args: Parameters<FaturasStorage["clienteDaFatura"]>) => this._faturas.clienteDaFatura(...args);
+  listarQuitacoesDoCliente = (...args: Parameters<FaturasStorage["listarQuitacoesDoCliente"]>) => this._faturas.listarQuitacoesDoCliente(...args);
+  faturasQuitadasAindaAbertas = (...args: Parameters<FaturasStorage["faturasQuitadasAindaAbertas"]>) => this._faturas.faturasQuitadasAindaAbertas(...args);
+  historicosDePagamentosDoProvedor = (...args: Parameters<FaturasStorage["historicosDePagamentosDoProvedor"]>) => this._faturas.historicosDePagamentosDoProvedor(...args);
+  historicoDePagamentosDoCliente = (...args: Parameters<FaturasStorage["historicoDePagamentosDoCliente"]>) => this._faturas.historicoDePagamentosDoCliente(...args);
+  registrarQuitacaoConfirmada = (...args: Parameters<FaturasStorage["registrarQuitacaoConfirmada"]>) => this._faturas.registrarQuitacaoConfirmada(...args);
 }
 
 export const storage = new DatabaseStorage();

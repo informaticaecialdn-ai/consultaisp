@@ -10,12 +10,10 @@
  * nove quadrantes, e cada quadrante tem uma abordagem. O quando (a etapa da
  * régua) mora em `regua.ts`; os dois se cruzam só na tela e no caso.
  *
- * LIMITAÇÃO DA FASE 1, medida em produção (05/09/2026): o sync do ERP grava
- * agregados em `customers` — não há fatura paga nem fatura paga com atraso.
- * A taxa de atraso histórica, que no Provedor.ai separa "oscila" de "em dia",
- * NÃO existe aqui: `historicoInsuficiente` é sempre true, e a confiabilidade
- * sai só do atraso atual e das faturas em aberto. Isso é o que o original faz
- * quando o ERP só expõe faturas abertas — a regra já previa esse caso.
+ * O histórico usa somente faturas explicitamente pagas COM data de pagamento.
+ * Sem essa evidência, `historicoInsuficiente` permanece true e a classificação
+ * usa apenas o atraso atual. Desaparecer dos pendentes do ERP nunca mede
+ * pontualidade: baixa sem recibo continua desconhecida.
  *
  * Módulo puro: sem banco, sem React, sem I/O. Servidor e cliente importam daqui.
  */
@@ -71,10 +69,8 @@ export interface EntradaDna {
   /** `customers.overdue_invoices_count`. */
   faturasAbertas: number;
   /**
-   * Fase 1: SEMPRE true. O sync não traz fatura paga, então a taxa de atraso
-   * histórica não pode ser calculada e é tratada como zero — exatamente como o
-   * original faz para ERP que só expõe faturas abertas. Na fase 2, quem tiver
-   * `faturasPagas > 0` passa false e preenche os dois campos abaixo.
+   * true quando não há pagamentos com data confirmada. A ausência não vira
+   * taxa observada zero; só desabilita o critério histórico da classificação.
    */
   historicoInsuficiente: boolean;
   faturasPagas?: number;

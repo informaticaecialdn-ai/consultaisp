@@ -159,6 +159,46 @@ const json = (method: string, caminho: string, corpo?: unknown) =>
   });
 
 describe("carteiras separadas em toda a operacao", () => {
+  it('recusa aceitar negociacao da outra carteira sem alterar status', async () => {
+    sessao = ADMIN;
+    storageMock.obterNegociacao.mockResolvedValueOnce({ id: 3, casoId: 9, status: 'proposta' });
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    expect((await json('PATCH', '/api/cobranca/negociacoes/3?carteira=ex_cliente', { status: 'aceita' })).status).toBe(404);
+    expect(storageMock.atualizarStatusDaNegociacao).not.toHaveBeenCalled();
+  });
+  it('recusa pagar parcela da outra carteira antes do recebimento', async () => {
+    sessao = ADMIN;
+    storageMock.obterParcela.mockResolvedValueOnce({ id: 11, negociacaoId: 3, status: 'pendente' });
+    storageMock.obterNegociacao.mockResolvedValueOnce({ id: 3, casoId: 9, status: 'aceita' });
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    expect((await json('POST', '/api/cobranca/parcelas/11/pagar?carteira=ex_cliente', { valorPago: 100 })).status).toBe(404);
+    expect(storageMock.marcarParcelaPaga).not.toHaveBeenCalled();
+  });
+  it('recusa alterar caso de outra carteira antes de escrever', async () => {
+    sessao = ADMIN;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    expect((await json('PATCH', '/api/cobranca/casos/9?carteira=ex_cliente', { prioridade: 'alta' })).status).toBe(404);
+    expect(storageMock.atualizarCasoDeCobranca).not.toHaveBeenCalled();
+  });
+  it('resumo mensal recusa ex-clientes', async () => {
+    sessao = ADMIN;
+    expect((await json('GET', '/api/cobranca/carteira/mes?carteira=ex_cliente')).status).toBe(400);
+  });
+  it.each(['360', '360/ao-vivo'])('detalhe %s recusa cliente de outra carteira', async detalhe => {
+    sessao = ADMIN;
+    storageMock.getCustomersByProvider.mockResolvedValue([clienteMaria]);
+    expect((await json('GET', '/api/cobranca/clientes/1/' + detalhe + '?carteira=ex_cliente')).status).toBe(404);
+    expect((await json('GET', '/api/cobranca/clientes/1/' + detalhe + '?carteira=inventada')).status).toBe(400);
+  });
+  it.each(['regua', 'dna'])('%s mostra somente contagens da carteira solicitada', async endpoint => {
+    sessao = ADMIN;
+    const contagens = [{ etapa: 'lembrete_atraso', quadrante: 'B3', carteira: 'ativo', casos: 2, valor: 100 }, { etapa: 'lembrete_atraso', quadrante: 'B3', carteira: 'ex_cliente', casos: 5, valor: 900 }];
+    storageMock.contarCasosPorEtapa.mockResolvedValue(contagens);
+    storageMock.contarCasosPorQuadrante.mockResolvedValue(contagens);
+    const r = await json('GET', '/api/cobranca/' + endpoint + '?carteira=ativo');
+    expect(r.status).toBe(200);
+    expect((await r.json()).contagens).toEqual([contagens[0]]);
+  });
   it.each(["ativo", "ex_cliente"])("passa %s aos indicadores e bairros, alem da lista", async carteira => {
     sessao = ADMIN;
     const r = await json("GET", `/api/cobranca/carteira?carteira=${carteira}`);
@@ -1111,9 +1151,9 @@ describe("POST negociacoes — a faixa da carteira", () => {
     expect(body.motivosDaExcecao[0]).toMatch(/Desconto de 15% acima dos 5% da faixa de 31 a 60 dias/);
     // "o cliente ja aceitou" NAO fecha um acordo que depende de aprovacao
     expect((storageMock.criarNegociacao.mock.calls[0] as any[])[1].aceita).toBe(false);
-    const [, evento] = storageMock.registrarEventoDeCobranca.mock.calls[0] as any[];
-    expect(evento).toMatchObject({ casoId: 9, tipo: "nota", userId: 8 });
-    expect(evento.metadata).toMatchObject({ exigeAprovacao: true, negociacaoId: 5, carteira: "ativo" });
+    const [, dados] = storageMock.criarNegociacao.mock.calls[0] as unknown as [number, { aprovacao: unknown }];
+    expect(dados.aprovacao).toMatchObject({ exigeAprovacao: true, carteira: "ativo" });
+    expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
   });
 
   it("acima do teto de excecao e 422, com o limite na frase e nada gravado", async () => {
@@ -1194,7 +1234,7 @@ describe("PATCH /api/cobranca/negociacoes/:id", () => {
     const res = await json("PATCH", "/api/cobranca/negociacoes/3", { status: "aceita" });
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 8);
+    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 8, { podeAprovarExcecao: false });
     expect(storageMock.obterCasoDeCobranca).toHaveBeenCalledWith(42, 9);
     expect(body.negociacao.status).toBe("aceita");
     expect(body.caso.status).toBe("acordo_ativo");
@@ -1223,14 +1263,14 @@ describe("PATCH negociacoes — aceitar uma proposta de EXCECAO", () => {
   it("403 para o operador, com quem pode aprovar e o motivo da excecao — e nada muda no storage", async () => {
     sessao = OPERADOR;
     storageMock.obterNegociacao.mockResolvedValueOnce({ id: 3, casoId: 9, status: "proposta" });
-    storageMock.listarEventosDoCaso.mockResolvedValueOnce(notaDeExcecao() as any);
+    storageMock.atualizarStatusDaNegociacao.mockRejectedValueOnce(new ErroDeCobranca("APROVACAO_OBRIGATORIA", "Esta proposta exige aprovação de um administrador do provedor."));
     const res = await json("PATCH", "/api/cobranca/negociacoes/3", { casoId: 9, status: "aceita" });
     const body = await res.json();
     expect(res.status).toBe(403);
     expect(body.message).toMatch(/administrador do provedor/);
-    expect(body.motivos[0]).toMatch(/Desconto de 15%/);
-    expect(storageMock.atualizarStatusDaNegociacao).not.toHaveBeenCalled();
-    expect(storageMock.listarEventosDoCaso).toHaveBeenCalledWith(42, 9);
+    expect(body.code).toBe("APROVACAO_OBRIGATORIA");
+    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 8, { podeAprovarExcecao: false });
+    expect(storageMock.listarEventosDoCaso).not.toHaveBeenCalled();
   });
 
   it("o admin do provedor aceita a MESMA proposta, e a linha do tempo nem e consultada", async () => {
@@ -1240,7 +1280,7 @@ describe("PATCH negociacoes — aceitar uma proposta de EXCECAO", () => {
     storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ status: "acordo_ativo" }));
     const res = await json("PATCH", "/api/cobranca/negociacoes/3", { casoId: 9, status: "aceita" });
     expect(res.status).toBe(200);
-    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 7);
+    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 7, { podeAprovarExcecao: true });
     expect(storageMock.listarEventosDoCaso).not.toHaveBeenCalled();
   });
 
@@ -1248,12 +1288,11 @@ describe("PATCH negociacoes — aceitar uma proposta de EXCECAO", () => {
     sessao = OPERADOR;
     storageMock.obterNegociacao.mockResolvedValueOnce({ id: 3, casoId: 9, status: "proposta" });
     // A linha do tempo tem nota de OUTRA negociacao — nao e desta proposta.
-    storageMock.listarEventosDoCaso.mockResolvedValueOnce(notaDeExcecao(4) as any);
     storageMock.atualizarStatusDaNegociacao.mockResolvedValueOnce(aceitaDoStorage);
     storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ status: "acordo_ativo" }));
     const res = await json("PATCH", "/api/cobranca/negociacoes/3", { casoId: 9, status: "aceita" });
     expect(res.status).toBe(200);
-    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 8);
+    expect(storageMock.atualizarStatusDaNegociacao).toHaveBeenCalledWith(42, 3, "aceita", 8, { podeAprovarExcecao: false });
   });
 
   it("o freio e so na entrada do acordo: o operador ainda cancela a propria proposta de excecao", async () => {
@@ -1301,7 +1340,7 @@ describe("POST /api/cobranca/parcelas/:id/pagar", () => {
     expect(res.status).toBe(409);
     expect(body.code).toBe("NEGOCIACAO_NAO_ACEITA");
     expect(body.message).toMatch(/status=aceita/);
-    expect(storageMock.marcarParcelaPaga).toHaveBeenCalledWith(42, 12, 100, expect.any(Date), 8);
+    expect(storageMock.marcarParcelaPaga).toHaveBeenCalledWith(42, 12, 100, expect.any(Date), 8, undefined);
   });
 
   it("outros codigos do storage tambem sao 409 com a mensagem dele, nunca 500", async () => {
@@ -1325,7 +1364,7 @@ describe("POST /api/cobranca/parcelas/:id/pagar", () => {
     const res = await json("POST", "/api/cobranca/parcelas/12/pagar", { valorPago: 50 });
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(storageMock.marcarParcelaPaga).toHaveBeenCalledWith(42, 12, 50, expect.any(Date), 8);
+    expect(storageMock.marcarParcelaPaga).toHaveBeenCalledWith(42, 12, 50, expect.any(Date), 8, undefined);
     expect(storageMock.listarParcelasDaNegociacao).toHaveBeenCalledWith(42, 3);
     expect(body).toMatchObject({ acordoCumprido: false, parcial: true });
     expect(body.parcela).toMatchObject({ id: 12, status: "pendente", valorPago: 50 });
@@ -1348,7 +1387,7 @@ describe("POST /api/cobranca/parcelas/:id/pagar", () => {
     const res = await json("POST", "/api/cobranca/parcelas/12/pagar", { negociacaoId: 3, valorPago: 106.68 });
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(storageMock.marcarParcelaPaga).toHaveBeenCalledWith(42, 12, 106.68, expect.any(Date), 8);
+    expect(storageMock.marcarParcelaPaga).toHaveBeenCalledWith(42, 12, 106.68, expect.any(Date), 8, undefined);
     expect(storageMock.obterCasoDeCobranca).toHaveBeenCalledWith(42, 9);
     expect(body.acordoCumprido).toBe(true);
     expect(body.parcial).toBe(false);

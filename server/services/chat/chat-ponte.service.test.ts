@@ -238,16 +238,23 @@ describe("configurarCanalWhatsapp", () => {
 
 describe("enviarCasoParaCobranca", () => {
   const comCanal = () => { fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: "ch_1", canalNome: "Principal", status: "ativo", ultimoErro: null, agenteConfig: AGENTES_PRONTOS }; };
-  it("falha no draft bloqueia envio e não usa template de fallback", async () => {
+  it.each(["Maria, sua dívida é R$ 200", "Envie seu CPF", "Acesse https://isp.invalid/boleto"])("bloqueia primeiro texto manual antes da identidade: %s", async texto => {
+    const c = clienteFalso(); comCanal();
+    await expect(enviarCasoParaCobranca(6, 10, 3, texto)).rejects.toMatchObject({ codigo: "CONFLITO" });
+    expect(c.iniciarConversa).not.toHaveBeenCalled();
+    expect(fake.eventos).toEqual([]);
+  });
+  it("abertura de cobrança não depende da disponibilidade do modelo", async () => {
     const c = clienteFalso({ prepararPrimeiroContato: vi.fn(async () => ({ ok: false, erro: "Modelo sem credencial" })) }); comCanal();
-    await expect(enviarCasoParaCobranca(6, 10, 3)).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
-    expect(c.iniciarConversa).not.toHaveBeenCalled(); expect(fake.eventos).toEqual([]);
+    await expect(enviarCasoParaCobranca(6, 10, 3)).resolves.toMatchObject({ enviado: true });
+    expect(c.prepararPrimeiroContato).not.toHaveBeenCalled();
+    expect(fake.eventos[0].metadata).toMatchObject({ origemTexto: "abertura_controlada", chat: { agente: { modo: "abertura_controlada", modelo: null, runId: null } } });
   });
   it("ex-cliente usa seu agente exclusivo", async () => {
     const c = clienteFalso(); comCanal(); fake.caso = { ...CASO, carteira: "ex_cliente" };
     await enviarCasoParaCobranca(6, 10, 3);
-    expect(c.prepararPrimeiroContato).toHaveBeenCalledWith("org_1", "ag-ex", expect.objectContaining({ nomeCliente: "Maria" }));
-    expect(fake.eventos[0].metadata.origemTexto).toBe("agente_ia");
+    expect(c.prepararPrimeiroContato).not.toHaveBeenCalled();
+    expect(fake.eventos[0].metadata).toMatchObject({ origemTexto: "abertura_controlada", chat: { agente: { agenteId: "ag-ex" } } });
   });
   it("cliques simultâneos no mesmo caso compartilham o primeiro contato", async () => {
     const c = clienteFalso(); comCanal();
@@ -319,8 +326,8 @@ describe("enviarCasoParaCobranca", () => {
   it("texto do operador vence o modelo; caso ja em contato nao muda de status", async () => {
     const c = clienteFalso(); comCanal();
     fake.caso = { ...CASO, status: "em_contato" };
-    await enviarCasoParaCobranca(6, 10, 3, "Oi Maria, tudo bem? Podemos combinar?");
-    expect(c.iniciarConversa.mock.calls[0][1].texto).toBe("Oi Maria, tudo bem? Podemos combinar?");
+    await enviarCasoParaCobranca(6, 10, 3, "Oi Maria, tudo bem? Podemos conversar?");
+    expect(c.iniciarConversa.mock.calls[0][1].texto).toBe("Oi Maria, tudo bem? Podemos conversar?");
     expect(fake.patches).toEqual([]);
   });
   it("conversa existente é aberta sem repetir primeiro contato", async () => {
@@ -350,7 +357,7 @@ describe("enviarCasoParaCobranca", () => {
     const r = await enviarCasoParaCobranca(6, 10, 3);
     expect(r).toMatchObject({ enviado: true, motivo: null, reaproveitada: false, messageId: "msg_1" });
     expect(fake.eventos).toHaveLength(1);
-    expect(fake.eventos[0].metadata.origemTexto).toBe("agente_ia");
+    expect(fake.eventos[0].metadata.origemTexto).toBe("abertura_controlada");
     expect(fake.patches).toEqual([{ id: 10, patch: { status: "em_contato" } }]);
   });
   it("conversa fechada nao e reaproveitada: abre outra", async () => {

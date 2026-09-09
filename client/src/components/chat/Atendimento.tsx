@@ -374,10 +374,12 @@ function DialogoFollowUpDoChat({
 export function Atendimento({
   conversationId,
   origem,
+  carteira,
   compacto = false,
 }: {
   conversationId: string;
   origem: OrigemChat;
+  carteira?: string;
   compacto?: boolean;
 }) {
   const qc = useQueryClient();
@@ -399,15 +401,16 @@ export function Atendimento({
   const historico = useRef<HTMLDivElement>(null);
   const pertoDoFim = useRef(true);
   const url = `${API_ATENDIMENTOS}/${encodeURIComponent(conversationId)}`;
+  const escopo = new URLSearchParams({ origem, ...(carteira ? { carteira } : {}) }).toString();
   const contexto = useQuery<ContextoDoChat>({
-    queryKey: [`${url}/contexto`],
+    queryKey: [`${url}/contexto?${escopo}`],
     queryFn: async () => {
       const forcar = forcarContexto.current;
       forcarContexto.current = false;
       return (
         await apiRequest(
           "GET",
-          `${url}/contexto${forcar ? "?atualizar=true" : ""}`,
+          `${url}/contexto?${escopo}${forcar ? "&atualizar=true" : ""}`,
         )
       ).json();
     },
@@ -436,10 +439,10 @@ export function Atendimento({
   });
   const assistenteLigado = autonomia.data?.config?.ativa === true;
   const query = useInfiniteQuery({
-    queryKey: [url],
+    queryKey: [url, escopo],
     initialPageParam: 1,
     queryFn: async ({ pageParam }): Promise<DetalheChat> =>
-      (await apiRequest("GET", `${url}?pagina=${pageParam}`)).json(),
+      (await apiRequest("GET", `${url}?${escopo}&pagina=${pageParam}`)).json(),
     getNextPageParam: (pagina) =>
       pagina.temMais ? pagina.pagina + 1 : undefined,
     refetchInterval: 8000,
@@ -486,7 +489,7 @@ export function Atendimento({
     });
   const acao = useMutation({
     mutationFn: async (pedido: AcaoChat) =>
-      (await apiRequest("POST", `${url}/acoes`, pedido)).json(),
+      (await apiRequest("POST", `${url}/acoes?${escopo}`, pedido)).json(),
     onSuccess: async (_r, pedido) => {
       if (pedido.acao === "enviar") {
         setTexto("");
@@ -509,7 +512,7 @@ export function Atendimento({
       (
         await apiRequest(
           "POST",
-          `${API_AUTONOMIA}/conversas/${encodeURIComponent(conversationId)}/devolver`,
+          `${API_AUTONOMIA}/conversas/${encodeURIComponent(conversationId)}/devolver?${escopo}`,
         )
       ).json(),
     onSuccess: async () => {
@@ -544,7 +547,7 @@ export function Atendimento({
       ...(proximoContatoEm ? { proximoContatoEm } : {}),
     });
   };
-  if (!dados)
+  if (!dados || query.isError)
     return (
       <div
         className="p-6 text-sm text-[var(--text-muted)]"
@@ -682,7 +685,7 @@ export function Atendimento({
               </button>
               <Link
                 className={cn(BOTAO_SECUNDARIO, "hidden sm:inline-flex")}
-                href={`/cobranca/cliente/${dados.conversa.customerId}?carteira=${c?.carteira ?? "ativo"}`}
+                href={`/cobranca/cliente/${dados.conversa.customerId}?carteira=${carteira ?? c?.carteira ?? "ativo"}`}
                 data-testid="chat-cabecalho-360"
               >
                 <Layers className="h-3.5 w-3.5" /> Cliente 360
@@ -823,7 +826,7 @@ export function Atendimento({
                   ) && (
                     <Anexo
                       tipo={m.tipo}
-                      url={`${url}/mensagens/${encodeURIComponent(m.id)}/midia?pagina=${query.data?.pages.find((p) => p.mensagens.some((x) => x.id === m.id))?.pagina ?? 1}`}
+                      url={`${url}/mensagens/${encodeURIComponent(m.id)}/midia?${escopo}&pagina=${query.data?.pages.find((p) => p.mensagens.some((x) => x.id === m.id))?.pagina ?? 1}`}
                     />
                   )}
                   {/* Hora e situação do envio como o servidor as mandou — nada de recibo inventado. */}
@@ -877,7 +880,7 @@ export function Atendimento({
             </button>
             <Link
               className={BOTAO_SECUNDARIO}
-              href={`/cobranca/cliente/${dados.conversa.customerId}?carteira=${c?.carteira ?? "ativo"}`}
+              href={`/cobranca/cliente/${dados.conversa.customerId}?carteira=${carteira ?? c?.carteira ?? "ativo"}`}
             >
               <Layers className="h-3.5 w-3.5" /> Cliente 360
             </Link>
@@ -1094,6 +1097,7 @@ export function Atendimento({
         contexto={contexto.data}
         carregando={contexto.isFetching}
         url={url}
+        escopo={escopo}
         referencia={pagamento.ref}
         inserir={(mensagem) => {
           if (!emAtendimento)
@@ -1114,7 +1118,7 @@ export function Atendimento({
         tipoInicial="parcelamento"
         onFechar={() => {
           setNegociar(false);
-          qc.invalidateQueries({ queryKey: [url] });
+          qc.invalidateQueries({ queryKey: [url, escopo] });
         }}
       />
     </div>

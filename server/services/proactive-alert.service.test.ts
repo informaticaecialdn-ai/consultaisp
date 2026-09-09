@@ -82,3 +82,9 @@ describe("textoDoAlerta", () => {
       .toBe("Seu cliente ativo foi consultado por outro provedor da rede");
   });
 });
+
+
+it("usa a data de contrato sincronizada quando o ERP não responde", () => {
+  const [dono] = escolherDonos(9, [], new Set(), [{ id: 1, providerId: 2, name: "Teste", status: "active", contractStartDate: "2026-08-01", totalOverdueAmount: "100", maxDaysOverdue: 4 }]);
+  expect(dono.contractStartDate).toBe("2026-08-01");
+});

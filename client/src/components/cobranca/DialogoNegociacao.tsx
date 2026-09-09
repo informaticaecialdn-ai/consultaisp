@@ -25,6 +25,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, type ErroDaApi } from "@/lib/queryClient";
+import { caminhoNaCarteira } from "./carteiras";
 import { cn } from "@/lib/utils";
 import {
   brl, ofertasDaPolitica, pct, ROTULO_TIPO_DE_NEGOCIACAO, TIPOS_DE_NEGOCIACAO,
@@ -104,7 +105,8 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
       if (!alvo) throw new Error("Este cliente ainda não tem caso aberto");
       const corpo = corpoDaNegociacao(form, valorOriginal);
       if (!corpo) throw new Error(previa.erro ?? "Preencha a proposta");
-      const resposta = await apiRequest("POST", `${API_CASOS}/${alvo.casoId}/negociacoes`, corpo);
+      const rota = `${API_CASOS}/${alvo.casoId}/negociacoes`;
+      const resposta = await apiRequest("POST", alvo.carteira ? caminhoNaCarteira(rota, alvo.carteira) : rota, corpo);
       return resposta.json();
     },
     onSuccess: (corpo: unknown) => {
@@ -222,7 +224,7 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
               <Campo rotulo="parcelas">
                 <input type="number" min={1} max={politica?.negociacao.maxParcelas ?? 240} required className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")} value={form.parcelas} onChange={e => mudar("parcelas", e.target.value)} data-testid="negociacao-parcelas" />
               </Campo>
-              <Campo rotulo="1º vencimento">
+              <Campo rotulo="Vencimento da entrada e da 1ª parcela">
                 <input type="date" required min={hojeInput()} className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")} value={form.primeiroVencimento} onChange={e => mudar("primeiroVencimento", e.target.value)} data-testid="negociacao-vencimento" />
               </Campo>
             </div>
@@ -239,6 +241,13 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
             <TabelaPainel testId="negociacao-previa">
               <thead><tr><Th>parcela</Th><Th alinhamento="direita">valor</Th><Th>vencimento</Th></tr></thead>
               <tbody>
+                {Number(form.entrada) > 0 && (
+                  <tr>
+                    <Td alinhamento="esquerda">Entrada · a receber</Td>
+                    <Td num>{brl(Number(form.entrada))}</Td>
+                    <Td num alinhamento="esquerda">{dataCivilBr(form.primeiroVencimento)}</Td>
+                  </tr>
+                )}
                 {previa.parcelas.map(p => (
                   <tr key={p.numero}>
                     <Td num alinhamento="esquerda">{p.numero}/{previa.parcelas!.length}</Td>

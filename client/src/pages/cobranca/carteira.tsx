@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ChevronLeft, ChevronRight, KanbanSquare, LayoutGrid, Route, Search, Users, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutGrid, Search, Users, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { brl, num, Segmentado, TRACO } from "@/components/localizacao/ui";
@@ -31,11 +31,12 @@ import {
   OPCOES_STATUS, POR_PAGINA, queryDaCarteira, temFiltros, totalDePaginas, type FiltrosDaCarteira, type GrupoDoMes, type OpcaoDeFiltro, type VisaoDaCarteira,
 } from "@/components/cobranca/filtros";
 import {
-  API_CARTEIRA, API_CARTEIRA_MES, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_ESTEIRA, ROTA_REGUA, rotaDoCliente,
+  API_CARTEIRA, API_CARTEIRA_MES, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_REGUA, rotaDoCliente,
   type RespostaDaCarteira, type RespostaDaRegua, type RespostaDoMes,
 } from "@/components/cobranca/tipos";
 import { caminhoNaCarteira } from "@/components/cobranca/carteiras";
 import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
+import { etapasDaCarteira } from "@shared/cobranca";
 import { BarraComposicao, FiltroPilula, mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
 export type EspacoDaCarteira = "ativos" | "ex";
@@ -118,8 +119,23 @@ export function chipsDoMes(dados: RespostaDoMes | undefined): ChipDoMes[] {
     {
       id: "pago",
       rotulo: "Pagou o mês",
-      valor: r ? brl(r.recebidoConfirmado ? r.recebido : r.emConciliacao) : TRACO,
-      sub: r ? (r.recebidoConfirmado ? `${pct ?? 0}% do faturado` : `${pct ?? 0}% do faturado · baixadas no ERP, sem o valor pago confirmado`) : "sem faturas no mês",
+      // A SOMA dos dois baldes, sempre. Mostrar um só criava três desacordos na
+      // mesma linha: o `pct` abaixo é calculado sobre a soma, e clicar no chip
+      // abre `clientesDoMes("pago")`, que lista os dois. Bastava o admin
+      // conferir UM comprovante para `recebidoConfirmado` virar true e o card
+      // trocar de balde — R$ 45 mil de baixa no ERP sumiam da tela ao lado de
+      // uma porcentagem que continuava contando os R$ 45 mil.
+      valor: r ? brl(r.recebido + r.emConciliacao) : TRACO,
+      // O que é comprovado e o que é provável seguem separados no texto: nenhum
+      // ERP confirma pagamento, e fatura que sumiu dos pendentes é pagamento
+      // PROVÁVEL. Sem faturado no mês não há porcentagem — e "0%" seria uma
+      // afirmação que ninguém mediu.
+      sub: !r ? "sem faturas no mês"
+        : `${pct === null ? "sem faturado no mês" : `${pct}% do faturado`}${
+            r.recebido > 0 && r.emConciliacao > 0
+              ? ` · ${brl(r.recebido)} confirmado, o resto baixado no ERP`
+              : r.recebido > 0 ? " · confirmado com comprovante"
+              : " · baixadas no ERP, sem o valor pago confirmado"}`,
       cor: "var(--ok)",
     },
     {
@@ -256,9 +272,13 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
     queryKey: [`${API_CARTEIRA}?${query}${filtros.mesStatus && !filtros.mes ? `&mes=${mes}` : ""}`],
     staleTime: 30_000,
   });
-  const { data: regua } = useQuery<RespostaDaRegua>({ queryKey: [API_REGUA], staleTime: 300_000 });
+  const { data: regua } = useQuery<RespostaDaRegua>({ queryKey: [caminhoNaCarteira(API_REGUA, meta.carteira)], staleTime: 300_000 });
+  const opcoesEtapa = useMemo(() => {
+    const ids = new Set<string>(etapasDaCarteira(meta.carteira, regua?.etapas).map(e => e.id));
+    return OPCOES_ETAPA.filter(e => ids.has(e.valor));
+  }, [meta.carteira, regua?.etapas]);
   const { data: doMes, isLoading: carregandoMes } = useQuery<RespostaDoMes>({
-    queryKey: [`${API_CARTEIRA_MES}?mes=${mes}`],
+    queryKey: [`${API_CARTEIRA_MES}?mes=${mes}&carteira=${meta.carteira}`],
     staleTime: 60_000,
     enabled: espaco === "ativos",
   });
@@ -297,13 +317,6 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
         titulo={meta.titulo}
         descricao={isLoading ? "carregando…" : `${num(total)} ${espaco === "ativos" ? (total === 1 ? "cliente ativo" : "clientes ativos") : (total === 1 ? "ex-cliente com dívida" : "ex-clientes com dívida")} · ${meta.subtitulo}`}
         testIdTitulo="titulo-carteira"
-        acoes={
-          <>
-            {/* A fila do dia saiu (06/09/2026): o trabalho do dia inteiro acontece no quadro. */}
-            <Link href={caminhoNaCarteira(ROTA_ESTEIRA, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-kanban"><KanbanSquare className="h-3.5 w-3.5" aria-hidden /> Esteira</Link>
-            <Link href={caminhoNaCarteira(ROTA_REGUA, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-regua"><Route className="h-3.5 w-3.5" aria-hidden /> Régua e DNA</Link>
-          </>
-        }
       />
 
       <NavegacaoCarteiras carteira={meta.carteira} />
@@ -350,7 +363,7 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
         </div>
         <FiltroPilula rotulo="Quadrante DNA" valor={filtros.quadrante} opcoes={OPCOES_QUADRANTE} onChange={v => mudar({ quadrante: v })} testId="filtro-quadrante" />
         <FiltroPilula rotulo="Saúde" valor={filtros.saude} opcoes={OPCOES_SAUDE} onChange={v => mudar({ saude: v })} testId="filtro-saude" />
-        <FiltroPilula rotulo="Etapa da régua" valor={filtros.etapa} opcoes={OPCOES_ETAPA} onChange={v => mudar({ etapa: v })} testId="filtro-etapa" />
+        <FiltroPilula rotulo="Etapa da régua" valor={filtros.etapa} opcoes={opcoesEtapa} onChange={v => mudar({ etapa: v })} testId="filtro-etapa" />
         {/* Situação ERP fixada pelo espaço — como o rail do Provedor.ai. */}
         <span
           className="inline-flex h-8 items-center gap-1.5 rounded border border-[var(--past-border)] bg-[var(--past-bg)] px-2.5 text-[12px] font-medium text-[var(--past)] opacity-80"
