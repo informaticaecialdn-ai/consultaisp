@@ -264,6 +264,28 @@ afterEach(async () => {
 const verCobertura = () => fetch(`${base}${ROTA_COBERTURA}`);
 const carregar = () => fetch(`${base}${ROTA_COBERTURA}`, { method: "POST" });
 
+describe("carteira da Localizacao", () => {
+  /**
+   * O padrao e a carteira INTEIRA, e o teste trava isso porque a troca custou o
+   * mapa em producao em 08/09/2026: com "ativo" por omissao, os 1.239
+   * ex-clientes com divida da NsLink sumiram do mapa e a taxa de bairro zerou.
+   */
+  it("sem recorte pedido, manda a carteira inteira — e sempre o provedor da sessao", async () => {
+    expect((await fetch(`${base}/api/localizacao?providerId=999`)).status).toBe(200);
+    expect(storageMock.getLocalizacao).toHaveBeenCalledWith(AMPLINET, "todas");
+  });
+  it.each(["ativo", "ex_cliente", "todas"])("encaminha a carteira %s", async carteira => {
+    expect((await fetch(`${base}/api/localizacao?carteira=${carteira}`)).status).toBe(200);
+    expect(storageMock.getLocalizacao).toHaveBeenCalledWith(AMPLINET, carteira);
+  });
+  // Repetir o parametro faz o Express entregar um ARRAY, e um array nunca e uma
+  // das tres carteiras — a recusa vem antes de qualquer leitura da base.
+  it.each(["outra", "ativo&carteira=ex_cliente", ""])("recusa selecao invalida %s", async carteira => {
+    expect((await fetch(`${base}/api/localizacao?carteira=${carteira}`)).status).toBe(400);
+    expect(storageMock.getLocalizacao).not.toHaveBeenCalled();
+  });
+});
+
 /** Espera a passada disparada pela rota terminar — ela roda solta, por desenho. */
 async function aguardarACarga(): Promise<void> {
   for (let i = 0; i < 200 && estadoDaCobertura().emAndamento; i++) {

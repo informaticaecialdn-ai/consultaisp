@@ -26,6 +26,17 @@ export interface BairroRanking {
   pctInadimplencia: number; dividaTotal: number;
   hps: number | null; ucsVivas: number | null;
   pctPenetracao: number | null; benchmarkPct: number | null;
+  universo?: number; clientesCidade?: number;
+  pctBaseProvedor?: number; pctBaseCidade?: number;
+  pctInadimplentesBaseProvedor?: number;
+}
+
+export type CarteiraLocalizacao = "ativo" | "ex_cliente" | "todas";
+export const ROTULO_CARTEIRA: Record<CarteiraLocalizacao, string> = {
+  ativo: "ativos e suspensos", ex_cliente: "ex-clientes", todas: "todos os clientes",
+};
+export function chaveBairro(b: Pick<BairroRanking, "cidade" | "bairro">): string {
+  return `${b.cidade}\u001f${b.bairro}`;
 }
 
 export type OrdemRanking = "menor" | "maior" | "divida" | "clientes";
@@ -61,7 +72,7 @@ const TIP_PEN_SUPRIMIDA =
 const TIP_FONTES =
   "HPs = domicílios (IBGE CNEFE 2022) · UCs vivas = unidades consumidoras residenciais ativas (ANEEL/Copel BDGD 2024)";
 const TIP_PEN_FORMULA = "penetração = clientes atuais ÷ UCs vivas (reserva: HPs)";
-const TIP_MERCADO = "benchmark disponível a partir de 3 provedores na região";
+const TIP_MERCADO = "benchmark da mesma carteira disponível a partir de 3 outros provedores no bairro, excluindo seu provedor";
 
 /** Chip territorial da linha: pen (marca) · base (neutro) · none (tracejado,
  *  só quando NENHUMA base casou). */
@@ -88,14 +99,14 @@ function TagTerritorial({
 }
 
 /** Chips CONDICIONAIS: null é omissão ou tracejado honesto, nunca "—". */
-function ChipsTerritoriais({ b, usaMk }: { b: BairroRanking; usaMk: boolean }) {
+function ChipsTerritoriais({ b, usaMk, carteira }: { b: BairroRanking; usaMk: boolean; carteira: CarteiraLocalizacao }) {
   const semBases = b.hps === null && b.ucsVivas === null;
   const partesBase: string[] = [];
   if (b.hps !== null) partesBase.push(`${num(b.hps)} HPs`);
   if (b.ucsVivas !== null) partesBase.push(`${num(b.ucsVivas)} UCs vivas`);
   return (
     <span style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
-      {b.pctPenetracao !== null && (
+      {carteira !== "ex_cliente" && b.pctPenetracao !== null && (
         <TagTerritorial tipo="pen" titulo={TIP_PEN_FORMULA} texto={`penetração ${pct(b.pctPenetracao)}`} />
       )}
       {partesBase.length > 0 && (
@@ -121,9 +132,9 @@ function ChipsTerritoriais({ b, usaMk }: { b: BairroRanking; usaMk: boolean }) {
 }
 
 function LinhaBairro({
-  b, pos, ativo, mostrarCidade, usaMk, onClick,
+  b, pos, ativo, mostrarCidade, usaMk, carteira, onClick,
 }: {
-  b: BairroRanking; pos: number; ativo: boolean; mostrarCidade: boolean; usaMk: boolean; onClick: () => void;
+  b: BairroRanking; pos: number; ativo: boolean; mostrarCidade: boolean; usaMk: boolean; carteira: CarteiraLocalizacao; onClick: () => void;
 }) {
   const zona = ZONA_META[zonaDaTaxa(b.pctInadimplencia)];
   return (
@@ -183,20 +194,34 @@ function LinhaBairro({
         <span style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 6, fontSize: 11, color: "var(--text-muted)" }}>
           <span style={{ ...MONO, fontWeight: 600, color: "var(--money-neg)" }}>{brl(b.dividaTotal)}</span>
           <span style={{ ...MONO }}>
-            · {num(b.clientes)} clientes · {num(b.inadimplentes)} inad. · {num(b.exComDivida)} ex
+            · {num(b.inadimplentes)} inadimplentes ÷ {num(b.clientes)} clientes
+            {carteira === "todas" && b.exComDivida > 0 && ` · ${num(b.exComDivida)} ex com dívida`}
           </span>
         </span>
 
-        <ChipsTerritoriais b={b} usaMk={usaMk} />
+        {(b.pctBaseProvedor !== undefined || b.pctBaseCidade !== undefined) && (
+          <span style={{ display: "block", fontSize: 10.5, color: "var(--text-faint)", marginTop: 5 }}>
+            Participação na base: {b.pctBaseProvedor === undefined ? "" : `${pct(b.pctBaseProvedor)} do provedor`}
+            {b.pctBaseCidade === undefined ? "" : ` · ${pct(b.pctBaseCidade)} da cidade`}
+          </span>
+        )}
+        {b.pctInadimplentesBaseProvedor !== undefined && (
+          <span title="Inadimplentes deste bairro ÷ todos os clientes do provedor na carteira selecionada" style={{ display: "block", fontSize: 10.5, color: "var(--text-faint)", marginTop: 5 }}>
+            Impacto na base: {pct(b.pctInadimplentesBaseProvedor)} dos clientes do provedor devem neste bairro
+          </span>
+        )}
+        {b.clientes < MIN_CLIENTES_RANKING && <span style={{ display: "block", fontSize: 10.5, color: "var(--gated)", marginTop: 5 }}>Amostra pequena · menos de {MIN_CLIENTES_RANKING} clientes</span>}
+        <ChipsTerritoriais b={b} usaMk={usaMk} carteira={carteira} />
       </span>
     </button>
   );
 }
 
 export default function RankingBairros({
-  bairros, selecionado, onSelect, ordem, onOrdem, cidade,
+  bairros, selecionado, onSelect, ordem, onOrdem, cidade, carteira = "todas",
 }: {
   bairros: BairroRanking[];
+  carteira?: CarteiraLocalizacao;
   selecionado: string | null;
   onSelect: (bairro: string | null) => void;
   ordem: OrdemRanking;
@@ -220,7 +245,7 @@ export default function RankingBairros({
   }, [bairros, ordem]);
 
   const dividaOutros = useMemo(() => outros.reduce((s, b) => s + b.dividaTotal, 0), [outros]);
-  const alternar = (b: BairroRanking) => onSelect(selecionado === b.bairro ? null : b.bairro);
+  const alternar = (b: BairroRanking) => onSelect(selecionado === chaveBairro(b) ? null : chaveBairro(b));
 
   return (
     <div
@@ -251,8 +276,9 @@ export default function RankingBairros({
           )}
         </div>
         <p style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6, lineHeight: 1.5 }}>
-          Universo = carteira {cidade ? `de ${cidade}` : "inteira"} (inclui clientes sem coordenada).
-          Clicar foca o mapa e o raio-X.
+          Taxa = inadimplentes ÷ clientes do bairro. Carteira: {ROTULO_CARTEIRA[carteira]}
+          {cidade ? ` de ${cidade}` : ""}, incluindo quem está sem coordenada.
+          {" "}Clicar foca o mapa e o raio-X.
         </p>
 
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 10 }}>
@@ -280,9 +306,10 @@ export default function RankingBairros({
             key={`${b.cidade}||${b.bairro}`}
             b={b}
             pos={i + 1}
-            ativo={selecionado === b.bairro}
+            ativo={selecionado === chaveBairro(b)}
             mostrarCidade={cidade === null}
             usaMk={usaMk}
+            carteira={carteira}
             onClick={() => alternar(b)}
           />
         ))}
@@ -319,9 +346,10 @@ export default function RankingBairros({
                 key={`${b.cidade}||${b.bairro}`}
                 b={b}
                 pos={principais.length + i + 1}
-                ativo={selecionado === b.bairro}
+                ativo={selecionado === chaveBairro(b)}
                 mostrarCidade={cidade === null}
                 usaMk={usaMk}
+                carteira={carteira}
                 onClick={() => alternar(b)}
               />
             ))}

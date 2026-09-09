@@ -1,27 +1,45 @@
-# Mapa da rede por ponto — SEGURADO, não subiu (08/09/2026)
+# Mapa da rede por ponto — SEGURADO, não subiu (08/09, revisado 09/09/2026)
 
 > **Não commite estes arquivos como estão.** Eles estão na árvore de trabalho,
-> fora do commit `4226509`, de propósito.
+> fora dos commits, de propósito.
 
-## O que ficou de fora
+## O bloco encolheu — o resto da Localização subiu em 09/09
+
+A primeira versão desta nota segurou **17 arquivos**, e isso foi corte demais:
+levou junto o trabalho de percentuais, que não tem nada a ver com o vazamento e
+era o que o dono estava pedindo. A tela ficou pior do que antes — e o padrão
+`"ativo"` que veio no meio do bloco derrubou os ex-clientes com dívida do mapa.
+
+Subiu em 09/09/2026: as três carteiras (`?carteira=`), a taxa por bairro escrita
+como fórmula na tela (`N inadimplentes ÷ M clientes`), participação e impacto na
+base, o comparativo por cidade (`BenchmarkCidades`), a taxa agregada do recorte
+(razão entre totais, não média de percentuais), o filtro de atraso, o desempate
+de bairros homônimos por cidade (`chaveBairro`) e o link para o Cliente 360 no
+popup do ponto. Nada disso lê dado de outro tenant por cliente.
+
+## O que continua fora
 
 ```
-server/services/rede-pontos.service.ts        (novo)
-server/services/rede-pontos.service.test.ts   (novo)
-server/routes/localizacao.routes.ts           (a rota /api/localizacao/rede)
-server/routes/localizacao.routes.test.ts
-client/src/components/localizacao/*           (PainelRede, RaioXBairro, RankingBairros,
-                                               metricas, BenchmarkCidades + testes)
-client/src/components/maps/MapaCarteira.tsx
-client/src/pages/operacional/localizacao.tsx
-docs/rede-mapa-2026-09-08.md
-docs/revisao-localizacao-2026-09-08.md
+server/services/rede-pontos.service.ts            (novo, não commitado)
+server/services/rede-pontos.service.test.ts       (novo, não commitado)
+client/src/components/localizacao/PainelRede.rede.test.tsx.segurado
+                                                  (era PainelRede.test.tsx; renomeado
+                                                   para não quebrar o typecheck do
+                                                   painel que voltou ao anterior)
+docs/rede-mapa-2026-09-08.md                      (o desenho da camada segurada)
 ```
 
-O resto da entrega de cobrança subiu normalmente. `server/storage/localizacao.storage.ts`
-e `server/services/benchmark-bairro.service.ts` **subiram**: filtram por
-`providerId` e não fazem `innerJoin(providers)` — são o mapa do próprio provedor,
-não têm o problema abaixo.
+E, dentro de arquivos que subiram, ficaram de fora estas partes:
+
+- `server/routes/localizacao.routes.ts` — `/api/localizacao/rede` continua em
+  `bairrosDaRede`, não em `pontosDaRede`.
+- `client/src/components/localizacao/PainelRede.tsx` — o painel anterior, que
+  explica o que a camada é e não lista nada.
+- `client/src/components/maps/MapaCarteira.tsx` — `PontoRedeItem` continua sendo
+  só `{cidade, lat, lon}`; sem popup de valor, sem cor por origem, sem calor
+  ponderado pela dívida da rede.
+- `client/src/pages/operacional/localizacao.tsx` — sem ranking de bairros da
+  rede, sem legenda de origens, e `redePorPonto` volta a nascer desligada.
 
 ## Por quê
 
@@ -33,11 +51,11 @@ da sessão e sem `verificationStatus = 'approved'`) e devolve, **por ponto**:
 - `bairroChave` — cidade|UF|bairro
 - `grupo` — o código do provedor de origem
 
-Com `carteira` em `"ativo"` por padrão, isso são os **clientes atuais** dos
-concorrentes. A rota é `requireAuth + requireProvider` — qualquer operador, sem
-admin. O piso de k-anonimato (`MIN_POR_BAIRRO = 3`) só sobreviveu nas bolhas; os
-pontos saem sem piso, e o painel diz isso: *"Todos os pontos com coordenada
-utilizável entram, inclusive bairros com um caso"*.
+Com `carteira` em `"ativo"`, isso são os **clientes atuais** dos concorrentes. A
+rota é `requireAuth + requireProvider` — qualquer operador, sem admin. O piso de
+k-anonimato (`MIN_POR_BAIRRO = 3`) só sobreviveu nas bolhas; os pontos saem sem
+piso, e o painel diz isso: *"Todos os pontos com coordenada utilizável entram,
+inclusive bairros com um caso"*.
 
 Num bairro onde um concorrente tem um devedor, **o ponto é aquela pessoa** — e o
 valor que ela deve vai junto.
@@ -70,6 +88,3 @@ bairro, sem código de origem, só ex-cliente, e com piso por bairro. Se o dono
 quiser mudar a regra, é decisão dele — mas é uma mudança de política de LGPD num
 produto de bureau, não um ajuste de tela, e não pode entrar junto com outra
 entrega.
-
-O resto do trabalho de Localização (benchmark por cidade, raio-X de bairro,
-métricas) não depende do vazamento e pode ser separado.

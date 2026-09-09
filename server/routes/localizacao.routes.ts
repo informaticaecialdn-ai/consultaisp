@@ -40,9 +40,23 @@ const cidadeParaTela = (c: CidadeDaCarteira) => ({
 export function registerLocalizacaoRoutes(): Router {
   const router = Router();
 
+  /**
+   * O mapa da carteira do provedor da SESSAO — nunca de um `providerId` do
+   * pedido, que aqui seria o pedido escolhendo o tenant.
+   *
+   * `carteira` e RECORTE, e o padrao e a carteira INTEIRA. Ja foi "ativo" por
+   * um dia, em 08/09/2026, e o mapa perdeu os ex-clientes com divida — 1.239
+   * dos 1.260 devedores da NsLink — enquanto a taxa de bairro zerava, porque o
+   * numerador saia e o denominador ficava. O recorte existe para quem PEDE;
+   * quem nao pede ve tudo.
+   */
   router.get("/api/localizacao", requireAuth, requireProvider, async (req, res) => {
     try {
-      const data = await storage.getLocalizacao(req.session.providerId!);
+      const carteira = req.query.carteira ?? "todas";
+      if (carteira !== "ativo" && carteira !== "ex_cliente" && carteira !== "todas") {
+        return res.status(400).json({ message: "Carteira invalida. Use ativo, ex_cliente ou todas." });
+      }
+      const data = await storage.getLocalizacao(req.session.providerId!, carteira);
       return res.json(data);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

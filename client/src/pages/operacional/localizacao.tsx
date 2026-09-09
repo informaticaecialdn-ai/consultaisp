@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { MapPin, Banknote, Users, Satellite, Map as MapIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -21,10 +21,14 @@ import {
   Chip, Kicker, Kpi, Camada, GrupoCamadas, Selo, MONO, CARD, brl, num, pct, TRACO,
 } from "@/components/localizacao/ui";
 import RankingBairros, {
-  MIN_CLIENTES_RANKING, type BairroRanking, type OrdemRanking,
+  chaveBairro, type BairroRanking, type OrdemRanking,
 } from "@/components/localizacao/RankingBairros";
 import RaioXBairro from "@/components/localizacao/RaioXBairro";
 import PainelRede from "@/components/localizacao/PainelRede";
+import { BenchmarkCidades } from "@/components/localizacao/BenchmarkCidades";
+import {
+  carteiraDaUrl, resumoDoRecorte, ROTULO_CARTEIRA_MAPA, type CarteiraMapa, type ResumoCidadeMapa,
+} from "@/components/localizacao/metricas";
 import CoberturaEnderecos, {
   ROTA_COBERTURA, subDoKpiSemCoordenada, type Cobertura,
 } from "@/components/localizacao/CoberturaEnderecos";
@@ -56,7 +60,9 @@ type Resposta = {
   /** Subconjunto de semCoordenada que a plotagem automática resolve sozinha. */
   plotaveis: number;
   coordenadaSuspeita: Array<{ id: number; cidade: string; lat: number; lon: number }>;
-  cidades: CidadeMapa[];
+  cidades: (CidadeMapa & ResumoCidadeMapa)[];
+  carteira: CarteiraMapa;
+  totalCarteira: number;
   cidadesSemCliente: string[];
   /** Clientes que o recorte territorial deixou de fora do mapa. */
   foraDoMapa: number;
@@ -133,6 +139,16 @@ function LinhaLegenda({ cor, rotulo, n }: { cor: string; rotulo: React.ReactNode
 }
 
 export default function LocalizacaoPage() {
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const carteira = carteiraDaUrl(search);
+  const modo: ModoMapa = new URLSearchParams(search).get("rede") === "1" ? "regionalizacao" : "carteira";
+  const trocarCarteira = (nova: CarteiraMapa) => navigate(`${location}?carteira=${nova}${modo === "regionalizacao" ? "&rede=1" : ""}`);
+  const trocarModo = (novo: ModoMapa) => navigate(`${location}?carteira=${carteira}${novo === "regionalizacao" ? "&rede=1" : ""}`);
+  return <LocalizacaoDaCarteira key={carteira} carteira={carteira} onCarteira={trocarCarteira} modo={modo} onModo={trocarModo} />;
+}
+
+function LocalizacaoDaCarteira({ carteira, onCarteira, modo, onModo }: { carteira: CarteiraMapa; onCarteira: (c: CarteiraMapa) => void; modo: ModoMapa; onModo: (m: ModoMapa) => void }) {
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -142,8 +158,8 @@ export default function LocalizacaoPage() {
   });
   const plotando = plotagem?.emAndamento ?? false;
 
-  const { data, isLoading } = useQuery<Resposta>({
-    queryKey: ["/api/localizacao"],
+  const { data, isLoading, isError, refetch } = useQuery<Resposta>({
+    queryKey: [`/api/localizacao?carteira=${carteira}`],
     refetchInterval: plotando ? 15000 : false,
   });
 
@@ -159,7 +175,7 @@ export default function LocalizacaoPage() {
   const rodavaAntes = useRef(false);
   useEffect(() => {
     if (rodavaAntes.current && !plotando) {
-      queryClient.invalidateQueries({ queryKey: ["/api/localizacao"] });
+      queryClient.invalidateQueries({ predicate: q => String(q.queryKey[0]).startsWith("/api/localizacao") });
     }
     rodavaAntes.current = plotando;
   }, [plotando]);
@@ -169,7 +185,7 @@ export default function LocalizacaoPage() {
     onSuccess: (r: { iniciado: boolean; mensagem: string }) => {
       toast({ title: r.iniciado ? "Plotagem iniciada" : "Já em andamento", description: r.mensagem });
       queryClient.invalidateQueries({ queryKey: ["/api/localizacao/plotagem"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/localizacao"] });
+      queryClient.invalidateQueries({ predicate: q => String(q.queryKey[0]).startsWith("/api/localizacao") });
     },
     onError: (e: Error) => toast({ title: "Não foi possível iniciar", description: e.message, variant: "destructive" }),
   });
@@ -184,7 +200,7 @@ export default function LocalizacaoPage() {
     mutationFn: async ({ cidade, excluir }: { cidade: string; excluir: boolean }) =>
       (await apiRequest("PATCH", `/api/localizacao/cidades/${encodeURIComponent(cidade)}`, { excluir })).json(),
     onSuccess: (_r, v) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/localizacao"] });
+      queryClient.invalidateQueries({ predicate: q => String(q.queryKey[0]).startsWith("/api/localizacao") });
       toast({ title: v.excluir ? `${v.cidade} saiu do mapa` : `${v.cidade} voltou ao mapa` });
     },
     onError: (e: Error) => toast({ title: "Não foi possível alterar", description: e.message, variant: "destructive" }),
@@ -194,12 +210,12 @@ export default function LocalizacaoPage() {
   const [fCidade, setFCidade] = useState<string | null>(null);
   const [fEstado, setFEstado] = useState<EstadoPonto | "todos">("todos");
   const [fDivida, setFDivida] = useState("todas");
-  // "Menor %" primeiro — pedido literal do dono na referência: dos menores
-  // para os maiores.
-  const [ordem, setOrdem] = useState<OrdemRanking>("menor");
+  // Prioriza os bairros com maior taxa; o operador também pode ordenar por dívida.
+  const [ordem, setOrdem] = useState<OrdemRanking>("maior");
+  const [atrasoMinimo, setAtrasoMinimo] = useState(0);
   const [bairroSel, setBairroSel] = useState<string | null>(null);
   const [calor, setCalor] = useState(false);
-  const [modo, setModo] = useState<ModoMapa>('carteira');
+
   // Duas leituras da mesma rede: a bolha diz quanto o bairro pesa, o ponto diz
   // como os casos se espalham dentro dele.
   const [redePorPonto, setRedePorPonto] = useState(false);
@@ -269,20 +285,17 @@ export default function LocalizacaoPage() {
     () => pontos.filter(p =>
       (fEstado === "todos" || p.estado === fEstado) &&
       faixa.teste(p.emAberto) &&
-      (bairroSel === null || p.bairro === bairroSel)),
-    [pontos, fEstado, faixa, bairroSel],
+      p.atraso >= atrasoMinimo &&
+      (bairroSel === null || chaveBairro({ cidade: p.cidade, bairro: p.bairro ?? "" }) === bairroSel)),
+    [pontos, fEstado, faixa, bairroSel, atrasoMinimo],
   );
 
-  /* KPIs 1 e 2 leem a CARTEIRA do recorte, não o subconjunto filtrado: trocar a
-     lente do mapa não pode mudar quanto o provedor tem a receber. */
-  const campeao = useMemo(() => {
-    const elegiveis = bairros.filter(b => b.clientes >= MIN_CLIENTES_RANKING);
-    return elegiveis.reduce<BairroRanking | null>(
-      (m, b) => (m === null || b.pctInadimplencia > m.pctInadimplencia ? b : m), null,
-    );
-  }, [bairros]);
-
   const vencidoNoMapa = useMemo(() => pontos.reduce((s, p) => s + p.emAberto, 0), [pontos]);
+  const cidadesDoRecorte = data?.cidades.filter(c => !fCidade || c.cidade === fCidade) ?? [];
+  const resumo = resumoDoRecorte(cidadesDoRecorte);
+  const semPosicao = Math.max(0, resumo.inadimplentes - pontos.length);
+  const bairroFocado = bairros.find(b => chaveBairro(b) === bairroSel);
+  const estadosDaCarteira = ESTADOS_NO_MAPA.filter(e => carteira === "todas" || (carteira === "ex_cliente" ? e === "ex_divida" : e !== "ex_divida"));
 
   /* A legenda descreve o MAPA: conta os pontos do recorte de cidade, antes das
      lentes de estado e dívida. Quem está sem coordenada tem KPI próprio. */
@@ -363,7 +376,8 @@ export default function LocalizacaoPage() {
 
   const trocarCidade = (c: string | null) => { setFCidade(c); setBairroSel(null); };
   const trocarModo = () => {
-    setModo(m => (m === 'carteira' ? 'regionalizacao' : 'carteira'));
+    onModo(modo === 'carteira' ? 'regionalizacao' : 'carteira');
+    setFCidade(null);
     setBairroSel(null);
   };
   const sincronizado = dataCurta(data?.sincronizadoEm ?? null);
@@ -374,6 +388,8 @@ export default function LocalizacaoPage() {
       ? (redePorPonto ? 'Dívida na rede' : 'Casos na rede')
       : 'Estado do cliente';
 
+  if (isError) return <div className="p-6" role="alert"><h1 className="font-semibold">Localização · {ROTULO_CARTEIRA_MAPA[carteira]}</h1><p className="my-3">Não foi possível ler os dados desta carteira. Os indicadores não foram substituídos por zero.</p><button className="min-h-[44px] underline" onClick={() => refetch()}>Tentar novamente</button></div>;
+
   return (
     <div className="p-4 lg:p-6 space-y-4" data-testid="localizacao-page">
       {/* ── Cabeçalho: título à esquerda, chips de cidade à direita ── */}
@@ -383,9 +399,8 @@ export default function LocalizacaoPage() {
             Localização &amp; mapa de inadimplência
           </h1>
           <p className="text-[13px] text-[var(--text-muted)] mt-1">
-            Geomarketing da inadimplência: pontos reais geocodificados, calor de dívida e
-            ranking de bairros. Só quem tem fatura em aberto entra no mapa — as taxas de
-            bairro usam a carteira inteira como denominador.
+            {ROTULO_CARTEIRA_MAPA[carteira]} · mapa da dívida vencida e comparação territorial.
+            Cada taxa usa todos os clientes da carteira no bairro, inclusive os que estão sem coordenadas.
           </p>
         </div>
 
@@ -408,7 +423,7 @@ export default function LocalizacaoPage() {
             {/* O corte automático de cidades e a correção dele na mão vivem
                 atrás deste botão: no fluxo do dia a dia a tela vai do título
                 aos KPIs, como a referência. */}
-            {catalogo.length > 1 && (
+            {modo === "carteira" && catalogo.length > 1 && (
               <button
                 type="button"
                 onClick={() => setEscolherCidades(v => !v)}
@@ -526,7 +541,14 @@ export default function LocalizacaoPage() {
         </div>
       )}
 
-      {/* ── Os quatro KPIs ── */}
+      <section className="flex flex-wrap items-center gap-2" aria-label="Carteira no mapa">
+        {(["todas", "ativo", "ex_cliente"] as const).map(c => <button key={c} type="button" aria-pressed={carteira === c} onClick={() => onCarteira(c)} className={`min-h-[44px] rounded border px-4 text-sm ${carteira === c ? "border-[var(--brand)] bg-[var(--brand-soft)] text-[var(--brand)]" : "border-[var(--border)] bg-[var(--surface)]"}`}>{ROTULO_CARTEIRA_MAPA[c]}</button>)}
+        <span className="text-xs text-[var(--text-muted)]">{data ? `${num(data.totalCarteira)} clientes nesta carteira do provedor, antes do recorte territorial` : "Lendo a base…"}</span>
+      </section>
+
+      {modo === "carteira" && !isLoading && <BenchmarkCidades cidades={cidadesDoRecorte} carteira={carteira} onCidade={trocarCidade} />}
+
+      {/* Indicadores próprios nunca usam a amostra da rede. */}
       {isLoading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[82px]" />)}
@@ -536,34 +558,30 @@ export default function LocalizacaoPage() {
           <Kpi
             icone={<MapPin size={16} strokeWidth={1.5} />}
             iconeCor="var(--danger)" iconeBg="var(--danger-bg)"
-            rotulo="Bairro campeão · inadimplência"
-            valor={campeao?.bairro ?? TRACO}
-            valorMono={false}
-            titulo={`Campeão só entre bairros com ${MIN_CLIENTES_RANKING}+ clientes — 100% com 1 cliente é ruído, não bússola.`}
-            sub={campeao
-              ? `${pct(campeao.pctInadimplencia)} · ${brl(campeao.dividaTotal)} · ${num(campeao.clientes)} clientes`
-              : `sem bairro com ${MIN_CLIENTES_RANKING}+ clientes`}
-            subMono={!!campeao}
+            rotulo="Taxa da sua carteira no recorte"
+            valor={resumo.taxa === null ? TRACO : pct(resumo.taxa)}
+            titulo="Clientes com dívida vencida ÷ todos os clientes da carteira nas cidades selecionadas."
+            sub={`${num(resumo.inadimplentes)} com dívida / ${num(resumo.clientes)} clientes`} subMono
           />
           <Kpi
             icone={<Banknote size={16} strokeWidth={1.5} />}
             iconeCor="var(--ok)" iconeBg="var(--ok-bg)"
-            rotulo="R$ vencido no mapa"
-            valor={brl(vencidoNoMapa)} valorCor="var(--money-neg)"
-            sub={`${num(pontos.length)} devedores plotados`} subMono
+            rotulo="Dívida vencida · sua carteira"
+            valor={brl(resumo.dividaTotal)} valorCor="var(--money-neg)"
+            sub={`${brl(vencidoNoMapa)} representados no mapa`} subMono
           />
           <Kpi
             icone={<Users size={16} strokeWidth={1.5} />}
             iconeCor="var(--info)" iconeBg="var(--info-bg)"
-            rotulo="Devedores no mapa"
+            rotulo="Devedores da carteira no mapa"
             valor={num(pontos.length)}
-            sub={`${num(filtrados.length)} visíveis com os filtros atuais`} subMono
+            sub={`${num(pontos.length)} / ${num(resumo.inadimplentes)} devedores · ${num(filtrados.length)} visíveis`} subMono
           />
           <Kpi
             icone={<Satellite size={16} strokeWidth={1.5} />}
             iconeCor="var(--text-muted)" iconeBg="var(--surface-2)"
-            rotulo="Sem coordenada"
-            valor={num(data?.semCoordenada ?? 0)}
+            rotulo="Devedores sem posição confiável"
+            valor={num(semPosicao)}
             /* Este é o cartão que o dono leu antes de concluir que o sistema
                não plota. Quando há causa conhecida logo abaixo, a sublinha
                manda o olho para lá em vez de repetir o número. */
@@ -644,7 +662,10 @@ export default function LocalizacaoPage() {
           cada 6 horas"), e este bloco diz o que a varredura sozinha não resolve.
           Na ordem inversa a causa apareceria antes do estado, e o operador leria
           um diagnóstico sem saber que há trabalho em curso. */}
-      <CoberturaEnderecos podeCarregar={podeCarregarBase} />
+      <section aria-label="Diagnóstico geral dos endereços do provedor">
+        <p className="mb-2 text-xs text-[var(--text-muted)]">Diagnóstico dos endereços do provedor · todas as carteiras. As taxas e o mapa acima usam somente o recorte selecionado.</p>
+        <CoberturaEnderecos podeCarregar={podeCarregarBase} />
+      </section>
 
       {/* ── Mapa + ranking, na mesma altura ── */}
       <div className="ds-mapa-grid">
@@ -665,7 +686,7 @@ export default function LocalizacaoPage() {
                   dot="var(--past)"
                   ligada={modo === 'regionalizacao'}
                   onToggle={trocarModo}
-                  titulo="Ex-clientes com dívida de todos os provedores nas suas cidades — a pergunta que só o bureau responde. Troca o mapa e o ranking."
+                  titulo="Ocorrências da carteira selecionada de todos os provedores participantes nas cidades atendidas."
                 />
                 {modo === 'regionalizacao' && !calor && (
                   <Camada
@@ -682,7 +703,7 @@ export default function LocalizacaoPage() {
                   ligada={calor}
                   onToggle={() => setCalor(v => !v)}
                   titulo={modo === 'regionalizacao'
-                    ? "Mancha ponderada pelo número de casos de cada bairro"
+                    ? "Mancha ponderada pelo valor devido nas ocorrências da rede"
                     : "Mancha ponderada pelo valor em aberto de cada cliente"}
                 />
                 {/* Camadas fixas do território. Desabilitadas sem WebGL ou sem
@@ -760,12 +781,13 @@ export default function LocalizacaoPage() {
               <>
                 <LinhaFiltro rotulo="Estado">
                   <Chip ativo={fEstado === "todos"} onClick={() => setFEstado("todos")}>Todos</Chip>
-                  {ESTADOS_NO_MAPA.map(e => (
+                  {estadosDaCarteira.map(e => (
                     <Chip key={e} ativo={fEstado === e} onClick={() => setFEstado(e)}>
                       {ESTADO_META[e].curto}
                     </Chip>
                   ))}
                 </LinhaFiltro>
+                <LinhaFiltro rotulo="Atraso">{[0, 30, 90, 360].map(d => <Chip key={d} ativo={atrasoMinimo === d} onClick={() => setAtrasoMinimo(d)}>{d === 0 ? "Todos" : `${d}+ dias`}</Chip>)}</LinhaFiltro>
                 <LinhaFiltro rotulo="Dívida">
                   {FAIXAS.map(f => (
                     <Chip key={f.k} ativo={fDivida === f.k} onClick={() => setFDivida(f.k)}>{f.label}</Chip>
@@ -777,7 +799,7 @@ export default function LocalizacaoPage() {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               {bairroSel ? (
                 <Chip ativo onClick={() => setBairroSel(null)} titulo="Clique para voltar à carteira inteira">
-                  ✕ {bairroSel}
+                  ✕ {bairroFocado ? `${bairroFocado.bairro} · ${bairroFocado.cidade}` : "Bairro selecionado"}
                 </Chip>
               ) : <span />}
               <span style={{ ...MONO, fontSize: 12, color: "var(--text-muted)" }}>
@@ -803,7 +825,7 @@ export default function LocalizacaoPage() {
                   sede={sedeNoMapa}
                   modo={modo}
                   calor={calor}
-                  bairroFoco={modo === 'regionalizacao' ? null : bairroSel}
+                  bairroFoco={modo === 'regionalizacao' ? null : bairroFocado?.bairro ?? null}
                   height={ALTURA_MAPA}
                   camadaIbge={camadaIbge && glOk}
                   camadaAneel={camadaAneel && glOk}
@@ -856,7 +878,7 @@ export default function LocalizacaoPage() {
                     ))
                   ) : (
                     <>
-                      {ESTADOS_NO_MAPA.map(e => (
+                      {estadosDaCarteira.map(e => (
                         <LinhaLegenda
                           key={e}
                           cor={ESTADO_META[e].cor}
@@ -962,6 +984,7 @@ export default function LocalizacaoPage() {
             />
           ) : (
             <RankingBairros
+              carteira={carteira}
               bairros={bairros}
               selecionado={bairroSel}
               onSelect={setBairroSel}
@@ -974,8 +997,9 @@ export default function LocalizacaoPage() {
       </div>
 
       {/* ── Raio-X do bairro ── */}
-      {!isLoading && (
+      {!isLoading && modo === "carteira" && (
         <RaioXBairro
+          carteira={carteira}
           bairros={bairros}
           selecionado={bairroSel}
           onSelect={setBairroSel}

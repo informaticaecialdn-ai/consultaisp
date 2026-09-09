@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Crosshair, TrendingDown, Banknote, Store, ScanSearch, TriangleAlert } from "lucide-react";
 import { Kicker, MONO, CARD, brl, num, pct, TRACO } from "./ui";
 import { mostrarAvisoSetor, provedorUsaMk, type ErpIntegracaoResumo } from "@shared/bairro";
-import type { BairroRanking } from "./RankingBairros";
+import { chaveBairro, ROTULO_CARTEIRA, type CarteiraLocalizacao, type BairroRanking } from "./RankingBairros";
 
 /**
  * Raio-X do bairro — o funil que liga o território à carteira.
@@ -21,10 +21,22 @@ import type { BairroRanking } from "./RankingBairros";
 
 const MIN_CLIENTES_CAMPEAO = 3;
 
+/** Razão entre totais: bairros pequenos não têm o mesmo peso dos grandes. */
+export function calcularTaxaAgregada(bairros: BairroRanking[]): number | null {
+  const clientes = bairros.reduce((s, b) => s + b.clientes, 0);
+  return clientes > 0 ? bairros.reduce((s, b) => s + b.inadimplentes, 0) / clientes * 100 : null;
+}
+export function calcularPenetracaoAgregada(bairros: BairroRanking[]): number | null {
+  const comparaveis = bairros.filter(b => b.pctPenetracao !== null && (b.ucsVivas ?? b.hps ?? 0) > 0);
+  const base = comparaveis.reduce((s, b) => s + (b.ucsVivas ?? b.hps ?? 0), 0);
+  return base > 0 ? comparaveis.reduce((s, b) => s + b.atuais, 0) / base * 100 : null;
+}
+
+
 const TITULO_SEM_HPS = "Sem match no IBGE CNEFE 2022 para este bairro — não há contagem de domicílios.";
 const TITULO_SEM_UCS = "Sem match na ANEEL/Copel BDGD 2024 — não há contagem de unidades consumidoras vivas.";
 const TITULO_SEM_PENETRACAO = "Sem denominador territorial, a penetração não é calculável. Números impossíveis são suprimidos no servidor, nunca estimados.";
-const TITULO_BENCHMARK = "Benchmark disponível a partir de 3 provedores na região.";
+const TITULO_BENCHMARK = "Benchmark da mesma carteira, sem o seu provedor, disponível a partir de 3 outros provedores no território.";
 
 function Caixa({
   kicker, valor, rotulo, sub, cor, dot, titulo,
@@ -138,7 +150,7 @@ function Delta({ valor, media, melhorMenor }: { valor: number | null; media: num
       padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
       border: "1px solid", ...tom,
     }}>
-      {d < 0 ? "▾" : "▴"} {Math.abs(d).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} pp vs média
+      {neutro ? "=" : d < 0 ? "▾" : "▴"} {Math.abs(d).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} pp vs referência
     </span>
   );
 }
@@ -178,9 +190,10 @@ function KpiBaixo({
 }
 
 export default function RaioXBairro({
-  bairros, selecionado, onSelect, cidade,
+  bairros, selecionado, onSelect, cidade, carteira = "todas",
 }: {
   bairros: BairroRanking[];
+  carteira?: CarteiraLocalizacao;
   selecionado: string | null;
   onSelect: (b: string) => void;
   /** Cidade filtrada, quando houver — muda o rótulo da média. */
@@ -210,24 +223,16 @@ export default function RaioXBairro({
     return pool.reduce<BairroRanking | null>((m, b) => (m === null || b.atuais > m.atuais ? b : m), null);
   }, [validos]);
 
-  const nomeSel = useMemo(() => {
-    if (selecionado && validos.some(b => b.bairro === selecionado)) return selecionado;
-    return padrao?.bairro ?? campeao?.bairro ?? validos[0]?.bairro ?? null;
-  }, [selecionado, validos, padrao, campeao]);
-
-  const b = useMemo(() => validos.find(x => x.bairro === nomeSel) ?? null, [validos, nomeSel]);
-
-  /* Médias simples do recorte atual. Bairro sem match não puxa a média para
-     baixo — ele simplesmente não participa dela. */
-  const mediaPenetracao = useMemo(() => {
-    const v = validos.map(x => x.pctPenetracao).filter((n): n is number => n !== null);
-    return v.length ? v.reduce((s, n) => s + n, 0) / v.length : null;
-  }, [validos]);
-  const mediaInadimplencia = useMemo(
-    () => (validos.length ? validos.reduce((s, x) => s + x.pctInadimplencia, 0) / validos.length : null),
-    [validos],
-  );
-  const rotuloMedia = cidade ? `média de ${cidade}` : "média da carteira";
+  const b = useMemo(() => {
+    if (selecionado) return validos.find(x => chaveBairro(x) === selecionado) ?? null;
+    return campeao ?? padrao ?? validos[0] ?? null;
+  }, [selecionado, validos, campeao, padrao]);
+  const nomeSel = b ? chaveBairro(b) : null;
+  const penetracaoAplicavel = carteira !== "ex_cliente";
+  const penetracao = penetracaoAplicavel ? b?.pctPenetracao ?? null : null;
+  const mediaPenetracao = useMemo(() => carteira === "ex_cliente" ? null : calcularPenetracaoAgregada(validos), [validos, carteira]);
+  const mediaInadimplencia = useMemo(() => calcularTaxaAgregada(validos), [validos]);
+  const rotuloMedia = cidade ? `taxa de ${cidade}` : "taxa da carteira";
 
   const ocupacao = b && b.hps !== null && b.ucsVivas !== null && b.hps > 0
     ? (b.ucsVivas / b.hps) * 100
@@ -259,8 +264,8 @@ export default function RaioXBairro({
               data-testid="select-bairro-raiox"
             >
               {validos.map(x => (
-                <option key={`${x.cidade}||${x.bairro}`} value={x.bairro}>
-                  {x.bairro} · {num(x.clientes)} clientes
+                <option key={`${x.cidade}||${x.bairro}`} value={chaveBairro(x)}>
+                  {x.bairro} · {x.cidade} · {num(x.clientes)} clientes
                 </option>
               ))}
             </select>
@@ -274,6 +279,16 @@ export default function RaioXBairro({
         </p>
       ) : (
         <>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12 }}>
+            {b.bairro} · {b.cidade} · carteira de {ROTULO_CARTEIRA[carteira]}.
+            Taxa: {num(b.inadimplentes)} inadimplentes ÷ {num(b.clientes)} clientes = {pct(b.pctInadimplencia)}.
+          </p>
+          {b.clientes < MIN_CLIENTES_CAMPEAO && <p role="note" style={{ fontSize: 12, color: "var(--gated)", marginTop: 6 }}>Amostra pequena: menos de 3 clientes. Uma única dívida altera muito a taxa.</p>}
+          {b.pctInadimplentesBaseProvedor !== undefined && (
+            <p title="Inadimplentes deste bairro ÷ todos os clientes do provedor na carteira selecionada" style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>
+              Impacto na base: {pct(b.pctInadimplentesBaseProvedor)} dos clientes do provedor devem neste bairro.
+            </p>
+          )}
           {/* Aviso honesto acima do funil: a ausência de match aqui é do
               cadastro, não das bases — "—" sozinho não conta essa diferença. */}
           {setorInterno && (
@@ -330,22 +345,22 @@ export default function RaioXBairro({
               dot="var(--brand)" titulo={TITULO_SEM_UCS}
             />
             <Conector
-              rotulo="sua penetração" valor={b.pctPenetracao} formula="atuais ÷ UCs vivas (fallback HPs)"
-              media={mediaPenetracao} rotuloMedia={rotuloMedia} heroi cor="var(--brand-ink)"
+              rotulo="sua penetração" valor={penetracao} formula={penetracaoAplicavel ? "atuais ÷ UCs vivas (fallback HPs)" : "Penetração comercial se aplica à carteira ativa"}
+              media={mediaPenetracao} rotuloMedia="penetração do recorte" heroi cor="var(--brand-ink)"
               titulo={TITULO_SEM_PENETRACAO}
             />
             <Caixa
-              kicker="carteira · ativos + suspensos" valor={b.atuais} rotulo="Seus clientes atuais"
+              kicker={`carteira · ${ROTULO_CARTEIRA[carteira]}`} valor={b.clientes} rotulo="Clientes neste recorte"
               dot="var(--ok)" cor="var(--ok)"
             />
             <Conector
-              rotulo="inadimplência" valor={b.pctInadimplencia} formula="vencida ÷ (atuais + ex-clientes com dívida)"
+              rotulo="inadimplência" valor={b.pctInadimplencia} formula={`${num(b.inadimplentes)} inadimplentes ÷ ${num(b.clientes)} clientes`}
               media={mediaInadimplencia} rotuloMedia={rotuloMedia} cor="var(--danger)"
             />
             <Caixa
               kicker="verdade contratual" valor={b.inadimplentes} rotulo="Com fatura vencida"
               dot="var(--danger)" cor="var(--danger)"
-              sub={`inclui ${num(b.exComDivida)} ex-clientes com dívida · ${num(b.clientes)} clientes no bairro`}
+              sub={carteira === "todas" && b.exComDivida > 0 ? `${num(b.exComDivida)} ex-clientes com dívida incluídos` : "Clientes com pelo menos uma fatura vencida"}
             />
           </div>
 
@@ -353,16 +368,16 @@ export default function RaioXBairro({
             <KpiBaixo
               icone={<Crosshair size={13} strokeWidth={1.5} />}
               rotulo="Penetração no bairro"
-              valor={b.pctPenetracao === null ? TRACO : pct(b.pctPenetracao)}
-              sub={b.pctPenetracao === null
+              valor={!penetracaoAplicavel ? "Não aplicável" : penetracao === null ? TRACO : pct(penetracao)}
+              sub={!penetracaoAplicavel ? "Penetração comercial se aplica à carteira ativa" : penetracao === null
                 ? "sem bases públicas para calcular"
-                : `${num(b.atuais)} atuais ÷ ${num(b.ucsVivas ?? b.hps)} UCs vivas`}
+                : `${num(b.atuais)} atuais ÷ ${num(b.ucsVivas ?? b.hps)} ${b.ucsVivas !== null ? "UCs vivas" : "HPs"}`}
               cor="var(--brand-ink)"
-              titulo={b.pctPenetracao === null ? TITULO_SEM_PENETRACAO : undefined}
+              titulo={penetracaoAplicavel && penetracao === null ? TITULO_SEM_PENETRACAO : undefined}
               comparacao={
                 <>
-                  <Bullet valor={b.pctPenetracao} media={mediaPenetracao} cor="var(--brand)" rotuloMedia={rotuloMedia} />
-                  <Delta valor={b.pctPenetracao} media={mediaPenetracao} melhorMenor={false} />
+                  <Bullet valor={penetracao} media={mediaPenetracao} cor="var(--brand)" rotuloMedia="penetração do recorte" />
+                  <Delta valor={penetracao} media={mediaPenetracao} melhorMenor={false} />
                 </>
               }
             />
@@ -370,7 +385,7 @@ export default function RaioXBairro({
               icone={<TrendingDown size={13} strokeWidth={1.5} />}
               rotulo="Inadimplência sua"
               valor={pct(b.pctInadimplencia)}
-              sub={`${num(b.inadimplentes)} inad. · ${num(b.clientes)} clientes no bairro`}
+              sub={`${num(b.inadimplentes)} inadimplentes ÷ ${num(b.clientes)} clientes do bairro`}
               cor="var(--danger)"
               comparacao={
                 <>
@@ -383,23 +398,24 @@ export default function RaioXBairro({
               icone={<Banknote size={13} strokeWidth={1.5} />}
               rotulo="Dívida no bairro"
               valor={brl(b.dividaTotal)}
-              sub={`${num(b.exComDivida)} ex-clientes com dívida`}
+              sub={`Faturas vencidas da carteira de ${ROTULO_CARTEIRA[carteira]}`}
               cor="var(--money-neg)"
             />
             {b.benchmarkPct !== null ? (
               <KpiBaixo
                 icone={<Store size={13} strokeWidth={1.5} />}
-                rotulo="Mercado · inadimplência"
+                rotulo="Mercado · mesmo bairro"
                 valor={pct(b.benchmarkPct)}
-                sub="benchmark regional entre provedores"
+                sub="Mesma carteira · pelo menos 3 outros provedores · seu provedor excluído"
+                comparacao={<Delta valor={b.pctInadimplencia} media={b.benchmarkPct} melhorMenor />}
               />
             ) : (
               <KpiBaixo
                 tracejado
                 icone={<Store size={13} strokeWidth={1.5} />}
-                rotulo="Mercado · inadimplência"
+                rotulo="Mercado · mesmo bairro"
                 valor="aguardando benchmark"
-                sub="disponível quando ≥3 provedores da região estiverem na plataforma — nenhum número é fabricado até lá"
+                sub="Requer pelo menos 3 outros provedores no mesmo bairro e carteira, excluindo seu provedor"
                 titulo={TITULO_BENCHMARK}
               />
             )}
@@ -409,6 +425,7 @@ export default function RaioXBairro({
             Fontes: IBGE CNEFE 2022 (domicílios) · ANEEL/Copel BDGD 2024 (UCs residenciais ativas) ·
             carteira (verdade contratual). “—” = sem match nas bases públicas; números impossíveis
             são suprimidos no servidor.
+            A penetração usa clientes atuais; a inadimplência usa todos os clientes da carteira selecionada.
           </p>
         </>
       )}

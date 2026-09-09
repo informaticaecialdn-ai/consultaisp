@@ -117,6 +117,12 @@ function popupDoPonto(p: PontoMapa): string {
         ? `<div style="font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--text-2)">Atraso: ${p.atraso} d</div>`
         : "") +
       `<div style="font-size:11px;color:var(--text-faint);margin-top:5px">${local}</div>` +
+      // O ponto e um cliente DESTE provedor, com nome no popup — o passo seguinte
+      // de quem olha o mapa e abrir o caso. O link leva a carteira junto: o
+      // Cliente 360 le `?carteira=` para saber de onde a navegacao veio.
+      (Number.isSafeInteger(p.id) && p.id > 0
+        ? `<a style="display:inline-flex;align-items:center;min-height:44px;color:var(--brand);text-decoration:underline;font-size:12px" href="/cobranca/cliente/${p.id}?carteira=${p.estado === 'ex_divida' ? 'ex_cliente' : 'ativo'}">Abrir Cliente 360</a>`
+        : "") +
     `</div>`
   );
 }
