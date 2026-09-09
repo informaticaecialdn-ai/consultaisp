@@ -341,6 +341,19 @@ export const customers = pgTable("customers", {
    * `dataSemHora` em server/storage/customers.storage.ts.
    */
   contractStartDate: date("contract_start_date"),
+  /**
+   * O plano do contrato, com o nome que o ERP escreve ("Smart 700MB"). Chegava
+   * pelo conector (MK plano_acesso, IXC contrato, SGP planointernet) e era
+   * descartado no upsert — guardado desde 09/09/2026 (decisao do dono), porque
+   * e a chave do preco por plano da Economia.
+   */
+  contractPlan: text("contract_plan"),
+  /**
+   * O id do cliente NO ERP (MK CodigoPessoa, IXC cliente.id, SGP clienteId).
+   * E a chave das leituras por cliente (faturas pagas do MK) e o que casa a
+   * fatura paga que so vem com o id (IXC fn_areceber.id_cliente).
+   */
+  erpCustomerId: text("erp_customer_id"),
   erpSource: text("erp_source").default("manual"),
   lastSyncAt: timestamp("last_sync_at"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -417,6 +430,12 @@ export const invoices = pgTable("invoices", {
   value: decimal("value", { precision: 10, scale: 2 }).notNull(),
   dueDate: timestamp("due_date").notNull(),
   paidDate: timestamp("paid_date"),
+  /**
+   * O valor PAGO como o ERP registrou — pode diferir de `value` (juros,
+   * desconto, pagamento parcial). So em fatura `paid` confirmada pelo ERP
+   * (0036); a quitacao conferida a mao continua em cobranca_quitacoes.
+   */
+  paidValue: decimal("paid_value", { precision: 10, scale: 2 }),
   // CSV/manual: pending | overdue | paid. ERP (0027): "aberta" (pendente no
   // ERP) e "baixada_no_erp" (sumiu dos pendentes numa varredura COMPLETA —
   // pagamento provavel, sem confirmacao). Ver server/storage/faturas.storage.ts.

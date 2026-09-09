@@ -131,3 +131,18 @@ describe("agregarPrejuizo — a soma da carteira por período", () => {
     expect(r.serie[1].dividaReal).toBe(179.8);
   });
 });
+
+describe("com pagamento real (0036), o ex-cliente entra na soma pelo que pagou", () => {
+  it("historico presente + mensalidade confirmada: avaliado em modo recebida, prejuizo = o negativo do resultado", () => {
+    const devedores = [devedor({ id: 1, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-05", ultimaFatura: "2026-03-05", devemDesde: "2026-03-05" })];
+    const mensalidades = new Map([[1, mensal(89.9, 6, 6)]]);
+    const historicos = new Map([[1, { pagas: 6, recebido: 539.4, pct_em_dia: 100 }]]);
+    const r = agregarPrejuizo({ devedores, mensalidades, historicos, economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ex_cliente" });
+    expect(r.resumo.avaliados).toBe(1);
+    // recebida: 539,40 × 0,92 − 45 × 6 − 770 = −543,75 → prejuizo 543,75; a divida fica ao lado, nao dentro.
+    expect(r.resumo.prejuizo).toBe(543.75);
+    expect(r.resumo.instalacaoNaoRecuperada).toBe(543.75);
+    expect(r.resumo.dividaAvaliada).toBe(100);
+    expect(r.resumo.motivosDoTraco).toEqual([]);
+  });
+});

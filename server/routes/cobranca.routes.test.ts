@@ -69,6 +69,7 @@ const storageMock = vi.hoisted(() => ({
   // fatura gravada o padrao e `null`, que e o caso do cliente do fixture.
   mensalidadeDoCliente: vi.fn(async (): Promise<any> => null),
   mensalidadesDoProvedor: vi.fn(async (): Promise<any> => new Map()),
+  historicosDePagamentosDoProvedor: vi.fn(async (): Promise<any> => new Map()),
   devedoresComVencimento: vi.fn(async (): Promise<any[]> => []),
   baseDeFaturas: vi.fn(async (): Promise<any> => ({ total: 0, atualizadoEm: null })),
   coberturaDaMensalidade: vi.fn(async (): Promise<any> => ({ ativos: 0, comMensalidade: 0, comDataDeContrato: 0 })),
@@ -89,6 +90,13 @@ const snapshotMock = vi.hoisted(() => ({
 }));
 vi.mock("../services/cobranca/snapshot-ao-vivo.service", () => snapshotMock);
 vi.mock("../storage", () => ({ storage: storageMock }));
+// O 360 le o historico direto de FaturasStorage (nao pela fachada): o duble diz o que o ERP confirmou.
+const historicoMock = vi.hoisted(() => ({ atual: null as any }));
+vi.mock("../storage/faturas.storage", async (original) => {
+  const real = await original<typeof import("../storage/faturas.storage")>();
+  class FaturasStorageFake { historicoDePagamentosDoCliente = async () => historicoMock.atual ?? { historicoInsuficiente: true, faturasPagas: 0, faturasPagasComAtraso: 0, recebido: 0, taxaAtraso: null, ultimaConfirmacaoEm: null, fonte: null }; }
+  return { ...real, FaturasStorage: FaturasStorageFake };
+});
 
 // cobranca.storage.ts (de onde vem `carteiraDoStatusErp` e `ErroDeCobranca`)
 // e provider.routes.ts puxam o pool do Postgres e o segredo de sessao ao
@@ -380,6 +388,31 @@ describe("o chip de prejuizo na lista da carteira", () => {
     sessao = OPERADOR;
     expect((await json("GET", "/api/cobranca/carteira?carteira=ativo&prejuizo=1&mesStatus=pago")).status).toBe(400);
     expect((await json("GET", "/api/cobranca/carteira?prejuizo=1")).status).toBe(400);
+  });
+});
+
+describe("GET /360 — o pagamento REAL do ERP entra na Economia (0036)", () => {
+  afterEach(() => { historicoMock.atual = null; });
+  it("com faturas pagas sincronizadas, a ficha recebe pagas/recebido/pct_em_dia e o pendente some", async () => {
+    sessao = OPERADOR;
+    historicoMock.atual = { historicoInsuficiente: false, faturasPagas: 12, faturasPagasComAtraso: 3, recebido: 1078.8, taxaAtraso: 0.25, ultimaConfirmacaoEm: new Date("2026-09-01T00:00:00Z"), fonte: "pagamentos_com_data" };
+    // Com custos na politica e a mensalidade lida das faturas a Economia abre; o historico a torna REALIZADA.
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce({
+      id: 1, providerId: 42, ...POLITICA_PADRAO, updatedAt: new Date("2026-09-05T12:00:00Z"),
+      economia: { ...POLITICA_PADRAO.economia, cac: 120, capexInstalacao: 650, opexLink: 15, opexRedePop: 10, opexSuporte: 10, opexManutencaoNoc: 10, impostoReceitaPct: 8, cicloMeses: 36, confirmado: false },
+    });
+    storageMock.mensalidadeDoCliente.mockResolvedValueOnce({ valor: 89.9, concordam: 3, faturas: 4, maisRecente: null, baixadas: 2 });
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
+    const body = await (await json("GET", "/api/cobranca/clientes/1/360")).json();
+    expect(body.pendentes.map((x: any) => x.campo)).not.toContain("historicoPagamento");
+    expect(body.ficha.economia?.fonte_receita).toBe("recebida");
+    expect(body.ficha.economia?.receita_recebida).toBe(1078.8);
+  });
+  it("sem fatura paga, a Economia segue projetada e o pendente explica", async () => {
+    sessao = OPERADOR;
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
+    const body = await (await json("GET", "/api/cobranca/clientes/1/360")).json();
+    expect(body.pendentes.find((x: any) => x.campo === "historicoPagamento")?.motivo).toMatch(/nenhuma fatura paga sincronizada/);
   });
 });
 

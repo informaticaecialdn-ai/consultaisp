@@ -652,8 +652,22 @@ POST /api/cobranca/casos/:id/negociacoes · PATCH /api/cobranca/casos/:id
 as faturas ABERTAS (vencidas E a vencer) que MK, IXC e SGP devolvem em
 `faturasAbertas` (`erp_source`, `erp_ref` = id no ERP, status `aberta`), e só numa
 varredura COMPLETA marca `baixada_no_erp` o que sumiu dos pendentes (pagamento
-provável — nenhum ERP nos confirma o valor pago). SGP: só `status=abertos`, nunca
-cancelado/anulado. `server/storage/faturas.storage.ts` é a fonte do resumo mensal.
+provável). SGP: só `status=abertos`, nunca cancelado/anulado.
+`server/storage/faturas.storage.ts` é a fonte do resumo mensal.
+
+**Faturas PAGAS (migração 0036, 09/09/2026):** o ERP passou a confirmar pagamento
+fatura a fatura — status `paid` com `paid_date` e `paid_value` (valor
+efetivamente pago; `value` segue sendo o de face). IXC (`fn_areceber status=R`)
+e SGP (`/api/ura/titulos/ status=pagos`) leem em lote por janela de data de
+pagamento; MK lê POR CLIENTE em `WSMKFaturas` — **API licenciada**, HTTP 500 até
+a MK Solutions liberar (o conector para em 3 falhas e declara `indisponivel`).
+O sync (passo 3d) só lê INCREMENTAL, desde o último pagamento gravado − 7 dias;
+**sem leitura inicial não lê nada** — a primeira carga é
+`script/ler-faturas-pagas.ts <providerId> <ixc|sgp|mk> [desde]`, por janelas de 6
+meses. Junto: `customers.contract_plan` (o plano que o ERP informa) e
+`customers.erp_customer_id` (o id no ERP, chave da fatura paga do IXC e do MK).
+Com paga confirmada a Economia do 360 sai REALIZADA e a do ex-cliente vira o
+"Resultado do contrato". Ver `docs/faturas-pagas-0036-2026-09-09.md`.
 
 ### Chat, agentes e assistente autônomo (requireAuth + requireProvider)
 O atendimento vive DENTRO do sistema: `/cobranca/chat` e `/equipamentos/chat`, a

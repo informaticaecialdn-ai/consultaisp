@@ -745,6 +745,8 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
   valorMensal: number | null;
   origem: "plano_cadastrado" | "faturas_do_erp" | null;
 }) {
+  // Contrato ENCERRADO com pagamento real: a Economia e o resultado, nao a projecao.
+  const contratoEncerrado = !!economia && economia.ciclo_encerrado && economia.fonte_receita === "recebida";
   const kpis: Array<{ k: string; v: string; cor?: string }> = economia
     ? [
         { k: "MRR", v: money(economia.arpu) },
@@ -762,11 +764,26 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
   return (
     <div className="min-w-[280px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5" data-testid="card-economia">
       <div className="flex items-center justify-between gap-2">
-        <Kicker>Economia do cliente · R24</Kicker>
+        <Kicker>{contratoEncerrado ? "Resultado do contrato · R24" : "Economia do cliente · R24"}</Kicker>
         <a href="#c360-fin" className="text-[11px] font-semibold text-[var(--brand)] hover:underline">ver detalhe ↓</a>
       </div>
       <p className={cn(NUM, "mt-1 text-[26px] font-bold leading-none tracking-[-0.02em]")} style={{ color: economia ? (economia.lucro_acumulado >= 0 ? "var(--ok)" : "var(--danger)") : "var(--text-muted)" }}>{economia ? money(economia.lucro_acumulado) : DASH}</p>
-      <p className="mt-1 text-[11.5px] text-[var(--text-muted)]">lucro acumulado{economia ? ` · mês ${economia.mes_atual}` : ""}</p>
+      {/* Ex-cliente com pagamento REAL sincronizado (0036): o numero e o resultado
+          do contrato, do inicio ao fim, pelo que ele pagou — nao uma projecao. */}
+      <p className="mt-1 text-[11.5px] text-[var(--text-muted)]">
+        {contratoEncerrado
+          ? `${economia!.lucro_acumulado >= 0 ? "lucro" : "prejuízo"} do contrato encerrado · ${economia!.mes_atual} ${economia!.mes_atual === 1 ? "mês" : "meses"} · pelo que foi pago`
+          : `lucro acumulado${economia ? ` · mês ${economia.mes_atual}` : ""}`}
+      </p>
+      {contratoEncerrado && (
+        <div className={cn(NUM, "mt-1.5 grid grid-cols-3 gap-x-3 text-[11px]")} data-testid="economia-resultado-contrato">
+          <span title="Σ do valor pago das faturas que o ERP confirmou"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Recebido</span>{money(economia!.receita_recebida ?? 0)}</span>
+          <span title="Fatura vencida em aberto, segundo o ERP"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Saldo devedor</span><b style={{ color: economia!.inadimplencia_aberta > 0 ? "var(--money-neg)" : undefined }}>{money(economia!.inadimplencia_aberta)}</b></span>
+          <span title="Mês em que a margem acumulada paga o investimento (CAC + instalação)"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Ponto de equilíbrio</span>
+            {economia!.payback_meses === null ? "nunca" : `mês ${economia!.payback_meses}${economia!.mes_atual >= economia!.payback_meses ? " ✓" : " · não atingido"}`}
+          </span>
+        </div>
+      )}
       {/* O mesmo número que o card "Prejuízo acumulado" da carteira soma — pela
           mesma função, para o operador reconhecê-lo ao clicar. */}
       {economia && economia.lucro_acumulado < 0 && (() => {

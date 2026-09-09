@@ -32,6 +32,8 @@ import type {
   ErpFetchResult,
   NormalizedErpCustomer,
   FaturaAbertaDoErp,
+  FaturaPagaDoErp,
+  ErpFaturasPagasResult,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
@@ -132,6 +134,8 @@ interface ContratoResumo {
   algumFA: boolean;
   plano: string;
   inicio: string;
+  /** `data_cancelamento` do contrato mais recente sem estar ativo — so vale quando NAO ha ativo. */
+  cancelamento: string;
 }
 
 export class IxcConnector implements ErpConnector {
@@ -438,6 +442,8 @@ export class IxcConnector implements ErpConnector {
           contractStatus: this.statusDoContrato(resumo),
           contractPlan: resumo?.plano || undefined,
           contractStartDate: resumo?.inicio || undefined,
+          cortadoEm: resumo && resumo.ativos === 0 && resumo.cancelamento ? resumo.cancelamento : undefined,
+          erpCustomerId: cid || undefined,
           erpSource: "ixc",
         });
       }
@@ -638,6 +644,7 @@ export class IxcConnector implements ErpConnector {
             contractStatus,
             contractStartDate: contrato?.startDate || undefined,
             contractPlan: contrato?.plan || undefined,
+            erpCustomerId: cid || undefined,
             erpSource: "ixc" as const,
           };
         })
@@ -724,6 +731,8 @@ export class IxcConnector implements ErpConnector {
             contractStatus: this.statusDoContrato(resumo),
             contractPlan: resumo?.plano || undefined,
             contractStartDate: resumo?.inicio || undefined,
+            cortadoEm: resumo && resumo.ativos === 0 && resumo.cancelamento ? resumo.cancelamento : undefined,
+            erpCustomerId: String(row.id || "") || undefined,
             erpSource: "ixc",
           };
         })
@@ -798,11 +807,16 @@ export class IxcConnector implements ErpConnector {
       for (const c of rows) {
         const cid = String(c.id_cliente || "");
         if (!cid) continue;
-        const r = mapa.get(cid) ?? { total: 0, ativos: 0, algumFA: false, plano: "", inicio: "" };
+        const r = mapa.get(cid) ?? { total: 0, ativos: 0, algumFA: false, plano: "", inicio: "", cancelamento: "" };
         r.total++;
         const st = String(c.status || "").toUpperCase();
         const plano = String(c.contrato || c.descricao || "").trim();
         const inicio = String(c.data_ativacao || c.data_inicio || "").trim();
+        // Quando o contrato ACABOU (0036): o IXC grava data_cancelamento no
+        // cancelado ("0000-00-00" = nunca). O mais recente vence; um ativo
+        // apaga a conta — quem tem contrato vivo nao esta cortado.
+        const cancel = String(c.data_cancelamento || "").trim();
+        if (st !== "A" && /^\d{4}-\d{2}-\d{2}$/.test(cancel) && cancel !== "0000-00-00" && cancel > r.cancelamento) r.cancelamento = cancel;
         if (st === "A") {
           // O contrato ativo manda no plano e na data; o primeiro ativo vence.
           if (r.ativos === 0) { r.plano = plano; r.inicio = inicio; }
@@ -820,6 +834,54 @@ export class IxcConnector implements ErpConnector {
     } catch (e) {
       console.warn(`[IXC] contratos em lote falharam — sem status de contrato nesta passada: ${e instanceof Error ? e.message : e}`);
       return { lidos: false, mapa };
+    }
+  }
+
+  /**
+   * As faturas PAGAS (`fn_areceber.status = 'R'`), em lote e paginadas, com
+   * `pagamento_data`/`pagamento_valor` como o IXC registrou — a materia-prima
+   * da Economia do contrato encerrado (0036). Janela por data de pagamento:
+   * a historia inteira de um provedor de 28 mil clientes nao cabe numa
+   * leitura, e o backfill vai por janelas.
+   *
+   * A fatura so vem com `id_cliente`: o storage casa por
+   * customers.erp_customer_id, que o passo 1 grava.
+   */
+  async fetchFaturasPagas(
+    config: ErpConnectionConfig,
+    opcoes: { desde: string | null; ate?: string | null },
+  ): Promise<ErpFaturasPagasResult> {
+    const filtros: IxcFilter[] = [
+      { TB: "fn_areceber.status", OP: "=", P: "R", C: "AND", G: "" },
+      { TB: "fn_areceber.liberado", OP: "=", P: "S", C: "AND", G: "" },
+    ];
+    if (opcoes.desde) filtros.push({ TB: "fn_areceber.pagamento_data", OP: ">=", P: opcoes.desde, C: "AND", G: "" });
+    if (opcoes.ate) filtros.push({ TB: "fn_areceber.pagamento_data", OP: "<=", P: opcoes.ate, C: "AND", G: "" });
+    const RP = 500, PAGINAS = 400;
+    try {
+      const rows = await this.listWithFilter(config, "fn_areceber", filtros, RP, PAGINAS);
+      const faturas: FaturaPagaDoErp[] = [];
+      let semData = 0;
+      for (const row of rows) {
+        // Estorno: o dinheiro voltou; nao e recebimento.
+        if (String(row.estornado || "").toUpperCase() === "S") continue;
+        const pagoEm = String(row.pagamento_data || row.credito_data || row.baixa_data || "").slice(0, 10);
+        const vencimento = String(row.data_vencimento || "").slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(pagoEm) || !/^\d{4}-\d{2}-\d{2}$/.test(vencimento)) { semData++; continue; }
+        const valor = parseFloat(row.valor || row.valor_original || "0") || 0;
+        const valorPago = parseFloat(row.pagamento_valor || row.valor_recebido || "0") || valor;
+        faturas.push({
+          ref: String(row.id),
+          erpCustomerId: String(row.id_cliente || "") || undefined,
+          vencimento, valor, valorPago, pagoEm,
+          descricao: row.obs ? String(row.obs) : null,
+        });
+      }
+      const parcial = rows.length >= RP * PAGINAS;
+      console.log(`[IXC] faturas pagas: ${faturas.length} de ${rows.length} linhas` + (semData ? `, ${semData} sem data` : "") + (parcial ? " — TRUNCADO, leitura parcial" : ""));
+      return { ok: true, message: `${faturas.length} faturas pagas`, faturas, parcial };
+    } catch (e) {
+      return { ok: false, message: `fn_areceber (recebidas) falhou: ${e instanceof Error ? e.message : e}`, faturas: [], parcial: true };
     }
   }
 

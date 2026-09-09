@@ -362,6 +362,8 @@ export interface IStorage {
   mensalidadesDoProvedor(providerId: number, ids?: readonly number[]): Promise<Map<number, MensalidadeDoCliente>>;
   devedoresComVencimento(...args: Parameters<FaturasStorage["devedoresComVencimento"]>): ReturnType<FaturasStorage["devedoresComVencimento"]>;
   baseDeFaturas(providerId: number): Promise<{ total: number; atualizadoEm: Date | null }>;
+  upsertFaturasPagasDoErp(...args: Parameters<FaturasStorage["upsertFaturasPagasDoErp"]>): ReturnType<FaturasStorage["upsertFaturasPagasDoErp"]>;
+  ultimoPagamentoLido(providerId: number, erpSource: string): Promise<string | null>;
   /** Quantos clientes vivos tem mensalidade legivel — o sinal de prontidao da Economia. */
   coberturaDaMensalidade(providerId: number): Promise<CoberturaDaMensalidade>;
 }
@@ -674,6 +676,8 @@ class DatabaseStorage implements IStorage {
   mensalidadesDoProvedor = (providerId: number, ids?: readonly number[]) => this._faturas.mensalidadesDoProvedor(providerId, ids);
   devedoresComVencimento = (...args: Parameters<FaturasStorage["devedoresComVencimento"]>) => this._faturas.devedoresComVencimento(...args);
   baseDeFaturas = (providerId: number) => this._faturas.baseDeFaturas(providerId);
+  upsertFaturasPagasDoErp = (...args: Parameters<FaturasStorage["upsertFaturasPagasDoErp"]>) => this._faturas.upsertFaturasPagasDoErp(...args);
+  ultimoPagamentoLido = (providerId: number, erpSource: string) => this._faturas.ultimoPagamentoLido(providerId, erpSource);
   coberturaDaMensalidade = (providerId: number) => this._faturas.coberturaDaMensalidade(providerId);
   // Os sete do recebimento de acordos (08/09/2026). Chegaram no `FaturasStorage`
   // sem delegação aqui, e `storage-fachada.test.ts` acusou — que é exatamente o

@@ -177,3 +177,17 @@ describe("a cidade canonizada casa com a base do geocodificador", () => {
     }
   });
 });
+
+describe("plano e id do cliente no ERP (0036)", () => {
+  it("entram no insert e no update quando o conector informa — e nao apagam o que ja estava quando ele cala", async () => {
+    const st: any = storage;
+    retornos.existente = [];
+    await st.upsertFromErp({ providerId: 6, cpfCnpj: "04117982940", name: "Maria", totalOverdueAmount: 0, maxDaysOverdue: 0, overdueInvoicesCount: 0, erpSource: "mk", contractPlan: "Smart 700MB", erpCustomerId: "1660" });
+    expect(chamadas.insert.at(-1)).toMatchObject({ contractPlan: "Smart 700MB", erpCustomerId: "1660" });
+    retornos.existente = [{ id: 9, providerId: 6, cpfCnpj: "04117982940", status: "active", totalOverdueAmount: "0" }];
+    await st.upsertFromErp({ providerId: 6, cpfCnpj: "04117982940", name: "Maria", totalOverdueAmount: 0, maxDaysOverdue: 0, overdueInvoicesCount: 0, erpSource: "mk" });
+    const u = chamadas.update.at(-1) ?? {};
+    expect("contractPlan" in u).toBe(false);
+    expect("erpCustomerId" in u).toBe(false);
+  });
+});

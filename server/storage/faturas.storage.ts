@@ -38,7 +38,7 @@ import type { CarteiraDeCobranca } from "@shared/schema";
 import { and, desc, eq, gte, inArray, isNotNull, lt, max, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
 import { cobrancaEventos, cobrancaNegociacoes, cobrancaParcelas, customers, invoices, users } from "@shared/schema";
-import type { FaturaAbertaDoErp } from "../erp/types";
+import type { FaturaAbertaDoErp, FaturaPagaDoErp } from "../erp/types";
 import { STATUS_DE_CLIENTE_ATUAL, clienteDaCarteira, comDivida } from "./cobranca.storage";
 import type { DevedorDaCarteira } from "@shared/cobranca/prejuizo";
 import { cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
@@ -294,21 +294,123 @@ export class FaturasStorage {
     return !!r;
   }
   /** Leitura em lote para o job: uma consulta por provedor, sem N+1 por caso. */
-  async historicosDePagamentosDoProvedor(providerId: number, customerId?: number): Promise<Map<number, HistoricoDePagamentos>> {
+  async historicosDePagamentosDoProvedor(providerId: number, customerId?: number | readonly number[]): Promise<Map<number, HistoricoDePagamentos>> {
+    // Recorte por ids (os devedores do card): lista vazia e recorte vazio.
+    if (Array.isArray(customerId) && customerId.length === 0) return new Map();
     const linhas = await db.select({
       customerId: invoices.customerId,
       pagas: sql<number>`count(*)`.mapWith(Number),
       atrasadas: sql<number>`count(*) filter (where ${invoices.paidDate}::date > ${invoices.dueDate}::date)`.mapWith(Number),
+      // O valor pago que o ERP registrou; sem ele (quitacao conferida a mao), o da fatura.
+      recebido: sql<number>`coalesce(sum(coalesce(${invoices.paidValue}, ${invoices.value})), 0)`.mapWith(Number),
       ultima: max(invoices.paidDate),
     }).from(invoices).where(and(
       eq(invoices.providerId, providerId), eq(invoices.status, "paid"), isNotNull(invoices.paidDate),
-      customerId === undefined ? undefined : eq(invoices.customerId, customerId),
+      customerId === undefined ? undefined
+        : Array.isArray(customerId) ? inArray(invoices.customerId, [...customerId])
+        : eq(invoices.customerId, customerId as number),
     )).groupBy(invoices.customerId);
     return new Map(linhas.map(l => [l.customerId, {
       historicoInsuficiente: false, faturasPagas: l.pagas, faturasPagasComAtraso: l.atrasadas,
+      recebido: Math.round(Number(l.recebido) * 100) / 100,
       taxaAtraso: l.atrasadas / l.pagas, ultimaConfirmacaoEm: l.ultima ? new Date(l.ultima) : null,
       fonte: "pagamentos_com_data" as const,
     }]));
+  }
+
+  /**
+   * AS FATURAS PAGAS que o ERP confirma — status `paid`, com a data e o valor
+   * pago que ELE registrou. E prova POSITIVA: vence `aberta` e
+   * `baixada_no_erp` na mesma referencia (a baixa era "sumiu dos pendentes";
+   * isto e o ERP dizendo que recebeu).
+   *
+   * O cliente e casado pelo id no ERP (customers.erp_customer_id, 0036) ou pelo
+   * documento — o que o conector tiver. Fatura de quem nao esta na base conta
+   * em `semCliente` e nao e gravada: sem cliente nao ha carteira.
+   */
+  async upsertFaturasPagasDoErp(
+    providerId: number,
+    erpSource: string,
+    faturas: FaturaPagaDoErp[],
+  ): Promise<{ gravadas: number; semCliente: number }> {
+    const validas = faturas.filter(f =>
+      f && String(f.ref ?? "").trim() && DIA.test(f.vencimento ?? "") && DIA.test(f.pagoEm ?? "")
+      && Number.isFinite(f.valor) && Number.isFinite(f.valorPago));
+    if (validas.length === 0) return { gravadas: 0, semCliente: faturas.length };
+
+    const ids = Array.from(new Set(validas.map(f => String(f.erpCustomerId ?? "").trim()).filter(Boolean)));
+    const docs = Array.from(new Set(validas.map(f => String(f.cpfCnpj ?? "").replace(/\D/g, "")).filter(Boolean)));
+    const porId = new Map<string, number>();
+    const porDoc = new Map<string, number>();
+    if (ids.length > 0) {
+      const linhas = await db.select({ id: customers.id, erpId: customers.erpCustomerId }).from(customers)
+        .where(and(eq(customers.providerId, providerId), eq(customers.erpSource, erpSource), inArray(customers.erpCustomerId, ids)));
+      for (const l of linhas) if (l.erpId) porId.set(l.erpId, l.id);
+    }
+    if (docs.length > 0) {
+      const linhas = await db.select({ id: customers.id, doc: customers.cpfCnpj }).from(customers)
+        .where(and(eq(customers.providerId, providerId), inArray(customers.cpfCnpj, docs)));
+      for (const l of linhas) porDoc.set(l.doc.replace(/\D/g, ""), l.id);
+    }
+
+    const agora = new Date();
+    let gravadas = 0;
+    let semCliente = faturas.length - validas.length;
+    const porRef = new Map<string, FaturaPagaDoErp & { customerId: number }>();
+    for (const f of validas) {
+      const customerId = (f.erpCustomerId && porId.get(String(f.erpCustomerId).trim()))
+        ?? (f.cpfCnpj && porDoc.get(String(f.cpfCnpj).replace(/\D/g, "")));
+      if (!customerId) { semCliente++; continue; }
+      porRef.set(String(f.ref).trim(), { ...f, ref: String(f.ref).trim(), customerId });
+    }
+    const linhas = Array.from(porRef.values());
+    for (let i = 0; i < linhas.length; i += LOTE_DE_UPSERT) {
+      const lote = linhas.slice(i, i + LOTE_DE_UPSERT);
+      await db.insert(invoices)
+        .values(lote.map(f => ({
+          providerId,
+          customerId: f.customerId,
+          contractId: null,
+          erpSource,
+          erpRef: f.ref,
+          value: f.valor.toFixed(2),
+          dueDate: diaComoTimestamp(f.vencimento),
+          paidDate: diaComoTimestamp(f.pagoEm),
+          paidValue: f.valorPago.toFixed(2),
+          descricao: f.descricao ?? null,
+          status: "paid",
+          baixadaEm: null,
+          updatedAt: agora,
+        })))
+        .onConflictDoUpdate({
+          target: [invoices.providerId, invoices.erpSource, invoices.erpRef],
+          targetWhere: sql`erp_ref IS NOT NULL`,
+          set: {
+            customerId: sql`excluded.customer_id`,
+            value: sql`excluded.value`,
+            dueDate: sql`excluded.due_date`,
+            paidDate: sql`excluded.paid_date`,
+            paidValue: sql`excluded.paid_value`,
+            descricao: sql`excluded.descricao`,
+            status: "paid",
+            updatedAt: agora,
+          },
+        });
+      gravadas += lote.length;
+    }
+    return { gravadas, semCliente };
+  }
+
+  /**
+   * O dia do ultimo pagamento que o ERP confirmou para este provedor/fonte —
+   * de onde a proxima leitura incremental parte. `null` = nunca leu: a
+   * proxima leitura e a historia inteira.
+   */
+  async ultimoPagamentoLido(providerId: number, erpSource: string): Promise<string | null> {
+    const [r] = await db.select({ dia: sql<string | null>`to_char(max(${invoices.paidDate}), 'YYYY-MM-DD')` })
+      .from(invoices)
+      .where(and(eq(invoices.providerId, providerId), eq(invoices.erpSource, erpSource), eq(invoices.status, "paid"), isNotNull(invoices.paidValue)));
+    return r?.dia ?? null;
   }
 
   async historicoDePagamentosDoCliente(providerId: number, customerId: number): Promise<HistoricoDePagamentos> {

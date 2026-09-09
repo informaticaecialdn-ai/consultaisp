@@ -28,7 +28,7 @@ import { agregarEquipamentosCobrados } from "../equipamento-na-fatura.js";
 import { chaveLogradouro } from "../../services/logradouro.js";
 import { normalizarLocalidade } from "../../services/localidade.js";
 import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
-import type { FaturaAbertaDoErp } from "../types.js";
+import type { FaturaAbertaDoErp, FaturaPagaDoErp, ErpFaturasPagasResult } from "../types.js";
 import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
 import { conexoesDoMk, type AutenticacaoCliente, type LeituraDeConexoesMk } from "@shared/equipamentos/identificacao";
 
@@ -308,6 +308,72 @@ export class MkConnector implements ErpConnector {
     const d = await r.json() as { Fatura?: string | number; PathDownload?: string; Valor?: string; Vcto?: string; linha_digitavel_boleto?: string; pix_copia_cola?: string };
     if (d.Fatura && String(d.Fatura) !== referencia) throw new Error("O ERP devolveu outra fatura");
     return normalizarPagamento({ link: d.PathDownload, pix: d.pix_copia_cola, linhaDigitavel: d.linha_digitavel_boleto, valor: d.Valor, vencimento: vencimentoIso(d.Vcto) });
+  }
+
+  /** A leitura de faturas pagas do MK e por cliente (WSMKFaturas.rule?codigo_cliente=). */
+  readonly faturasPagasPorCliente = true;
+
+  /**
+   * As faturas PAGAS de cada cliente pela `WSMKFaturas.rule` (liquidado=true)
+   * — a API que a MK Solutions LICENCIA a parte. Em 09/09/2026 a NsLink
+   * respondia HTTP 500 a qualquer variante (o dono pediu a liberacao). Por
+   * isso a leitura e defensiva: as tres primeiras respostas fora de 200
+   * declaram a API indisponivel e param — nao ha por que bater em 3.000
+   * clientes para receber 3.000 erros. Quando abrir, os campos da primeira
+   * fatura vao ao log uma vez, para o mapeamento ser conferido no payload
+   * real e nao chutado.
+   */
+  async fetchFaturasPagas(
+    config: ErpConnectionConfig,
+    opcoes: { desde: string | null; ate?: string | null; clientes: Array<{ erpCustomerId: string; cpfCnpj: string }> },
+  ): Promise<ErpFaturasPagasResult> {
+    const clientes = opcoes.clientes.filter(c => c.erpCustomerId);
+    if (clientes.length === 0) return { ok: true, message: "nenhum cliente com id no MK", faturas: [], parcial: false };
+    let tokenAuth: string;
+    let base: string;
+    try { tokenAuth = await this.authenticate(config); base = this.baseUrl(config); }
+    catch (e) { return { ok: false, message: `MK auth: ${e instanceof Error ? e.message : e}`, faturas: [], parcial: true }; }
+
+    // quantidade_meses e a janela do MK; sem `desde`, a historia inteira (10 anos).
+    const meses = opcoes.desde ? Math.max(1, Math.ceil((Date.now() - new Date(opcoes.desde).getTime()) / (30 * 86_400_000)) + 1) : 120;
+    const faturas: FaturaPagaDoErp[] = [];
+    let falhasSeguidas = 0, lidos = 0, semData = 0, camposLogados = false, parcial = false;
+    for (const c of clientes) {
+      const url = `${base}/mk/WSMKFaturas.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&codigo_cliente=${encodeURIComponent(c.erpCustomerId)}&liquidado=true&quantidade_meses=${meses}`;
+      let json: any = null;
+      try {
+        const resp = await withResilience(
+          () => fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) }),
+          { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+        );
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        json = await resp.json();
+        falhasSeguidas = 0;
+      } catch (e) {
+        falhasSeguidas++;
+        if (lidos === 0 && falhasSeguidas >= 3) {
+          return { ok: true, indisponivel: true, faturas: [], parcial: false, message: `WSMKFaturas indisponivel (${e instanceof Error ? e.message : e}): a API de faturas do MK precisa ser liberada pela MK Solutions` };
+        }
+        if (falhasSeguidas >= 10) { parcial = true; break; }
+        continue;
+      }
+      lidos++;
+      const lista: any[] = Array.isArray(json) ? json
+        : (json?.Faturas ?? json?.faturas ?? json?.registros ?? json?.data ?? (json && typeof json === "object" ? Object.values(json).find(v => Array.isArray(v)) : undefined) ?? []);
+      if (!camposLogados && lista[0]) { camposLogados = true; console.log(`[MK] WSMKFaturas (pagas) campos: ${Object.keys(lista[0]).join(", ")}`); }
+      for (const f of lista) {
+        const pagoEm = vencimentoIso(f.data_pagamento ?? f.DataPagamento ?? f.dt_pagamento ?? f.data_liquidacao ?? f.DataLiquidacao ?? f.data_baixa ?? null);
+        const vencimento = vencimentoIso(f.data_vencimento ?? f.DataVencimento ?? f.dt_vencimento ?? f.Vencimento ?? f.vencimento ?? null);
+        if (!pagoEm || !vencimento) { semData++; continue; }
+        const valor = pickAmount(f);
+        const valorPago = Number(f.valor_pago ?? f.ValorPago ?? f.valor_liquidado ?? f.ValorLiquidado ?? f.vl_pago ?? 0) || valor;
+        const ref = String(f.codfatura ?? f.CodFatura ?? f.codigo_fatura ?? f.id ?? f.codigo ?? "").trim();
+        if (!ref) { semData++; continue; }
+        faturas.push({ ref, erpCustomerId: c.erpCustomerId, cpfCnpj: c.cpfCnpj, vencimento, valor, valorPago, pagoEm, descricao: f.descricao ?? f.Descricao ?? null });
+      }
+    }
+    console.log(`[MK] faturas pagas: ${faturas.length} de ${lidos} cliente(s) lido(s)` + (semData ? `, ${semData} sem data/ref` : "") + (parcial ? " — leitura parcial" : ""));
+    return { ok: true, message: `${faturas.length} faturas pagas de ${lidos} clientes`, faturas, parcial };
   }
 
   private async authenticate(config: ErpConnectionConfig): Promise<string> {
@@ -835,6 +901,7 @@ export class MkConnector implements ErpConnector {
         contractStatus,
         contractStartDate,
         contractPlan,
+        erpCustomerId: String(cdCliente),
         hasUnreturnedEquipment: inventario.itens.length > 0 ? inventario.retidos > 0 : undefined,
         unreturnedEquipmentCount: inventario.itens.length > 0 ? inventario.retidos : undefined,
         equipmentDetails: inventario.itens.length > 0 ? inventario.itens : undefined,
@@ -1115,6 +1182,7 @@ export class MkConnector implements ErpConnector {
             contractStatus,
             contractPlan,
             contractStartDate,
+            erpCustomerId: String(cliente.CodigoPessoa ?? cliente.codigopessoa ?? cliente.cd_pessoa ?? cliente.codpessoa ?? "") || undefined,
             autenticacoes: this.autenticacoesDe(conexoes),
             erpSource: "mk" as const,
           } as NormalizedErpCustomer;
@@ -1822,6 +1890,7 @@ export class MkConnector implements ErpConnector {
             contractStatus: leitura.contratos.status ?? situacaoParaStatus(situacao),
             contractPlan: leitura.contratos.plano,
             contractStartDate: leitura.contratos.inicio,
+            erpCustomerId: cd || undefined,
             name: row.Nome || row.nome || "",
             email: row.Email || row.email || undefined,
             phone: row.Fone || row.fone ? cleanPhone(row.Fone || row.fone) : undefined,

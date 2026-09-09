@@ -34,7 +34,7 @@ import type {
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { cleanCpfCnpj, cleanPhone, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
-import type { FaturaAbertaDoErp } from "../types.js";
+import type { FaturaAbertaDoErp, FaturaPagaDoErp, ErpFaturasPagasResult } from "../types.js";
 import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
 import { corteFinanceiro } from "@shared/motivo-corte";
 import { autenticacoesDoSgp } from "@shared/equipamentos/identificacao";
@@ -262,7 +262,10 @@ interface TituloSgp {
   valorPago?: number;
   valorPagoParcial?: number;
   dataVencimento?: string;
+  /** Preenchida no titulo pago (`status=pagos`). */
+  dataPagamento?: string;
   descricao?: string;
+  demonstrativo?: string;
 }
 
 /** Um titulo aberto ja lido: quem deve, quanto esta em aberto e quando vence. */
@@ -735,6 +738,37 @@ export class SgpConnector implements ErpConnector {
       ref: id ?? `${cpfCnpj}:${vencimento}:${emAberto.toFixed(2)}`,
       descricao: texto(t.descricao) ?? null,
     };
+  }
+
+  /**
+   * Os titulos PAGOS (`status=pagos`), em lote e paginados, com
+   * `dataPagamento`/`valorPago` como o SGP registrou (0036). Janela por
+   * `data_pagamento_inicio/fim`; o titulo vem com o documento do cliente e o
+   * storage casa por ele.
+   */
+  async fetchFaturasPagas(
+    config: ErpConnectionConfig,
+    opcoes: { desde: string | null; ate?: string | null },
+  ): Promise<ErpFaturasPagasResult> {
+    const filtros: Record<string, string | number> = { status: "pagos" };
+    if (opcoes.desde) filtros.data_pagamento_inicio = opcoes.desde;
+    if (opcoes.ate) filtros.data_pagamento_fim = opcoes.ate;
+    const r = await this.paginarTitulos(config, filtros);
+    if (r.erro && r.titulos.length === 0) return { ok: false, message: r.erro, faturas: [], parcial: true };
+    const faturas: FaturaPagaDoErp[] = [];
+    let semData = 0;
+    for (const t of r.titulos) {
+      const pagoEm = String(t.dataPagamento ?? "").slice(0, 10);
+      const vencimento = String(t.dataVencimento ?? "").slice(0, 10);
+      const cpfCnpj = cleanCpfCnpj(String(t.clienteCpfcnpj ?? ""));
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(pagoEm) || !/^\d{4}-\d{2}-\d{2}$/.test(vencimento) || !cpfCnpj || t.id == null) { semData++; continue; }
+      const valor = numero(t.valor);
+      // `valorPago` e o que entrou; parcial quando so isso houve. Nunca o corrigido.
+      const valorPago = numero(t.valorPago) || numero(t.valorPagoParcial) || valor;
+      faturas.push({ ref: String(t.id), cpfCnpj, vencimento, valor, valorPago, pagoEm, descricao: t.demonstrativo ?? t.descricao ?? null });
+    }
+    console.log(`[SGP] titulos pagos: ${faturas.length} de ${r.titulos.length}` + (semData ? `, ${semData} sem data/documento` : "") + (r.parcial ? " — leitura parcial" : ""));
+    return { ok: true, message: `${faturas.length} titulos pagos`, faturas, parcial: r.parcial };
   }
 
   /** Os titulos abertos — vencidos E a vencer — por documento, como faturas de `invoices`. */

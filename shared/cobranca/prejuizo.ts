@@ -100,6 +100,8 @@ export interface DevedorDaCarteira {
 }
 
 export interface MensalidadeParaPrejuizo { valor: number; concordam: number; faturas: number; baixadas: number }
+/** O recebido real do cliente, quando o ERP confirmou pagamentos (0036). */
+export interface HistoricoParaPrejuizo { pagas: number; recebido: number; pct_em_dia: number }
 
 export interface MotivoDoTraco { motivo: string; clientes: number; divida: number }
 
@@ -147,12 +149,14 @@ export interface ResultadoDoPrejuizo {
 export function agregarPrejuizo(entrada: {
   devedores: readonly DevedorDaCarteira[];
   mensalidades: ReadonlyMap<number, MensalidadeParaPrejuizo>;
+  /** Por cliente; ausente = sem pagamento confirmado (a Economia fica projetada). */
+  historicos?: ReadonlyMap<number, HistoricoParaPrejuizo>;
   economia: Economia | null;
   hoje: Date;
   periodo: Periodo;
   carteira: "ativo" | "ex_cliente";
 }): ResultadoDoPrejuizo {
-  const { devedores, mensalidades, economia, hoje, periodo, carteira } = entrada;
+  const { devedores, mensalidades, historicos, economia, hoje, periodo, carteira } = entrada;
   const alvo = formatarPeriodo(periodo);
   const meses = mesesDoPeriodo(periodo);
   const porMes = new Map<string, SerieDoPrejuizo & { avaliados: number }>(
@@ -199,7 +203,7 @@ export function agregarPrejuizo(entrada: {
       dividaAtual: d.dividaAtual,
       economia,
       mensalidadeObservada: obs,
-      historicoPagamento: null,
+      historicoPagamento: historicos?.get(d.id) ?? null,
     } satisfies EntradaDaEconomia);
 
     if (!eco.economia) {

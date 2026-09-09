@@ -115,6 +115,38 @@ export interface FaturaAbertaDoErp {
   descricao?: string | null;
 }
 
+/**
+ * Uma fatura PAGA como o ERP a confirma — a materia-prima da Economia do
+ * contrato encerrado (decisao do dono, 09/09/2026): resultado do inicio ao
+ * cancelamento com os valores realmente pagos. Nada aqui e inferido: `pagoEm`
+ * e `valorPago` sao os que o ERP registrou.
+ *
+ * O cliente vem por `erpCustomerId` (IXC so da o id) ou por `cpfCnpj` (SGP);
+ * o storage casa pelo que houver.
+ */
+export interface FaturaPagaDoErp {
+  ref: string;
+  erpCustomerId?: string;
+  cpfCnpj?: string;
+  /** AAAA-MM-DD. */
+  vencimento: string;
+  valor: number;
+  valorPago: number;
+  /** AAAA-MM-DD — a data do pagamento no ERP. */
+  pagoEm: string;
+  descricao?: string | null;
+}
+
+export interface ErpFaturasPagasResult {
+  ok: boolean;
+  message: string;
+  faturas: FaturaPagaDoErp[];
+  /** A leitura parou antes do fim (teto de paginas, cliente que falhou). */
+  parcial: boolean;
+  /** O ERP nao oferece a leitura (MK sem a API licenciada): nada a gravar, sem erro. */
+  indisponivel?: boolean;
+}
+
 /** Normalized customer record — common shape across all ERPs */
 export interface NormalizedErpCustomer {
   autenticacoes?: import("@shared/equipamentos/identificacao").AutenticacaoCliente[];
@@ -190,6 +222,12 @@ export interface NormalizedErpCustomer {
   cortadoEm?: string;
   /** Nome do plano contratado (se ativo) — ex "Combo 800MB + Deezer". */
   contractPlan?: string;
+  /**
+   * O id do cliente NO ERP (MK CodigoPessoa, IXC cliente.id, SGP clienteId).
+   * Guardado em customers.erp_customer_id (0036): e a chave das leituras por
+   * cliente e do casamento da fatura paga que so vem com o id.
+   */
+  erpCustomerId?: string;
   /**
    * Data de inicio do contrato, como o ERP devolve — ISO (YYYY-MM-DD) ou BR
    * (DD/MM/AAAA). E o unico jeito de saber que o contrato tem menos de 90 dias,
@@ -324,6 +362,22 @@ export interface ErpConnector {
 
   /** Fetch a single customer by CPF/CNPJ with overdue data already aggregated (optional) */
   fetchCustomerByCpf?(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult>;
+
+  /**
+   * As faturas PAGAS que o ERP confirma, desde `desde` (AAAA-MM-DD; null =
+   * a historia inteira). Leitura em lote onde o ERP permite (IXC, SGP); por
+   * cliente onde nao (MK, pela API licenciada) — por isso a lista de clientes
+   * com o id no ERP vai junto. Ver FaturaPagaDoErp.
+   */
+  fetchFaturasPagas?(
+    config: ErpConnectionConfig,
+    opcoes: { desde: string | null; ate?: string | null; clientes: Array<{ erpCustomerId: string; cpfCnpj: string }> },
+  ): Promise<ErpFaturasPagasResult>;
+  /**
+   * true quando a leitura de faturas pagas e POR CLIENTE (MK): o sync so
+   * carrega a lista de clientes com id no ERP para quem precisa dela.
+   */
+  readonly faturasPagasPorCliente?: boolean;
 
 
   /**

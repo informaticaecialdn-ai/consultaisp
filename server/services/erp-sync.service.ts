@@ -11,6 +11,12 @@ import type { PoolClient } from "pg";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
 import type { ErpFetchResult, FaturaAbertaDoErp } from "../erp/types";
 import { dataDoErp } from "../erp/data-do-erp";
+
+/** AAAA-MM-DD menos N dias, em UTC — dia de calendario, sem fuso no caminho. */
+export function diaMenos(dia: string, n: number): string {
+  const [a, m, d] = dia.split("-").map(Number);
+  return new Date(Date.UTC(a, m - 1, d - n)).toISOString().slice(0, 10);
+}
 import { agendaDoAmbiente, proximaExecucao, ultimaExecucaoAgendada, descreverAgenda } from "./erp-agenda";
 import { geocodeCep, resolveIbgeCode } from "./geocoding";
 import { coordenadaValida } from "./coordenada";
@@ -389,6 +395,8 @@ async function syncProviderToDbInterno(
               // dia — e e a fidelidade do DNA de cobranca. Ausente = o ERP nao
               // disse, e o upsert nao apaga a que ja estava.
               contractStartDate: dataDoErp(customer.contractStartDate),
+              contractPlan: customer.contractPlan,
+              erpCustomerId: customer.erpCustomerId,
               erpSource,
               skipPaymentStatus: true,
             });
@@ -644,6 +652,7 @@ async function syncProviderToDbInterno(
         cortadoEm: dataDoErp((customer as any).cortadoEm),
         contractStartDate: dataDoErp((customer as any).contractStartDate),
         contractPlan: (customer as any).contractPlan,
+        erpCustomerId: (customer as any).erpCustomerId,
         erpSource,
       });
 
@@ -738,6 +747,46 @@ async function syncProviderToDbInterno(
   } else if (refsVistas.size > 0) {
     console.warn(`[ERPSync] ${providerName}: varredura incompleta — nenhuma fatura marcada como baixada no ERP`);
   }
+  // 3d. As faturas PAGAS que o ERP confirma (0036) — prova POSITIVA, com a
+  // data e o valor que ELE registrou. Incremental: desde o ultimo pagamento
+  // lido, com 7 dias de sobreposicao (um pagamento lancado com atraso no ERP
+  // nao pode ficar para tras). A PRIMEIRA leitura e a historia inteira e nao
+  // cabe na varredura: e o script/ler-faturas-pagas.ts, por janelas. Falha
+  // aqui nao derruba o sync — divida e vinculo sao o ativo; o recebido e o
+  // que a Economia le.
+  let faturasPagas = 0;
+  let faturasPagasSemCliente = 0;
+  let faturasPagasMotivo: string | undefined;
+  if (connector.fetchFaturasPagas) {
+    try {
+      const ultimo = await storage.ultimoPagamentoLido(providerId, erpSource);
+      if (!ultimo) {
+        faturasPagasMotivo = "sem leitura inicial de faturas pagas — rode script/ler-faturas-pagas.ts";
+      } else {
+        const desde = diaMenos(ultimo, 7);
+        const clientes = connector.faturasPagasPorCliente
+          ? (await storage.getCustomersByProvider(providerId)).filter(c => c.erpCustomerId).map(c => ({ erpCustomerId: c.erpCustomerId!, cpfCnpj: c.cpfCnpj }))
+          : [];
+        const r = await limiter(() => connector.fetchFaturasPagas!(config, { desde, clientes }));
+        if (r.indisponivel || !r.ok) {
+          faturasPagasMotivo = r.message;
+        } else {
+          const g = await storage.upsertFaturasPagasDoErp(providerId, erpSource, r.faturas);
+          faturasPagas = g.gravadas;
+          faturasPagasSemCliente = g.semCliente;
+          if (r.parcial) faturasPagasMotivo = "leitura parcial das faturas pagas";
+        }
+      }
+    } catch (e: any) {
+      faturasPagasMotivo = `faturas pagas: ${e?.message ?? e}`;
+    }
+    if (faturasPagas > 0 || faturasPagasSemCliente > 0 || faturasPagasMotivo) {
+      console.log(`[ERPSync] ${providerName}: ${faturasPagas} fatura(s) paga(s) confirmadas pelo ERP`
+        + (faturasPagasSemCliente > 0 ? `, ${faturasPagasSemCliente} de cliente fora da base` : "")
+        + (faturasPagasMotivo ? ` — ${faturasPagasMotivo}` : ""));
+    }
+  }
+
   if (faturasGravadas > 0 || faturasBaixadas > 0 || faturasComErro > 0) {
     console.log(
       `[ERPSync] ${providerName}: ${faturasGravadas} fatura(s) aberta(s) gravadas, `

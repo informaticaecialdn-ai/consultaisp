@@ -126,3 +126,11 @@ Três decisões do dono, em ordem de custo:
 
 Sem a 1, o principal dos ex-clientes fica "—" para sempre; sem a 2, só o churn
 NOVO (faturas mês a mês vistas pelo sync desde a 0027) se preenche.
+
+## Atualização — 09/09/2026, mais tarde (migração 0036)
+
+O item 3 da lista acima ("ler faturas pagas do ERP") **foi feito**: IXC e SGP em
+lote, MK pela API licenciada (pendente de liberação pela MK Solutions). Com fatura
+paga sincronizada o ex-cliente entra no card pelo **resultado do contrato**, e o
+360 mostra Recebido · Saldo devedor · Ponto de equilíbrio. Tudo em
+`docs/faturas-pagas-0036-2026-09-09.md`.

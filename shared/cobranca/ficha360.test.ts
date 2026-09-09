@@ -280,3 +280,26 @@ describe("os motivos do gate, um por caso (revisão de 09/09/2026)", () => {
     expect(f.economiaPendente).toMatch(/saldo final, não a mensalidade$/);
   });
 });
+
+describe("o resultado do contrato encerrado com pagamento REAL (0036)", () => {
+  it("ex-cliente com faturas pagas sincronizadas: Economia recebida, ciclo encerrado, e o resultado sai do que ele pagou", () => {
+    // Aderiu em set/25, ultima fatura em mar/26 (6 meses); pagou R$ 600 no total; saldo devedor R$ 100.
+    const f = montarFicha360({
+      ...base, statusErp: "cancelled", carteira: "ex_cliente", plano: null, cortadoEm: null, ultimaFaturaEmitidaEm: "2026-03-05",
+      economia: { ...ECONOMIA, precoPorPlano: {} },
+      mensalidadeObservada: { valor: 100, concordam: 6, faturas: 7, baixadas: 6 },
+      historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 },
+    });
+    expect(f.economia).not.toBeNull();
+    expect(f.economia!.fonte_receita).toBe("recebida");
+    expect(f.economia!.ciclo_encerrado).toBe(true);
+    expect(f.economia!.mes_atual).toBe(6);
+    // 600 liquido de 10% = 540; opex fixo 40 × 6 = 240; investimento 350 → −50: prejuizo de R$ 50 no contrato.
+    expect(f.economia!.lucro_acumulado).toBe(-50);
+    expect(f.economia!.receita_recebida).toBe(600);
+    expect(f.economia!.ltv_realizado).toBe(600);
+    // Ponto de equilibrio: margem 50/mes → mes 7; saiu no 6: nao atingido.
+    expect(f.economia!.payback_meses).toBe(7);
+    expect(f.economia!.inadimplencia_aberta).toBe(100);
+  });
+});

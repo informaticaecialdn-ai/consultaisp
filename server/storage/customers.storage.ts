@@ -237,8 +237,10 @@ export class CustomersStorage {
      * corte: escrita quando o conector informa, nunca apagada quando ele cala.
      */
     contractStartDate?: Date;
-    /** Plano do contrato ativo (ex "Combo 800MB + Deezer"). Opcional — armazenado em campo flexivel. */
+    /** Plano do contrato (ex "Combo 800MB + Deezer"). Gravado em contract_plan desde a 0036. */
     contractPlan?: string;
+    /** O id do cliente no ERP (MK CodigoPessoa, IXC cliente.id, SGP clienteId). */
+    erpCustomerId?: string;
     erpSource: string;
     /**
      * Spec 012.5/fix atomicidade — quando true, SÓ atualiza identidade (nome,
@@ -370,6 +372,10 @@ export class CustomersStorage {
       if (data.motivoCorte) updateFields.motivoCorte = data.motivoCorte;
       if (data.cortadoEm) updateFields.cortadoEm = data.cortadoEm;
       if (data.contractStartDate) updateFields.contractStartDate = dataSemHora(data.contractStartDate);
+      // Plano e id no ERP: mesma regra do motivo — escritos quando o conector
+      // informa, nunca apagados quando ele cala.
+      if (data.contractPlan) updateFields.contractPlan = data.contractPlan;
+      if (data.erpCustomerId) updateFields.erpCustomerId = data.erpCustomerId;
 
       if (!data.skipPaymentStatus) {
         updateFields.totalOverdueAmount = String(data.totalOverdueAmount);
@@ -414,6 +420,8 @@ export class CustomersStorage {
         motivoCorte: data.motivoCorte ?? null,
         cortadoEm: data.cortadoEm ?? null,
         contractStartDate: data.contractStartDate ? dataSemHora(data.contractStartDate) : null,
+        contractPlan: data.contractPlan ?? null,
+        erpCustomerId: data.erpCustomerId ?? null,
         paymentStatus: data.totalOverdueAmount > 0 ? "overdue" : "current",
         riskTier,
         erpSource: data.erpSource,

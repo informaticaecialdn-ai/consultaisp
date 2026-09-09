@@ -651,3 +651,57 @@ describe("os devedores com as datas do card de prejuizo", () => {
     expect(b.atualizadoEm).toBeTruthy();
   });
 });
+
+describe("as faturas PAGAS que o ERP confirma (0036)", () => {
+  const paga = (ref: string, over: Record<string, unknown> = {}) => ({
+    ref, erpCustomerId: "28485", vencimento: "2026-08-10", valor: 99.9, valorPago: 99.9, pagoEm: "2026-08-09", descricao: "mensalidade", ...over,
+  });
+  it("casa o cliente pelo id no ERP ou pelo documento, grava paid com data e valor pagos, e conta quem nao esta na base", async () => {
+    banco.responder = (sql) =>
+      /"erp_customer_id" in \(/.test(sql) ? [[71, "28485"]]
+      : /"cpf_cnpj" in \(/.test(sql) ? [[72, "52998224725"]]
+      : [];
+    const r = await storage.upsertFaturasPagasDoErp(PROVEDOR, "ixc", [
+      paga("P1"),
+      paga("P2", { erpCustomerId: undefined, cpfCnpj: "529.982.247-25" }),
+      paga("P3", { erpCustomerId: "999" }),                 // ninguem: fora
+      paga("P4", { pagoEm: "" }),                            // sem data de pagamento: fora
+    ]);
+    expect(r).toEqual({ gravadas: 2, semCliente: 2 });
+    const insert = banco.consultas.find(c => c.sql.startsWith("insert into \"invoices\""))!;
+    expect(insert).toBeTruthy();
+    // No insert o tenant vai por VALOR (provider_id em cada linha), nao por where.
+    expect(insert.sql).toContain('"provider_id"');
+    expect(insert.params.filter(v => v === PROVEDOR)).toHaveLength(2);
+    expect(insert.sql).toContain("on conflict");
+    // Prova positiva: vence aberta/baixada na mesma referencia — sem `where status <> 'paid'`.
+    expect(insert.sql).not.toMatch(/where "invoices"\."status" <> /);
+    expect(insert.params).toEqual(expect.arrayContaining(["paid", "P1", "P2", "99.90", 71, 72]));
+    expect(insert.params).not.toContain("P3");
+    expect(insert.sql).toContain('"paid_value"');
+  });
+  it("lista vazia ou so invalidas: nada vai ao banco", async () => {
+    expect(await storage.upsertFaturasPagasDoErp(PROVEDOR, "ixc", [paga("X", { valorPago: NaN })])).toEqual({ gravadas: 0, semCliente: 1 });
+    expect(banco.consultas).toHaveLength(0);
+  });
+  it("o ultimo pagamento lido e o dia em texto, so das pagas com valor pago (as do ERP), por fonte", async () => {
+    banco.responder = () => [["2026-09-08"]];
+    expect(await storage.ultimoPagamentoLido(PROVEDOR, "sgp")).toBe("2026-09-08");
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].sql).toContain("to_char(max(");
+    expect(banco.consultas[0].sql).toContain('"paid_value" is not null');
+    expect(banco.consultas[0].params).toEqual(expect.arrayContaining(["sgp", "paid"]));
+    banco.consultas.length = 0;
+    banco.responder = () => [[null]];
+    expect(await storage.ultimoPagamentoLido(PROVEDOR, "sgp")).toBeNull();
+  });
+  it("o historico em lote traz o RECEBIDO (valor pago, ou o da fatura) e aceita recorte por ids", async () => {
+    banco.responder = () => [[42, 4, 1, "359.60", "2026-08-12T00:00:00Z"]];
+    const m = await storage.historicosDePagamentosDoProvedor(PROVEDOR, [42, 43]);
+    expect(m.get(42)).toMatchObject({ faturasPagas: 4, faturasPagasComAtraso: 1, recebido: 359.6, taxaAtraso: 0.25 });
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].sql).toContain('coalesce("paid_value", "value")');
+    expect(banco.consultas[0].sql).toContain('"customer_id" in (');
+    expect((await storage.historicosDePagamentosDoProvedor(PROVEDOR, [])).size).toBe(0);
+  });
+});

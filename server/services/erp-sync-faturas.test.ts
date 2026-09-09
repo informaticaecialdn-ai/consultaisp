@@ -28,6 +28,10 @@ const baixarDividaQuitada = vi.fn(async () => 0);
 const registrarResultadoSync = vi.fn(async (_p: number, _s: string, _d: any) => {});
 const contarFalhasConsecutivas = vi.fn(async () => 0);
 const getErpIntegracoesResumo = vi.fn(async () => [{ erpSource: "mk", isEnabled: true, status: "idle" } as any]);
+// As faturas PAGAS (0036): incremental desde o ultimo pagamento lido.
+const ultimoPagamentoLido = vi.fn(async (_p: number, _s: string): Promise<string | null> => null);
+const upsertFaturasPagasDoErp = vi.fn(async (_p: number, _s: string, f: any[]) => ({ gravadas: f.length, semCliente: 0 }));
+const getCustomersByProvider = vi.fn(async (_p: number): Promise<any[]> => []);
 
 vi.mock("../storage", () => ({
   storage: {
@@ -42,6 +46,9 @@ vi.mock("../storage", () => ({
     getProvider: async () => ({ id: 3, name: "NsLink", addressCity: "Londrina", addressState: "PR" }),
     getUsersByProvider: async () => [],
     pausarPorFalhas: async () => {},
+    ultimoPagamentoLido: (p: number, s: string) => ultimoPagamentoLido(p, s),
+    upsertFaturasPagasDoErp: (p: number, s: string, f: any[]) => upsertFaturasPagasDoErp(p, s, f),
+    getCustomersByProvider: (p: number) => getCustomersByProvider(p),
   },
 }));
 
@@ -220,5 +227,53 @@ describe("as faturas abertas na varredura", () => {
     // A referencia dele ainda conta como vista: o ERP a mencionou.
     const refs = baixarFaturasSumidas.mock.calls[0][2];
     expect(refs.has("C1")).toBe(true);
+  });
+});
+
+describe("as faturas PAGAS na varredura (0036) — incremental, nunca a historia inteira", () => {
+  const PAGA = { ref: "P1", erpCustomerId: "28485", vencimento: "2026-08-10", valor: 99.9, valorPago: 99.9, pagoEm: "2026-08-09" };
+  it("sem leitura inicial, nao le: avisa que o backfill e por script", async () => {
+    const c: any = conectorFake();
+    c.fetchFaturasPagas = vi.fn(async () => ({ ok: true, message: "", faturas: [PAGA], parcial: false }));
+    conector.atual = c;
+    await syncProviderToDb(3, "NsLink", "mk", INTEGRACAO, "auto");
+    expect(c.fetchFaturasPagas).not.toHaveBeenCalled();
+    expect(upsertFaturasPagasDoErp).not.toHaveBeenCalled();
+  });
+  it("com leitura anterior: pede desde 7 dias antes do ultimo pagamento e grava o que veio", async () => {
+    ultimoPagamentoLido.mockResolvedValueOnce("2026-09-01");
+    const c: any = conectorFake();
+    c.fetchFaturasPagas = vi.fn(async () => ({ ok: true, message: "", faturas: [PAGA], parcial: false }));
+    conector.atual = c;
+    await syncProviderToDb(3, "NsLink", "mk", INTEGRACAO, "auto");
+    expect(c.fetchFaturasPagas).toHaveBeenCalledTimes(1);
+    expect(c.fetchFaturasPagas.mock.calls[0][1]).toMatchObject({ desde: "2026-08-25", clientes: [] });
+    expect(upsertFaturasPagasDoErp).toHaveBeenCalledWith(3, "mk", [PAGA]);
+    // Nada disso muda o resultado da varredura de clientes.
+    expect(registrarResultadoSync.mock.calls[0][2].status).toBe("success");
+  });
+  it("leitura por cliente (MK): a lista de clientes com id no ERP vai junto; API indisponivel nao grava nem falha", async () => {
+    ultimoPagamentoLido.mockResolvedValueOnce("2026-09-01");
+    getCustomersByProvider.mockResolvedValueOnce([
+      { id: 71, cpfCnpj: CPF_DEVE, erpCustomerId: "1660" },
+      { id: 72, cpfCnpj: CPF_EM_DIA, erpCustomerId: null },
+    ]);
+    const c: any = conectorFake();
+    c.faturasPagasPorCliente = true;
+    c.fetchFaturasPagas = vi.fn(async () => ({ ok: true, indisponivel: true, message: "WSMKFaturas indisponivel", faturas: [], parcial: false }));
+    conector.atual = c;
+    const r = await syncProviderToDb(3, "NsLink", "mk", INTEGRACAO, "auto");
+    expect(c.fetchFaturasPagas.mock.calls[0][1].clientes).toEqual([{ erpCustomerId: "1660", cpfCnpj: CPF_DEVE }]);
+    expect(upsertFaturasPagasDoErp).not.toHaveBeenCalled();
+    expect(r.errors).toBe(0);
+  });
+  it("erro na leitura das pagas nao derruba o sync", async () => {
+    ultimoPagamentoLido.mockResolvedValueOnce("2026-09-01");
+    const c: any = conectorFake();
+    c.fetchFaturasPagas = vi.fn(async () => { throw new Error("IXC fora"); });
+    conector.atual = c;
+    const r = await syncProviderToDb(3, "NsLink", "mk", INTEGRACAO, "auto");
+    expect(r.errors).toBe(0);
+    expect(registrarResultadoSync.mock.calls[0][2].status).toBe("success");
   });
 });

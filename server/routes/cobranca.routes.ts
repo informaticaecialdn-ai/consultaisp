@@ -21,7 +21,7 @@ import {
 } from "../storage/cobranca.storage";
 import type { FaturaDoCliente, FaturasDoCliente } from "../storage/faturas.storage";
 import { FaturasStorage } from "../storage/faturas.storage";
-import type { HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
+import { historicoParaEconomia, type HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
 import type { CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela, Customer, Equipment } from "@shared/schema";
 import { formatarPeriodo, janelaDoPeriodoEmDias, parsePeriodo, periodoDaData, rotuloDoPeriodo, type Periodo } from "@shared/cobranca/periodo";
 import { agregarPrejuizo } from "@shared/cobranca/prejuizo";
@@ -1279,8 +1279,15 @@ async function prejuizoDaCarteira(providerId: number, carteira: "ativo" | "ex_cl
     carregarPolitica(providerId),
     storage.baseDeFaturas(providerId),
   ]);
-  const mensalidades = await storage.mensalidadesDoProvedor(providerId, devedores.map(d => d.id));
-  const r = agregarPrejuizo({ devedores, mensalidades, economia: politica.economia, hoje, periodo, carteira });
+  const ids = devedores.map(d => d.id);
+  const [mensalidades, historicos] = await Promise.all([
+    storage.mensalidadesDoProvedor(providerId, ids),
+    storage.historicosDePagamentosDoProvedor(providerId, ids),
+  ]);
+  const historicosParaEconomia = new Map(
+    Array.from(historicos.entries()).flatMap(([id, h]) => { const e = historicoParaEconomia(h); return e ? [[id, e] as const] : []; }),
+  );
+  const r = agregarPrejuizo({ devedores, mensalidades, historicos: historicosParaEconomia, economia: politica.economia, hoje, periodo, carteira });
   return { ...r, live: base.total > 0, atualizadoEm: base.atualizadoEm, confirmado: politica.economia.confirmado };
 }
 
@@ -1566,7 +1573,11 @@ export function registerCobrancaRoutes(): Router {
         comunicacoes30d: contatos.filter(ev => ev.ocorridoEm && new Date(ev.ocorridoEm) >= ha30d).length,
         totalComunicacoes: contatos.length,
       };
-      const ficha = montarFicha360({ hoje, ...fichaEntrada, economia: politica.economia, historicoPagamento: null });
+      // Desde a 0036 o ERP confirma pagamento (IXC e SGP em lote; MK pela API
+      // licenciada): com fatura paga sincronizada a Economia sai REALIZADA —
+      // e a do ex-cliente vira o resultado do contrato, inicio ao fim. Sem
+      // nenhuma, continua como antes: projetada para o vivo, pendente para o ex.
+      const ficha = montarFicha360({ hoje, ...fichaEntrada, economia: politica.economia, historicoPagamento: historicoParaEconomia(historicoPagamentos) });
       const endereco = [cliente.address, cliente.addressNumber].filter(Boolean).join(", ")
         + (cliente.complement ? ` - ${cliente.complement}` : "");
 
@@ -1650,7 +1661,10 @@ export function registerCobrancaRoutes(): Router {
           // fatura a fatura e a fase 2", e isso deixou de ser verdade com a
           // migracao 0027 — a varredura grava fatura a fatura desde 05/09.
           // Texto errado aqui engana quem depurar a ficha.
-          { campo: "historicoPagamento", motivo: "o ERP nao confirma pagamento: a fatura que some dos pendentes e baixa provavel, nao recibo" },
+          // Corrigido em 09/09/2026 (0036): o ERP passou a confirmar pagamento
+          // fatura a fatura (IXC/SGP em lote; MK pela API licenciada). O campo so
+          // continua pendente para quem ainda nao tem fatura paga sincronizada.
+          ...(historicoParaEconomia(historicoPagamentos) ? [] : [{ campo: "historicoPagamento", motivo: "nenhuma fatura paga sincronizada do ERP para este cliente: a Economia fica projetada (vivo) ou pendente (ex-cliente)" }]),
           { campo: "vulneravel", motivo: "nao ha coluna de vulnerabilidade (Lei 14.181)" },
         ],
       });
