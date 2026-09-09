@@ -22,6 +22,7 @@ import {
 import type { FaturaDoCliente, FaturasDoCliente } from "../storage/faturas.storage";
 import { FaturasStorage } from "../storage/faturas.storage";
 import { historicoParaEconomia, type HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
+import type { CobrancaDeSaida } from "@shared/cobranca/multa";
 import type { CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela, Customer, Equipment } from "@shared/schema";
 import { formatarPeriodo, janelaDoPeriodoEmDias, parsePeriodo, periodoDaData, rotuloDoPeriodo, type Periodo } from "@shared/cobranca/periodo";
 import { agregarPrejuizo } from "@shared/cobranca/prejuizo";
@@ -76,6 +77,7 @@ import {
   type StatusDeNegociacao,
   type Tom,
   montarFicha360,
+  motivoSemHistorico,
 } from "@shared/cobranca";
 import { FAIXAS_DE_ATRASO } from "@shared/cobranca/faixa-atraso";
 
@@ -1277,20 +1279,30 @@ function jaTemCaso(e: unknown): boolean {
 // pela MESMA funcao que a tela usa — uma copia no script ja ficou para tras uma
 // vez (09/09/2026: a copia nao passava os historicos de pagamento da 0036).
 export async function prejuizoDaCarteira(providerId: number, carteira: "ativo" | "ex_cliente", periodo: Periodo, hoje: Date) {
-  const [devedores, { politica }, base] = await Promise.all([
+  const [devedores, { politica }, base, erpConfirmaPagamentos, integracoes] = await Promise.all([
     storage.devedoresComVencimento(providerId, carteira, hoje),
     carregarPolitica(providerId),
     storage.baseDeFaturas(providerId),
+    // A pergunta ao provedor: sem UMA paga na base, o motivo do traco e dele
+    // (MK sem a API licenciada; primeira carga nao rodada), nao de cada cliente.
+    storage.erpConfirmaPagamentos(providerId).catch((e: unknown) => { logger.warn({ providerId, err: e }, "COBRANCA pergunta ao provedor (pagas) indisponivel — motivo de sempre"); return null; }),
+    // O RESUMO (sem credencial): so a fonte e o liga/desliga interessam aqui —
+    // `getErpIntegrations` decifraria o token de cada integracao a toa.
+    storage.getErpIntegracoesResumo(providerId).catch((e: unknown) => { logger.warn({ providerId, err: e }, "COBRANCA resumo das integracoes indisponivel — sem fonte no motivo"); return []; }),
   ]);
+  const erpSource = integracoes.find(i => i.isEnabled)?.erpSource ?? integracoes[0]?.erpSource ?? null;
   const ids = devedores.map(d => d.id);
-  const [mensalidades, historicos] = await Promise.all([
+  const [mensalidades, historicos, cobrancasDeSaida] = await Promise.all([
     storage.mensalidadesDoProvedor(providerId, ids),
     storage.historicosDePagamentosDoProvedor(providerId, ids),
+    // Falha aqui = nada excluido (sub-ler e seguro), igual ao 360 — e com log,
+    // porque a multa voltando ao prejuizo em silencio e o que se quer evitar.
+    storage.cobrancasDeSaida(providerId, ids, hoje).catch((e: unknown) => { logger.warn({ providerId, carteira, err: e }, "COBRANCA cobranca de saida indisponivel — multa nao separada da divida"); return new Map<number, CobrancaDeSaida>(); }),
   ]);
   const historicosParaEconomia = new Map(
     Array.from(historicos.entries()).flatMap(([id, h]) => { const e = historicoParaEconomia(h); return e ? [[id, e] as const] : []; }),
   );
-  const r = agregarPrejuizo({ devedores, mensalidades, historicos: historicosParaEconomia, economia: politica.economia, hoje, periodo, carteira });
+  const r = agregarPrejuizo({ devedores, mensalidades, historicos: historicosParaEconomia, cobrancasDeSaida, erpConfirmaPagamentos, erpSource, economia: politica.economia, hoje, periodo, carteira });
   return { ...r, live: base.total > 0, atualizadoEm: base.atualizadoEm, confirmado: politica.economia.confirmado };
 }
 
@@ -1481,7 +1493,7 @@ export function registerCobrancaRoutes(): Router {
       // inteiro so o proprio cliente (ou um CNPJ que o contenha) volta, e o
       // filtro por id abaixo tira o resto.
       const digitos = cliente.cpfCnpj.replace(/\D/g, "");
-      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade, historicoPagamentos, faturasVencidas] = await Promise.all([
+      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade, historicoPagamentos, faturasVencidas, erpConfirmaPagamentos, cobrancasDeSaida] = await Promise.all([
         carregarPolitica(providerId),
         storage.listarCasosDeCobranca(providerId, { status: "todos", busca: digitos.length >= 3 ? digitos : cliente.name }, { pagina: 1, porPagina: 200 }),
         storage.listarEventosDoCliente(providerId, customerId),
@@ -1504,6 +1516,14 @@ export function registerCobrancaRoutes(): Router {
         // ex-cliente na Economia quando o ERP nao informou o corte (o MK nunca
         // informa). Limite 1: so os agregados interessam aqui.
         storage.faturasDoCliente(providerId, customerId, { limite: 1, hoje }).catch(() => null),
+        // O ERP deste provedor ja confirmou ALGUM pagamento? Se nao, o motivo
+        // do traco e do provedor (MK sem a API licenciada), nao do cliente.
+        // Falha aqui = desconhecido (null): vale o texto de sempre.
+        storage.erpConfirmaPagamentos(providerId).catch((e: unknown) => { logger.warn({ providerId, customerId, err: e }, "COBRANCA pergunta ao provedor (pagas) indisponivel — motivo de sempre"); return null; }),
+        // A multa de cancelamento e o equipamento cobrados na fatura de saida:
+        // saem da divida da Economia (o equipamento ja esta no investimento).
+        // Falha aqui = nada excluido, como sempre foi — com log.
+        storage.cobrancasDeSaida(providerId, [customerId], hoje).catch((e: unknown) => { logger.warn({ providerId, customerId, err: e }, "COBRANCA cobranca de saida indisponivel — multa nao separada da divida"); return new Map<number, CobrancaDeSaida>(); }),
       ]);
       const ha30d = new Date(hoje.getTime() - 30 * 86_400_000);
       const deOutros = consultasRecentes.filter(c => c.providerId !== providerId);
@@ -1561,7 +1581,12 @@ export function registerCobrancaRoutes(): Router {
         // 360 contar um mes a mais do que o card para o mesmo cliente.
         cortadoEm: cliente.cortadoEm ? new Date(cliente.cortadoEm).toISOString().slice(0, 10) : null,
         ultimaFaturaEmitidaEm: faturasVencidas?.vencimentoMaisRecente ? faturasVencidas.vencimentoMaisRecente.toISOString().slice(0, 10) : null,
-        plano: null,
+        // Desde a 0036 a varredura grava o plano que o conector traz; com preco
+        // cadastrado em Politica > Economia ele e o ARPU do cliente.
+        plano: cliente.contractPlan ?? null,
+        erpSource: cliente.erpSource ?? null,
+        erpConfirmaPagamentos,
+        cobrancaDeSaida: cobrancasDeSaida.get(customerId) ?? null,
         // Vai no `fichaEntrada` que o navegador remonta: sem ela, a remontagem
         // com o plano ao vivo perderia o ARPU que o servidor ja tinha.
         mensalidadeObservada: mensalidade ? { valor: mensalidade.valor, concordam: mensalidade.concordam, faturas: mensalidade.faturas, baixadas: mensalidade.baixadas } : null,
@@ -1598,7 +1623,7 @@ export function registerCobrancaRoutes(): Router {
           cidade: cliente.city,
           uf: cliente.state,
           cep: cliente.cep,
-          plano: null,
+          plano: cliente.contractPlan ?? null,
           statusErp: cliente.status,
           situacaoPagamento: cliente.paymentStatus,
           carteira,
@@ -1659,7 +1684,9 @@ export function registerCobrancaRoutes(): Router {
         // O que a ficha do Provedor.ai tem e esta base nao: nomeado, nao
         // fabricado. A tela mostra "—" pela ausencia da chave, e isto diz por que.
         pendentes: [
-          { campo: "plano", motivo: "customers nao guarda o plano do cliente: o contractPlan que o conector traz e descartado no upsert" },
+          // Desde a 0036 `customers.contract_plan` existe e a varredura o grava;
+          // so fica pendente quem o ERP nao informou (ou nao foi varrido desde entao).
+          ...(cliente.contractPlan ? [] : [{ campo: "plano", motivo: "o ERP nao informou o plano deste cliente (ou a varredura ainda nao rodou desde a 0036)" }]),
           // Corrigido em 06/09/2026: a linha dizia "o sync grava agregados;
           // fatura a fatura e a fase 2", e isso deixou de ser verdade com a
           // migracao 0027 — a varredura grava fatura a fatura desde 05/09.
@@ -1667,7 +1694,12 @@ export function registerCobrancaRoutes(): Router {
           // Corrigido em 09/09/2026 (0036): o ERP passou a confirmar pagamento
           // fatura a fatura (IXC/SGP em lote; MK pela API licenciada). O campo so
           // continua pendente para quem ainda nao tem fatura paga sincronizada.
-          ...(historicoParaEconomia(historicoPagamentos) ? [] : [{ campo: "historicoPagamento", motivo: "nenhuma fatura paga sincronizada do ERP para este cliente: a Economia fica projetada (vivo) ou pendente (ex-cliente)" }]),
+          ...(historicoParaEconomia(historicoPagamentos) ? [] : [{
+            campo: "historicoPagamento",
+            motivo: erpConfirmaPagamentos === false
+              ? motivoSemHistorico({ erpConfirmaPagamentos, erpSource: cliente.erpSource })
+              : "nenhuma fatura paga sincronizada do ERP para este cliente: a Economia fica projetada (vivo) ou pendente (ex-cliente)",
+          }]),
           { campo: "vulneravel", motivo: "nao ha coluna de vulnerabilidade (Lei 14.181)" },
         ],
       });

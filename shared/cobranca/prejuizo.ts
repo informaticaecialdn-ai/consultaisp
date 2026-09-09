@@ -53,6 +53,7 @@
  */
 import type { EconomiaLedger } from "./economia";
 import { economiaDoCliente, type EntradaDaEconomia } from "./ficha360";
+import type { CobrancaDeSaida } from "./multa";
 import type { Economia } from "./politica";
 import { formatarPeriodo, mesDoDia, mesesDoPeriodo, periodoDoMes, type Periodo } from "./periodo";
 
@@ -93,6 +94,8 @@ export interface DevedorDaCarteira {
   dividaAtual: number;
   contractStartDate: string | null;
   cortadoEm: string | null;
+  /** O plano que o ERP informou (`customers.contract_plan`, 0036): com preco cadastrado na politica, e o ARPU. */
+  plano?: string | null;
   /** Vencimento da fatura vencida mais antiga em aberto — o eixo. 'AAAA-MM-DD'. */
   devemDesde: string | null;
   /** Vencimento da fatura vencida EM ABERTO mais recente — o fim do ciclo do ex-cliente. */
@@ -130,6 +133,13 @@ export interface ResumoDoPrejuizo {
   motivosDoTraco: MotivoDoTraco[];
   /** Devedores sem fatura vencida gravada — fora de qualquer período. */
   semData: { clientes: number; divida: number };
+  /**
+   * Σ multa + equipamento cobrados à parte dos avaliados — tirados da dívida
+   * antes do prejuízo: a instalação não recuperada já é essa perda.
+   */
+  multaForaDoPrejuizo: number;
+  /** Faturas do recorte que misturam multa e mensalidade sem valores — ficaram como dívida. */
+  multasIndeterminadas: number;
 }
 
 export interface SerieDoPrejuizo { mes: string; devedores: number; dividaReal: number; prejuizo: number | null }
@@ -151,12 +161,17 @@ export function agregarPrejuizo(entrada: {
   mensalidades: ReadonlyMap<number, MensalidadeParaPrejuizo>;
   /** Por cliente; ausente = sem pagamento confirmado (a Economia fica projetada). */
   historicos?: ReadonlyMap<number, HistoricoParaPrejuizo>;
+  /** O ERP deste provedor ja confirmou algum pagamento? `false` muda o motivo do traco (e do provedor, nao do cliente). */
+  erpConfirmaPagamentos?: boolean | null;
+  erpSource?: string | null;
+  /** Por cliente: multa e equipamento cobrados nas faturas vencidas (`cobrancasDeSaida` do storage). */
+  cobrancasDeSaida?: ReadonlyMap<number, CobrancaDeSaida>;
   economia: Economia | null;
   hoje: Date;
   periodo: Periodo;
   carteira: "ativo" | "ex_cliente";
 }): ResultadoDoPrejuizo {
-  const { devedores, mensalidades, historicos, economia, hoje, periodo, carteira } = entrada;
+  const { devedores, mensalidades, historicos, economia, hoje, periodo, carteira, erpConfirmaPagamentos, erpSource, cobrancasDeSaida } = entrada;
   const alvo = formatarPeriodo(periodo);
   const meses = mesesDoPeriodo(periodo);
   const porMes = new Map<string, SerieDoPrejuizo & { avaliados: number }>(
@@ -167,6 +182,7 @@ export function agregarPrejuizo(entrada: {
     devedores: 0, avaliados: 0, noPrejuizo: 0, prejuizo: null, dividaAvaliada: 0, instalacaoNaoRecuperada: null, abatida: 0,
     dividaDoRecorte: 0, dividaDaCarteira: 0, devedoresDaCarteira: 0, fatiaDaCarteira: null,
     motivosDoTraco: [], semData: { clientes: 0, divida: 0 },
+    multaForaDoPrejuizo: 0, multasIndeterminadas: 0,
   };
   const motivos = new Map<string, MotivoDoTraco>();
   const ids: number[] = [];
@@ -199,11 +215,14 @@ export function agregarPrejuizo(entrada: {
       contractStartDate: d.contractStartDate,
       cortadoEm: d.cortadoEm,
       ultimaFaturaEmitidaEm: d.ultimaFatura,
-      plano: null,
+      plano: d.plano ?? null,
       dividaAtual: d.dividaAtual,
       economia,
       mensalidadeObservada: obs,
       historicoPagamento: historicos?.get(d.id) ?? null,
+      erpConfirmaPagamentos: erpConfirmaPagamentos ?? null,
+      erpSource: erpSource ?? null,
+      cobrancaDeSaida: cobrancasDeSaida?.get(d.id) ?? null,
     } satisfies EntradaDaEconomia);
 
     if (!eco.economia) {
@@ -214,7 +233,11 @@ export function agregarPrejuizo(entrada: {
       motivos.set(m, acc);
       continue;
     }
-    const dec = decomporPrejuizo(eco.economia, d.dividaAtual);
+    // A divida avaliada e a de SERVICO: a multa e o equipamento ficaram de fora.
+    const dec = decomporPrejuizo(eco.economia, r2(d.dividaAtual - eco.multaForaDoPrejuizo));
+    resumo.multaForaDoPrejuizo = r2(resumo.multaForaDoPrejuizo + eco.multaForaDoPrejuizo);
+    // So dos AVALIADOS, como a multa: "contada como divida" so faz sentido para quem entrou na conta.
+    resumo.multasIndeterminadas += eco.multasIndeterminadas;
     resumo.avaliados++;
     if (dec.prejuizo > 0) resumo.noPrejuizo++;
     somaPrejuizo = r2(somaPrejuizo + dec.prejuizo);

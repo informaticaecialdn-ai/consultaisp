@@ -38,6 +38,8 @@ const periodo = parsePeriodo(process.argv[3]) ?? periodoDaData(hoje, "mes");
     console.log(`\n[${carteira}] carteira: ${s.devedoresDaCarteira} devedores · R$ ${s.dividaDaCarteira.toFixed(2)} · sem data: ${s.semData.clientes} (R$ ${s.semData.divida.toFixed(2)})`);
     console.log(`  no período: ${s.devedores} devedores · dívida do recorte R$ ${s.dividaDoRecorte.toFixed(2)} (${s.fatiaDaCarteira ?? "—"}% da carteira)`);
     console.log(`  avaliados: ${s.avaliados} · no prejuízo: ${s.noPrejuizo} · prejuízo: ${s.prejuizo === null ? "—" : "R$ " + s.prejuizo.toFixed(2)} · dívida avaliada R$ ${s.dividaAvaliada.toFixed(2)} · instalação ${s.instalacaoNaoRecuperada === null ? "—" : "R$ " + s.instalacaoNaoRecuperada.toFixed(2)} · abatida R$ ${s.abatida.toFixed(2)}`);
+    // A multa de cancelamento e o equipamento cobrados a parte: fora do prejuizo (dono, 09/09/2026).
+    if (s.multaForaDoPrejuizo > 0 || s.multasIndeterminadas > 0) console.log(`  multa/equipamento fora do prejuízo: R$ ${s.multaForaDoPrejuizo.toFixed(2)} · faturas com multa sem valor (contadas como dívida): ${s.multasIndeterminadas}`);
     for (const m of s.motivosDoTraco) console.log(`  fora: ${m.clientes} · R$ ${m.divida.toFixed(2)} · ${m.motivo}`);
     console.log(`  série: ${r.serie.map(x => `${x.mes}=${x.devedores}${x.prejuizo === null ? "" : `/R$${x.prejuizo.toFixed(0)}`}`).join(" · ")}`);
   }

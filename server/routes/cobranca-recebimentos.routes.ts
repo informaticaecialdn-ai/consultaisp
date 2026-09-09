@@ -40,12 +40,15 @@ export function registerCobrancaRecebimentosRoutes(): Router {
     const providerId = req.session.providerId!;
     try {
       if (!await faturas.clienteExiste(providerId, id.data, escopo.data)) return res.status(404).json({ message: "Cliente não encontrado" });
-      const [titulos, historico, quitacoes] = await Promise.all([
+      const [titulos, historico, quitacoes, erpConfirmaPagamentos] = await Promise.all([
         faturas.faturasDoCliente(providerId, id.data),
         faturas.historicoDePagamentosDoCliente(providerId, id.data),
         faturas.listarQuitacoesDoCliente(providerId, id.data),
+        // Para a tela dizer "o ERP deste provedor nao confirma pagamento algum"
+        // em vez de "este cliente nao tem" — sao situacoes diferentes (0036).
+        faturas.erpConfirmaPagamentos(providerId).catch((e: unknown) => { logger.warn({ providerId, err: e }, "COBRANCA pergunta ao provedor (pagas) indisponivel"); return null; }),
       ]);
-      return res.json({ faturas: titulos, historico, quitacoes });
+      return res.json({ faturas: titulos, historico, quitacoes, erpConfirmaPagamentos });
     } catch {
       logger.error({ providerId, customerId: id.data }, "Falha ao consultar recebimentos da cobrança");
       return res.status(500).json({ message: "Não foi possível consultar os recebimentos" });

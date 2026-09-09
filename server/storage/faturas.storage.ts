@@ -1,4 +1,5 @@
 import type { CarteiraDeCobranca } from "@shared/schema";
+import { PADRAO_DE_COBRANCA_DE_SAIDA, somarCobrancaDeSaida, type CobrancaDeSaida } from "@shared/cobranca/multa";
 /**
  * As faturas do ERP, fatura a fatura, e o resumo do MES de vencimento.
  *
@@ -35,7 +36,7 @@ import type { CarteiraDeCobranca } from "@shared/schema";
  *    vencimento e toda comparacao usa a mesma forma, para que "vence em
  *    setembro" nao escorregue tres horas para agosto.
  */
-import { and, desc, eq, gte, inArray, isNotNull, lt, max, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, max, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
 import { cobrancaEventos, cobrancaNegociacoes, cobrancaParcelas, customers, invoices, users } from "@shared/schema";
 import type { FaturaAbertaDoErp, FaturaPagaDoErp } from "../erp/types";
@@ -300,6 +301,53 @@ export class FaturasStorage {
         erpSource ? eq(invoices.erpSource, erpSource) : undefined)).limit(1);
     return !!r;
   }
+  /**
+   * A COBRANCA DE SAIDA por cliente — multa contratual e equipamento nao
+   * devolvido — lida da descricao das faturas VENCIDAS em aberto. So a fatura
+   * cuja descricao fala nisso sai do banco; o parser (`parcelasDaDescricao`)
+   * decide o quanto e multa, o quanto e equipamento e o que e indeterminado.
+   * Por que: a multa e a cobranca da instalacao/equipamento que a R24 ja
+   * perde em "instalacao nao recuperada" — somar os dois e contar duas vezes.
+   */
+  async cobrancasDeSaida(providerId: number, ids: readonly number[], hoje: Date): Promise<Map<number, CobrancaDeSaida>> {
+    if (ids.length === 0) return new Map();
+    // A MESMA foto que a divida: `total_overdue_amount` e da ultima varredura,
+    // entao a fatura de saida que venceu DEPOIS dela ainda nao esta na divida —
+    // e descontar essa multa de uma divida que nao a contem zeraria a divida de
+    // servico. O corte e o menor entre hoje e o dia da varredura do cliente.
+    const corte = ts(diaDeHoje(hoje));
+    const linhas = await db.select({ customerId: invoices.customerId, valor: invoices.value, descricao: invoices.descricao })
+      .from(invoices)
+      .innerJoin(customers, eq(customers.id, invoices.customerId))
+      .where(and(
+        eq(invoices.providerId, providerId),
+        inArray(invoices.customerId, [...ids]),
+        inArray(invoices.status, [...STATUS_FATURA_ABERTA]),
+        lt(invoices.dueDate, sql`least(${corte}, date_trunc('day', coalesce(${customers.lastSyncAt}, ${corte})))`),
+        sql`${invoices.descricao} ~* ${PADRAO_DE_COBRANCA_DE_SAIDA}`,
+      ));
+    const porCliente = new Map<number, Array<{ descricao: string | null; valor: number }>>();
+    for (const l of linhas) {
+      const lista = porCliente.get(l.customerId) ?? [];
+      lista.push({ descricao: l.descricao ?? null, valor: Number(l.valor) });
+      porCliente.set(l.customerId, lista);
+    }
+    return new Map(Array.from(porCliente.entries()).map(([id, faturas]) => [id, somarCobrancaDeSaida(faturas)]));
+  }
+
+  /**
+   * O ERP deste provedor ja confirmou ALGUM pagamento (0036)? Uma linha basta
+   * e o indice parcial de `paid` responde na hora. E o que separa "este
+   * cliente nao tem paga" de "este provedor nao tem paga nenhuma" — o MK sem a
+   * API licenciada, ou a primeira carga que ninguem rodou.
+   */
+  async erpConfirmaPagamentos(providerId: number): Promise<boolean> {
+    const [r] = await db.select({ id: invoices.id }).from(invoices)
+      .where(and(eq(invoices.providerId, providerId), eq(invoices.status, "paid"), isNotNull(invoices.paidValue)))
+      .limit(1);
+    return !!r;
+  }
+
   /** Leitura em lote para o job: uma consulta por provedor, sem N+1 por caso. */
   async historicosDePagamentosDoProvedor(providerId: number, customerId?: number | readonly number[]): Promise<Map<number, HistoricoDePagamentos>> {
     // Recorte por ids (os devedores do card): lista vazia e recorte vazio.
@@ -917,8 +965,9 @@ export class FaturasStorage {
         total: sql<number>`sum(count(*)) over (partition by ${invoices.customerId})`.as("total"),
         // Do MESMO grupo (cliente, valor): baixada ou paga de outro valor nao prova este.
         baixadas: sql<number>`count(*) filter (where ${invoices.status} in ${PROVA_DE_PAGAMENTO})`.as("baixadas"),
-        // A MODA: mais repeticoes primeiro; empate, o vencimento mais novo.
-        posicao: sql<number>`row_number() over (partition by ${invoices.customerId} order by count(*) desc, max(${invoices.dueDate}) desc)`.as("posicao"),
+        // A MODA: a fatura de SAIDA (multa/equipamento) nunca concorre antes da
+        // mensalidade; depois, mais repeticoes primeiro; empate, o vencimento mais novo.
+        posicao: sql<number>`row_number() over (partition by ${invoices.customerId} order by bool_or(${invoices.descricao} ~* ${PADRAO_DE_COBRANCA_DE_SAIDA}) asc, count(*) desc, max(${invoices.dueDate}) desc)`.as("posicao"),
       })
       .from(invoices)
       .where(and(
@@ -990,6 +1039,8 @@ export class FaturasStorage {
         cortadoEm: sql<string | null>`to_char(${customers.cortadoEm}, 'YYYY-MM-DD')`,
         devemDesde: datas.devemDesde,
         ultimaFatura: datas.ultimaFatura,
+        // Por ultimo de proposito: os dubles de teste dao linhas posicionais.
+        plano: customers.contractPlan,
       })
       .from(customers)
       .leftJoin(datas, eq(datas.customerId, customers.id))
@@ -1000,6 +1051,7 @@ export class FaturasStorage {
       dividaAtual: Math.round(Number(l.dividaAtual ?? 0) * 100) / 100,
       contractStartDate: l.contractStartDate ?? null,
       cortadoEm: l.cortadoEm ?? null,
+      plano: l.plano ?? null,
       devemDesde: l.devemDesde ?? null,
       ultimaFatura: l.ultimaFatura ?? null,
     }));
@@ -1035,7 +1087,8 @@ export class FaturasStorage {
       ))
       .groupBy(invoices.value)
       // A MODA: mais repeticoes primeiro; empate, o vencimento mais novo.
-      .orderBy(desc(sql`count(*)`), desc(sql`max(${invoices.dueDate})`))
+      // A fatura de saida (multa/equipamento) por ultimo — a mesma regra do lote.
+      .orderBy(asc(sql`bool_or(${invoices.descricao} ~* ${PADRAO_DE_COBRANCA_DE_SAIDA})`), desc(sql`count(*)`), desc(sql`max(${invoices.dueDate})`))
       .limit(1);
 
     const moda = linhas[0];

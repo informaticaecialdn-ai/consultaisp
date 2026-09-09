@@ -349,3 +349,24 @@ describe("o bloco CONEXÃO", () => {
     expect(identificacao).toContain("export function formatarMac(");
   });
 });
+
+describe("o texto da cobranca de saida no card R24 (multa/equipamento fora do prejuizo)", () => {
+  const semNbsp2 = (t: string) => t.replace(/\u00a0/g, " ");
+  it("nomeia o que existe — multa, equipamento ou os dois — e a razao vale em qualquer regime", async () => {
+    const { textoDaCobrancaDeSaida } = await import("./cliente360");
+    expect(semNbsp2(textoDaCobrancaDeSaida({ multaForaDoPrejuizo: 600, multasIndeterminadas: 0, multa: 600, equipamento: 0 }).linha ?? "")).toBe("multa R$ 600,00 cobrada à parte não entra no prejuízo — o equipamento já está no investimento que a Economia cobra");
+    expect(semNbsp2(textoDaCobrancaDeSaida({ multaForaDoPrejuizo: 800, multasIndeterminadas: 0, multa: 0, equipamento: 800 }).linha ?? "")).toBe("equipamento R$ 800,00 cobrado à parte não entra no prejuízo — o equipamento já está no investimento que a Economia cobra");
+    expect(semNbsp2(textoDaCobrancaDeSaida({ multaForaDoPrejuizo: 1400, multasIndeterminadas: 0, multa: 600, equipamento: 800 }).linha ?? "")).toBe("multa e equipamento R$ 1.400,00 cobrados à parte não entram no prejuízo — o equipamento já está no investimento que a Economia cobra");
+    expect(textoDaCobrancaDeSaida({ multaForaDoPrejuizo: 600, multasIndeterminadas: 0, multa: 600, equipamento: 0 }).rotuloSaldo).toBe("Saldo devedor · sem multa");
+    expect(textoDaCobrancaDeSaida({ multaForaDoPrejuizo: 0, multasIndeterminadas: 0 })).toEqual({ linha: null, rotuloSaldo: "Saldo devedor", indeterminadas: null });
+    expect(textoDaCobrancaDeSaida({ multaForaDoPrejuizo: 0, multasIndeterminadas: 1 }).indeterminadas).toBe("1 fatura mistura multa e mensalidade sem dizer os valores: contada como dívida");
+    expect(textoDaCobrancaDeSaida({ multaForaDoPrejuizo: 0, multasIndeterminadas: 3 }).indeterminadas).toBe("3 faturas misturam multa e mensalidade sem dizer os valores: contadas como dívida");
+  });
+  it("a linha da multa fica FORA do gate da Economia, e a remontagem ao vivo leva o historico e o plano da varredura", () => {
+    const fonte = ler("./cliente360.tsx");
+    expect(fonte).toMatch(/\{saida\.linha && \(/);
+    expect(fonte).not.toMatch(/economia && multaForaDoPrejuizo > 0 &&/);
+    expect(fonte).toMatch(/historicoPagamento: historicoParaEconomia\(data\.historicoPagamentos \?\? null\)/);
+    expect(fonte).toMatch(/plano: vivo\.plano \?\? data\.fichaEntrada\.plano/);
+  });
+});

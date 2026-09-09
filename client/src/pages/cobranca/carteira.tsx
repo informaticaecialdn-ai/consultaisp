@@ -241,6 +241,8 @@ export interface LinhasDoPrejuizo {
   real: { rotulo: string; valor: string; sub: string };
   instalacao: { valor: string; sub: string } | null;
   abatida: string | null;
+  /** Multa e equipamento cobrados à parte — fora do prejuízo (a instalação não recuperada já é essa perda). */
+  multa: string | null;
   semData: string | null;
   /** Por que houve traço/cobertura parcial, na ordem de quem mais barrou. */
   motivos: string[];
@@ -267,7 +269,7 @@ export function linhasDoPrejuizo(dados: RespostaDoPrejuizo | undefined, espaco: 
       // O motivo completo vai na linha própria da faixa; aqui só o resumo.
       sub: dados ? "sem fatura do ERP" : "Lendo a base…",
       real: { rotulo: espaco === "ativos" ? "dívida vencida" : "dívida deixada", valor: TRACO, sub: "segundo o ERP" },
-      instalacao: null, abatida: null, semData: null, motivos: [], acao: null, titulo,
+      instalacao: null, abatida: null, multa: null, semData: null, motivos: [], acao: null, titulo,
     };
   }
   const r = dados.resumo;
@@ -297,6 +299,12 @@ export function linhasDoPrejuizo(dados: RespostaDoPrejuizo | undefined, espaco: 
       sub: `instalação e aquisição não recuperadas · ${num(r.avaliados)} avaliados`,
     },
     abatida: r.abatida > 0 ? `margem já acumulada abate ${brl(r.abatida)}` : null,
+    multa: r.multaForaDoPrejuizo > 0 || r.multasIndeterminadas > 0
+      ? [
+          r.multaForaDoPrejuizo > 0 ? `multa e equipamento ${brl(r.multaForaDoPrejuizo)} cobrados à parte não entram no prejuízo — o equipamento já está no investimento que a Economia cobra` : null,
+          r.multasIndeterminadas > 0 ? `${num(r.multasIndeterminadas)} fatura${r.multasIndeterminadas === 1 ? "" : "s"} mistura${r.multasIndeterminadas === 1 ? "" : "m"} multa e mensalidade sem valores: contada${r.multasIndeterminadas === 1 ? "" : "s"} como dívida` : null,
+        ].filter(Boolean).join(" · ")
+      : null,
     semData: r.semData.clientes > 0 ? `${num(r.semData.clientes)} sem fatura vencida gravada ficam fora de qualquer período · ${brl(r.semData.divida)}` : null,
     motivos,
     acao,
@@ -380,6 +388,9 @@ function FaixaDePrejuizo({ espaco, periodo, onPeriodo, ligado, onLigar, dados, c
             <b className="font-mono tabular-nums text-[var(--text-2)]">{linhas.instalacao.valor}</b> {linhas.instalacao.sub}
             {linhas.abatida && <> · {linhas.abatida}</>}
           </span>
+        )}
+        {linhas.multa && (
+          <span className="mt-1 block text-[10.5px] text-[var(--text-muted)]" data-testid="prejuizo-multa">{linhas.multa}</span>
         )}
         {linhas.motivos.length > 0 && (
           <span className="mt-1 block text-[10.5px] text-[var(--text-faint)]" data-testid="prejuizo-motivos">{linhas.motivos.join(" · ")}</span>

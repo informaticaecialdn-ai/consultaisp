@@ -70,6 +70,9 @@ const storageMock = vi.hoisted(() => ({
   mensalidadeDoCliente: vi.fn(async (): Promise<any> => null),
   mensalidadesDoProvedor: vi.fn(async (): Promise<any> => new Map()),
   historicosDePagamentosDoProvedor: vi.fn(async (): Promise<any> => new Map()),
+  erpConfirmaPagamentos: vi.fn(async (): Promise<any> => true),
+  cobrancasDeSaida: vi.fn(async (): Promise<any> => new Map()),
+  getErpIntegracoesResumo: vi.fn(async (): Promise<any> => [{ erpSource: "ixc", isEnabled: true }]),
   devedoresComVencimento: vi.fn(async (): Promise<any[]> => []),
   baseDeFaturas: vi.fn(async (): Promise<any> => ({ total: 0, atualizadoEm: null })),
   coberturaDaMensalidade: vi.fn(async (): Promise<any> => ({ ativos: 0, comMensalidade: 0, comDataDeContrato: 0 })),
@@ -413,6 +416,121 @@ describe("GET /360 — o pagamento REAL do ERP entra na Economia (0036)", () => 
     storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
     const body = await (await json("GET", "/api/cobranca/clientes/1/360")).json();
     expect(body.pendentes.find((x: any) => x.campo === "historicoPagamento")?.motivo).toMatch(/nenhuma fatura paga sincronizada/);
+  });
+});
+
+describe("a multa de cancelamento sai da dívida da Economia — no 360 e no card (dono, 09/09/2026)", () => {
+  const politicaComCustos = () => ({
+    id: 1, providerId: 42, ...POLITICA_PADRAO, updatedAt: new Date("2026-09-05T12:00:00Z"),
+    economia: { ...POLITICA_PADRAO.economia, cac: 120, capexInstalacao: 650, opexLink: 15, opexRedePop: 10, opexSuporte: 10, opexManutencaoNoc: 10, impostoReceitaPct: 8, cicloMeses: 36, confirmado: false },
+  });
+  it("360: a cobrança de saída do cliente vai na entrada da ficha, o ledger vê só a dívida de serviço e a ficha diz quanto ficou de fora", async () => {
+    sessao = OPERADOR;
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce(politicaComCustos());
+    storageMock.mensalidadeDoCliente.mockResolvedValueOnce({ valor: 89.9, concordam: 3, faturas: 4, maisRecente: null, baixadas: 2 });
+    storageMock.cobrancasDeSaida.mockResolvedValueOnce(new Map([[1, { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1 }]]));
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, totalOverdueAmount: "719.86", contractStartDate: "2026-07-05" }]);
+    const body = await (await json("GET", "/api/cobranca/clientes/1/360")).json();
+    expect(storageMock.cobrancasDeSaida).toHaveBeenCalledWith(42, [1], expect.any(Date));
+    expect(body.fichaEntrada.cobrancaDeSaida).toEqual({ multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1 });
+    expect(body.ficha.economia?.inadimplencia_aberta).toBe(119.86);
+    expect(body.ficha.multaForaDoPrejuizo).toBe(600);
+  });
+  it("360: se a leitura das faturas falhar, nada é excluído — a ficha abre como sempre", async () => {
+    sessao = OPERADOR;
+    storageMock.cobrancasDeSaida.mockRejectedValueOnce(new Error("banco fora"));
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
+    const res = await json("GET", "/api/cobranca/clientes/1/360");
+    expect(res.status).toBe(200);
+    expect((await res.json()).ficha.multaForaDoPrejuizo).toBe(0);
+  });
+  it("card: se a leitura das faturas falhar, nada é excluído e o card responde 200 — igual ao 360", async () => {
+    sessao = OPERADOR;
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce(politicaComCustos());
+    storageMock.devedoresComVencimento.mockResolvedValueOnce([
+      { id: 1, statusErp: "active", dividaAtual: 719.86, contractStartDate: "2026-07-05", cortadoEm: null, devemDesde: "2026-08-05", ultimaFatura: "2026-08-05", plano: null },
+    ]);
+    storageMock.mensalidadesDoProvedor.mockResolvedValueOnce(new Map([[1, { valor: 89.9, concordam: 2, faturas: 2, baixadas: 0 }]]));
+    storageMock.cobrancasDeSaida.mockRejectedValueOnce(new Error("banco fora"));
+    const res = await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ativo&periodo=2026-T3");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.resumo.dividaAvaliada).toBe(719.86);
+    expect(body.resumo.multaForaDoPrejuizo).toBe(0);
+  });
+  it("card: o ERP não confirma pagamento e a fonte é a da integração LIGADA — lida do resumo, sem decifrar credencial", async () => {
+    sessao = OPERADOR;
+    storageMock.erpConfirmaPagamentos.mockResolvedValueOnce(false);
+    storageMock.getErpIntegracoesResumo.mockResolvedValueOnce([{ erpSource: "ixc", isEnabled: false }, { erpSource: "mk", isEnabled: true }]);
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce(politicaComCustos());
+    storageMock.devedoresComVencimento.mockResolvedValueOnce([
+      { id: 1, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-08-05", ultimaFatura: "2026-08-05", plano: null },
+    ]);
+    storageMock.mensalidadesDoProvedor.mockResolvedValueOnce(new Map([[1, { valor: 89.9, concordam: 6, faturas: 6, baixadas: 6 }]]));
+    const body = await (await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ex_cliente&periodo=2026-T3")).json();
+    expect(body.resumo.motivosDoTraco[0]?.motivo).toMatch(/o MK ainda não entregou nenhuma fatura paga/);
+    expect(storageMock.getErpIntegracoesResumo).toHaveBeenCalledWith(42);
+  });
+  it("card: as cobranças de saída dos devedores do recorte entram na soma, e o resumo diz o total que ficou de fora", async () => {
+    sessao = OPERADOR;
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce(politicaComCustos());
+    storageMock.devedoresComVencimento.mockResolvedValueOnce([
+      { id: 1, statusErp: "active", dividaAtual: 719.86, contractStartDate: "2026-07-05", cortadoEm: null, devemDesde: "2026-08-05", ultimaFatura: "2026-08-05", plano: null },
+    ]);
+    storageMock.mensalidadesDoProvedor.mockResolvedValueOnce(new Map([[1, { valor: 89.9, concordam: 2, faturas: 2, baixadas: 0 }]]));
+    storageMock.cobrancasDeSaida.mockResolvedValueOnce(new Map([[1, { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1 }]]));
+    const body = await (await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ativo&periodo=2026-T3")).json();
+    expect(storageMock.cobrancasDeSaida).toHaveBeenCalledWith(42, [1], expect.any(Date));
+    expect(body.resumo.avaliados).toBe(1);
+    expect(body.resumo.dividaAvaliada).toBe(119.86);
+    expect(body.resumo.dividaDoRecorte).toBe(719.86);
+    expect(body.resumo.multaForaDoPrejuizo).toBe(600);
+  });
+});
+
+describe("GET /360 — quando o ERP do provedor nunca confirmou pagamento, o motivo é do provedor (0036)", () => {
+  it("NsLink (MK sem a API licenciada): a ficha e o pendente culpam o MK; o plano gravado pela 0036 entra e sai da lista de pendentes", async () => {
+    sessao = OPERADOR;
+    storageMock.erpConfirmaPagamentos.mockResolvedValueOnce(false);
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled", erpSource: "mk", contractPlan: "Smart 800MB + Watch Tv" }]);
+    const body = await (await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente")).json();
+    expect(body.ficha.economiaPendente).toMatch(/o MK ainda não entregou nenhuma fatura paga/);
+    expect(body.pendentes.find((x: any) => x.campo === "historicoPagamento")?.motivo).toMatch(/MK Solutions/);
+    expect(body.fichaEntrada.plano).toBe("Smart 800MB + Watch Tv");
+    expect(body.cliente.plano).toBe("Smart 800MB + Watch Tv");
+    expect(body.pendentes.map((x: any) => x.campo)).not.toContain("plano");
+  });
+  it("provedor com pagas na base: o ex-cliente sem paga leva o motivo do cliente, e sem plano o pendente explica", async () => {
+    sessao = OPERADOR;
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled" }]);
+    const body = await (await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente")).json();
+    expect(body.ficha.economiaPendente).toMatch(/ex-cliente sem histórico/);
+    expect(body.pendentes.find((x: any) => x.campo === "plano")?.motivo).toMatch(/nao informou o plano/);
+  });
+  it("a falha da pergunta ao provedor nao derruba o 360: motivo de sempre", async () => {
+    sessao = OPERADOR;
+    storageMock.erpConfirmaPagamentos.mockRejectedValueOnce(new Error("banco fora"));
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled", erpSource: "mk" }]);
+    const res = await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente");
+    expect(res.status).toBe(200);
+    expect((await res.json()).ficha.economiaPendente).toMatch(/ex-cliente sem histórico/);
+  });
+  it("o card do prejuízo pergunta ao provedor e passa a fonte da integração ligada", async () => {
+    sessao = OPERADOR;
+    storageMock.erpConfirmaPagamentos.mockResolvedValueOnce(false);
+    storageMock.getErpIntegracoesResumo.mockResolvedValueOnce([{ erpSource: "ixc", isEnabled: false }, { erpSource: "mk", isEnabled: true }]);
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce({
+      id: 1, providerId: 42, ...POLITICA_PADRAO, updatedAt: new Date("2026-09-05T12:00:00Z"),
+      economia: { ...POLITICA_PADRAO.economia, cac: 120, capexInstalacao: 650, opexLink: 15, opexRedePop: 10, opexSuporte: 10, opexManutencaoNoc: 10, impostoReceitaPct: 8, cicloMeses: 36, confirmado: false },
+    });
+    storageMock.devedoresComVencimento.mockResolvedValueOnce([
+      { id: 1, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-02-05", ultimaFatura: "2026-02-05", plano: null },
+    ]);
+    storageMock.mensalidadesDoProvedor.mockResolvedValueOnce(new Map([[1, { valor: 89.9, concordam: 6, faturas: 6, baixadas: 6 }]]));
+    const body = await (await json("GET", "/api/cobranca/carteira/prejuizo?carteira=ex_cliente&periodo=2026-T1")).json();
+    expect(body.resumo.avaliados).toBe(0);
+    expect(body.resumo.motivosDoTraco[0]?.motivo).toMatch(/MK Solutions/);
+    expect(storageMock.erpConfirmaPagamentos).toHaveBeenCalledWith(42);
   });
 });
 

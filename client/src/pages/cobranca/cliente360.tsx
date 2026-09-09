@@ -21,6 +21,7 @@
  * mesmo `montarFicha360` do servidor — uma fórmula, dois lugares.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { historicoParaEconomia } from "@shared/cobranca/historico-pagamentos";
 import { decomporPrejuizo } from "@shared/cobranca/prejuizo";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearch } from "wouter";
@@ -253,9 +254,12 @@ function FichaDaCarteira() {
       statusErp: vivo.statusContrato ?? data.fichaEntrada.statusErp,
       contractStartDate: data.fichaEntrada.contractStartDate ?? vivo.contractStartDate,
       cortadoEm: data.fichaEntrada.cortadoEm ?? vivo.cortadoEm,
-      plano: vivo.plano,
+      // O ERP ao vivo ganha quando responde; sem plano nele, fica o da varredura (0036).
+      plano: vivo.plano ?? data.fichaEntrada.plano,
       economia: politica?.economia ?? null,
-      historicoPagamento: null,
+      // O historico REAL (0036) viaja na resposta: zera-lo aqui devolvia o
+      // ex-cliente com pagas ao texto antigo assim que o ERP ao vivo respondia.
+      historicoPagamento: historicoParaEconomia(data.historicoPagamentos ?? null),
     });
   }, [data, vivo, politica, hoje]);
 
@@ -433,7 +437,7 @@ function FichaDaCarteira() {
               <ScoreMini score={ficha.scores.credito} band={ficha.scores.credito_band} />
 
               {/* 1c · Economia do cliente · R24 */}
-              <EconomiaMini economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} />
+              <EconomiaMini economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} multaForaDoPrejuizo={ficha?.multaForaDoPrejuizo ?? 0} multasIndeterminadas={ficha?.multasIndeterminadas ?? 0} cobrancaDeSaida={data?.fichaEntrada?.cobrancaDeSaida ?? null} />
             </div>
 
             {/* 1d · Endereço */}
@@ -739,14 +743,39 @@ function ScoreMini({ score, band }: { score: number | null; band: string | null 
   );
 }
 
-function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, origem }: {
+/**
+ * O que a tela diz sobre a cobranca de saida (multa/equipamento) — funcao pura,
+ * testada em cliente360.test.ts. O rotulo escolhe "multa", "equipamento" ou os
+ * dois pelo que EXISTE; a razao nao pressupoe prejuizo calculado (vale com lucro,
+ * depois do payback e com a Economia pendente — o dono ve a multa do 13521 mesmo
+ * sem Economia).
+ */
+export function textoDaCobrancaDeSaida(e: { multaForaDoPrejuizo: number; multasIndeterminadas: number; multa?: number; equipamento?: number }): { linha: string | null; rotuloSaldo: string; indeterminadas: string | null } {
+  const temMulta = (e.multa ?? 0) > 0, temEquip = (e.equipamento ?? 0) > 0;
+  const nome = temMulta && !temEquip ? "multa" : temEquip && !temMulta ? "equipamento" : "multa e equipamento";
+  const verbo = nome === "multa e equipamento" ? "cobrados" : nome === "multa" ? "cobrada" : "cobrado";
+  const n = e.multasIndeterminadas;
+  return {
+    linha: e.multaForaDoPrejuizo > 0 ? `${nome} ${money(e.multaForaDoPrejuizo)} ${verbo} à parte não ${nome === "multa e equipamento" ? "entram" : "entra"} no prejuízo — o equipamento já está no investimento que a Economia cobra` : null,
+    rotuloSaldo: e.multaForaDoPrejuizo > 0 ? `Saldo devedor · sem ${nome}` : "Saldo devedor",
+    indeterminadas: n > 0 ? `${n} fatura${n === 1 ? "" : "s"} mistura${n === 1 ? "" : "m"} multa e mensalidade sem dizer os valores: contada${n === 1 ? "" : "s"} como dívida` : null,
+  };
+}
+
+function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, origem, multaForaDoPrejuizo = 0, multasIndeterminadas = 0, cobrancaDeSaida = null }: {
   economia: EconomiaLedger | null; pendente: string | null; exCliente: boolean; confirmado: boolean;
+  /** Multa e equipamento cobrados a parte — tirados da divida antes do prejuizo. */
+  multaForaDoPrejuizo?: number;
+  multasIndeterminadas?: number;
+  /** A leitura das faturas (fichaEntrada), so para o rotulo dizer se e multa, equipamento ou os dois. */
+  cobrancaDeSaida?: { multa: number; equipamento: number } | null;
   /** A mensalidade, que EXISTE antes dos custos — e por isso aparece antes deles. */
   valorMensal: number | null;
   origem: "plano_cadastrado" | "faturas_do_erp" | null;
 }) {
   // Contrato ENCERRADO com pagamento real: a Economia e o resultado, nao a projecao.
   const contratoEncerrado = !!economia && economia.ciclo_encerrado && economia.fonte_receita === "recebida";
+  const saida = textoDaCobrancaDeSaida({ multaForaDoPrejuizo, multasIndeterminadas, multa: cobrancaDeSaida?.multa, equipamento: cobrancaDeSaida?.equipamento });
   const kpis: Array<{ k: string; v: string; cor?: string }> = economia
     ? [
         { k: "MRR", v: money(economia.arpu) },
@@ -778,7 +807,7 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
       {contratoEncerrado && (
         <div className={cn(NUM, "mt-1.5 grid grid-cols-3 gap-x-3 text-[11px]")} data-testid="economia-resultado-contrato">
           <span title="Σ do valor pago das faturas que o ERP confirmou"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Recebido</span>{money(economia!.receita_recebida ?? 0)}</span>
-          <span title="Fatura vencida em aberto, segundo o ERP"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Saldo devedor</span><b style={{ color: economia!.inadimplencia_aberta > 0 ? "var(--money-neg)" : undefined }}>{money(economia!.inadimplencia_aberta)}</b></span>
+          <span title={multaForaDoPrejuizo > 0 ? `Fatura vencida em aberto, segundo o ERP, sem os ${money(multaForaDoPrejuizo)} de multa/equipamento cobrados à parte` : "Fatura vencida em aberto, segundo o ERP"}><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">{saida.rotuloSaldo}</span><b style={{ color: economia!.inadimplencia_aberta > 0 ? "var(--money-neg)" : undefined }}>{money(economia!.inadimplencia_aberta)}</b></span>
           <span title="Mês em que a margem acumulada paga o investimento (CAC + instalação)"><span className="block text-[9.5px] uppercase text-[var(--text-muted)]">Ponto de equilíbrio</span>
             {economia!.payback_meses === null ? "nunca" : `mês ${economia!.payback_meses}${economia!.mes_atual >= economia!.payback_meses ? " ✓" : " · não atingido"}`}
           </span>
@@ -790,10 +819,24 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
         const d = decomporPrejuizo(economia, economia.inadimplencia_aberta);
         return (
           <p className={cn(NUM, "mt-0.5 text-[11px] text-[var(--text-muted)]")} data-testid="economia-prejuizo">
-            prejuízo <b className="text-[var(--money-neg)]">{money(d.prejuizo)}</b> = dívida {money(d.dividaAvaliada)} + instalação não recuperada {money(d.instalacaoNaoRecuperada)}{d.abatida > 0 ? ` − abatida ${money(d.abatida)}` : ""}
+            {economia.fonte_receita === "recebida"
+              ? <>prejuízo <b className="text-[var(--money-neg)]">{money(d.prejuizo)}</b> = investimento não recuperado pelo que foi pago · saldo devedor de serviço {money(d.dividaAvaliada)} à parte</>
+              : <>prejuízo <b className="text-[var(--money-neg)]">{money(d.prejuizo)}</b> = dívida {money(d.dividaAvaliada)} + instalação não recuperada {money(d.instalacaoNaoRecuperada)}{d.abatida > 0 ? ` − abatida ${money(d.abatida)}` : ""}</>}
           </p>
         );
       })()}
+      {/* A multa de cancelamento e o equipamento cobrados na fatura de saida nao
+          entram no prejuizo: a instalacao nao recuperada ja e essa perda, e somar
+          os dois conta o mesmo equipamento duas vezes (dono, 09/09/2026). */}
+      {/* Fora do gate da Economia de proposito: o ex-cliente da NsLink (MK sem
+          paga) tem a multa lida e a Economia PENDENTE — a divida dele tem de
+          ser explicada mesmo assim. */}
+      {saida.linha && (
+        <p className={cn(NUM, "mt-0.5 text-[11px] text-[var(--text-muted)]")} data-testid="economia-multa">{saida.linha}</p>
+      )}
+      {saida.indeterminadas && (
+        <p className="mt-0.5 text-[11px] text-[var(--gated)]" data-testid="economia-multa-indeterminada">{saida.indeterminadas}</p>
+      )}
       {!economia && pendente && <p className="mt-1"><Pendente motivo={pendente} ext={exCliente ? undefined : "R24"} /></p>}
       {economia && !confirmado && <p className="mt-1"><SeloCobranca tom="gated" className="normal-case tracking-normal"><Sparkles className="h-3 w-3" aria-hidden /> ≈ parâmetros padrão</SeloCobranca></p>}
       <div className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1.5 border-t border-[var(--border)] pt-2">

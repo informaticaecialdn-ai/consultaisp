@@ -669,6 +669,17 @@ meses. Junto: `customers.contract_plan` (o plano que o ERP informa) e
 Com paga confirmada a Economia do 360 sai REALIZADA e a do ex-cliente vira o
 "Resultado do contrato". Ver `docs/faturas-pagas-0036-2026-09-09.md`.
 
+**Multa de cancelamento NÃO é prejuízo (dono, 09/09/2026):** a multa e o
+equipamento cobrados na fatura de saída são a cobrança da instalação que a R24
+já perde em "instalação não recuperada" — somar os dois conta duas vezes.
+`shared/cobranca/multa.ts` lê a descrição da fatura vencida ("Proporcional 40
+dias + multa 600,00 + equipamento 800,00"; NG: "referente a multa de rescisão")
+e `dividaParaEconomia` tira isso da dívida do ledger; mistura sem valores fica
+como dívida e a tela avisa; "multa" de mora (juros/atraso) não é saída; a fatura
+de saída nunca concorre à moda da mensalidade. Sem UMA fatura `paid` na base do provedor
+(`erpConfirmaPagamentos`), o motivo do traço do ex-cliente é do PROVEDOR (MK sem
+a API licenciada), não do cliente.
+
 ### Chat, agentes e assistente autônomo (requireAuth + requireProvider)
 O atendimento vive DENTRO do sistema: `/cobranca/chat` e `/equipamentos/chat`, a
 conversa no Cliente 360 e no card de retirada. O Chat BullQ é o transporte e o

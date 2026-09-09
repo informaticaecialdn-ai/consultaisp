@@ -15,6 +15,7 @@
  */
 import { custosInformados, type Economia } from "./politica";
 import { computeEconomiaLedger, mesesEntre, precoDoPlano, type EconomiaLedger } from "./economia";
+import type { CobrancaDeSaida } from "./multa";
 import {
   anosDeCliente, classificarSeloPagamento, computeHealthScore, computePropensao, deriveFinancialScore, deriveRelationshipScore,
   deriveTechnicalScore, prescricaoPorAtraso, resumoExecutivo, situacaoRealDe,
@@ -40,6 +41,23 @@ export interface EntradaDaFicha360 {
    */
   ultimaFaturaEmitidaEm?: string | Date | null;
   plano: string | null;
+  /**
+   * O ERP deste provedor ja confirmou ALGUM pagamento (0036)? `false` = nao ha
+   * UMA fatura paga sincronizada na base inteira do provedor — e ai o motivo
+   * do traco e do provedor (MK sem a API licenciada, primeira carga nao
+   * rodada), nao do cliente. Ausente/null = desconhecido: vale o texto antigo.
+   */
+  erpConfirmaPagamentos?: boolean | null;
+  /** A fonte do ERP (mk, ixc, sgp…), so para o motivo dizer QUAL API falta. */
+  erpSource?: string | null;
+  /**
+   * O que, dentro da divida, e COBRANCA DE SAIDA — multa contratual e
+   * equipamento nao devolvido — lido da descricao das faturas vencidas
+   * (`parcelasDaDescricao`). Nao entra no prejuizo: a "instalacao nao
+   * recuperada" da R24 ja e essa perda, e somar os dois conta o mesmo
+   * equipamento duas vezes (dono, 09/09/2026: "esta somando 2x o mesmo valor").
+   */
+  cobrancaDeSaida?: CobrancaDeSaida | null;
   ispScore: number | null;
   riskTier: string | null;
   dividaAtual: number;
@@ -98,6 +116,10 @@ export interface Ficha360 {
    * `null` quando não há mensalidade nenhuma.
    */
   origemDoValorMensal: "plano_cadastrado" | "faturas_do_erp" | null;
+  /** Multa e equipamento cobrados a parte — fora do prejuizo (a instalacao nao recuperada ja e essa perda). */
+  multaForaDoPrejuizo: number;
+  /** Faturas que misturam multa e mensalidade sem valores — contadas como divida. */
+  multasIndeterminadas: number;
   resumo: string | null;
 }
 
@@ -112,7 +134,36 @@ function dataOuNull(v: string | Date | null): Date | null {
 /** O que a Economia precisa da ficha — o subconjunto que o card de prejuízo também tem por linha. */
 export type EntradaDaEconomia = Pick<EntradaDaFicha360,
   "hoje" | "statusErp" | "carteira" | "contractStartDate" | "cortadoEm" | "ultimaFaturaEmitidaEm" | "plano"
-  | "dividaAtual" | "economia" | "mensalidadeObservada" | "historicoPagamento">;
+  | "dividaAtual" | "economia" | "mensalidadeObservada" | "historicoPagamento" | "erpConfirmaPagamentos" | "erpSource" | "cobrancaDeSaida">;
+
+const centavos = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * A divida que a Economia ve: a do ERP MENOS a multa e o equipamento cobrados
+ * a parte. Devolve tambem quanto ficou de fora, para a tela dizer.
+ */
+export function dividaParaEconomia(dividaAtual: number, saida: CobrancaDeSaida | null | undefined): { dividaDeServico: number; multaForaDoPrejuizo: number } {
+  const divida = Number.isFinite(dividaAtual) ? Math.max(0, dividaAtual) : 0;
+  const cobrado = saida ? Math.max(0, (Number(saida.multa) || 0) + (Number(saida.equipamento) || 0)) : 0;
+  const multaForaDoPrejuizo = centavos(Math.min(divida, cobrado));
+  return { dividaDeServico: centavos(divida - multaForaDoPrejuizo), multaForaDoPrejuizo };
+}
+
+/**
+ * Por que este ex-cliente nao tem historico de pagamento: culpa do PROVEDOR
+ * (o ERP nunca entregou fatura paga nenhuma) ou do cliente (o ERP entrega, e
+ * ele nao tem). O texto antigo culpava sempre o cliente — e na NsLink, onde o
+ * MK ainda nao libera a API de faturas, isso mandava o operador procurar um
+ * pagamento que o sistema nem tem como ver (print do dono, 09/09/2026).
+ */
+export function motivoSemHistorico(e: Pick<EntradaDaEconomia, "erpConfirmaPagamentos" | "erpSource">): string {
+  if (e.erpConfirmaPagamentos === false) {
+    return (e.erpSource ?? "").toLowerCase() === "mk"
+      ? "o MK ainda não entregou nenhuma fatura paga ao Consulta ISP — a API de faturas pagas (WSMKFaturas) é licenciada à parte pela MK Solutions; sem pagamento confirmado não há resultado do contrato"
+      : "o ERP deste provedor ainda não entregou nenhuma fatura paga ao Consulta ISP — sem pagamento confirmado não há resultado do contrato";
+  }
+  return "ex-cliente sem histórico de pagamento sincronizado — a economia realizada é a soma dos pagamentos reais, não fórmula";
+}
 
 export interface EconomiaDoCliente {
   situacaoReal: Ficha360["situacaoReal"];
@@ -124,6 +175,10 @@ export interface EconomiaDoCliente {
   origemDoValorMensal: Ficha360["origemDoValorMensal"];
   economia: EconomiaLedger | null;
   economiaPendente: string | null;
+  /** Multa e equipamento cobrados a parte, tirados da divida que entra no prejuizo. */
+  multaForaDoPrejuizo: number;
+  /** Faturas que misturam multa e mensalidade sem valores — ficaram como divida. */
+  multasIndeterminadas: number;
 }
 
 /**
@@ -150,12 +205,18 @@ export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
   // Preço cadastrado primeiro (o admin mandou), mensalidade observada depois.
   const precoCadastrado = precoDoPlano(e.economia?.precoPorPlano, e.plano);
   const obs = e.mensalidadeObservada ?? null;
-  const observadaConfiavel = !!obs && obs.valor > 0 && (cicloVivo || (obs.concordam >= 2 && (obs.baixadas ?? 0) >= 1));
+  // A unica fatura do cliente e a de SAIDA (multa/equipamento)? Entao a moda e
+  // ela, e R$ 719,86 viraria "MRR" — a ficha mesma diz que R$ 600 disso e multa.
+  const saida = e.cobrancaDeSaida ?? null;
+  const soFaturaDeSaida = !!obs && obs.faturas <= 1 && !!saida && (saida.multa + saida.equipamento > 0 || saida.indeterminadas > 0);
+  const observadaConfiavel = !!obs && obs.valor > 0 && !soFaturaDeSaida && (cicloVivo || (obs.concordam >= 2 && (obs.baixadas ?? 0) >= 1));
   const observada = observadaConfiavel ? obs!.valor : null;
   // Dois jeitos de a observada NÃO valer para ex-cliente, com motivos distintos:
   // uma fatura só (é o saldo) ou várias iguais que ninguém pagou (sem prova).
   const recusada = !!obs && obs.valor > 0 && !observadaConfiavel;
   const motivoDaRecusa = !recusada ? null
+    : soFaturaDeSaida
+      ? "sem mensalidade: a única fatura aberta é a de saída (multa/equipamento), não a mensalidade"
     : obs!.concordam >= 2
       ? `sem mensalidade confirmada: ${obs!.concordam} faturas iguais e nenhuma paga ou baixada no ERP — sem prova de pagamento, o valor não vira mensalidade`
       : "sem mensalidade: a única fatura aberta deste ex-cliente é o saldo final, não a mensalidade";
@@ -163,12 +224,17 @@ export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
   const origemDoValorMensal: Ficha360["origemDoValorMensal"] =
     precoCadastrado !== null ? "plano_cadastrado" : observada !== null ? "faturas_do_erp" : null;
 
+  // A multa de cancelamento e o equipamento cobrados na fatura de saida NAO
+  // sao divida para a Economia: a instalacao nao recuperada ja e essa perda.
+  const { dividaDeServico, multaForaDoPrejuizo } = dividaParaEconomia(e.dividaAtual, e.cobrancaDeSaida);
+  const multasIndeterminadas = e.cobrancaDeSaida?.indeterminadas ?? 0;
+
   let economia: EconomiaLedger | null = null;
   let economiaPendente: string | null = null;
   if (!e.economia) {
     economiaPendente = "sem parâmetros de custo do provedor (Política > Economia)";
   } else if (situacaoReal === "ex-cliente" && !e.historicoPagamento) {
-    economiaPendente = "ex-cliente sem histórico de pagamento sincronizado — a economia realizada é a soma dos pagamentos reais, não fórmula";
+    economiaPendente = motivoSemHistorico(e);
   } else if (!cicloVivo && !e.historicoPagamento) {
     economiaPendente = "cliente sem contrato ativo (cancelado no ERP) — ciclo encerrado; nenhum número de assinatura é projetado";
   } else if (valorMensal === null) {
@@ -205,15 +271,15 @@ export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
       mesAtual: mesesCliente,
       cicloVivo,
       receitaRecebida: e.historicoPagamento ? e.historicoPagamento.recebido : null,
-      inadimplenciaAberta: e.dividaAtual,
+      inadimplenciaAberta: dividaDeServico,
     });
   }
 
-  return { situacaoReal, cicloVivo, fim, mesesCliente, valorMensal, origemDoValorMensal, economia, economiaPendente };
+  return { situacaoReal, cicloVivo, fim, mesesCliente, valorMensal, origemDoValorMensal, economia, economiaPendente, multaForaDoPrejuizo, multasIndeterminadas };
 }
 
 export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
-  const { situacaoReal, fim, mesesCliente, valorMensal, origemDoValorMensal, economia, economiaPendente } = economiaDoCliente(e);
+  const { situacaoReal, fim, mesesCliente, valorMensal, origemDoValorMensal, economia, economiaPendente, multaForaDoPrejuizo, multasIndeterminadas } = economiaDoCliente(e);
   const anosCliente = anosDeCliente(e.contractStartDate, fim);
   const faturasAbertas = e.faturasAbertas ?? (e.dividaAtual > 0 ? 1 : 0);
 
@@ -278,6 +344,8 @@ export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
     economia,
     economiaPendente,
     origemDoValorMensal,
+    multaForaDoPrejuizo,
+    multasIndeterminadas,
     resumo,
   };
 }

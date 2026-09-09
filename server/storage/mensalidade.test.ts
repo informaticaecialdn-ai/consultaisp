@@ -76,7 +76,8 @@ describe("mensalidadeDoCliente", () => {
     const c = banco.consultas[0];
     // Agrupa por valor e ordena por contagem — é isso que é a moda.
     expect(c.sql).toContain('group by "invoices"."value"');
-    expect(c.sql).toMatch(/order by count\(\*\) desc/);
+    // A fatura de saida (multa/equipamento) nunca concorre antes da mensalidade (09/09/2026).
+    expect(c.sql).toMatch(/order by bool_or\((?:"invoices"\.)?"descricao" ~\* \$\d+\) asc, count\(\*\) desc/);
     // Empate na contagem: vence o vencimento mais novo.
     expect(c.sql).toMatch(/max\("invoices"\."due_date"\) desc/);
     expect(c.sql).toContain("limit");

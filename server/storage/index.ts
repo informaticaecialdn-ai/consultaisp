@@ -364,6 +364,10 @@ export interface IStorage {
   baseDeFaturas(providerId: number): Promise<{ total: number; atualizadoEm: Date | null }>;
   upsertFaturasPagasDoErp(...args: Parameters<FaturasStorage["upsertFaturasPagasDoErp"]>): ReturnType<FaturasStorage["upsertFaturasPagasDoErp"]>;
   ultimoPagamentoLido(providerId: number, erpSource: string): Promise<string | null>;
+  /** O ERP deste provedor ja confirmou algum pagamento? Separa o motivo do provedor do motivo do cliente. */
+  erpConfirmaPagamentos(providerId: number): Promise<boolean>;
+  /** Multa e equipamento cobrados nas faturas vencidas, por cliente — o que NAO entra no prejuizo. */
+  cobrancasDeSaida(...args: Parameters<FaturasStorage["cobrancasDeSaida"]>): ReturnType<FaturasStorage["cobrancasDeSaida"]>;
   /** Quantos clientes vivos tem mensalidade legivel — o sinal de prontidao da Economia. */
   coberturaDaMensalidade(providerId: number): Promise<CoberturaDaMensalidade>;
 }
@@ -678,6 +682,8 @@ class DatabaseStorage implements IStorage {
   baseDeFaturas = (providerId: number) => this._faturas.baseDeFaturas(providerId);
   upsertFaturasPagasDoErp = (...args: Parameters<FaturasStorage["upsertFaturasPagasDoErp"]>) => this._faturas.upsertFaturasPagasDoErp(...args);
   ultimoPagamentoLido = (providerId: number, erpSource: string) => this._faturas.ultimoPagamentoLido(providerId, erpSource);
+  erpConfirmaPagamentos = (providerId: number) => this._faturas.erpConfirmaPagamentos(providerId);
+  cobrancasDeSaida = (...args: Parameters<FaturasStorage["cobrancasDeSaida"]>) => this._faturas.cobrancasDeSaida(...args);
   coberturaDaMensalidade = (providerId: number) => this._faturas.coberturaDaMensalidade(providerId);
   // Os sete do recebimento de acordos (08/09/2026). Chegaram no `FaturasStorage`
   // sem delegação aqui, e `storage-fachada.test.ts` acusou — que é exatamente o

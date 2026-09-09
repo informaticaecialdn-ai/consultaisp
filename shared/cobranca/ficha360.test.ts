@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { montarFicha360, type EntradaDaFicha360 } from "./ficha360";
+import { dividaParaEconomia, montarFicha360, motivoSemHistorico, type EntradaDaFicha360 } from "./ficha360";
 import { POLITICA_PADRAO } from "./politica";
 
 /**
@@ -301,5 +301,86 @@ describe("o resultado do contrato encerrado com pagamento REAL (0036)", () => {
     // Ponto de equilibrio: margem 50/mes → mes 7; saiu no 6: nao atingido.
     expect(f.economia!.payback_meses).toBe(7);
     expect(f.economia!.inadimplencia_aberta).toBe(100);
+  });
+});
+
+describe("o motivo do traco quando o ERP do PROVEDOR nunca confirmou pagamento (0036)", () => {
+  it("MK sem a API licenciada: o texto culpa o MK, nao o cliente", () => {
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: "mk" })).toMatch(/o MK ainda não entregou nenhuma fatura paga .* licenciada à parte pela MK Solutions/);
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: "MK" })).toMatch(/WSMKFaturas/);
+  });
+  it("outro ERP sem paga nenhuma: o provedor ainda nao entregou fatura paga", () => {
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: "ixc" })).toMatch(/ainda não entregou nenhuma fatura paga/);
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: false, erpSource: null })).toMatch(/ainda não entregou nenhuma fatura paga/);
+  });
+  it("com pagas na base (ou sem saber), o motivo continua sendo do cliente", () => {
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: true, erpSource: "mk" })).toMatch(/ex-cliente sem histórico de pagamento sincronizado/);
+    expect(motivoSemHistorico({ erpConfirmaPagamentos: null, erpSource: "mk" })).toMatch(/ex-cliente sem histórico/);
+    expect(motivoSemHistorico({})).toMatch(/ex-cliente sem histórico/);
+  });
+  it("a ficha do ex-cliente da NsLink leva esse motivo — e nao muda nada para quem tem historico", () => {
+    const semApi = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", erpConfirmaPagamentos: false, erpSource: "mk" });
+    expect(semApi.economia).toBeNull();
+    expect(semApi.economiaPendente).toMatch(/MK Solutions/);
+    const comHistorico = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", erpConfirmaPagamentos: false, erpSource: "mk", historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 } });
+    expect(comHistorico.economiaPendente ?? "").not.toMatch(/MK Solutions/);
+  });
+});
+
+describe("a multa de cancelamento e o equipamento NAO entram no prejuizo (dono, 09/09/2026)", () => {
+  const saida = (multa: number, equipamento = 0, indeterminadas = 0) => ({ multa, equipamento, indeterminadas, faturas: 1 });
+  it("dividaParaEconomia: tira a cobranca de saida da divida, nunca abaixo de zero, e diz quanto saiu", () => {
+    expect(dividaParaEconomia(719.86, saida(600))).toEqual({ dividaDeServico: 119.86, multaForaDoPrejuizo: 600 });
+    expect(dividaParaEconomia(719.86, saida(600, 800))).toEqual({ dividaDeServico: 0, multaForaDoPrejuizo: 719.86 });
+    expect(dividaParaEconomia(719.86, null)).toEqual({ dividaDeServico: 719.86, multaForaDoPrejuizo: 0 });
+    expect(dividaParaEconomia(0, saida(600))).toEqual({ dividaDeServico: 0, multaForaDoPrejuizo: 0 });
+    expect(dividaParaEconomia(NaN, saida(600))).toEqual({ dividaDeServico: 0, multaForaDoPrejuizo: 0 });
+  });
+  it("na ficha viva: a divida do ledger e a de servico, o prejuizo cai exatamente pela multa, e a ficha diz quanto ficou de fora", () => {
+    const semMulta = montarFicha360({ ...base, dividaAtual: 719.86 });
+    const comMulta = montarFicha360({ ...base, dividaAtual: 719.86, cobrancaDeSaida: saida(600) });
+    expect(semMulta.economia!.inadimplencia_aberta).toBe(719.86);
+    expect(comMulta.economia!.inadimplencia_aberta).toBe(119.86);
+    expect(Math.round((comMulta.economia!.lucro_acumulado - semMulta.economia!.lucro_acumulado) * 100) / 100).toBe(600);
+    expect(comMulta.multaForaDoPrejuizo).toBe(600);
+    expect(comMulta.multasIndeterminadas).toBe(0);
+    expect(semMulta.multaForaDoPrejuizo).toBe(0);
+  });
+  it("mistura sem valores nao tira nada da divida, mas conta como indeterminada para a tela avisar", () => {
+    const f = montarFicha360({ ...base, dividaAtual: 700, cobrancaDeSaida: saida(0, 0, 1) });
+    expect(f.economia!.inadimplencia_aberta).toBe(700);
+    expect(f.multaForaDoPrejuizo).toBe(0);
+    expect(f.multasIndeterminadas).toBe(1);
+  });
+  it("no contrato encerrado com pagamento real, o resultado nao muda (o ledger recebido nao subtrai divida) — so o saldo devedor mostrado", () => {
+    const entrada = {
+      ...base, statusErp: "cancelled", carteira: "ex_cliente", plano: null, cortadoEm: null, ultimaFaturaEmitidaEm: "2026-03-05",
+      economia: { ...ECONOMIA, precoPorPlano: {} },
+      mensalidadeObservada: { valor: 100, concordam: 6, faturas: 7, baixadas: 6 },
+      historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 }, dividaAtual: 719.86,
+    } as const;
+    const sem = montarFicha360({ ...entrada });
+    const com = montarFicha360({ ...entrada, cobrancaDeSaida: saida(600) });
+    expect(com.economia!.lucro_acumulado).toBe(sem.economia!.lucro_acumulado);
+    expect(com.economia!.inadimplencia_aberta).toBe(119.86);
+    expect(com.multaForaDoPrejuizo).toBe(600);
+  });
+});
+
+describe("a fatura de SAIDA nao vira mensalidade (revisao de 09/09/2026)", () => {
+  it("cliente vivo cuja unica fatura e a de saida: a moda (R$ 719,86) e recusada, com o motivo certo", () => {
+    const f = montarFicha360({ ...base, plano: null, economia: { ...ECONOMIA, precoPorPlano: {} }, dividaAtual: 719.86,
+      mensalidadeObservada: { valor: 719.86, concordam: 1, faturas: 1, baixadas: 0 },
+      cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1 } });
+    expect(f.economia).toBeNull();
+    expect(f.valorMensal).toBeNull();
+    expect(f.economiaPendente).toMatch(/a única fatura aberta é a de saída/);
+  });
+  it("com mais de uma fatura, a moda e a mensalidade e a Economia sai", () => {
+    const f = montarFicha360({ ...base, plano: null, economia: { ...ECONOMIA, precoPorPlano: {} }, dividaAtual: 809.76,
+      mensalidadeObservada: { valor: 89.9, concordam: 1, faturas: 2, baixadas: 0 },
+      cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1 } });
+    expect(f.valorMensal).toBe(89.9);
+    expect(f.economia).not.toBeNull();
   });
 });

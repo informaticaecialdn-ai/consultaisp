@@ -113,6 +113,7 @@ describe("linhasDoPrejuizo — o card fala do eixo, da cobertura e do número re
       dividaDoRecorte: 3120, dividaDaCarteira: 9176.47, devedoresDaCarteira: 21, fatiaDaCarteira: 34,
       motivosDoTraco: [{ motivo: "sem mensalidade: este cliente não tem fatura vinda do ERP, e o plano dele não chegou do sync", clientes: 4, divida: 400 }],
       semData: { clientes: 0, divida: 0 },
+      multaForaDoPrejuizo: 0, multasIndeterminadas: 0,
     },
   };
   it("ativos: projeção com cobertura na mesma linha, a dívida real ao lado, e a decomposição que fecha", () => {
@@ -156,5 +157,29 @@ describe("linhasDoPrejuizo — o card fala do eixo, da cobertura e do número re
       semData: { clientes: 3, divida: 250 } } }, "ativos");
     expect(semCustos.acao).toEqual({ rotulo: "Informar os custos" });
     expect(semNbsp(semCustos.semData)).toBe("3 sem fatura vencida gravada ficam fora de qualquer período · R$ 250,00");
+  });
+});
+
+describe("a linha da multa no card — o que ficou fora do prejuízo, dito na tela", () => {
+  const base: RespostaDoPrejuizo = {
+    live: true, motivo: null, eixo: "devem_desde", confirmado: false, atualizadoEm: "2026-09-09T06:05:00.000Z",
+    periodo: { texto: "2026-09", rotulo: "set/26", granularidade: "mes", de: "2026-09-01", ate: "2026-10-01" },
+    serie: [],
+    resumo: {
+      devedores: 3, avaliados: 3, noPrejuizo: 2, prejuizo: 1200, dividaAvaliada: 240, instalacaoNaoRecuperada: 960, abatida: 0,
+      dividaDoRecorte: 1440, dividaDaCarteira: 1440, devedoresDaCarteira: 3, fatiaDaCarteira: 100,
+      motivosDoTraco: [], semData: { clientes: 0, divida: 0 }, multaForaDoPrejuizo: 1200, multasIndeterminadas: 0,
+    },
+  };
+  it("multa e equipamento fora do prejuízo aparecem com o valor e a razão; sem nada, a linha não existe", () => {
+    const l = linhasDoPrejuizo(base, "ativos");
+    expect(semNbsp(l.multa ?? "")).toBe("multa e equipamento R$ 1.200,00 cobrados à parte não entram no prejuízo — o equipamento já está no investimento que a Economia cobra");
+    expect(linhasDoPrejuizo({ ...base, resumo: { ...base.resumo, multaForaDoPrejuizo: 0 } }, "ativos").multa).toBeNull();
+  });
+  it("faturas indeterminadas entram na mesma linha, com plural certo", () => {
+    const uma = linhasDoPrejuizo({ ...base, resumo: { ...base.resumo, multaForaDoPrejuizo: 0, multasIndeterminadas: 1 } }, "ex");
+    expect(uma.multa).toBe("1 fatura mistura multa e mensalidade sem valores: contada como dívida");
+    const duas = linhasDoPrejuizo({ ...base, resumo: { ...base.resumo, multasIndeterminadas: 2 } }, "ex");
+    expect(duas.multa).toMatch(/não entram no prejuízo — o equipamento já está no investimento que a Economia cobra · 2 faturas misturam multa e mensalidade sem valores: contadas como dívida$/);
   });
 });

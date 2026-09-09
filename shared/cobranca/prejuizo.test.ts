@@ -146,3 +146,55 @@ describe("com pagamento real (0036), o ex-cliente entra na soma pelo que pagou",
     expect(r.resumo.motivosDoTraco).toEqual([]);
   });
 });
+
+describe("o provedor cujo ERP nunca confirmou pagamento (0036)", () => {
+  it("ex-clientes ficam de fora com o motivo do PROVEDOR, e ele aparece uma vez so, agregado", () => {
+    const devedores = [
+      devedor({ id: 1, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-05", ultimaFatura: "2026-03-05", devemDesde: "2026-03-05" }),
+      devedor({ id: 2, statusErp: "cancelled", dividaAtual: 200, contractStartDate: "2025-09-05", ultimaFatura: "2026-02-05", devemDesde: "2026-02-05" }),
+    ];
+    const mensalidades = new Map([[1, mensal(89.9, 6, 6)], [2, mensal(89.9, 6, 6)]]);
+    const r = agregarPrejuizo({ devedores, mensalidades, erpConfirmaPagamentos: false, erpSource: "mk", economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ex_cliente" });
+    expect(r.resumo.avaliados).toBe(0);
+    expect(r.resumo.motivosDoTraco).toEqual([{ motivo: expect.stringMatching(/MK Solutions/), clientes: 2, divida: 300 }]);
+  });
+  it("sem a flag, o motivo antigo (do cliente) continua", () => {
+    const devedores = [devedor({ id: 1, statusErp: "cancelled", dividaAtual: 100, contractStartDate: "2025-09-05", ultimaFatura: "2026-03-05", devemDesde: "2026-03-05" })];
+    const r = agregarPrejuizo({ devedores, mensalidades: new Map([[1, mensal(89.9, 6, 6)]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ex_cliente" });
+    expect(r.resumo.motivosDoTraco[0]?.motivo).toMatch(/ex-cliente sem histórico/);
+  });
+  it("o plano do devedor (contract_plan) com preco cadastrado vira o ARPU do cliente vivo", () => {
+    const devedores = [devedor({ id: 1, statusErp: "active", dividaAtual: 100, contractStartDate: "2025-09-05", devemDesde: "2026-03-05", ultimaFatura: "2026-03-05", plano: "Smart 800MB" })];
+    const r = agregarPrejuizo({ devedores, mensalidades: new Map(), economia: { ...NSLINK, precoPorPlano: { "Smart 800MB": 99.9 } }, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ativo" });
+    expect(r.resumo.avaliados).toBe(1);
+    expect(r.resumo.motivosDoTraco).toEqual([]);
+  });
+});
+
+describe("o card tira a multa e o equipamento da divida antes do prejuizo (dono, 09/09/2026)", () => {
+  const dev = () => devedor({ id: 1, statusErp: "active", dividaAtual: 719.86, contractStartDate: "2026-07-05", devemDesde: "2026-08-05", ultimaFatura: "2026-08-05" });
+  it("a divida avaliada e a de servico; o prejuizo cai pela multa; a soma do que ficou de fora vai no resumo; a divida REAL do recorte nao muda", () => {
+    const sem = agregarPrejuizo({ devedores: [dev()], mensalidades: new Map([[1, mensal(89.9, 2)]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T3")!, carteira: "ativo" });
+    const com = agregarPrejuizo({ devedores: [dev()], mensalidades: new Map([[1, mensal(89.9, 2)]]), cobrancasDeSaida: new Map([[1, { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1 }]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T3")!, carteira: "ativo" });
+    expect(sem.resumo.avaliados).toBe(1);
+    expect(com.resumo.avaliados).toBe(1);
+    expect(com.resumo.dividaAvaliada).toBe(119.86);
+    expect(sem.resumo.dividaAvaliada).toBe(719.86);
+    expect(Math.round((sem.resumo.prejuizo! - com.resumo.prejuizo!) * 100) / 100).toBe(600);
+    expect(com.resumo.multaForaDoPrejuizo).toBe(600);
+    expect(com.resumo.dividaDoRecorte).toBe(719.86);
+    expect(sem.resumo.multaForaDoPrejuizo).toBe(0);
+  });
+  it("faturas indeterminadas e multa so contam para quem PASSOU no gate — 'contada como divida' fala dos avaliados", () => {
+    const fora = agregarPrejuizo({ devedores: [dev()], mensalidades: new Map(), cobrancasDeSaida: new Map([[1, { multa: 600, equipamento: 0, indeterminadas: 2, faturas: 3 }]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T3")!, carteira: "ativo" });
+    expect(fora.resumo.avaliados).toBe(0);
+    expect(fora.resumo.multasIndeterminadas).toBe(0);
+    expect(fora.resumo.multaForaDoPrejuizo).toBe(0);
+    // A divida dele no motivo do traco e a INTEIRA, segundo o ERP.
+    expect(fora.resumo.motivosDoTraco[0]?.divida).toBe(719.86);
+    const dentro = agregarPrejuizo({ devedores: [dev()], mensalidades: new Map([[1, mensal(89.9, 2)]]), cobrancasDeSaida: new Map([[1, { multa: 600, equipamento: 0, indeterminadas: 2, faturas: 3 }]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T3")!, carteira: "ativo" });
+    expect(dentro.resumo.avaliados).toBe(1);
+    expect(dentro.resumo.multasIndeterminadas).toBe(2);
+    expect(dentro.resumo.multaForaDoPrejuizo).toBe(600);
+  });
+});

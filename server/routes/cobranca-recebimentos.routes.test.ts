@@ -4,11 +4,11 @@ import type { Server } from "node:http";
 
 const m = vi.hoisted(() => ({
   clienteExiste: vi.fn(), clienteDaFatura: vi.fn(), faturasDoCliente: vi.fn(),
-  historicoDePagamentosDoCliente: vi.fn(), registrarQuitacaoConfirmada: vi.fn(),
+  historicoDePagamentosDoCliente: vi.fn(), registrarQuitacaoConfirmada: vi.fn(), erpConfirmaPagamentos: vi.fn(),
   listarQuitacoesDoCliente: vi.fn(),
 }));
 vi.mock("../storage/faturas.storage", () => ({ FaturasStorage: class { constructor() { Object.assign(this, m); } } }));
-vi.mock("../logger", () => ({ logger: { error: vi.fn() } }));
+vi.mock("../logger", () => ({ logger: { error: vi.fn(), warn: vi.fn() } }));
 vi.mock("./provider.routes", () => ({ podeAdministrarOProvedor: (s: { role?: string; providerId?: number; suporte?: { providerId: number } }) => s.role === "admin" || (s.role === "superadmin" && s.suporte?.providerId === s.providerId) }));
 vi.mock("../auth", () => ({
   requireAuth: ((req, res, next) => req.session.userId ? next() : res.sendStatus(401)) as RequestHandler,
@@ -40,6 +40,7 @@ beforeEach(() => {
   m.clienteDaFatura.mockResolvedValue(9);
   m.faturasDoCliente.mockResolvedValue({ linhas: [], total: 0 });
   m.historicoDePagamentosDoCliente.mockResolvedValue({ historicoInsuficiente: true });
+  m.erpConfirmaPagamentos.mockResolvedValue(true);
   m.listarQuitacoesDoCliente.mockResolvedValue([]);
   m.registrarQuitacaoConfirmada.mockResolvedValue({ faturaId: 88, repetida: false });
 });
@@ -103,5 +104,26 @@ describe("recebimentos de cobrança: sessão, prova e isolamento", () => {
     const r = await post(entrada);
     expect(r.status).toBe(500);
     expect(await r.text()).not.toContain("private-password");
+  });
+});
+
+describe("a resposta diz se o ERP do provedor confirma pagamento algum (0036)", () => {
+  it("erpConfirmaPagamentos vai junto — false quando nao ha UMA paga na base do provedor", async () => {
+    m.erpConfirmaPagamentos.mockResolvedValue(false);
+    const res = await fetch(`${base}/api/cobranca/clientes/5/pagamentos`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).erpConfirmaPagamentos).toBe(false);
+    expect(m.erpConfirmaPagamentos).toHaveBeenCalledWith(42);
+  });
+});
+
+describe("se a pergunta ao provedor falhar, a resposta vai com null e 200", () => {
+  it("erpConfirmaPagamentos null, o resto intacto", async () => {
+    m.erpConfirmaPagamentos.mockRejectedValueOnce(new Error("banco fora"));
+    const res = await fetch(`${base}/api/cobranca/clientes/5/pagamentos`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.erpConfirmaPagamentos).toBeNull();
+    expect(body.historico).toEqual({ historicoInsuficiente: true });
   });
 });

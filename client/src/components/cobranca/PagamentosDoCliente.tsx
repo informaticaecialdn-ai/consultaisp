@@ -14,6 +14,8 @@ export interface RecebimentosDoCliente {
   quitacoes: { faturaId: number; valorPago: string; pagoEm: string; referencia: string; origem: string; divergenciaErpEm: string | null }[];
   faturas: { linhas: Fatura[]; total: number; limite: number; valorVencido: number };
   historico: { historicoInsuficiente: boolean; faturasPagas: number; faturasPagasComAtraso: number; taxaAtraso: number | null };
+  /** `false` = o ERP deste provedor nunca confirmou pagamento algum (0036); ausente = desconhecido. */
+  erpConfirmaPagamentos?: boolean | null;
 }
 const STATUS_CONFIRMAVEIS = new Set(["aberta", "pending", "overdue", "baixada_no_erp"]);
 const hoje = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -48,7 +50,10 @@ export function PagamentosDoCliente({ customerId, carteira, podeAdministrar, sal
       : data && <>
         {data.faturas.total > 0 && saldoAgregado !== undefined && Math.abs(data.faturas.valorVencido - saldoAgregado) >= 0.01 && <p className="rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] p-3 text-xs leading-5 text-[var(--gated)]">O saldo agregado do cliente ({brl(saldoAgregado)}) difere das faturas vencidas registradas ({brl(data.faturas.valorVencido)}). Confira a atualização do ERP e os comprovantes antes de cobrar; os valores não foram ajustados automaticamente.</p>}
         <p className="text-xs text-[var(--text-2)]" data-testid="historico-pagamentos">
-          {data.historico.historicoInsuficiente ? "Ainda não há pagamentos com data confirmada para calcular a confiabilidade histórica."
+          {data.historico.historicoInsuficiente
+            ? (data.erpConfirmaPagamentos === false
+              ? "O ERP deste provedor ainda não confirma pagamento algum: nenhuma fatura paga foi sincronizada, de nenhum cliente."
+              : "Ainda não há pagamentos com data confirmada para calcular a confiabilidade histórica.")
             : <><b className="font-mono tabular-nums">{data.historico.faturasPagas}</b> faturas pagas com data · <b className="font-mono tabular-nums">{data.historico.faturasPagasComAtraso}</b> com atraso</>}
         </p>
         {data.faturas.linhas.length === 0 ? <p className="text-xs text-[var(--text-muted)]">Sem faturas sincronizadas para este cliente.</p>

@@ -640,8 +640,8 @@ describe("os devedores com as datas do card de prejuizo", () => {
     // A regua da casa: fatura que vence HOJE ainda nao venceu — o corte e o dia, em texto.
     expect(banco.consultas[0].params).toContain("2026-09-05");
     expect(r).toEqual([
-      { id: 42, statusErp: "cancelled", dividaAtual: 589.65, contractStartDate: "2025-09-01", cortadoEm: null, devemDesde: "2026-03-05", ultimaFatura: "2026-03-05" },
-      { id: 43, statusErp: "cancelled", dividaAtual: 50, contractStartDate: null, cortadoEm: null, devemDesde: null, ultimaFatura: null },
+      { id: 42, statusErp: "cancelled", dividaAtual: 589.65, contractStartDate: "2025-09-01", cortadoEm: null, plano: null, devemDesde: "2026-03-05", ultimaFatura: "2026-03-05" },
+      { id: 43, statusErp: "cancelled", dividaAtual: 50, contractStartDate: null, cortadoEm: null, plano: null, devemDesde: null, ultimaFatura: null },
     ]);
   });
   it("a base de faturas diz se ha fatura do ERP e quando a varredura tocou a ultima", async () => {
@@ -705,5 +705,65 @@ describe("as faturas PAGAS que o ERP confirma (0036)", () => {
     expect(banco.consultas[0].sql).toContain('coalesce("paid_value", "value")');
     expect(banco.consultas[0].sql).toContain('"customer_id" in (');
     expect((await storage.historicosDePagamentosDoProvedor(PROVEDOR, [])).size).toBe(0);
+  });
+});
+
+describe("o ERP deste provedor ja confirmou algum pagamento? (0036)", () => {
+  it("uma linha paid com valor pago basta, no tenant, com limit 1", async () => {
+    banco.responder = () => [[123]];
+    expect(await storage.erpConfirmaPagamentos(PROVEDOR)).toBe(true);
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].sql).toContain("limit");
+    expect(banco.consultas[0].sql).toContain('"paid_value" is not null');
+    expect(banco.consultas[0].params).toContain("paid");
+    banco.consultas.length = 0;
+    banco.responder = () => [];
+    expect(await storage.erpConfirmaPagamentos(PROVEDOR)).toBe(false);
+  });
+  it("o devedor do card traz o plano do ERP (contract_plan), na ultima coluna", async () => {
+    banco.responder = () => [[7, "cancelled", "100.00", "2025-09-05", null, "2026-03-05", "2026-03-05", "Smart 800MB"]];
+    const [d] = await storage.devedoresComVencimento(PROVEDOR, "ex_cliente", new Date("2026-09-09T12:00:00Z"));
+    expect(d).toMatchObject({ id: 7, plano: "Smart 800MB", devemDesde: "2026-03-05" });
+    expect(banco.consultas[0].sql).toContain('"contract_plan"');
+  });
+});
+
+describe("a cobranca de saida por cliente (multa + equipamento nas faturas vencidas)", () => {
+  it("uma consulta no tenant, so vencidas em aberto, so dos ids, so descricao que fala nisso — e o parser soma por cliente", async () => {
+    banco.responder = () => [
+      [42, "719.86", "Proporcional 40 dias + multa 600,00"],
+      [42, "300.00", "referente ao equipamento"],
+      [43, "700.00", "2 Mensalidades + multa"],
+    ];
+    const m = await storage.cobrancasDeSaida(PROVEDOR, [42, 43, 44], new Date("2026-09-05T12:00:00Z"));
+    expect(banco.consultas).toHaveLength(1);
+    conferirTenant(banco.consultas[0]);
+    expect(banco.consultas[0].sql).toContain('"customer_id" in (');
+    expect(banco.consultas[0].sql).toContain("~*");
+    expect(banco.consultas[0].params.some(v => typeof v === "string" && v.startsWith("\\m(multas?|"))).toBe(true);
+    expect(banco.consultas[0].params).toContain("2026-09-05");
+    expect(banco.consultas[0].params).toEqual(expect.arrayContaining(["aberta", "pending", "overdue"]));
+    // A MESMA foto da divida: o corte e o menor entre hoje e o dia da varredura do cliente.
+    expect(banco.consultas[0].sql).toContain("least(");
+    expect(banco.consultas[0].sql).toContain('"last_sync_at"');
+    expect(banco.consultas[0].sql).toContain("inner join");
+    expect(m.get(42)).toEqual({ multa: 600, equipamento: 300, indeterminadas: 0, faturas: 2 });
+    expect(m.get(43)).toEqual({ multa: 0, equipamento: 0, indeterminadas: 1, faturas: 1 });
+    expect(m.has(44)).toBe(false);
+  });
+  it("lista vazia de ids: nada vai ao banco", async () => {
+    expect((await storage.cobrancasDeSaida(PROVEDOR, [], new Date())).size).toBe(0);
+    expect(banco.consultas).toHaveLength(0);
+  });
+});
+
+describe("a fatura de saida nao concorre a moda da mensalidade (revisao de 09/09/2026)", () => {
+  it("no lote e no unitario, a ordem da moda comeca por 'nao e fatura de saida'", async () => {
+    banco.responder = () => [];
+    await storage.mensalidadesDoProvedor(PROVEDOR, [1]);
+    expect(banco.consultas[0].sql).toMatch(/order by bool_or\((?:"invoices"\.)?"descricao" ~\* \$\d+\) asc, count\(\*\) desc/);
+    banco.consultas.length = 0;
+    await storage.mensalidadeDoCliente(PROVEDOR, 1);
+    expect(banco.consultas[0].sql).toMatch(/order by bool_or\((?:"invoices"\.)?"descricao" ~\* \$\d+\) asc, count\(\*\) desc/);
   });
 });

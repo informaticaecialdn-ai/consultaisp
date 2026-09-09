@@ -14,6 +14,7 @@ import { POLITICA_PADRAO, ROTULO_CANAL, ROTULO_STATUS_DE_CASO, type Economia, ty
 import type { ResumoDoPrejuizo, SerieDoPrejuizo } from "@shared/cobranca/prejuizo";
 import type { Granularidade } from "@shared/cobranca/periodo";
 import type { EntradaDaFicha360, Ficha360 } from "@shared/cobranca";
+import type { HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
 
 /** O que a rota leu para montar a ficha; o navegador remonta com o plano e a data do ERP ao vivo. */
 export type FichaEntrada = Omit<EntradaDaFicha360, "hoje" | "economia" | "historicoPagamento">;
@@ -121,7 +122,7 @@ export interface ItemDaCarteira {
   telefone?: string | null;
   cidade: string | null;
   bairro: string | null;
-  /** Sempre null na fase 1: `customers` não guarda o plano. */
+  /** `customers.contract_plan` (0036): o plano que o ERP informou na varredura; null quando o ERP não informou. */
   plano: string | null;
   statusErp: string;
   carteira: string;
@@ -436,6 +437,8 @@ export interface Cliente360 {
   /** Os blocos calculados do Provedor.ai (selo, scores, prescrição, economia, resumo) — `montarFicha360`. */
   ficha?: Ficha360;
   fichaEntrada?: FichaEntrada;
+  /** O historico de pagamento confirmado pelo ERP (0036) — a remontagem ao vivo precisa dele. */
+  historicoPagamentos?: HistoricoDePagamentos | null;
   chat?: ChatDoCaso | null;
   rede?: RedeDo360;
   alertas?: AlertaDo360[];

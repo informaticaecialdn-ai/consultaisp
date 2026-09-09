@@ -134,3 +134,12 @@ lote, MK pela API licenciada (pendente de liberação pela MK Solutions). Com fa
 paga sincronizada o ex-cliente entra no card pelo **resultado do contrato**, e o
 360 mostra Recebido · Saldo devedor · Ponto de equilíbrio. Tudo em
 `docs/faturas-pagas-0036-2026-09-09.md`.
+
+## Atualização — a multa de cancelamento (09/09/2026, à tarde)
+
+Achado do dono: a multa de cancelamento/equipamento cobrada na fatura de saída
+entrava como dívida **e** a instalação não recuperada já era essa perda — o
+mesmo equipamento contado duas vezes. Agora a cobrança de saída sai da dívida
+antes do prejuízo (`shared/cobranca/multa.ts`, `dividaParaEconomia`), o card
+mostra o total que ficou de fora e as faturas que misturam multa e mensalidade
+sem valores. Detalhe em `docs/faturas-pagas-0036-2026-09-09.md`.
