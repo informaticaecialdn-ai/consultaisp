@@ -261,6 +261,7 @@ export const TIPOS_DE_EVENTO = [
   "negativacao",
   "encerramento",
   "cancelamento",
+  "confissao",
 ] as const;
 export type TipoDeEvento = (typeof TIPOS_DE_EVENTO)[number];
 
@@ -278,6 +279,7 @@ export const ROTULO_TIPO_DE_EVENTO: Record<TipoDeEvento, string> = {
   negativacao: "Negativação",
   encerramento: "Encerramento",
   cancelamento: "Cancelamento do contrato",
+  confissao: "Confissão de dívida",
 };
 
 /** "sistema" é o que a régua e o sync escrevem; os outros quatro são o funcionário. */

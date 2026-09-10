@@ -316,7 +316,7 @@ describe("vocabulário — toda chave tem rótulo, e só ela", () => {
     expect([...CARTEIRAS]).toEqual(["ativo", "ex_cliente"]);
     expect([...TIPOS_DE_EVENTO]).toEqual([
       "contato", "promessa", "negociacao_proposta", "acordo_aceito", "acordo_quebrado", "parcela_paga",
-      "etapa_mudou", "responsavel_mudou", "nota", "suspensao", "negativacao", "encerramento", "cancelamento",
+      "etapa_mudou", "responsavel_mudou", "nota", "suspensao", "negativacao", "encerramento", "cancelamento", "confissao",
     ]);
     expect([...CANAIS_DE_CONTATO]).toEqual(["telefone", "whatsapp", "email", "presencial", "sistema"]);
     expect([...RESULTADOS_DE_CONTATO]).toEqual(["falou", "nao_atendeu", "caixa_postal", "promessa_pagamento", "recusou", "numero_errado"]);

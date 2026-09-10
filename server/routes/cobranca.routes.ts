@@ -1006,6 +1006,7 @@ const PORQUE_NAO_DECLARA: Partial<Record<(typeof TIPOS_DE_EVENTO)[number], strin
   parcela_paga: "Nasce do pagamento da parcela (POST /parcelas/:id/pagar).",
   etapa_mudou: "O sistema grava ao mudar a etapa.",
   responsavel_mudou: "O sistema grava ao mudar o responsavel.",
+  confissao: "Nasce da emissão/retorno da confissão (POST /api/cobranca/clientes/:id/confissoes e webhook).",
 };
 
 const EventoSchema = z.object({

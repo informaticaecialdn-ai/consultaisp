@@ -14,6 +14,7 @@ export * from "./regua";
 export * from "./politica";
 export * from "./acordo";
 export * from "./estados";
+export * from "./confissao";
 export * from "./economia";
 export * from "./cliente360";
 export * from "./ficha360";
