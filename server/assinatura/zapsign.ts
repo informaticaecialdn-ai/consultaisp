@@ -124,7 +124,7 @@ export function clienteZapSign(config: { apiToken: string; ambiente: AmbienteDeA
   const fetchImpl = config.fetchImpl ?? fetch;
   const timeoutMs = config.timeoutMs ?? 20_000;
 
-  async function chamar<T>(metodo: "GET" | "POST" | "DELETE", caminho: string, corpo?: unknown, schema?: z.ZodType<T>): Promise<T> {
+  async function chamar<T>(metodo: "GET" | "POST" | "DELETE", caminho: string, corpo?: unknown, schema?: z.ZodType<T, z.ZodTypeDef, unknown>): Promise<T> {
     const controlador = new AbortController();
     const timer = setTimeout(() => controlador.abort(), timeoutMs);
     let resposta: Response;
