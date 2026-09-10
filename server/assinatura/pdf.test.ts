@@ -13,10 +13,11 @@ const entrada: EntradaDoModelo = {
   anexo: Array.from({ length: 40 }, (_, i) => ({ chave: `F-${i + 1}`, erpRef: `F-${i + 1}`, descricao: `Mensalidade ${i + 1}`, vencimento: "2026-07-10", valor: 99.9, classe: "servico" as const, diasAtraso: 61, multa: 2, juros: 2.03 })),
 };
 
-/** O conteúdo sem compressão: os textos saem como <hex> WinAnsi em operadores TJ. */
+/** O conteúdo sem compressão: os textos saem como <hex> WinAnsi em operadores TJ. O trailer traz /ID [<…> <…>] derivado da data de criação — não é texto, fica de fora. */
 function textoDoPdf(pdf: Buffer): string {
   const conteudo = pdf.toString("latin1");
-  return Array.from(conteudo.matchAll(/<([0-9a-fA-F]+)>/g)).map(m => Buffer.from(m[1], "hex").toString("latin1")).join("");
+  const corpo = conteudo.slice(0, conteudo.lastIndexOf("trailer"));
+  return Array.from(corpo.matchAll(/<([0-9a-fA-F]+)>/g)).map(m => Buffer.from(m[1], "hex").toString("latin1")).join("");
 }
 
 describe("PDF da confissão", () => {
