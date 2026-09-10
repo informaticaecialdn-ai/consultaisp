@@ -8,7 +8,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * cria o documento com os campos da spec, registra o webhook DO documento com
  * o cabeçalho secreto, passa a `enviada` e grava evento + follow-up; contato
  * alterado liga validate_cpf; falha depois de criar o documento apaga o órfão
- * e deixa o rascunho com erro_ultimo.
+ * no ZapSign, encerra o rascunho como `cancelada` com o motivo em `erro_ultimo`
+ * e libera a chave de idempotência — nada é dito como enviado.
  */
 const storageMock = vi.hoisted(() => ({
   obterConfissaoPorChave: vi.fn(async (): Promise<any> => undefined),
