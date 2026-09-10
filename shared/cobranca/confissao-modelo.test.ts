@@ -56,6 +56,7 @@ describe("modelo padrão v1.0", () => {
     expect(texto).toContain("multa de 2% e juros de 1% ao mês");
     expect(texto).toContain("F-1");
     expect(texto).toContain("modelo padrão v1.0 · gerado em 09/09/2026 às 14:31 · hash abcdef01");
+    expect(texto).toContain("não devolvido), lidas do sistema de gestão do credor em 09/09/2026 às 14:30.");
     expect(texto).not.toContain(AVISO_SEM_PARECER);
     expect(texto).not.toContain(AVISO_SANDBOX);
   });
@@ -65,6 +66,8 @@ describe("modelo padrão v1.0", () => {
     expect(texto).toContain("mantida com o CREDOR, conforme as faturas relacionadas no Anexo I");
     expect(texto).not.toContain("cadastro nº");
     expect(texto).not.toContain("lidas do sistema de gestão");
+    expect(texto).toContain("não devolvido).");
+    expect(texto).not.toContain("—,");
     expect(texto).not.toMatch(/null|undefined|— —/);
   });
   it("acordo com desconto: cláusula condicional e saldo remanescente", () => {

@@ -149,7 +149,7 @@ function clausulaOrigem(b: BaseCanonica): string {
   if (b.inicioContrato) dentro.push(`iniciada em ${dataBr(b.inicioContrato)}`);
   const parenteses = dentro.length ? ` (${dentro.join(", ")})` : "";
   const lidas = b.erpLidoEm ? `, lidas do sistema de gestão do credor em ${dataHoraBr(b.erpLidoEm)}` : "";
-  return `CLÁUSULA 1ª — DA ORIGEM. A dívida confessada tem origem na relação de prestação de serviços de internet mantida com o CREDOR${parenteses}, conforme as faturas relacionadas no Anexo I — mensalidades e, quando ali indicado, multa rescisória e valor de equipamento em comodato não devolvido —${lidas}.`;
+  return `CLÁUSULA 1ª — DA ORIGEM. A dívida confessada tem origem na relação de prestação de serviços de internet mantida com o CREDOR${parenteses}, conforme as faturas relacionadas no Anexo I (mensalidades e, quando ali indicado, multa rescisória e valor de equipamento em comodato não devolvido)${lidas}.`;
 }
 
 const valorEExtenso = (n: number) => `${formatarReais(n)} (${valorPorExtenso(n)})`;
