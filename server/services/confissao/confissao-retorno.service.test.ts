@@ -55,7 +55,7 @@ describe("aplicarRetorno", () => {
     zap.detalharDocumento.mockResolvedValueOnce(detalhe({ sandbox: true }));
     const r = await aplicarRetorno(1, 77, "worker");
     expect(clienteZapSignMock).toHaveBeenCalledWith({ apiToken: "tok", ambiente: "sandbox" });
-    expect(r).toMatchObject({ status: "enviada", mudou: false, motivo: null });
+    expect(r).toMatchObject({ status: "enviada", mudou: false, motivo: null, confirmado: true });
     expect(storageMock.atualizarConfissao).toHaveBeenCalledWith(1, 77, expect.objectContaining({ zapsignSigners: [expect.objectContaining({ papel: "cliente", status: "link-opened" })], reconciliarEm: null, erroUltimo: null }));
     expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
   });
@@ -68,7 +68,16 @@ describe("aplicarRetorno", () => {
     expect(storageMock.marcarSubstituidas).toHaveBeenCalledWith(1, 42, 77);
     expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledWith(1, expect.objectContaining({ tipo: "confissao", metadata: expect.objectContaining({ status: "assinada" }) }));
     expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(1, 9, expect.objectContaining({ proximaAcao: expect.stringContaining("título assinado") }), null);
-    expect(r).toMatchObject({ status: "assinada", mudou: true, motivo: null });
+    expect(r).toMatchObject({ status: "assinada", mudou: true, motivo: null, confirmado: true });
+  });
+  it("caso fechado: a assinatura é gravada, sem evento e sem follow-up", async () => {
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce({ id: 9, status: "pago" });
+    zap.detalharDocumento.mockResolvedValueOnce(detalhe({ status: "signed", signed_at: "2026-09-12T10:00:00Z", signed_file: "https://s3/x.pdf", signers: [{ token: "s-1", status: "signed", sign_url: "u", signed_at: "2026-09-12T10:00:00Z", auth_mode: "x", external_id: "cliente" }] }));
+    const r = await aplicarRetorno(1, 77, "webhook");
+    expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 77, "enviada", "assinada", expect.anything());
+    expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
+    expect(storageMock.atualizarCasoDeCobranca).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ confirmado: true });
   });
   it("a transição perdida (outro processo aplicou antes) não grava evento", async () => {
     zap.detalharDocumento.mockResolvedValueOnce(detalhe({ status: "signed", signed_file: "https://s3/x.pdf" }));
@@ -106,6 +115,13 @@ describe("aplicarRetorno", () => {
     const r = await aplicarRetorno(1, 77, "webhook");
     expect(r).toMatchObject({ status: "enviada", mudou: false, motivo: "passa de 8 MB" });
     expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
+  });
+  it("signed sem signed_file fica enviada, NÃO confirmado, com reconciliar_em", async () => {
+    zap.detalharDocumento.mockResolvedValueOnce(detalhe({ status: "signed", signed_file: null }));
+    const r = await aplicarRetorno(1, 77, "webhook");
+    expect(r).toMatchObject({ status: "enviada", mudou: false, confirmado: false });
+    expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
+    expect(storageMock.atualizarConfissao).toHaveBeenCalledWith(1, 77, expect.objectContaining({ reconciliarEm: expect.any(Date) }));
   });
 });
 
@@ -164,5 +180,16 @@ describe("informado pelo webhook, cancelar, reenviar, expirar", () => {
     expect(await expirarSeVencida(1, 77, "2026-09-26")).toBe(true);
     expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 77, "enviada", "expirada", expect.objectContaining({ encerradaEm: expect.any(Date) }));
     expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledWith(1, expect.objectContaining({ metadata: expect.objectContaining({ status: "expirada" }) }));
+  });
+  it("cancelar não apaga um documento cujo estado não foi confirmado", async () => {
+    zap.detalharDocumento.mockResolvedValueOnce(detalhe({ status: "signed", signed_file: null }));
+    await expect(cancelarConfissao(1, 77, 7)).rejects.toMatchObject({ codigo: "ESTADO_INVALIDO" });
+    expect(zap.excluirDocumento).not.toHaveBeenCalled();
+    expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
+  });
+  it("expirar só expira o que a reconsulta confirmou pendente", async () => {
+    zap.detalharDocumento.mockResolvedValueOnce(detalhe({ status: "signed", signed_file: null }));
+    expect(await expirarSeVencida(1, 77, "2026-09-26")).toBe(false);
+    expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
   });
 });

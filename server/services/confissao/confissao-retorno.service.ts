@@ -20,7 +20,7 @@ import type { CobrancaConfissao } from "@shared/schema";
 
 export type OrigemDoRetorno = "webhook" | "worker" | "cancelar";
 /** `linha` vem preenchida quando ESTE processo aplicou a transição (cancelar devolve-a sem reler). */
-export interface ResultadoDoRetorno { status: StatusDeConfissao; mudou: boolean; motivo: string | null; linha?: CobrancaConfissao }
+export interface ResultadoDoRetorno { status: StatusDeConfissao; mudou: boolean; motivo: string | null; confirmado: boolean; linha?: CobrancaConfissao }
 
 export const RECONSULTA_APOS_FALHA_MS = 10 * 60_000;
 export const JANELA_DE_REENVIO_MS = 30 * 60_000;
@@ -56,7 +56,7 @@ async function aplicarAssinatura(providerId: number, confissao: CobrancaConfissa
   const { zap } = await zapDaLinha(providerId, confissao);
   if (!detalhe.signed_file) {
     await storage.atualizarConfissao(providerId, confissao.id, { zapsignSigners: signers, erroUltimo: "assinado sem arquivo — reconsultar", reconciliarEm: new Date(Date.now() + RECONSULTA_APOS_FALHA_MS) });
-    return { status: "enviada", mudou: false, motivo: "assinado sem arquivo — reconsultar" };
+    return { status: "enviada", mudou: false, motivo: "assinado sem arquivo — reconsultar", confirmado: false };
   }
   let bytes: Buffer;
   try {
@@ -64,40 +64,40 @@ async function aplicarAssinatura(providerId: number, confissao: CobrancaConfissa
   } catch (e) {
     const mensagem = e instanceof Error ? e.message : String(e);
     await storage.atualizarConfissao(providerId, confissao.id, { zapsignSigners: signers, erroUltimo: mensagem, reconciliarEm: new Date(Date.now() + RECONSULTA_APOS_FALHA_MS) });
-    return { status: "enviada", mudou: false, motivo: mensagem };
+    return { status: "enviada", mudou: false, motivo: mensagem, confirmado: false };
   }
   await storage.guardarPdf(providerId, confissao.id, "assinado", bytes);
   const assinadaEm = detalhe.signed_at ? new Date(detalhe.signed_at) : new Date();
   const linha = await storage.transicionarConfissao(providerId, confissao.id, "enviada", "assinada", { assinadaEm, zapsignSigners: signers, zapsignSandbox: detalhe.sandbox, erroUltimo: null, reconciliarEm: null });
-  if (!linha) return { status: "enviada", mudou: false, motivo: "outro processo aplicou antes" };
+  if (!linha) return { status: "enviada", mudou: false, motivo: "outro processo aplicou antes", confirmado: false };
   await storage.marcarSubstituidas(providerId, confissao.customerId, confissao.id);
   const sandbox = confissao.ambiente === "sandbox";
-  await registrarEventoDaConfissao(providerId, linha, "assinada", null, sandbox ? "Confissão de dívida assinada em AMBIENTE DE TESTES — sem validade jurídica" : `Confissão de dívida assinada eletronicamente — título executivo extrajudicial (CPC 784, III) de R$ ${Number(linha.valorTotal).toFixed(2).replace(".", ",")}`);
-  if (!sandbox) await storage.atualizarCasoDeCobranca(providerId, confissao.casoId, { proximaAcao: "título assinado — acompanhar as parcelas confessadas", proximoContatoEm: new Date(Date.now() + 7 * 86_400_000) }, null).catch(err => logger.warn({ err, providerId, confissaoId: confissao.id }, "CONFISSAO follow-up de título assinado não gravado"));
-  return { status: "assinada", mudou: true, motivo: null, linha };
+  const vivo = await registrarEventoDaConfissao(providerId, linha, "assinada", null, sandbox ? "Confissão de dívida assinada em AMBIENTE DE TESTES — sem validade jurídica" : `Confissão de dívida assinada eletronicamente — título executivo extrajudicial (CPC 784, III) de R$ ${Number(linha.valorTotal).toFixed(2).replace(".", ",")}`);
+  if (!sandbox && vivo) await storage.atualizarCasoDeCobranca(providerId, confissao.casoId, { proximaAcao: "título assinado — acompanhar as parcelas confessadas", proximoContatoEm: new Date(Date.now() + 7 * 86_400_000) }, null).catch(err => logger.warn({ err, providerId, confissaoId: confissao.id }, "CONFISSAO follow-up de título assinado não gravado"));
+  return { status: "assinada", mudou: true, motivo: null, confirmado: true, linha };
 }
 
 export async function aplicarRetorno(providerId: number, confissaoId: number, origem: OrigemDoRetorno): Promise<ResultadoDoRetorno> {
   const confissao = await storage.obterConfissao(providerId, confissaoId);
   if (!confissao) throw new ErroDeConfissao("NAO_ENCONTRADA", "Confissão não encontrada", 404);
-  if (confissao.status !== "enviada") return { status: confissao.status as StatusDeConfissao, mudou: false, motivo: "fora de enviada" };
-  if (!confissao.zapsignDocToken) return { status: "enviada", mudou: false, motivo: "sem documento no ZapSign" };
+  if (confissao.status !== "enviada") return { status: confissao.status as StatusDeConfissao, mudou: false, motivo: "fora de enviada", confirmado: false };
+  if (!confissao.zapsignDocToken) return { status: "enviada", mudou: false, motivo: "sem documento no ZapSign", confirmado: false };
   const detalhe = await reconsultar(providerId, confissao);
   const signers = signatariosGravaveis(detalhe.signers, papeisDe(confissao));
   const sandboxDaLinha = confissao.ambiente === "sandbox";
   if (detalhe.sandbox !== sandboxDaLinha) {
     await storage.atualizarConfissao(providerId, confissao.id, { erroUltimo: "ambiente divergente", zapsignSigners: signers });
     logger.warn({ providerId, confissaoId, origem, sandboxDoZapSign: detalhe.sandbox, ambiente: confissao.ambiente }, "CONFISSAO retorno de outro ambiente — não aplicado");
-    return { status: "enviada", mudou: false, motivo: "ambiente divergente" };
+    return { status: "enviada", mudou: false, motivo: "ambiente divergente", confirmado: false };
   }
   if (detalhe.deleted) {
     const linha = await storage.transicionarConfissao(providerId, confissao.id, "enviada", "cancelada", { encerradaEm: new Date(), zapsignSigners: signers, erroUltimo: null, reconciliarEm: null });
     if (linha) await registrarEventoDaConfissao(providerId, linha, "cancelada", null, "Confissão de dívida apagada na conta ZapSign do provedor");
-    return { status: "cancelada", mudou: !!linha, motivo: "apagado no ZapSign", linha: linha ?? undefined };
+    return { status: "cancelada", mudou: !!linha, motivo: "apagado no ZapSign", confirmado: !!linha, linha: linha ?? undefined };
   }
   if (detalhe.status === "signed") return aplicarAssinatura(providerId, confissao, detalhe, signers);
   await storage.atualizarConfissao(providerId, confissao.id, { zapsignSigners: signers, reconciliarEm: null, erroUltimo: null, zapsignSandbox: detalhe.sandbox });
-  return { status: "enviada", mudou: false, motivo: null };
+  return { status: "enviada", mudou: false, motivo: null, confirmado: true };
 }
 
 export async function registrarInformadoPeloWebhook(providerId: number, confissaoId: number, tipo: "recusa" | "expiracao", eventType: string): Promise<void> {
@@ -111,8 +111,8 @@ export async function registrarInformadoPeloWebhook(providerId: number, confissa
   });
   if (jaInformado) return;
   if (tipo === "recusa") {
-    await registrarEventoDaConfissao(providerId, confissao, "recusa_informada", null, "O ZapSign informou que o cliente recusou a confissão de dívida — confirme na conta e decida o próximo passo");
-    await storage.atualizarCasoDeCobranca(providerId, confissao.casoId, { proximaAcao: "cliente recusou a confissão — ligar", proximoContatoEm: agora }, null).catch(() => undefined);
+    const vivo = await registrarEventoDaConfissao(providerId, confissao, "recusa_informada", null, "O ZapSign informou que o cliente recusou a confissão de dívida — confirme na conta e decida o próximo passo");
+    if (vivo) await storage.atualizarCasoDeCobranca(providerId, confissao.casoId, { proximaAcao: "cliente recusou a confissão — ligar", proximoContatoEm: agora }, null).catch(() => undefined);
   } else {
     await registrarEventoDaConfissao(providerId, confissao, "expiracao_informada", null, "O ZapSign informou que o prazo de assinatura da confissão expirou");
   }
@@ -132,6 +132,7 @@ export async function cancelarConfissao(providerId: number, confissaoId: number,
   const retorno = await aplicarRetorno(providerId, confissaoId, "cancelar");
   if (retorno.status === "assinada") throw new ErroDeConfissao("JA_ASSINADA", "O cliente já assinou — não se cancela", 409);
   if (retorno.status === "cancelada") return retorno.linha ?? (await storage.obterConfissao(providerId, confissaoId))!;
+  if (!retorno.confirmado) throw new ErroDeConfissao("ESTADO_INVALIDO", "Não foi possível confirmar o estado do documento no ZapSign — tente de novo em instantes", 409);
   const { zap } = await zapDaLinha(providerId, confissao);
   await zap.excluirDocumento(confissao.zapsignDocToken!);
   if (confissao.webhookZapsignId) await zap.excluirWebhook(confissao.webhookZapsignId).catch(() => undefined);
@@ -159,7 +160,7 @@ export async function reenviarNotificacoes(providerId: number, confissaoId: numb
 /** Worker: passada a data limite sem assinatura (reconsultada agora), marca expirada. */
 export async function expirarSeVencida(providerId: number, confissaoId: number, hoje: string): Promise<boolean> {
   const retorno = await aplicarRetorno(providerId, confissaoId, "worker");
-  if (retorno.status !== "enviada") return false;
+  if (retorno.status !== "enviada" || !retorno.confirmado) return false;
   const confissao = await storage.obterConfissao(providerId, confissaoId);
   if (!confissao || confissao.dataLimiteAssinatura >= hoje) return false;
   const linha = await storage.transicionarConfissao(providerId, confissaoId, "enviada", "expirada", { encerradaEm: new Date(), reconciliarEm: null });
