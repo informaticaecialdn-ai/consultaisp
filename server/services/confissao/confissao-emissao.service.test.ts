@@ -75,12 +75,26 @@ describe("emitir a confissão", () => {
     expect(storageMock.criarConfissao).not.toHaveBeenCalled();
   });
   it("a mesma chave com um rascunho que nunca foi enviado encerra o rascunho, libera a chave e emite de novo", async () => {
-    storageMock.obterConfissaoPorChave.mockResolvedValueOnce({ id: 70, status: "rascunho", zapsignDocToken: null, erroUltimo: "O ZapSign não respondeu (HTTP 503)" });
+    storageMock.obterConfissaoPorChave.mockResolvedValue({ id: 70, status: "rascunho", customerId: 42, zapsignDocToken: null, erroUltimo: "O ZapSign não respondeu (HTTP 503)" });
     const r = await emitirConfissao(1, 42, 7, corpo());
     expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 70, "rascunho", "cancelada", expect.objectContaining({ chaveIdempotencia: null, erroUltimo: expect.stringContaining("503") }));
     expect(storageMock.criarConfissao).toHaveBeenCalled();
     expect(zapsign.criarDocumentoPorPdf).toHaveBeenCalled();
     expect(r.status).toBe("enviada");
+    storageMock.obterConfissaoPorChave.mockResolvedValue(undefined);
+  });
+  it("um rascunho pela chave NÃO é encerrado fora da trava: trava ocupada devolve EM_ANDAMENTO sem tocar na linha", async () => {
+    storageMock.obterConfissaoPorChave.mockResolvedValueOnce({ id: 70, status: "rascunho", customerId: 42, zapsignDocToken: null, erroUltimo: null });
+    travaMock.comTravaDoChat.mockResolvedValueOnce(null);
+    await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "EM_ANDAMENTO" });
+    expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
+  });
+  it("chave de outro cliente dentro da trava é recusada", async () => {
+    storageMock.obterConfissaoPorChave.mockResolvedValue({ id: 70, status: "rascunho", customerId: 99, zapsignDocToken: null });
+    await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "BASE_MUDOU" });
+    expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
+    expect(storageMock.criarConfissao).not.toHaveBeenCalled();
+    storageMock.obterConfissaoPorChave.mockResolvedValue(undefined);
   });
   it("trava ocupada é EM_ANDAMENTO; a chave da trava é por provedor e cliente", async () => {
     travaMock.comTravaDoChat.mockResolvedValueOnce(null);

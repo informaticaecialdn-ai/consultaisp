@@ -91,11 +91,20 @@ async function encerrarRascunhoFalho(providerId: number, rascunhoId: number, mot
 }
 
 export async function emitirConfissao(providerId: number, customerId: number, userId: number, corpo: CorpoDaEmissao): Promise<CobrancaConfissao> {
+  // Fora da trava só se LÊ: o que já não é rascunho volta como está (idempotência barata).
   const existente = await storage.obterConfissaoPorChave(providerId, corpo.chaveIdempotencia);
   if (existente && existente.status !== "rascunho") return existente;
-  if (existente) await encerrarRascunhoFalho(providerId, existente.id, existente.erroUltimo ?? "emissão interrompida antes do envio");
 
   const resultado = await comTravaDoChat(`confissao:${providerId}:${customerId}`, async () => {
+    // Sob a trava a releitura é a verdade: um rascunho com esta chave só pode ser
+    // de um processo que caiu ou de uma tentativa que falhou — quem estivesse
+    // emitindo agora seguraria a trava. Fora da trava, encerrá-lo mataria a
+    // emissão em voo de outro pedido com a mesma chave.
+    const pelaChave = await storage.obterConfissaoPorChave(providerId, corpo.chaveIdempotencia);
+    if (pelaChave && pelaChave.status !== "rascunho") return pelaChave;
+    if (pelaChave && pelaChave.customerId !== customerId) throw new ErroDeConfissao("BASE_MUDOU", "Esta chave de idempotência pertence a outra emissão — recarregue", 409);
+    if (pelaChave) await encerrarRascunhoFalho(providerId, pelaChave.id, pelaChave.erroUltimo ?? "emissão interrompida antes do envio");
+
     const base = await montarBase(providerId, customerId, {
       vencimento: corpo.vencimento ?? null,
       faturasExcluidas: corpo.faturasExcluidas ?? [],
