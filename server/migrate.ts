@@ -170,6 +170,12 @@ export async function verifySchema(): Promise<void> {
     { table: "equipment_recovery_cases", column: "deadline_at" },
     { table: "equipment_recovery_cases", column: "bureau_status" },
     { table: "equipment_recovery_events", column: "case_id" },
+    { table: "assinatura_integracoes", column: "provider_id" },
+    { table: "assinatura_integracoes", column: "fornecedor" },
+    { table: "cobranca_confissoes", column: "provider_id" },
+    { table: "cobranca_confissoes", column: "customer_id" },
+    { table: "cobranca_confissoes", column: "status" },
+    { table: "cobranca_confissoes_pdf", column: "confissao_id" },
   ];
 
   const optionalColumns: Array<{ table: string; column: string }> = [

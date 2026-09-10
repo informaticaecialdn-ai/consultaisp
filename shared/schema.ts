@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, bigserial, jsonb, index, uniqueIndex, unique, primaryKey, foreignKey, check, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, bigserial, jsonb, index, uniqueIndex, unique, primaryKey, foreignKey, check, date, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1618,6 +1618,144 @@ export const cobrancaParcelas = pgTable("cobranca_parcelas", {
   // O job que marca atrasadas, e o KPI de recuperado nos ultimos 30 dias.
   index("idx_cobranca_parcelas_status_vencimento").on(t.providerId, t.status, t.vencimento),
 ]);
+
+/**
+ * Assinatura eletrônica por provedor (confissão de dívida, spec §5.1).
+ *
+ * Uma conta ZapSign POR PROVEDOR: o documento sai em nome dele e quem fatura
+ * é o ZapSign para ele. `api_token` vai cifrado por `encryptField`;
+ * `webhook_secret` autentica o retorno e é regenerado quando token ou
+ * ambiente mudam. Nenhum dos dois sai por GET — nem para o superadmin.
+ */
+export const assinaturaIntegracoes = pgTable("assinatura_integracoes", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  fornecedor: text("fornecedor").notNull().default("zapsign"),
+  apiToken: text("api_token"),
+  /** sandbox (padrão) | producao — o sandbox não tem validade jurídica. */
+  ambiente: text("ambiente").notNull().default("sandbox"),
+  /** id do modelo no ZapSign; null = o modelo padrão do Consulta ISP. */
+  templateId: text("template_id"),
+  signatarioNome: text("signatario_nome"),
+  signatarioCpf: text("signatario_cpf"),
+  signatarioEmail: text("signatario_email"),
+  signatarioTelefone: text("signatario_telefone"),
+  provedorAssina: boolean("provedor_assina").notNull().default(false),
+  authModeCliente: text("auth_mode_cliente").notNull().default("assinaturaTela-tokenWhatsapp"),
+  exigirSelfie: boolean("exigir_selfie").notNull().default(false),
+  prazoAssinaturaDias: integer("prazo_assinatura_dias").notNull().default(15),
+  enviarArquivoAssinadoWhatsapp: boolean("enviar_arquivo_assinado_whatsapp").notNull().default(false),
+  modeloRevisadoEm: timestamp("modelo_revisado_em"),
+  modeloRevisadoPorUserId: integer("modelo_revisado_por_user_id").references(() => users.id),
+  webhookSecret: text("webhook_secret"),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  ativadaEm: timestamp("ativada_em"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("assinatura_integracoes_provider_fornecedor").on(t.providerId, t.fornecedor),
+]);
+
+/**
+ * A confissão de dívida (spec §5.2): a foto canônica da dívida no instante da
+ * emissão (`base_canonica` + `texto_hash`, sem data/hora), o Anexo I lido do
+ * ERP ao vivo, o documento no ZapSign e o estado por signatário. Os PDFs
+ * ficam em `cobranca_confissoes_pdf`, fora da linha principal.
+ *
+ * status: rascunho → enviada → assinada | cancelada | expirada; assinada →
+ * quitada | substituida. Uma confissão VIVA (rascunho/enviada) por cliente —
+ * índice parcial `cobranca_confissoes_viva_uq`.
+ */
+export const cobrancaConfissoes = pgTable("cobranca_confissoes", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  casoId: integer("caso_id").notNull().references(() => cobrancaCasos.id),
+  negociacaoId: integer("negociacao_id").references(() => cobrancaNegociacoes.id),
+  /** acordo | saldo_integral */
+  origem: text("origem").notNull(),
+  /** sandbox | producao — foto do ambiente da integração na emissão. */
+  ambiente: text("ambiente").notNull(),
+  /** O `sandbox` que o ZapSign devolveu na reconsulta; divergente do `ambiente` = não aplica. */
+  zapsignSandbox: boolean("zapsign_sandbox"),
+  valorTotal: decimal("valor_total", { precision: 12, scale: 2 }).notNull(),
+  valorOriginal: decimal("valor_original", { precision: 12, scale: 2 }),
+  descontoPct: decimal("desconto_pct", { precision: 5, scale: 2 }),
+  /** ParcelaConfessada[] (shared/cobranca/confissao.ts) */
+  parcelas: jsonb("parcelas").notNull().default(sql`'[]'::jsonb`),
+  erpSource: text("erp_source"),
+  erpLidoEm: timestamp("erp_lido_em"),
+  /** FaturaDoAnexo[] — o Anexo I */
+  erpFaturas: jsonb("erp_faturas").notNull().default(sql`'[]'::jsonb`),
+  /** padrao | zapsign */
+  modelo: text("modelo").notNull().default("padrao"),
+  /** versão do texto padrão ("1.0") ou o template_id do ZapSign */
+  modeloVersao: text("modelo_versao").notNull(),
+  modeloRevisado: boolean("modelo_revisado").notNull().default(false),
+  baseCanonica: jsonb("base_canonica").notNull(),
+  textoHash: text("texto_hash").notNull(),
+  geradoEm: timestamp("gerado_em").notNull(),
+  status: text("status").notNull().default("rascunho"),
+  recusaInformadaEm: timestamp("recusa_informada_em"),
+  expiracaoInformadaEm: timestamp("expiracao_informada_em"),
+  reconciliarEm: timestamp("reconciliar_em"),
+  zapsignDocToken: text("zapsign_doc_token"),
+  webhookZapsignId: text("webhook_zapsign_id"),
+  /** SignatarioDaConfissao[] — só token, sign_url, status, signed_at, auth_mode, papel */
+  zapsignSigners: jsonb("zapsign_signers").notNull().default(sql`'[]'::jsonb`),
+  clienteNome: text("cliente_nome"),
+  clienteCpfCnpj: text("cliente_cpf_cnpj"),
+  clienteEmail: text("cliente_email"),
+  clienteTelefone: text("cliente_telefone"),
+  clienteEmailErp: text("cliente_email_erp"),
+  clienteTelefoneErp: text("cliente_telefone_erp"),
+  contatoAlteradoPorUserId: integer("contato_alterado_por_user_id").references(() => users.id),
+  representanteNome: text("representante_nome"),
+  representanteCpf: text("representante_cpf"),
+  dataLimiteAssinatura: date("data_limite_assinatura").notNull(),
+  enviadaEm: timestamp("enviada_em"),
+  assinadaEm: timestamp("assinada_em"),
+  encerradaEm: timestamp("encerrada_em"),
+  pdfOriginalSha256: text("pdf_original_sha256"),
+  pdfAssinadoSha256: text("pdf_assinado_sha256"),
+  criadaPorUserId: integer("criada_por_user_id").notNull().references(() => users.id),
+  aprovadaPorUserId: integer("aprovada_por_user_id").references(() => users.id),
+  chaveIdempotencia: uuid("chave_idempotencia"),
+  erroUltimo: text("erro_ultimo"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("idx_cobranca_confissoes_cliente").on(t.providerId, t.customerId),
+  index("idx_cobranca_confissoes_status").on(t.providerId, t.status),
+  // O worker de reconciliação varre TODOS os provedores por status e prazo.
+  index("idx_cobranca_confissoes_reconciliar").on(t.status, t.reconciliarEm),
+  uniqueIndex("cobranca_confissoes_doc_token_uq").on(t.zapsignDocToken).where(sql`zapsign_doc_token IS NOT NULL`),
+  uniqueIndex("cobranca_confissoes_viva_uq").on(t.providerId, t.customerId).where(sql`status IN ('rascunho', 'enviada')`),
+  uniqueIndex("cobranca_confissoes_idempotencia_uq").on(t.providerId, t.chaveIdempotencia).where(sql`chave_idempotencia IS NOT NULL`),
+]);
+
+/** Os bytes dos PDFs (original e assinado). O storage só seleciona `base64` em `obterPdf`. */
+export const cobrancaConfissoesPdf = pgTable("cobranca_confissoes_pdf", {
+  confissaoId: integer("confissao_id").notNull().references(() => cobrancaConfissoes.id),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  /** original | assinado */
+  tipo: text("tipo").notNull(),
+  sha256: text("sha256").notNull(),
+  tamanhoBytes: integer("tamanho_bytes").notNull(),
+  base64: text("base64").notNull(),
+  baixadoEm: timestamp("baixado_em"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.confissaoId, t.tipo] }),
+]);
+
+export const insertAssinaturaIntegracaoSchema = createInsertSchema(assinaturaIntegracoes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCobrancaConfissaoSchema = createInsertSchema(cobrancaConfissoes).omit({ id: true, createdAt: true, updatedAt: true });
+export type AssinaturaIntegracao = typeof assinaturaIntegracoes.$inferSelect;
+export type InsertAssinaturaIntegracao = z.infer<typeof insertAssinaturaIntegracaoSchema>;
+export type CobrancaConfissao = typeof cobrancaConfissoes.$inferSelect;
+export type InsertCobrancaConfissao = z.infer<typeof insertCobrancaConfissaoSchema>;
+export type CobrancaConfissaoPdf = typeof cobrancaConfissoesPdf.$inferSelect;
 
 export const insertCobrancaCasoSchema = createInsertSchema(cobrancaCasos).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCobrancaEventoSchema = createInsertSchema(cobrancaEventos).omit({ id: true, createdAt: true });
