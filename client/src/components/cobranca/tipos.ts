@@ -114,6 +114,9 @@ export interface ReguaDeHoje {
   motivo: MotivoSemEtapa | string | null;
 }
 
+/** A confissão assinada viva do cliente — o que acende o selo "título executivo assinado". */
+export interface SeloDaConfissao { id: number; assinadaEm: string | null; valorTotal: number; ambiente: "sandbox" | "producao" }
+
 export interface ItemDaCarteira {
   customerId: number;
   nome: string;
@@ -148,6 +151,8 @@ export interface ItemDaCarteira {
   mrr?: number | null;
   /** Sempre null hoje: propensão a pagar é modelo a criar — o card diz "—". */
   propensao?: number | null;
+  /** A confissão de dívida assinada viva do cliente (spec §6.6) — a rota sempre preenche, nunca omite. */
+  confissao: SeloDaConfissao | null;
 }
 
 /** O mês de vencimento resumido — a mesma régua do scoring do Provedor.ai (safra mensal). */
@@ -437,6 +442,8 @@ export interface Cliente360 {
   /** Os blocos calculados do Provedor.ai (selo, scores, prescrição, economia, resumo) — `montarFicha360`. */
   ficha?: Ficha360;
   fichaEntrada?: FichaEntrada;
+  /** A confissão de dívida assinada viva do cliente (spec §6.6) — a rota sempre preenche, nunca omite. */
+  confissaoViva: SeloDaConfissao | null;
   /** O historico de pagamento confirmado pelo ERP (0036) — a remontagem ao vivo precisa dele. */
   historicoPagamentos?: HistoricoDePagamentos | null;
   chat?: ChatDoCaso | null;

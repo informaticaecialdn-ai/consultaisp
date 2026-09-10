@@ -78,6 +78,13 @@ describe("montarFicha360", () => {
     expect(f.economia!.inadimplencia_aberta).toBe(0);
   });
 
+  it("confissão assinada viva interrompe a prescrição: conta cinco anos a partir da assinatura (CC art. 202, VI)", () => {
+    const hoje = new Date(2026, 8, 10);
+    const f = montarFicha360({ ...base, hoje, diasAtraso: 1500, confissaoAssinadaEm: "2026-09-01" });
+    expect(f.prescricao).toEqual({ fatura_mais_antiga: "2026-09-01", data_prescricao: "2031-09-01", prescrita: false, dias_restantes: expect.any(Number), interrompida_em: "2026-09-01" });
+    expect(montarFicha360({ ...base, hoje, diasAtraso: 1500 }).prescricao?.interrompida_em).toBeUndefined();
+  });
+
   it("cliente há dois meses, sem dívida: selo 'Novo' com os meses de casa", () => {
     const f = montarFicha360({ ...base, contractStartDate: "2026-07-01", dividaAtual: 0, diasAtraso: 0, faturasAbertas: 0 });
     expect(f.mesesCliente).toBe(2);

@@ -237,7 +237,7 @@ export function corDaBandaDeCredito(score: number | null, band: string | null): 
 
 /* ── Prescrição CC 206 §5º — apps/api/src/routes/cliente360.ts:822-844 ── */
 
-export interface Prescricao360 { fatura_mais_antiga: string; data_prescricao: string; prescrita: boolean; dias_restantes: number }
+export interface Prescricao360 { fatura_mais_antiga: string; data_prescricao: string; prescrita: boolean; dias_restantes: number; interrompida_em?: string | null }
 
 const isoDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -251,6 +251,18 @@ export function prescricaoPorAtraso(diasAtraso: number, hoje: Date): Prescricao3
   const dataPrescricao = new Date(maisAntiga.getFullYear() + 5, maisAntiga.getMonth(), maisAntiga.getDate());
   const diasRestantes = Math.ceil((dataPrescricao.getTime() - hoje.getTime()) / 86_400_000);
   return { fatura_mais_antiga: isoDia(maisAntiga), data_prescricao: isoDia(dataPrescricao), prescrita: diasRestantes <= 0, dias_restantes: Math.max(diasRestantes, 0) };
+}
+
+/**
+ * Confissão assinada viva interrompe a prescrição (CC art. 202, VI): o prazo
+ * de cinco anos recomeça na data da assinatura. `assinadaEm` é AAAA-MM-DD.
+ */
+export function prescricaoInterrompidaPorConfissao(assinadaEm: string, hoje: Date): Prescricao360 {
+  const [a, m, d] = assinadaEm.split("-").map(Number);
+  const inicio = new Date(a, m - 1, d);
+  const dataPrescricao = new Date(inicio.getFullYear() + 5, inicio.getMonth(), inicio.getDate());
+  const diasRestantes = Math.ceil((dataPrescricao.getTime() - hoje.getTime()) / 86_400_000);
+  return { fatura_mais_antiga: isoDia(inicio), data_prescricao: isoDia(dataPrescricao), prescrita: diasRestantes <= 0, dias_restantes: Math.max(diasRestantes, 0), interrompida_em: isoDia(inicio) };
 }
 
 /* ── Projeção de risco do próximo vencimento — domain.ts:298-335 ── */

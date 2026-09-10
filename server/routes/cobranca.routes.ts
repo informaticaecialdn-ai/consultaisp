@@ -7,6 +7,8 @@ import { logger } from "../logger";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { casoEstaEncerrado } from "../services/equipment-recovery-rules";
 import { snapshotAoVivoDoCliente } from "../services/cobranca/snapshot-ao-vivo.service";
+import { cancelarConfissao } from "../services/confissao/confissao-retorno.service";
+import { ErroDeConfissao } from "../assinatura/erro";
 import { podeAdministrarOProvedor } from "./provider.routes";
 import {
   CODIGOS_DE_ERRO_DE_COBRANCA,
@@ -19,6 +21,7 @@ import {
   type PatchDeCaso,
   type StatusCasoFechado,
 } from "../storage/cobranca.storage";
+import type { ConfissaoAssinadaViva } from "../storage/assinatura.storage";
 import type { FaturaDoCliente, FaturasDoCliente } from "../storage/faturas.storage";
 import { FaturasStorage } from "../storage/faturas.storage";
 import { historicoParaEconomia, type HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
@@ -66,6 +69,7 @@ import {
   validarNegociacao,
   validarPolitica,
   valorAtualizado,
+  type AmbienteDeAssinatura,
   type Carteira,
   type Dna,
   type Etapa,
@@ -545,6 +549,13 @@ interface ItemDaCarteira {
   caso: ReturnType<typeof casoResumo> | null;
   ispScore: number | null;
   riskTier: string | null;
+  /** A confissão de dívida assinada viva do cliente (spec §6.6) — o selo "título executivo assinado". */
+  confissao: { id: number; assinadaEm: string | null; valorTotal: number; ambiente: AmbienteDeAssinatura } | null;
+}
+
+/** O selo da confissão assinada viva, pronto para o payload: `Date` → ISO, `string | number` → number. */
+function seloDaConfissao(c: ConfissaoAssinadaViva | { id: number; assinadaEm: Date | null; valorTotal: number | string; ambiente: string }) {
+  return { id: c.id, assinadaEm: c.assinadaEm ? c.assinadaEm.toISOString() : null, valorTotal: Number(c.valorTotal), ambiente: c.ambiente as AmbienteDeAssinatura };
 }
 
 function montarItem(
@@ -581,6 +592,9 @@ function montarItem(
     regua: { etapa: regua.etapa?.id ?? null, rotulo: regua.etapa?.rotulo ?? null, motivo: regua.motivo },
     caso: caso ? casoResumo(caso) : null,
     ...ispScoreReal(cliente),
+    // Preenchido depois, pela rota: quem monta o item nao sabe a confissao —
+    // so quem tem a lista inteira de customerIds pode ler o mapa de uma vez.
+    confissao: null,
   };
 }
 
@@ -1405,6 +1419,10 @@ export function registerCobrancaRoutes(): Router {
         ...candidatosDaPagina.map(c => itemDoCandidato(c, clientes.get(c.customerId), etapas, hoje)),
         ...emDia.linhas.map(c => itemDoEmDia(c, clientes.get(c.customerId), etapas, hoje)),
       ];
+      // O selo da confissao assinada viva (spec §6.6): um mapa so, pelos
+      // customerIds da pagina inteira — nao uma leitura por item.
+      const selos = await storage.confissoesAssinadasVivasPorCliente(providerId, itens.map(i => i.customerId)).catch(() => new Map<number, ConfissaoAssinadaViva>());
+      for (const item of itens) item.confissao = selos.has(item.customerId) ? seloDaConfissao(selos.get(item.customerId)!) : null;
 
       res.json({
         kpis,
@@ -1494,7 +1512,7 @@ export function registerCobrancaRoutes(): Router {
       // inteiro so o proprio cliente (ou um CNPJ que o contenha) volta, e o
       // filtro por id abaixo tira o resto.
       const digitos = cliente.cpfCnpj.replace(/\D/g, "");
-      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade, historicoPagamentos, faturasVencidas, erpConfirmaPagamentos, cobrancasDeSaida] = await Promise.all([
+      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente, mensalidade, historicoPagamentos, faturasVencidas, erpConfirmaPagamentos, cobrancasDeSaida, confissaoAssinada] = await Promise.all([
         carregarPolitica(providerId),
         storage.listarCasosDeCobranca(providerId, { status: "todos", busca: digitos.length >= 3 ? digitos : cliente.name }, { pagina: 1, porPagina: 200 }),
         storage.listarEventosDoCliente(providerId, customerId),
@@ -1525,6 +1543,9 @@ export function registerCobrancaRoutes(): Router {
         // saem da divida da Economia (o equipamento ja esta no investimento).
         // Falha aqui = nada excluido, como sempre foi — com log.
         storage.cobrancasDeSaida(providerId, [customerId], hoje).catch((e: unknown) => { logger.warn({ providerId, customerId, err: e }, "COBRANCA cobranca de saida indisponivel — multa nao separada da divida"); return new Map<number, CobrancaDeSaida>(); }),
+        // A confissao de divida assinada viva (spec §6.6): interrompe a
+        // prescricao e acende o selo "titulo executivo assinado" no 360.
+        storage.confissaoAssinadaVivaDoCliente(providerId, customerId).catch(() => undefined),
       ]);
       const ha30d = new Date(hoje.getTime() - 30 * 86_400_000);
       const deOutros = consultasRecentes.filter(c => c.providerId !== providerId);
@@ -1603,6 +1624,8 @@ export function registerCobrancaRoutes(): Router {
         respostas90d: contatos90d.filter(ev => ev.resultado && RESPONDEU.has(ev.resultado)).length,
         comunicacoes30d: contatos.filter(ev => ev.ocorridoEm && new Date(ev.ocorridoEm) >= ha30d).length,
         totalComunicacoes: contatos.length,
+        // Confissao assinada viva (spec §6.6): interrompe a prescricao em `montarFicha360`.
+        confissaoAssinadaEm: confissaoAssinada?.assinadaEm ? confissaoAssinada.assinadaEm.toISOString().slice(0, 10) : null,
       };
       // Desde a 0036 o ERP confirma pagamento (IXC e SGP em lote; MK pela API
       // licenciada): com fatura paga sincronizada a Economia sai REALIZADA —
@@ -1670,6 +1693,7 @@ export function registerCobrancaRoutes(): Router {
         equipamentos: equipamentos.map(equipamentoParaApi),
         ficha,
         fichaEntrada,
+        confissaoViva: confissaoAssinada ? seloDaConfissao(confissaoAssinada) : null,
         historicoPagamentos,
         chat: conversaDoChat ? { conversationId: conversaDoChat.conversationId, status: conversaDoChat.status } : null,
         rede,
@@ -2196,6 +2220,21 @@ export function registerCobrancaRoutes(): Router {
       const transicao = transicaoDeNegociacao(atual.status as StatusDeNegociacao, status);
       if (!transicao.ok) return res.status(409).json({ message: transicao.motivo });
 
+      // Acordo × confissão (spec §6.6): cancelar ou quebrar um acordo com
+      // confissão ENVIADA cancela a confissão antes — DELETE no ZapSign
+      // primeiro; se falhar, a negociação não muda e a tela diz por quê.
+      if (status === "cancelada" || status === "quebrada") {
+        const enviada = await storage.confissaoEnviadaDaNegociacao(providerId, id);
+        if (enviada) {
+          try {
+            await cancelarConfissao(providerId, enviada.id, userId);
+          } catch (e) {
+            if (e instanceof ErroDeConfissao) return res.status(e.http).json({ message: `A confissão de dívida ligada a este acordo não pôde ser cancelada: ${e.message}`, code: e.codigo });
+            throw e;
+          }
+        }
+      }
+
       // A aprovação é conferida com a proposta bloqueada na transação do aceite.
       const nova = await storage.atualizarStatusDaNegociacao(providerId, id, status, userId, {
         podeAprovarExcecao: podeAdministrarOProvedor(req.session),
@@ -2365,15 +2404,21 @@ export function registerCobrancaRoutes(): Router {
             entraramHoje: number | null; resolvidosHoje: number | null;
           })
         : null;
+      // O selo da confissao assinada viva (spec §6.6): um mapa so, pelos
+      // customerIds de todos os cards de todas as colunas — nao uma leitura por card.
+      const idsDosCards = colunas.flatMap(c => c.casos.map(item => item.cliente.id));
+      const selosDeConfissao = await storage.confissoesAssinadasVivasPorCliente(providerId, idsDosCards).catch(() => new Map<number, ConfissaoAssinadaViva>());
       const comChat = colunas.map(c => ({
         ...c,
         casos: c.casos.map(item => {
           const v = conversasDoChat.get(item.id);
           const n = negociacoesVivas.get(item.id);
+          const confissao = selosDeConfissao.get(item.cliente.id);
           return {
             ...item,
             chat: v ? { conversationId: v.conversationId, status: v.status } : null,
             negociacao: n ? { ...n, aceitaEm: n.aceitaEm ? new Date(n.aceitaEm).toISOString() : null } : null,
+            confissao: confissao ? seloDaConfissao(confissao) : null,
           };
         }),
       }));

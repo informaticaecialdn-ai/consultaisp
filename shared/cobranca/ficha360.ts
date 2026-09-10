@@ -18,7 +18,7 @@ import { computeEconomiaLedger, mesesEntre, precoDoPlano, type EconomiaLedger } 
 import type { CobrancaDeSaida } from "./multa";
 import {
   anosDeCliente, classificarSeloPagamento, computeHealthScore, computePropensao, deriveFinancialScore, deriveRelationshipScore,
-  deriveTechnicalScore, prescricaoPorAtraso, resumoExecutivo, situacaoRealDe,
+  deriveTechnicalScore, prescricaoInterrompidaPorConfissao, prescricaoPorAtraso, resumoExecutivo, situacaoRealDe,
   type HealthBand, type Prescricao360, type Propensao, type SeloPagamento,
 } from "./cliente360";
 
@@ -94,6 +94,8 @@ export interface EntradaDaFicha360 {
   mensalidadeObservada?: { valor: number; concordam: number; faturas: number; baixadas?: number } | null;
   /** Histórico de pagamento sincronizado, quando existir (fase 2). */
   historicoPagamento: { pagas: number; recebido: number; pct_em_dia: number; primeira_paga?: string | null } | null;
+  /** AAAA-MM-DD da confissão de dívida assinada viva; interrompe a prescrição. */
+  confissaoAssinadaEm?: string | null;
 }
 
 export interface ScoresDaFicha {
@@ -367,7 +369,9 @@ export function montarFicha360(e: EntradaDaFicha360): Ficha360 {
       })
     : null;
 
-  const prescricao = prescricaoPorAtraso(e.diasAtraso, e.hoje);
+  const prescricao = e.confissaoAssinadaEm
+    ? prescricaoInterrompidaPorConfissao(e.confissaoAssinadaEm, e.hoje)
+    : prescricaoPorAtraso(e.diasAtraso, e.hoje);
 
   const resumo = resumoExecutivo({
     selo,

@@ -87,11 +87,16 @@ const storageMock = vi.hoisted(() => ({
   conversasDoChatPorCaso: vi.fn(async (): Promise<Map<number, any>> => new Map()),
   negociacoesVivasPorCaso: vi.fn(async (): Promise<Map<number, any>> => new Map()),
   getConversaDoChatPorCaso: vi.fn(async (): Promise<any> => undefined),
+  confissaoEnviadaDaNegociacao: vi.fn(async (): Promise<any> => undefined),
+  confissaoAssinadaVivaDoCliente: vi.fn(async (): Promise<any> => undefined),
+  confissoesAssinadasVivasPorCliente: vi.fn(async (): Promise<Map<number, any>> => new Map()),
 }));
 const snapshotMock = vi.hoisted(() => ({
   snapshotAoVivoDoCliente: vi.fn(async (): Promise<any> => ({ ok: false, erpSource: null, encontrado: false, cliente: null, erro: "Sem integração", latenciaMs: 1, lidoEm: "2026-09-05T12:00:00.000Z", doCache: false })),
 }));
 vi.mock("../services/cobranca/snapshot-ao-vivo.service", () => snapshotMock);
+const retornoMock = vi.hoisted(() => ({ cancelarConfissao: vi.fn(async (): Promise<any> => ({ id: 77, status: "cancelada" })) }));
+vi.mock("../services/confissao/confissao-retorno.service", () => retornoMock);
 vi.mock("../storage", () => ({ storage: storageMock }));
 // O 360 le o historico direto de FaturasStorage (nao pela fachada): o duble diz o que o ERP confirmou.
 const historicoMock = vi.hoisted(() => ({ atual: null as any }));
@@ -2326,5 +2331,39 @@ describe("o plano do ERP (contract_plan, 0036) chega aos itens da carteira — c
     expect(porId.get(3)).toBeNull();
     expect(porId.get(4)).toBe("Fibra 500");
     expect(porId.get(5)).toBe("Smart 1000");
+  });
+});
+
+describe("acordo × confissão e os selos", () => {
+  it("cancelar ou quebrar negociação com confissão enviada cancela a confissão ANTES; se o ZapSign falhar, a negociação não muda", async () => {
+    sessao = ADMIN;
+    storageMock.obterNegociacao.mockResolvedValue({ id: 3, casoId: 9, status: "aceita" });
+    storageMock.atualizarStatusDaNegociacao.mockResolvedValue({ id: 3, casoId: 9, status: "cancelada" });
+    storageMock.confissaoEnviadaDaNegociacao.mockResolvedValueOnce({ id: 77, status: "enviada" });
+    expect((await json("PATCH", "/api/cobranca/negociacoes/3", { status: "cancelada" })).status).toBe(200);
+    expect(retornoMock.cancelarConfissao).toHaveBeenCalledWith(42, 77, 7);
+    expect(retornoMock.cancelarConfissao.mock.invocationCallOrder[0]).toBeLessThan(storageMock.atualizarStatusDaNegociacao.mock.invocationCallOrder[0]);
+    vi.clearAllMocks();
+    storageMock.obterNegociacao.mockResolvedValue({ id: 3, casoId: 9, status: "aceita" });
+    storageMock.confissaoEnviadaDaNegociacao.mockResolvedValueOnce({ id: 77, status: "enviada" });
+    const { ErroDeConfissao } = await import("../assinatura/erro");
+    retornoMock.cancelarConfissao.mockRejectedValueOnce(new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", "fora", 502));
+    const r = await json("PATCH", "/api/cobranca/negociacoes/3", { status: "quebrada" });
+    expect(r.status).toBe(502);
+    expect((await r.json()).message).toContain("confissão de dívida ligada a este acordo");
+    expect(storageMock.atualizarStatusDaNegociacao).not.toHaveBeenCalled();
+  });
+  it("a lista da carteira e o 360 carregam o selo da confissão assinada viva", async () => {
+    sessao = ADMIN;
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [linhaCaso()], total: 1 });
+    storageMock.confissoesAssinadasVivasPorCliente.mockResolvedValueOnce(new Map([[linhaCaso().cliente.id, { id: 77, assinadaEm: new Date("2026-09-01T12:00:00Z"), valorTotal: 819.76, ambiente: "producao" }]]));
+    const lista = await (await json("GET", "/api/cobranca/carteira?carteira=ativo")).json();
+    expect(lista.itens[0].confissao).toEqual({ id: 77, assinadaEm: "2026-09-01T12:00:00.000Z", valorTotal: 819.76, ambiente: "producao" });
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
+    storageMock.confissaoAssinadaVivaDoCliente.mockResolvedValueOnce({ id: 77, assinadaEm: new Date("2026-09-01T12:00:00Z"), valorTotal: "819.76", ambiente: "producao" });
+    const ficha = await (await json("GET", `/api/cobranca/clientes/${clienteMaria.id}/360`)).json();
+    expect(ficha.confissaoViva).toEqual({ id: 77, assinadaEm: "2026-09-01T12:00:00.000Z", valorTotal: 819.76, ambiente: "producao" });
+    expect(ficha.fichaEntrada.confissaoAssinadaEm).toBe("2026-09-01");
+    expect(ficha.ficha.prescricao.interrompida_em).toBe("2026-09-01");
   });
 });
