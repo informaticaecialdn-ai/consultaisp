@@ -151,6 +151,12 @@ describe("bloqueios de cadastro e configuração", () => {
     storageMock.getCustomersByProvider.mockResolvedValueOnce([cliente({ cpfCnpj: "11222333000181", name: "Padaria Ltda" })]);
     expect((await montarBase(1, 42, { hoje: HOJE, representante: { nome: "João", cpf: "98765432100" } })).dto.bloqueios).toEqual([]);
   });
+  it("provedor assina exige representante (nome e e-mail) cadastrado", async () => {
+    storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(integracao({ provedorAssina: true }));
+    expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContainEqual(expect.stringContaining("representante (nome e e-mail)"));
+    storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(integracao({ provedorAssina: true, signatarioNome: "Ana Link", signatarioEmail: "ana@nslink.com" }));
+    expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).not.toContainEqual(expect.stringContaining("representante (nome e e-mail)"));
+  });
   it("contato informado pelo operador substitui o do cadastro e marca alteração", async () => {
     const b = await montarBase(1, 42, { hoje: HOJE, email: "outro@example.com" });
     expect(b.dto.cliente.email).toBe("outro@example.com");

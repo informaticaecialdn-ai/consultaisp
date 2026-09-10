@@ -106,6 +106,7 @@ export interface NovaConfissao {
 export interface PatchDeConfissao {
   erroUltimo?: string | null;
   reconciliarEm?: Date | null;
+  chaveIdempotencia?: string | null;
   zapsignDocToken?: string | null;
   webhookZapsignId?: string | null;
   zapsignSigners?: SignatarioDaConfissao[];

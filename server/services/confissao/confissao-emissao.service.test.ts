@@ -74,6 +74,14 @@ describe("emitir a confissão", () => {
     expect(zapsign.criarDocumentoPorPdf).not.toHaveBeenCalled();
     expect(storageMock.criarConfissao).not.toHaveBeenCalled();
   });
+  it("a mesma chave com um rascunho que nunca foi enviado encerra o rascunho, libera a chave e emite de novo", async () => {
+    storageMock.obterConfissaoPorChave.mockResolvedValueOnce({ id: 70, status: "rascunho", zapsignDocToken: null, erroUltimo: "O ZapSign não respondeu (HTTP 503)" });
+    const r = await emitirConfissao(1, 42, 7, corpo());
+    expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 70, "rascunho", "cancelada", expect.objectContaining({ chaveIdempotencia: null, erroUltimo: expect.stringContaining("503") }));
+    expect(storageMock.criarConfissao).toHaveBeenCalled();
+    expect(zapsign.criarDocumentoPorPdf).toHaveBeenCalled();
+    expect(r.status).toBe("enviada");
+  });
   it("trava ocupada é EM_ANDAMENTO; a chave da trava é por provedor e cliente", async () => {
     travaMock.comTravaDoChat.mockResolvedValueOnce(null);
     await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "EM_ANDAMENTO", http: 409 });
@@ -134,17 +142,26 @@ describe("emitir a confissão", () => {
     expect(zapsign.atualizarSignatario).toHaveBeenCalledWith("s-9", expect.objectContaining({ auth_mode: "assinaturaTela-tokenWhatsapp", cpf: "12345678901", require_cpf: true }));
     expect(storageMock.criarConfissao).toHaveBeenCalledWith(1, expect.objectContaining({ modelo: "zapsign", modeloVersao: "tpl-1" }));
   });
+  it("provedor assina sem representante (nome e e-mail) cadastrado recusa antes de gravar", async () => {
+    baseMock.montarBase.mockResolvedValueOnce(base({ integracao: { ...base().integracao, provedorAssina: true, signatarioNome: null, signatarioEmail: null } }));
+    await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "BLOQUEADA" });
+    expect(storageMock.criarConfissao).not.toHaveBeenCalled();
+  });
   it("falha ao registrar o webhook apaga o documento órfão, mantém o rascunho com erro_ultimo e propaga o erro", async () => {
     zapsign.registrarWebhookDoDocumento.mockRejectedValueOnce(new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", "O ZapSign não respondeu (HTTP 503)", 502));
     await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "ZAPSIGN_INDISPONIVEL" });
     expect(zapsign.excluirDocumento).toHaveBeenCalledWith("doc-1");
-    expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
-    expect(storageMock.atualizarConfissao).toHaveBeenCalledWith(1, 77, expect.objectContaining({ erroUltimo: expect.stringContaining("HTTP 503") }));
+    expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 77, "rascunho", "cancelada", expect.objectContaining({ erroUltimo: expect.stringContaining("HTTP 503"), chaveIdempotencia: null }));
+    expect(storageMock.transicionarConfissao).not.toHaveBeenCalledWith(1, 77, "rascunho", "enviada", expect.anything());
     expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
   });
   it("confissão viva existente recusa antes de gravar", async () => {
     storageMock.confissaoVivaDoCliente.mockResolvedValueOnce({ id: 60, status: "enviada" });
     await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "CONFISSAO_VIVA", detalhes: { confissaoId: 60 } });
     expect(storageMock.criarConfissao).not.toHaveBeenCalled();
+    storageMock.confissaoVivaDoCliente.mockResolvedValueOnce({ id: 61, status: "rascunho", zapsignDocToken: null, erroUltimo: null });
+    await emitirConfissao(1, 42, 7, corpo());
+    expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 61, "rascunho", "cancelada", expect.objectContaining({ chaveIdempotencia: null, erroUltimo: "emissão interrompida antes do envio" }));
+    expect(storageMock.criarConfissao).toHaveBeenCalled();
   });
 });

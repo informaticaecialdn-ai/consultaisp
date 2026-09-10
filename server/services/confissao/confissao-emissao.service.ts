@@ -85,9 +85,15 @@ export async function registrarEventoDaConfissao(providerId: number, confissao: 
   return true;
 }
 
+/** Rascunho que nunca chegou ao ZapSign (falha ou processo caído): encerra como cancelada, guarda o motivo e LIBERA a chave de idempotência — a próxima tentativa nasce limpa. Os índices únicos (uma viva por cliente; provedor+chave) fariam de um rascunho falho vivo um beco sem saída. */
+async function encerrarRascunhoFalho(providerId: number, rascunhoId: number, motivo: string): Promise<void> {
+  await storage.transicionarConfissao(providerId, rascunhoId, "rascunho", "cancelada", { erroUltimo: motivo, encerradaEm: new Date(), chaveIdempotencia: null });
+}
+
 export async function emitirConfissao(providerId: number, customerId: number, userId: number, corpo: CorpoDaEmissao): Promise<CobrancaConfissao> {
   const existente = await storage.obterConfissaoPorChave(providerId, corpo.chaveIdempotencia);
-  if (existente) return existente;
+  if (existente && existente.status !== "rascunho") return existente;
+  if (existente) await encerrarRascunhoFalho(providerId, existente.id, existente.erroUltimo ?? "emissão interrompida antes do envio");
 
   const resultado = await comTravaDoChat(`confissao:${providerId}:${customerId}`, async () => {
     const base = await montarBase(providerId, customerId, {
@@ -105,7 +111,11 @@ export async function emitirConfissao(providerId: number, customerId: number, us
     if (base.dto.ambiente === "sandbox" && !corpo.confirmoTeste) throw new ErroDeConfissao("BLOQUEADA", "Ambiente de testes: confirme que esta emissão é um TESTE sem validade jurídica", 422, { bloqueios: ["confirme o teste"] });
 
     const viva = await storage.confissaoVivaDoCliente(providerId, customerId);
-    if (viva) throw new ErroDeConfissao("CONFISSAO_VIVA", "Este cliente já tem uma confissão em andamento — cancele-a antes de emitir outra", 409, { confissaoId: viva.id });
+    if (viva && viva.status === "rascunho" && !viva.zapsignDocToken) {
+      await encerrarRascunhoFalho(providerId, viva.id, viva.erroUltimo ?? "emissão interrompida antes do envio");
+    } else if (viva) {
+      throw new ErroDeConfissao("CONFISSAO_VIVA", "Este cliente já tem uma confissão em andamento — cancele-a antes de emitir outra", 409, { confissaoId: viva.id });
+    }
 
     const { integracao, cliente, provedor, caso, canonica } = base;
     const agora = new Date();
@@ -116,20 +126,6 @@ export async function emitirConfissao(providerId: number, customerId: number, us
     const documento = modeloZapSign ? null : renderizarConfissao(canonica, agora.toISOString(), base.hash);
     const pdf = documento ? await gerarPdfDaConfissao(documento) : null;
 
-    const rascunho = await storage.criarConfissao(providerId, {
-      customerId, casoId: caso.id, negociacaoId: base.dto.negociacaoId, origem: base.dto.origem, ambiente,
-      valorTotal: base.dto.valorTotal, valorOriginal: base.dto.valorOriginal, descontoPct: base.dto.descontoPct,
-      parcelas: base.dto.parcelas, erpSource: base.dto.erpSource, erpLidoEm: base.dto.erpLidoEm ? new Date(base.dto.erpLidoEm) : null, erpFaturas: base.dto.anexo,
-      modelo: modeloZapSign ? "zapsign" : "padrao", modeloVersao: integracao.templateId ?? VERSAO_DO_MODELO, modeloRevisado: base.dto.modeloRevisado,
-      baseCanonica: canonica, textoHash: base.hash, geradoEm: agora,
-      clienteNome: cliente.name, clienteCpfCnpj: base.dto.cliente.documento, clienteEmail: base.dto.cliente.email, clienteTelefone: base.dto.cliente.telefone,
-      clienteEmailErp: base.contatoDoErp.email, clienteTelefoneErp: base.contatoDoErp.telefone, contatoAlteradoPorUserId: base.contatoAlterado ? userId : null,
-      representanteNome: corpo.representante?.nome ?? null, representanteCpf: corpo.representante ? digitos(corpo.representante.cpf) : null,
-      dataLimiteAssinatura: dataLimite, criadaPorUserId: userId, aprovadaPorUserId: userId, chaveIdempotencia: corpo.chaveIdempotencia,
-    });
-    if (pdf) await storage.guardarPdf(providerId, rascunho.id, "original", pdf);
-
-    const zap: ClienteZapSign = clienteZapSign({ apiToken: integracao.apiToken, ambiente });
     const cpfDoSignatario = base.dto.cliente.pessoaJuridica ? digitos(corpo.representante?.cpf) : base.dto.cliente.documento;
     const signatarioCliente: SignatarioParaCriar = {
       name: base.dto.cliente.pessoaJuridica && corpo.representante ? corpo.representante.nome : cliente.name,
@@ -153,6 +149,22 @@ export async function emitirConfissao(providerId: number, customerId: number, us
       name: integracao.signatarioNome, email: integracao.signatarioEmail, auth_mode: "assinaturaTela-tokenEmail", cpf: integracao.signatarioCpf ?? undefined,
       send_automatic_email: producao, send_automatic_whatsapp: false, lock_name: true, external_id: "provedor", qualification: "Credor", order_group: 1,
     } : null;
+    if (integracao.provedorAssina && !signatarioProvedor) throw new ErroDeConfissao("BLOQUEADA", "O provedor assina, mas o representante (nome e e-mail) não está cadastrado — o superadmin completa na ficha do provedor", 422, { bloqueios: ["representante do provedor não cadastrado"] });
+
+    const rascunho = await storage.criarConfissao(providerId, {
+      customerId, casoId: caso.id, negociacaoId: base.dto.negociacaoId, origem: base.dto.origem, ambiente,
+      valorTotal: base.dto.valorTotal, valorOriginal: base.dto.valorOriginal, descontoPct: base.dto.descontoPct,
+      parcelas: base.dto.parcelas, erpSource: base.dto.erpSource, erpLidoEm: base.dto.erpLidoEm ? new Date(base.dto.erpLidoEm) : null, erpFaturas: base.dto.anexo,
+      modelo: modeloZapSign ? "zapsign" : "padrao", modeloVersao: integracao.templateId ?? VERSAO_DO_MODELO, modeloRevisado: base.dto.modeloRevisado,
+      baseCanonica: canonica, textoHash: base.hash, geradoEm: agora,
+      clienteNome: cliente.name, clienteCpfCnpj: base.dto.cliente.documento, clienteEmail: base.dto.cliente.email, clienteTelefone: base.dto.cliente.telefone,
+      clienteEmailErp: base.contatoDoErp.email, clienteTelefoneErp: base.contatoDoErp.telefone, contatoAlteradoPorUserId: base.contatoAlterado ? userId : null,
+      representanteNome: corpo.representante?.nome ?? null, representanteCpf: corpo.representante ? digitos(corpo.representante.cpf) : null,
+      dataLimiteAssinatura: dataLimite, criadaPorUserId: userId, aprovadaPorUserId: userId, chaveIdempotencia: corpo.chaveIdempotencia,
+    });
+    if (pdf) await storage.guardarPdf(providerId, rascunho.id, "original", pdf);
+
+    const zap: ClienteZapSign = clienteZapSign({ apiToken: integracao.apiToken, ambiente });
 
     let docToken: string | null = null;
     let webhookId: string | null = null;
@@ -229,7 +241,7 @@ export async function emitirConfissao(providerId: number, customerId: number, us
         if (webhookId) await zap.excluirWebhook(webhookId).catch(() => undefined);
         await zap.excluirDocumento(docToken).catch(err => logger.error({ providerId, docToken, err }, "CONFISSAO documento órfão não pôde ser apagado no ZapSign"));
       }
-      await storage.atualizarConfissao(providerId, rascunho.id, { erroUltimo: mensagem });
+      await encerrarRascunhoFalho(providerId, rascunho.id, mensagem);
       throw e;
     }
   });
