@@ -40,6 +40,13 @@ export function descreverEvento(e: EventoDeCobranca): string {
     const resultado = ROTULO_RESULTADO[e.resultado as ResultadoDeContato] ?? e.resultado;
     return [tipo, canal, resultado].filter(Boolean).join(" · ");
   }
+  if (e.tipo === "confissao") {
+    const meta = e.metadata ?? {};
+    const status = texto(meta.status);
+    const valor = typeof meta.valor === "number" ? ` · R$ ${meta.valor.toFixed(2).replace(".", ",")}` : "";
+    const ambiente = meta.ambiente === "sandbox" ? " · TESTE" : "";
+    return `${tipo}${status ? `: ${status.replace(/_/g, " ")}` : ""}${valor}${ambiente}`;
+  }
   const meta = e.metadata ?? {};
   const de = texto(meta.de);
   const para = texto(meta.para);

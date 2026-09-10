@@ -27,12 +27,11 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams, useSearch } from "wouter";
 import { carteiraDaNavegacao, caminhoNaCarteira } from "@/components/cobranca/carteiras";
 import {
-  AlertTriangle, ArrowLeft, Ban, CheckCheck, ChevronRight, CircleDashed, Coins, FileSignature, FileText, GitBranch, Hammer, History,
+  AlertTriangle, ArrowLeft, Ban, CheckCheck, ChevronRight, CircleDashed, Coins, FileText, GitBranch, Hammer, History,
   Info, Inbox, Lock, MapPin, MessageCircle, MessagesSquare, Milestone, PhoneCall, QrCode, RefreshCw, Settings, Shield, ShieldCheck, Sparkles,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
@@ -47,10 +46,12 @@ import {
 } from "@shared/cobranca";
 import { brl, Kicker, num, TRACO } from "@/components/localizacao/ui";
 import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA, EstadoVazio, TabelaPainel, Td, Th } from "@/components/painel/ui";
+import { ConfissaoDeDivida } from "@/components/cobranca/ConfissaoDeDivida";
 import { DialogoAbrirCaso } from "@/components/cobranca/DialogoAbrirCaso";
 import { DialogoContato, type AlvoDoContato } from "@/components/cobranca/DialogoContato";
 import { DialogoNegociacao, type AlvoDaNegociacao } from "@/components/cobranca/DialogoNegociacao";
 import { LinhaDoTempo } from "@/components/cobranca/LinhaDoTempo";
+import { SeloConfissao } from "@/components/cobranca/SeloConfissao";
 import { dataBr, dataCivilBr, dataHoraBr, deInputDataHora, paraInputDataHora, proximoContato, whatsappDe } from "@/components/cobranca/formatacao";
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { lerPolitica } from "@/components/cobranca/politica-form";
@@ -280,7 +281,6 @@ function FichaDaCarteira() {
   const [negociacao, setNegociacao] = useState<AlvoDaNegociacao | null>(null);
   const [abrirCaso, setAbrirCaso] = useState(false);
   const [fechar, setFechar] = useState<{ status: StatusFechadoDeCaso; motivo: string } | null>(null);
-  const [confissao, setConfissao] = useState(false);
 
   const salvarCaso = useMutation({
     mutationFn: async () => {
@@ -408,6 +408,7 @@ function FichaDaCarteira() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-[23px] font-semibold leading-tight tracking-[var(--track-tight)] text-[var(--text)]" data-testid="nome-cliente">{cliente.nome}</h1>
                   <SeloOrigem origem={origemDoCabecalho} testId="selo-origem-360" />
+                  <SeloConfissao confissao={data?.confissaoViva} />
                   <Pendente motivo="não há coluna de vulnerabilidade (Lei 14.181) — a régua não pausa sozinha por vulnerabilidade" ext="Vulnerável" />
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--text-muted)]">
@@ -470,8 +471,6 @@ function FichaDaCarteira() {
                   <MessagesSquare className="h-3.5 w-3.5" aria-hidden /> {enviarParaChat.isPending ? "Enviando…" : "Enviar para cobrança"}
                 </button>
               )}
-              <button type="button" className={cn(BOTAO_SECUNDARIO, "opacity-60")} disabled title="Confissão de dívida (CPC 784) — GATED: sem assinatura eletrônica nem parecer jurídico do modelo"><FileSignature className="h-3.5 w-3.5" aria-hidden /> Confissão de dívida</button>
-              <Pendente motivo="sem assinatura eletrônica (ZapSign) nem parecer jurídico do modelo" ext="GATED" />
               <Link href={`${ROTA_REGUA}?carteira=${cliente.carteira}`} className={BOTAO_SECUNDARIO} data-testid="acao-ver-regua"><GitBranch className="h-3.5 w-3.5" aria-hidden /> Ver na Régua DNA</Link>
               <a href="#linha-do-tempo" className={BOTAO_SECUNDARIO} data-testid="acao-historico"><History className="h-3.5 w-3.5" aria-hidden /> Histórico completo</a>
               <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-[var(--gated)]"><Lock className="h-3.5 w-3.5" aria-hidden /> Ações sensíveis exigem aprovação do administrador</span>
@@ -519,14 +518,14 @@ function FichaDaCarteira() {
                   </div>
                 )}
               </Let>
-              <div className="flex flex-col gap-1" data-testid="confissao-cpc-784">
-                <div className="flex items-center gap-2">
-                  <span className="flex-1 font-mono text-[10px] font-semibold uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]" data-k="Confissão CPC 784">{"Confissão CPC 784"}</span>
-                  <Switch checked={confissao} onCheckedChange={v => { setConfissao(v); toast({ title: v ? "Confissão de dívida habilitada" : "Confissão de dívida desabilitada" }); }} aria-label="Habilitar confissão de dívida" />
-                  <span className={cn("text-[11px] font-semibold", confissao ? "text-[var(--ok)]" : "text-[var(--text-muted)]")}>{confissao ? "habilitada" : "desabilitada"}</span>
-                </div>
-                <span className="text-[12px] leading-4 text-[var(--text-2)]">{confissao ? "habilitada nesta sessão — a emissão do título executivo (CPC 784) depende de assinatura eletrônica e parecer jurídico; a habilitação por cliente ainda não persiste" : "habilite para ofertar o título executivo ao cliente"}</span>
-                <span><ACriar oque="habilitação de confissão POR CLIENTE (campo não existe no schema) + emissão com assinatura eletrônica" /></span>
+              <div data-k="Confissão de dívida" data-testid="confissao-cpc-784">
+                <ConfissaoDeDivida
+                  customerId={cliente.id}
+                  casoId={caso?.id ?? null}
+                  clienteNome={cliente.nome}
+                  podeAdministrar={podeAdministrar}
+                  chatCasoId={caso && data?.chat ? caso.id : null}
+                />
               </div>
               <Let k="Comodato a recuperar" testId="lista-equipamentos">
                 {equipamentos.length === 0 ? <span className="text-[var(--text-muted)]">nenhum equipamento registrado para este cliente (sync do ERP)</span> : (
@@ -554,7 +553,7 @@ function FichaDaCarteira() {
               <Let k="Prescrição (CC 206 §5)">
                 {ficha.prescricao ? (ficha.prescricao.prescrita
                   ? <SeloCobranca tom="danger">dívida prescrita</SeloCobranca>
-                  : <>prescreve em <b className={NUM}>{dataCivilBr(ficha.prescricao.data_prescricao)}</b> <span className="text-[var(--text-muted)]">· <span className={NUM}>{num(ficha.prescricao.dias_restantes)}</span> dias restantes</span></>)
+                  : <>{ficha.prescricao.interrompida_em && <span className="text-[var(--ok)]">interrompida pela confissão de {dataCivilBr(ficha.prescricao.interrompida_em)} (CC art. 202, VI) · </span>}prescreve em <b className={NUM}>{dataCivilBr(ficha.prescricao.data_prescricao)}</b> <span className="text-[var(--text-muted)]">· <span className={NUM}>{num(ficha.prescricao.dias_restantes)}</span> dias restantes</span></>)
                   : <span className="text-[var(--text-muted)]">sem dívida vencida — nada a prescrever</span>}
               </Let>
               <Let k="Histórico de pagamento">{recebimentos && !recebimentos.historico.historicoInsuficiente ? <><b className={NUM}>{recebimentos.historico.faturasPagas}</b> faturas pagas com data confirmada</> : <span className="text-[var(--text-muted)]">Sem histórico confirmado disponível.</span>}</Let>

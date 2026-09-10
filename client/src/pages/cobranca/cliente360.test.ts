@@ -20,7 +20,7 @@ const LETS = [
   "A vencer (no prazo · não é inadimplência)",
   "Encargos (CDC 52 · transparente)",
   "Negociação ativa",
-  "Confissão CPC 784",
+  "Confissão de dívida",
   "Comodato a recuperar",
   "Prescrição (CC 206 §5)",
   "Histórico de pagamento",
