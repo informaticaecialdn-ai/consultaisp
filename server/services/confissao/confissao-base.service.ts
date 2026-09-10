@@ -69,8 +69,9 @@ const dataBr = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.sl
 const maisDias = (d: Date, dias: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + dias);
 const diasEntre = (deIso: string, ate: Date) => Math.max(0, Math.round((new Date(ate.getFullYear(), ate.getMonth(), ate.getDate()).getTime() - new Date(`${deIso}T00:00:00`).getTime()) / 86_400_000));
 
+/** SHA-256 do JSON canônico SEM a hora da leitura: `erpLidoEm` muda a cada leitura ao vivo e não é a dívida — o hash tem de sobreviver ao GET→POST. */
 export function hashDaBase(canonica: BaseCanonica): string {
-  return createHash("sha256").update(serializarBase(canonica)).digest("hex");
+  return createHash("sha256").update(serializarBase({ ...canonica, erpLidoEm: null })).digest("hex");
 }
 
 /** A mesma leitura de `carregarPolitica` (cobranca.routes.ts), sem importar o router. */
@@ -197,7 +198,7 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
 
   const { linhas: anexoCompleto, indeterminadas } = aoVivo ? anexoDoSnapshot(snapshot, hoje, encargos) : { linhas: [], indeterminadas: 0 };
   const excluidas = new Set(opcoes.faturasExcluidas ?? []);
-  const anexo = anexoCompleto.filter(l => !excluidas.has(l.chave));
+  let anexo = anexoCompleto.filter(l => !excluidas.has(l.chave));
   const faturasDeSaida = anexoCompleto.filter(l => l.classe === "multa" || l.classe === "equipamento").map(l => l.chave);
   if (indeterminadas > 0) avisos.push(`${indeterminadas} fatura${indeterminadas === 1 ? "" : "s"} mistura mensalidade e multa sem valores — confira no ERP`);
   const diasAtrasoMax = Math.max(0, ...anexoCompleto.map(l => l.diasAtraso), aoVivo ? snapshot.cliente.diasAtraso : 0);
@@ -218,6 +219,8 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
   let somaJuros = 0;
 
   if (negociacao) {
+    // No acordo o anexo é a ORIGEM da dívida: valor de face, sem encargos de hoje — o que se confessa são as parcelas.
+    anexo = anexo.map(l => ({ ...l, multa: 0, juros: 0 }));
     const abertas = negociacao.parcelamento.filter(p => p.status === "pendente" || p.status === "atrasada" || p.status === "conciliacao_pendente");
     parcelas = abertas.map(p => ({ n: p.numero, rotulo: p.numero === 0 ? "entrada" : "parcela", valor: Number(p.valor), vencimento: p.vencimento }));
     valorTotal = centavos(parcelas.reduce((s, p) => s + p.valor, 0));
@@ -268,10 +271,11 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
     ? { modelo: "zapsign" as const, templateId: integracao.templateId, variaveis: variaveisDoModeloZapSign(canonica, hoje.toISOString()) }
     : { modelo: "padrao" as const, titulo: "Instrumento particular de confissão de dívida", texto: textoDaConfissao(renderizarConfissao(canonica, hoje.toISOString(), hash)) };
 
+  const esqueleto = vazio(origem);
   return {
-    ...vazio(origem),
+    ...esqueleto,
     dto: {
-      ...vazio(origem).dto,
+      ...esqueleto.dto,
       negociacaoId: negociacao?.id ?? null,
       cliente: { nome: cliente.name, documento, pessoaJuridica, email, telefone, endereco: enderecoDoCliente(cliente) },
       valorTotal, valorOriginal, descontoPct, recebidoDoAcordo,
@@ -280,6 +284,7 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
       erpSource: snapshot?.erpSource ?? null, erpLidoEm: aoVivo ? snapshot.lidoEm : null, dividaAtualDoErp: aoVivo ? snapshot.cliente.dividaAtual : null,
       vencimento: { minimo: vencimentoMinimo, maximo: vencimentoMaximo, escolhido: opcoes.vencimento ?? null },
       bloqueios, avisos, prescrita, baseHash: hash, previa,
+      custo: custoDaEmissao({ authMode, ambiente, enviarWhatsapp: !!telefone, exigirSelfie: !!integracao?.exigirSelfie }),
     },
     entrada, canonica, hash, negociacao, contatoAlterado, contatoDoErp, snapshot,
   };

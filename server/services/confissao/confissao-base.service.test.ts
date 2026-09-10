@@ -95,6 +95,13 @@ describe("saldo integral", () => {
     expect(p.dto.prescrita).toBe(true);
     expect(p.dto.bloqueios).toContainEqual(expect.stringContaining("CC art. 191"));
   });
+  it("uma nova leitura ao vivo com outra hora não muda o hash da mesma dívida", async () => {
+    const a = await montarBase(1, 42, { hoje: HOJE });
+    snapshotMock.snapshotAoVivoDoCliente.mockResolvedValueOnce(snapshot({ lidoEm: "2026-09-10T13:00:05.000Z" }));
+    const b = await montarBase(1, 42, { hoje: HOJE });
+    expect(b.dto.erpLidoEm).not.toBe(a.dto.erpLidoEm);
+    expect(b.dto.baseHash).toBe(a.dto.baseHash);
+  });
 });
 
 describe("acordo", () => {
@@ -111,6 +118,7 @@ describe("acordo", () => {
     expect(b.dto.parcelas).toEqual([{ n: 1, rotulo: "parcela", valor: 300, vencimento: "2026-10-01" }, { n: 2, rotulo: "parcela", valor: 300, vencimento: "2026-11-01" }]);
     expect(b.dto).toMatchObject({ valorTotal: 600, valorOriginal: 1000, descontoPct: 20, recebidoDoAcordo: 200 });
     expect(b.dto.anexo.length).toBeGreaterThan(0); // as faturas de origem, informativas
+    expect(b.dto.anexo.every(l => l.multa === 0 && l.juros === 0)).toBe(true);
     expect(b.dto.bloqueios).toEqual([]);
   });
   it("entrada não recebida entra como 'entrada'; saldo do ERP menor que o do acordo bloqueia", async () => {
@@ -160,9 +168,15 @@ describe("bloqueios de cadastro e configuração", () => {
     const b = await montarBase(1, 42, { hoje: HOJE });
     expect(b.dto.encargos).toMatchObject({ multaPct: 1, jurosMesPct: 0.5 });
   });
-  it("o hash é do JSON canônico e não leva data/hora", () => {
-    const base: any = { versao: "1.0", origem: "saldo_integral", parcelas: [] };
-    expect(hashDaBase(base)).toBe(hashDaBase({ ...base }));
+  it("o custo usa o telefone que vai ao ZapSign — o do ERP quando o cadastro não tem", async () => {
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([cliente({ phone: null })]);
+    const b = await montarBase(1, 42, { hoje: HOJE });
+    expect(b.dto.cliente.telefone).toBe("31999990000");
+    expect(b.dto.custo.reais).toBe(0.5);
+  });
+  it("o hash é do JSON canônico e não leva a hora da leitura", () => {
+    const base: any = { versao: "1.0", origem: "saldo_integral", parcelas: [], erpLidoEm: "2026-09-10T13:00:00.000Z" };
+    expect(hashDaBase(base)).toBe(hashDaBase({ ...base, erpLidoEm: "2026-09-10T13:00:01.400Z" }));
     expect(hashDaBase(base)).not.toBe(hashDaBase({ ...base, origem: "acordo" }));
   });
 });

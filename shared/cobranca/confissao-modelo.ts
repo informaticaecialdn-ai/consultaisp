@@ -196,7 +196,7 @@ export function renderizarConfissao(b: BaseCanonica, geradoEm: string, hash: str
     { tipo: "paragrafo", destaque: true, texto: `CLÁUSULA 4ª — DA MORA. O atraso no pagamento de qualquer parcela implica o vencimento antecipado do saldo, multa de ${pct(b.encargos.multaPct)} e juros de ${pct(b.encargos.jurosMesPct)} ao mês, com correção monetária pelo IPCA (Código Civil, art. 389, parágrafo único).` },
     { tipo: "paragrafo", destaque: true, texto: "CLÁUSULA 5ª — DO TÍTULO EXECUTIVO E DA ASSINATURA ELETRÔNICA. As partes declaram que este instrumento é constituído por meio eletrônico e assinado por assinatura eletrônica que ambas admitem como válida (MP 2.200-2/2001, art. 10, §2º), com integridade conferida pelo provedor de assinatura ZapSign (relatório de assinatura anexo), constituindo título executivo extrajudicial nos termos do art. 784, III e §4º, do Código de Processo Civil, dispensada a assinatura de testemunhas." },
     { tipo: "paragrafo", destaque: true, texto: "CLÁUSULA 6ª — DO FORO. Fica eleito o foro da comarca do domicílio do DEVEDOR, sem prejuízo do disposto no art. 781 do Código de Processo Civil." },
-    { tipo: "subtitulo", texto: "ANEXO I — FATURAS QUE COMPÕEM A DÍVIDA" },
+    { tipo: "subtitulo", texto: "ANEXO I — FATURAS DE ORIGEM DA DÍVIDA (lidas no sistema de gestão do credor)" },
     { tipo: "tabela", cabecalho: ["referência", "descrição", "vencimento", "valor", "natureza", "multa", "juros"], linhas: b.anexo.map(linhaDoAnexo) },
   ];
   const avisos: string[] = [];
