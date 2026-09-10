@@ -101,6 +101,11 @@ describe("configuração do ZapSign pelo superadmin", () => {
     expect(falha.status).toBe(422);
     expect((await falha.json()).message).toMatch(/recusou o token/);
     expect(storageMock.ativarIntegracaoDeAssinatura).toHaveBeenCalledTimes(1);
+    zapsignMock.testarToken.mockRejectedValueOnce(new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", "O ZapSign não respondeu (HTTP 503)", 502));
+    const fora = await json("POST", "/api/admin/providers/4/assinatura/zapsign/ativar");
+    expect(fora.status).toBe(502);
+    expect((await fora.json()).code).toBe("ZAPSIGN_INDISPONIVEL");
+    expect(storageMock.ativarIntegracaoDeAssinatura).toHaveBeenCalledTimes(1);
     storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(undefined);
     expect((await json("POST", "/api/admin/providers/4/assinatura/zapsign/ativar")).status).toBe(400);
   });

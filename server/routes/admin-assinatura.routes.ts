@@ -90,7 +90,7 @@ export function registerAdminAssinaturaRoutes(): Router {
       try {
         await clienteZapSign({ apiToken: credencial.apiToken, ambiente: credencial.ambiente as "sandbox" | "producao" }).testarToken();
       } catch (e) {
-        if (e instanceof ErroDeConfissao) return res.status(422).json({ message: e.message, code: e.codigo });
+        if (e instanceof ErroDeConfissao) return res.status(e.http).json({ message: e.message, code: e.codigo });
         throw e;
       }
       await storage.ativarIntegracaoDeAssinatura(id);
