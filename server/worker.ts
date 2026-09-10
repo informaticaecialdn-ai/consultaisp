@@ -155,6 +155,16 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   } catch (err) {
     logger.warn({ err }, "[Worker] Régua de cobrança failed to start");
   }
+
+  // Reconciliação das confissões de dívida: reconsulta o ZapSign para o que
+  // não teve retorno, expira pela data limite e quita o que foi pago.
+  try {
+    const { iniciarReconciliacaoDeConfissoes } = await import("./services/confissao/confissao-reconciliacao.service");
+    iniciarReconciliacaoDeConfissoes();
+    logger.info("[Worker] Reconciliação de confissões started");
+  } catch (err) {
+    logger.warn({ err }, "[Worker] Reconciliação de confissões failed to start");
+  }
   const { iniciarPrimeirosContatos, pararPrimeirosContatos } = await import("./services/chat/chat-primeiro-contato.service");
   iniciarPrimeirosContatos();
   /*

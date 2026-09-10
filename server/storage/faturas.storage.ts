@@ -1253,4 +1253,14 @@ export class FaturasStorage {
       porCanal: ordenar(porCanal),
     };
   }
+
+  /** O status atual das faturas do Anexo I de uma confissão, por `erp_ref` — para o worker decidir "quitada". */
+  async statusDasFaturasPorRef(providerId: number, erpSource: string, refs: string[]): Promise<Map<string, string>> {
+    const mapa = new Map<string, string>();
+    if (refs.length === 0) return mapa;
+    const linhas = await db.select({ erpRef: invoices.erpRef, status: invoices.status }).from(invoices)
+      .where(and(eq(invoices.providerId, providerId), eq(invoices.erpSource, erpSource), inArray(invoices.erpRef, refs)));
+    for (const l of linhas) if (l.erpRef) mapa.set(l.erpRef, l.status);
+    return mapa;
+  }
 }

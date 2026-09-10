@@ -377,6 +377,8 @@ export interface IStorage {
   cobrancasDeSaida(...args: Parameters<FaturasStorage["cobrancasDeSaida"]>): ReturnType<FaturasStorage["cobrancasDeSaida"]>;
   /** Quantos clientes vivos tem mensalidade legivel — o sinal de prontidao da Economia. */
   coberturaDaMensalidade(providerId: number): Promise<CoberturaDaMensalidade>;
+  /** O status atual das faturas do Anexo I de uma confissão, por `erp_ref` — para o worker decidir "quitada". */
+  statusDasFaturasPorRef(...args: Parameters<FaturasStorage["statusDasFaturasPorRef"]>): ReturnType<FaturasStorage["statusDasFaturasPorRef"]>;
 
   // ── Assinatura eletrônica / confissão de dívida (ZapSign) ──
   getIntegracaoParaAdmin(...args: Parameters<AssinaturaStorage["getIntegracaoParaAdmin"]>): ReturnType<AssinaturaStorage["getIntegracaoParaAdmin"]>;
@@ -401,6 +403,7 @@ export interface IStorage {
   obterPdf(...args: Parameters<AssinaturaStorage["obterPdf"]>): ReturnType<AssinaturaStorage["obterPdf"]>;
   apagarPdfs(...args: Parameters<AssinaturaStorage["apagarPdfs"]>): ReturnType<AssinaturaStorage["apagarPdfs"]>;
   confissoesParaReconciliar(...args: Parameters<AssinaturaStorage["confissoesParaReconciliar"]>): ReturnType<AssinaturaStorage["confissoesParaReconciliar"]>;
+  confissoesAssinadasParaQuitacao(...args: Parameters<AssinaturaStorage["confissoesAssinadasParaQuitacao"]>): ReturnType<AssinaturaStorage["confissoesAssinadasParaQuitacao"]>;
   confissoesParaExpirar(...args: Parameters<AssinaturaStorage["confissoesParaExpirar"]>): ReturnType<AssinaturaStorage["confissoesParaExpirar"]>;
   confissoesParaRetencao(...args: Parameters<AssinaturaStorage["confissoesParaRetencao"]>): ReturnType<AssinaturaStorage["confissoesParaRetencao"]>;
   anonimizarConfissao(...args: Parameters<AssinaturaStorage["anonimizarConfissao"]>): ReturnType<AssinaturaStorage["anonimizarConfissao"]>;
@@ -720,6 +723,7 @@ class DatabaseStorage implements IStorage {
   erpConfirmaPagamentos = (providerId: number) => this._faturas.erpConfirmaPagamentos(providerId);
   cobrancasDeSaida = (...args: Parameters<FaturasStorage["cobrancasDeSaida"]>) => this._faturas.cobrancasDeSaida(...args);
   coberturaDaMensalidade = (providerId: number) => this._faturas.coberturaDaMensalidade(providerId);
+  statusDasFaturasPorRef = (...args: Parameters<FaturasStorage["statusDasFaturasPorRef"]>) => this._faturas.statusDasFaturasPorRef(...args);
   // Os sete do recebimento de acordos (08/09/2026). Chegaram no `FaturasStorage`
   // sem delegação aqui, e `storage-fachada.test.ts` acusou — que é exatamente o
   // trabalho dele. Hoje as chamadas instanciam `FaturasStorage` direto, então
@@ -763,6 +767,7 @@ class DatabaseStorage implements IStorage {
   obterPdf = (...args: Parameters<AssinaturaStorage["obterPdf"]>) => this._assinatura.obterPdf(...args);
   apagarPdfs = (...args: Parameters<AssinaturaStorage["apagarPdfs"]>) => this._assinatura.apagarPdfs(...args);
   confissoesParaReconciliar = (...args: Parameters<AssinaturaStorage["confissoesParaReconciliar"]>) => this._assinatura.confissoesParaReconciliar(...args);
+  confissoesAssinadasParaQuitacao = (...args: Parameters<AssinaturaStorage["confissoesAssinadasParaQuitacao"]>) => this._assinatura.confissoesAssinadasParaQuitacao(...args);
   confissoesParaExpirar = (...args: Parameters<AssinaturaStorage["confissoesParaExpirar"]>) => this._assinatura.confissoesParaExpirar(...args);
   confissoesParaRetencao = (...args: Parameters<AssinaturaStorage["confissoesParaRetencao"]>) => this._assinatura.confissoesParaRetencao(...args);
   anonimizarConfissao = (...args: Parameters<AssinaturaStorage["anonimizarConfissao"]>) => this._assinatura.anonimizarConfissao(...args);

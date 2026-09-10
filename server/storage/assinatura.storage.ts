@@ -414,12 +414,23 @@ export class AssinaturaStorage {
 
   /* ── worker e LGPD (varrem todos os provedores) ─────────────────────── */
 
-  async confissoesParaReconciliar(agora: Date, enviadasHaMaisDeMs: number): Promise<CobrancaConfissao[]> {
-    const limite = new Date(agora.getTime() - enviadasHaMaisDeMs);
+  /** `enviadasHaMaisDeMs = null` = só as com `reconciliar_em` vencido (a passada curta). */
+  async confissoesParaReconciliar(agora: Date, enviadasHaMaisDeMs: number | null): Promise<CobrancaConfissao[]> {
+    const porPrazo = lte(cobrancaConfissoes.reconciliarEm, agora);
+    const condicao = enviadasHaMaisDeMs === null
+      ? porPrazo
+      : or(porPrazo, lte(cobrancaConfissoes.enviadaEm, new Date(agora.getTime() - enviadasHaMaisDeMs)));
     return db.select().from(cobrancaConfissoes)
-      .where(and(eq(cobrancaConfissoes.status, "enviada"), or(lte(cobrancaConfissoes.reconciliarEm, agora), lte(cobrancaConfissoes.enviadaEm, limite))))
+      .where(and(eq(cobrancaConfissoes.status, "enviada"), condicao))
       .orderBy(asc(cobrancaConfissoes.reconciliarEm), asc(cobrancaConfissoes.id))
       .limit(500);
+  }
+
+  async confissoesAssinadasParaQuitacao(maximo = 500): Promise<CobrancaConfissao[]> {
+    return db.select().from(cobrancaConfissoes)
+      .where(eq(cobrancaConfissoes.status, "assinada"))
+      .orderBy(asc(cobrancaConfissoes.assinadaEm), asc(cobrancaConfissoes.id))
+      .limit(maximo);
   }
 
   async confissoesParaExpirar(hoje: string): Promise<CobrancaConfissao[]> {
