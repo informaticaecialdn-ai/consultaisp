@@ -74,7 +74,10 @@ export async function rodarReconciliacao(agora: Date = new Date()): Promise<Resu
     resumo.reconsultadas++;
     try {
       const r = await aplicarRetorno(c.providerId, c.id, "worker");
-      if (r.status === "enviada" && await avisarProvedorPendente(c)) resumo.avisosDeProvedor++;
+      // A reconsulta pode ter acabado de descobrir que o cliente assinou: o aviso
+      // olha a linha DEPOIS dela, nunca a foto que veio do storage antes.
+      const atual = r.status === "enviada" ? await storage.obterConfissao(c.providerId, c.id) : null;
+      if (atual && await avisarProvedorPendente(atual)) resumo.avisosDeProvedor++;
     } catch (e) {
       resumo.falhas++;
       logger.warn({ providerId: c.providerId, confissaoId: c.id, err: e }, "CONFISSAO reconciliação: reconsulta falhou");
