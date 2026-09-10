@@ -14,6 +14,7 @@ import { registerLocalizacaoRoutes } from "./localizacao.routes";
 import { registerProviderRoutes } from "./provider.routes";
 import { registerErpRoutes } from "./erp.routes";
 import { registerAdminRoutes } from "./admin.routes";
+import { registerAdminAssinaturaRoutes } from "./admin-assinatura.routes";
 import { registerFinanceiroRoutes } from "./financeiro.routes";
 import { registerCreditsRoutes } from "./credits.routes";
 import { registerChatRoutes } from "./chat.routes";
@@ -62,6 +63,7 @@ export async function registerRoutes(
   app.use(registerProviderRoutes());
   app.use(registerErpRoutes());
   app.use(registerAdminRoutes());
+  app.use(registerAdminAssinaturaRoutes());
   app.use(registerFinanceiroRoutes());
   app.use(registerCreditsRoutes());
   app.use(registerChatRoutes());

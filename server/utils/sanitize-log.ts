@@ -101,6 +101,8 @@ export const ROTAS_SEM_CORPO_NO_LOG: Array<string | RegExp> = [
    * motivo, e entra junto.
    */
   /^\/api\/admin\/providers\/\d+\/(integration|erp\/[^/]+(\/test)?)$/,
+  /** O PUT carrega o token do ZapSign; o GET e o ativar devolvem a configuração da conta. */
+  /^\/api\/admin\/providers\/\d+\/assinatura\/zapsign(\/ativar)?$/,
   /**
    * A trilha de acesso de suporte devolve NOME DE PESSOA, e essa e a pergunta
    * dela: `liberadoPorNome` (o admin do provedor que autorizou),
