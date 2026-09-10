@@ -377,6 +377,11 @@ export class AssinaturaStorage {
   /* ── PDFs ───────────────────────────────────────────────────────────── */
 
   async guardarPdf(providerId: number, confissaoId: number, tipo: TipoDePdf, bytes: Buffer): Promise<{ sha256: string; tamanhoBytes: number }> {
+    // O PDF só entra ligado a uma confissão DESTE provedor: o insert não tem WHERE para se proteger sozinho.
+    const [dona] = await db.select({ id: cobrancaConfissoes.id }).from(cobrancaConfissoes)
+      .where(and(eq(cobrancaConfissoes.id, confissaoId), eq(cobrancaConfissoes.providerId, providerId)))
+      .limit(1);
+    if (!dona) throw new ErroDeConfissao("NAO_ENCONTRADA", "Confissão não encontrada neste provedor", 404);
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     const tamanhoBytes = bytes.length;
     const base64 = bytes.toString("base64");

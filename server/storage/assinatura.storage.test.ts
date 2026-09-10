@@ -157,7 +157,7 @@ describe("confissões", () => {
     expect(banco.consultas).toHaveLength(0);
   });
   it("o PDF só sai por obterPdf; guardar calcula o sha256 e faz upsert por (confissao_id, tipo)", async () => {
-    banco.responder = () => [];
+    banco.responder = texto => texto.startsWith("select") ? [[77]] : [];
     const bytes = Buffer.from("%PDF-1.4 teste");
     const r = await storage.guardarPdf(PROVEDOR, 77, "original", bytes);
     expect(r.sha256).toMatch(/^[0-9a-f]{64}$/);
@@ -172,6 +172,12 @@ describe("confissões", () => {
     expect(pdf?.bytes.equals(bytes)).toBe(true);
     conferirTenant(banco.consultas[0]);
     expect(banco.consultas.some(c => c.sql.startsWith('update "cobranca_confissoes_pdf"') && c.sql.includes('"baixado_em"'))).toBe(true);
+  });
+  it("guardarPdf recusa confissão de outro provedor sem inserir nada", async () => {
+    banco.responder = () => [];
+    await expect(storage.guardarPdf(PROVEDOR, 77, "original", Buffer.from("%PDF-1.4"))).rejects.toMatchObject({ codigo: "NAO_ENCONTRADA", http: 404 });
+    expect(banco.consultas.some(c => c.sql.startsWith("insert"))).toBe(false);
+    conferirTenant(banco.consultas[0]);
   });
   it("worker e LGPD: reconciliar por prazo, expirar pela data limite, retenção só do que não é título, anonimizar apaga PDFs", async () => {
     banco.responder = () => [];
