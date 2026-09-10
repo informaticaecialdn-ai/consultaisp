@@ -45,4 +45,9 @@ describe("ConfissaoDeDivida (bloco do 360)", () => {
     expect(pagina).toContain("CC art. 202, VI");
     expect(linha).toContain('e.tipo === "confissao"');
   });
+  it("não oferece 'enviar pelo chat' sem link de assinatura, e a linha do tempo tem cor para o evento", () => {
+    expect(bloco).toContain("c.signUrlCliente && c.status === \"enviada\" && estado?.chatDisponivel");
+    expect(bloco).toContain('e.codigo === "APROVACAO_OBRIGATORIA" ? "Ação de administrador"');
+    expect(linha).toContain("confissao:");
+  });
 });

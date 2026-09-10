@@ -110,7 +110,7 @@ export function ConfissaoDeDivida({ customerId, casoId, clienteNome, podeAdminis
               {c.erroUltimo && !c.recusaInformadaEm && !c.expiracaoInformadaEm && <p className="mt-1 text-[11px] text-[var(--danger)]">{c.erroUltimo}</p>}
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {c.signUrlCliente && c.status === "enviada" && <button type="button" className={BOTAO_SECUNDARIO} onClick={() => copiar(c.signUrlCliente!)}><Copy className="h-3.5 w-3.5" aria-hidden /> Copiar link</button>}
-                {c.status === "enviada" && estado?.chatDisponivel && chatCasoId && c.ambiente !== "sandbox" && <button type="button" className={BOTAO_SECUNDARIO} disabled={enviarPeloChat.isPending} onClick={() => enviarPeloChat.mutate(c)}><Send className="h-3.5 w-3.5" aria-hidden /> Enviar pelo chat</button>}
+                {c.signUrlCliente && c.status === "enviada" && estado?.chatDisponivel && chatCasoId && c.ambiente !== "sandbox" && <button type="button" className={BOTAO_SECUNDARIO} disabled={enviarPeloChat.isPending} onClick={() => enviarPeloChat.mutate(c)}><Send className="h-3.5 w-3.5" aria-hidden /> Enviar pelo chat</button>}
                 {c.status === "enviada" && c.ambiente !== "sandbox" && podeAdministrar && <button type="button" className={BOTAO_SECUNDARIO} disabled={reenviar.isPending} onClick={() => reenviar.mutate(c.id)} title="1 lembrete a cada 30 minutos"><RefreshCw className="h-3.5 w-3.5" aria-hidden /> Reenviar</button>}
                 {(c.status === "enviada" || c.status === "rascunho") && podeAdministrar && <button type="button" className={BOTAO_SECUNDARIO} disabled={cancelar.isPending} onClick={() => { if (window.confirm("Cancelar esta confissão? O documento é apagado no ZapSign.")) cancelar.mutate(c.id); }}><XCircle className="h-3.5 w-3.5" aria-hidden /> Cancelar</button>}
                 {c.pdf.original && <a className={BOTAO_SECUNDARIO} href={`/api/cobranca/confissoes/${c.id}/pdf?tipo=original`}><Download className="h-3.5 w-3.5" aria-hidden /> PDF original</a>}
@@ -167,7 +167,7 @@ function DialogoEmissao({ customerId, estado, onFechar, onEmitida }: { customerI
       return (await apiRequest("POST", `/api/cobranca/clientes/${customerId}/confissoes`, corpo)).json() as Promise<ConfissaoResumo>;
     },
     onSuccess: c => { toast({ title: c.ambiente === "sandbox" ? "Confissão de TESTE emitida" : "Confissão enviada para assinatura", description: c.signUrlCliente ? "Copie o link ou envie pelo chat" : undefined }); onEmitida(); },
-    onError: (e: Error & { codigo?: string; corpo?: { detalhes?: { bloqueios?: string[] } } }) => toast({ title: e.codigo === "BASE_MUDOU" ? "A dívida mudou" : "Não foi possível emitir", description: e.corpo?.detalhes?.bloqueios?.join(" · ") ?? e.message, variant: "destructive" }),
+    onError: (e: Error & { codigo?: string; corpo?: { detalhes?: { bloqueios?: string[] } } }) => toast({ title: e.codigo === "BASE_MUDOU" ? "A dívida mudou" : e.codigo === "APROVACAO_OBRIGATORIA" ? "Ação de administrador" : "Não foi possível emitir", description: e.corpo?.detalhes?.bloqueios?.join(" · ") ?? e.message, variant: "destructive" }),
   });
   const alternarFatura = (chaveDaLinha: string) => setEscolhas(e => ({ ...e, faturasExcluidas: e.faturasExcluidas.includes(chaveDaLinha) ? e.faturasExcluidas.filter(x => x !== chaveDaLinha) : [...e.faturasExcluidas, chaveDaLinha] }));
   const sandbox = base?.ambiente === "sandbox";

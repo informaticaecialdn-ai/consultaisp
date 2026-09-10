@@ -15,6 +15,7 @@ import type { EventoDeCobranca } from "./tipos";
 
 const COR_DO_TIPO: Record<string, string> = {
   contato: "var(--brand)",
+  confissao: "var(--ok)",
   promessa: "var(--gated)",
   negociacao_proposta: "var(--gated)",
   acordo_aceito: "var(--ok)",
