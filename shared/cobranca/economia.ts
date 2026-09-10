@@ -51,6 +51,12 @@ export interface EconomiaLedgerInput {
    * servico. Vale so para ciclo encerrado e so sem `receitaRecebida`.
    */
   receitaEstimada?: number | null;
+  /**
+   * Meses do ciclo ANTERIORES a primeira paga confirmada (o historico nao os
+   * alcanca): entram pela mensalidade, e o ledger diz quantos foram. So vale
+   * com `receitaRecebida`.
+   */
+  mesesEstimados?: number;
   /** Faturas vencidas em aberto (valor original) — descontadas do lucro projetado. */
   inadimplenciaAberta: number;
 }
@@ -76,8 +82,10 @@ export interface EconomiaLedger {
   inadimplencia_aberta: number;
   fonte_receita: "recebida" | "estimada" | "projetada";
   receita_recebida: number | null;
-  /** A receita estimada usada no lucro quando `fonte_receita = "estimada"`; null nas outras. */
+  /** A receita estimada usada no lucro: o ciclo inteiro (fonte "estimada") ou so os meses antes do historico (fonte "recebida" com `meses_estimados` > 0); null nas outras. */
   receita_estimada: number | null;
+  /** Meses do ciclo que entraram pela mensalidade por falta de fatura paga no historico (fonte "recebida"). */
+  meses_estimados: number;
   lucro_acumulado: number;
   /** ticket × ciclo efetivo — receita BRUTA. */
   ltv_receita: number;
@@ -105,7 +113,9 @@ export function computeEconomiaLedger(input: EconomiaLedgerInput): EconomiaLedge
   // Estimada so para ciclo ENCERRADO e sem recebido real: para o vivo a projecao
   // (margem × meses − divida) continua sendo a leitura honesta.
   const receitaEstimada = receitaRecebida === null && !cicloVivo && input.receitaEstimada != null ? input.receitaEstimada : null;
-  const receitaBase = receitaRecebida ?? receitaEstimada;
+  const mesesEstimados = receitaRecebida !== null && Number.isFinite(input.mesesEstimados) ? Math.max(0, Math.min(mesAtual, Math.round(input.mesesEstimados!))) : 0;
+  const complementoEstimado = mesesEstimados > 0 ? arpu * mesesEstimados : 0;
+  const receitaBase = receitaRecebida !== null ? receitaRecebida + complementoEstimado : receitaEstimada;
 
   const impostoPct = Number(cp.imposto_receita_pct);
   const opexFixoMes = Number(cp.opex_link) + Number(cp.opex_rede_pop) + Number(cp.opex_suporte) + Number(cp.opex_manutencao_noc);
@@ -155,7 +165,8 @@ export function computeEconomiaLedger(input: EconomiaLedgerInput): EconomiaLedge
     inadimplencia_aberta: r2(inadimplenciaAberta),
     fonte_receita: receitaRecebida !== null ? "recebida" : receitaEstimada !== null ? "estimada" : "projetada",
     receita_recebida: receitaRecebida,
-    receita_estimada: receitaEstimada !== null ? r2(receitaEstimada) : null,
+    receita_estimada: receitaEstimada !== null ? r2(receitaEstimada) : mesesEstimados > 0 ? r2(complementoEstimado) : null,
+    meses_estimados: mesesEstimados,
     lucro_acumulado: r2(lucroRecebido ?? lucroProjetado),
     ltv_receita: r2(ltvReceita),
     ltv_margem: r2(ltvMargem),

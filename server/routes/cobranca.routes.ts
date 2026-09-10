@@ -529,8 +529,8 @@ interface ItemDaCarteira {
   telefone: string | null;
   cidade: string | null;
   bairro: string | null;
-  /** Sempre null: `customers` nao guarda o plano. */
-  plano: null;
+  /** `customers.contract_plan` (0036): o plano que o ERP informou na varredura; null quando o ERP nao informou. */
+  plano: string | null;
   statusErp: string;
   carteira: Carteira;
   dividaAtual: number;
@@ -551,7 +551,7 @@ function montarItem(
   base: {
     customerId: number; nome: string; cpfCnpj: string; telefone: string | null; cidade: string | null;
     bairro: string | null; statusErp: string; carteira: Carteira; dividaAtual: number; diasAtraso: number;
-    faturasAbertas: number; contractStartDate: string | null;
+    faturasAbertas: number; contractStartDate: string | null; plano: string | null;
   },
   caso: LinhaDaCarteira | null,
   cliente: Customer | undefined,
@@ -567,7 +567,7 @@ function montarItem(
     telefone: base.telefone,
     cidade: base.cidade,
     bairro: base.bairro,
-    plano: null,
+    plano: base.plano ?? null,
     statusErp: base.statusErp,
     carteira: base.carteira,
     dividaAtual: base.dividaAtual,
@@ -589,7 +589,7 @@ function itemDoCaso(l: LinhaDaCarteira, cliente: Customer | undefined, etapas: E
   return montarItem({
     customerId: c.id, nome: c.nome, cpfCnpj: c.cpfCnpj, telefone: c.telefone, cidade: c.cidade, bairro: c.bairro,
     statusErp: c.statusErp, carteira: carteiraValida(l.carteira), dividaAtual: c.dividaAtual, diasAtraso: c.diasAtraso,
-    faturasAbertas: c.faturasAbertas, contractStartDate: c.contractStartDate,
+    faturasAbertas: c.faturasAbertas, contractStartDate: c.contractStartDate, plano: c.plano ?? null,
   }, l, cliente, etapas, hoje);
 }
 
@@ -597,7 +597,7 @@ function itemDoCandidato(c: CandidatoACaso, cliente: Customer | undefined, etapa
   return montarItem({
     customerId: c.customerId, nome: c.nome, cpfCnpj: c.cpfCnpj, telefone: cliente?.phone ?? null,
     cidade: cliente?.city ?? null, bairro: cliente?.neighborhood ?? null, statusErp: c.statusErp, carteira: c.carteira,
-    dividaAtual: c.dividaAtual, diasAtraso: c.diasAtraso, faturasAbertas: c.faturasAbertas, contractStartDate: c.contractStartDate,
+    dividaAtual: c.dividaAtual, diasAtraso: c.diasAtraso, faturasAbertas: c.faturasAbertas, contractStartDate: c.contractStartDate, plano: c.plano ?? null,
   }, null, cliente, etapas, hoje);
 }
 
@@ -606,7 +606,7 @@ function itemDoEmDia(c: ClienteEmDia, cliente: Customer | undefined, etapas: Eta
   return montarItem({
     customerId: c.customerId, nome: c.nome, cpfCnpj: c.cpfCnpj, telefone: c.telefone ?? cliente?.phone ?? null,
     cidade: c.cidade ?? cliente?.city ?? null, bairro: c.bairro ?? cliente?.neighborhood ?? null, statusErp: c.statusErp, carteira: "ativo",
-    dividaAtual: 0, diasAtraso: 0, faturasAbertas: 0, contractStartDate: c.contractStartDate,
+    dividaAtual: 0, diasAtraso: 0, faturasAbertas: 0, contractStartDate: c.contractStartDate, plano: c.plano ?? null,
   }, null, cliente, etapas, hoje);
 }
 
@@ -1581,6 +1581,8 @@ export function registerCobrancaRoutes(): Router {
         // 360 contar um mes a mais do que o card para o mesmo cliente.
         cortadoEm: cliente.cortadoEm ? new Date(cliente.cortadoEm).toISOString().slice(0, 10) : null,
         ultimaFaturaEmitidaEm: faturasVencidas?.vencimentoMaisRecente ? faturasVencidas.vencimentoMaisRecente.toISOString().slice(0, 10) : null,
+        // Quando parou de pagar: o fim do ciclo do suspenso sem data de corte.
+        primeiraFaturaVencidaEm: faturasVencidas?.vencimentoMaisAntigo ? faturasVencidas.vencimentoMaisAntigo.toISOString().slice(0, 10) : null,
         // Desde a 0036 a varredura grava o plano que o conector traz; com preco
         // cadastrado em Politica > Economia ele e o ARPU do cliente.
         plano: cliente.contractPlan ?? null,

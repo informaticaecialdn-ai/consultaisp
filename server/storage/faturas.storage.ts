@@ -1,5 +1,5 @@
 import type { CarteiraDeCobranca } from "@shared/schema";
-import { PADRAO_DE_COBRANCA_DE_SAIDA, somarCobrancaDeSaida, type CobrancaDeSaida } from "@shared/cobranca/multa";
+import { PADRAO_DE_COBRANCA_DE_SAIDA, PADRAO_DE_LEITURA_DE_FATURAS, somarCobrancaDeSaida, type CobrancaDeSaida } from "@shared/cobranca/multa";
 /**
  * As faturas do ERP, fatura a fatura, e o resumo do MES de vencimento.
  *
@@ -36,7 +36,7 @@ import { PADRAO_DE_COBRANCA_DE_SAIDA, somarCobrancaDeSaida, type CobrancaDeSaida
  *    vencimento e toda comparacao usa a mesma forma, para que "vence em
  *    setembro" nao escorregue tres horas para agosto.
  */
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, max, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, max, min, ne, or, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
 import { cobrancaEventos, cobrancaNegociacoes, cobrancaParcelas, customers, invoices, users } from "@shared/schema";
 import type { FaturaAbertaDoErp, FaturaPagaDoErp } from "../erp/types";
@@ -324,8 +324,14 @@ export class FaturasStorage {
         inArray(invoices.customerId, [...ids]),
         inArray(invoices.status, [...STATUS_FATURA_ABERTA]),
         lt(invoices.dueDate, sql`least(${corte}, date_trunc('day', coalesce(${customers.lastSyncAt}, ${corte})))`),
-        sql`${invoices.descricao} ~* ${PADRAO_DE_COBRANCA_DE_SAIDA}`,
-      ));
+        // O padrao LARGO (multa, equipamento, proporcional, mensalidades): a
+        // leitura deduz a mensalidade da propria fatura. O padrao estreito fica
+        // para a MODA — "Mensalidade 09/2026" e fatura comum, nao de saida.
+        sql`${invoices.descricao} ~* ${PADRAO_DE_LEITURA_DE_FATURAS}`,
+      ))
+      // Da mais recente para a mais antiga: a mensalidade lida e a da PRIMEIRA
+      // fatura que a declara, e sem ordem isso dependia da ordem fisica.
+      .orderBy(desc(invoices.dueDate), desc(invoices.id));
     const porCliente = new Map<number, Array<{ descricao: string | null; valor: number }>>();
     for (const l of linhas) {
       const lista = porCliente.get(l.customerId) ?? [];
@@ -359,6 +365,7 @@ export class FaturasStorage {
       // O valor pago que o ERP registrou; sem ele (quitacao conferida a mao), o da fatura.
       recebido: sql<number>`coalesce(sum(coalesce(${invoices.paidValue}, ${invoices.value})), 0)`.mapWith(Number),
       ultima: max(invoices.paidDate),
+      primeira: min(invoices.paidDate),
     }).from(invoices).where(and(
       eq(invoices.providerId, providerId), eq(invoices.status, "paid"), isNotNull(invoices.paidDate),
       customerId === undefined ? undefined
@@ -369,6 +376,7 @@ export class FaturasStorage {
       historicoInsuficiente: false, faturasPagas: l.pagas, faturasPagasComAtraso: l.atrasadas,
       recebido: Math.round(Number(l.recebido) * 100) / 100,
       taxaAtraso: l.atrasadas / l.pagas, ultimaConfirmacaoEm: l.ultima ? new Date(l.ultima) : null,
+      primeiraConfirmacaoEm: l.primeira ? new Date(l.primeira) : null,
       fonte: "pagamentos_com_data" as const,
     }]));
   }

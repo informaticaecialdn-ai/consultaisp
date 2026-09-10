@@ -17,7 +17,8 @@ import { faixaDoScore, proximoContato } from "./formatacao";
 import type { ItemDaCarteira } from "./tipos";
 import { Avatar, BarraDeScore, PilulaAtraso, SeloCobranca, SeloErp, SeloQuadrante, SeloStatusCaso, Traco, type TomDeSelo } from "./ui";
 
-export const MOTIVO_SEM_PLANO = "O sync do ERP não traz o plano — fase 2";
+/** Desde a 0036 a varredura grava o plano que o ERP informa; o traco e do cliente que o ERP nao informou. */
+export const MOTIVO_SEM_PLANO = "O ERP não informou o plano deste cliente";
 export const MOTIVO_SEM_DOCUMENTO = "O cadastro deste cliente no ERP não tem CPF/CNPJ.";
 export const MOTIVO_SEM_MRR = "O sync do ERP não traz o valor do plano (MRR) — fase 2";
 export const MOTIVO_SEM_PROPENSAO = "Propensão a pagar é um modelo a criar — nada inventado";
@@ -84,7 +85,7 @@ export function CardCliente({ item, etapas, hoje, onAbrir }: {
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13.5px] font-semibold leading-tight text-[var(--text)]">{item.nome}</p>
           <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">
-            {item.cidade ?? TRACO} · <span title={MOTIVO_SEM_PLANO}>{item.plano ?? TRACO}</span>
+            {item.cidade ?? TRACO} · <span title={item.plano ? "Plano no ERP, pela varredura" : MOTIVO_SEM_PLANO}>{item.plano ?? TRACO}</span>
           </p>
         </div>
         <span className={cn(NUM, "text-[11px] text-[var(--text-muted)]")}>{item.documento || <Traco titulo={MOTIVO_SEM_DOCUMENTO} />}</span>
@@ -156,7 +157,7 @@ export function LinhaDoCliente({ item, etapas, hoje, onAbrir }: {
         </div>
       </Td>
       <Td num alinhamento="esquerda">{item.documento || <Traco titulo={MOTIVO_SEM_DOCUMENTO} />}</Td>
-      <Td><span title={MOTIVO_SEM_PLANO}>{item.plano ?? <Traco titulo={MOTIVO_SEM_PLANO} />}</span></Td>
+      <Td>{item.plano ? <span title="Plano no ERP, pela varredura">{item.plano}</span> : <Traco titulo={MOTIVO_SEM_PLANO} />}</Td>
       <Td num>{item.mrr != null ? brl(item.mrr) : <Traco titulo={MOTIVO_SEM_MRR} />}</Td>
       <Td num className={item.dividaAtual > 0 ? "text-[var(--money-neg)]" : "text-[var(--ok)]"}>{item.dividaAtual > 0 ? brl(item.dividaAtual) : "em dia"}</Td>
       <Td alinhamento="direita">{item.diasAtraso > 0 ? <PilulaAtraso dias={item.diasAtraso} /> : <Traco />}</Td>

@@ -147,3 +147,18 @@ describe("receita ESTIMADA — o ciclo encerrado sem fatura paga (09/09/2026)", 
     expect(vivo.receita_estimada).toBeNull();
   });
 });
+
+describe("historico PARCIAL — os meses antes da primeira paga entram pela mensalidade", () => {
+  it("recebida + mesesEstimados: a receita ganha arpu × n, a fonte segue 'recebida', e o ledger diz quantos meses foram", () => {
+    const e = computeEconomiaLedger({ arpu: 100, custoParams: CUSTOS, mesAtual: 12, cicloVivo: true, receitaRecebida: 300, mesesEstimados: 9, inadimplenciaAberta: 0 });
+    expect(e.fonte_receita).toBe("recebida");
+    expect(e.meses_estimados).toBe(9);
+    expect(e.receita_estimada).toBe(900);
+    expect(e.lucro_acumulado).toBe(250);   // (300 + 900) × 0,9 − 40 × 12 − 350
+    expect(e.ltv_realizado).toBe(300);     // so o que foi pago de verdade
+  });
+  it("sem recebido, mesesEstimados nao vale; e nunca acima dos meses do ciclo", () => {
+    expect(computeEconomiaLedger({ arpu: 100, custoParams: CUSTOS, mesAtual: 12, cicloVivo: true, receitaRecebida: null, mesesEstimados: 9, inadimplenciaAberta: 0 }).meses_estimados).toBe(0);
+    expect(computeEconomiaLedger({ arpu: 100, custoParams: CUSTOS, mesAtual: 5, cicloVivo: true, receitaRecebida: 300, mesesEstimados: 9, inadimplenciaAberta: 0 }).meses_estimados).toBe(5);
+  });
+});

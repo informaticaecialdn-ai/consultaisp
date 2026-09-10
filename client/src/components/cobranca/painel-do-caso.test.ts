@@ -376,8 +376,8 @@ describe("o cabeçalho do pop-up é o do Cliente 360", () => {
   });
 
   it("o que o pop-up não tem vira traço COM motivo, nunca enfeite", () => {
-    // O plano e a data de contrato vêm do sync; quando não vieram, o traço diz.
-    expect(fonte).toContain('<Traco titulo="O sync do ERP não guarda o plano do cliente" />');
+    // O plano (contract_plan, 0036) e a data de contrato vêm do sync; quando o ERP não informou, o traço diz.
+    expect(fonte).toContain('<Traco titulo="O ERP não informou o plano deste cliente" />');
     expect(fonte).toContain('<Traco titulo="Sem data de contrato no ERP" />');
   });
 });

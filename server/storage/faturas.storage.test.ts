@@ -740,7 +740,10 @@ describe("a cobranca de saida por cliente (multa + equipamento nas faturas venci
     conferirTenant(banco.consultas[0]);
     expect(banco.consultas[0].sql).toContain('"customer_id" in (');
     expect(banco.consultas[0].sql).toContain("~*");
-    expect(banco.consultas[0].params.some(v => typeof v === "string" && v.startsWith("\\m(multas?|"))).toBe(true);
+    // A LEITURA usa o padrao largo (proporcional/mensalidades, para deduzir a mensalidade da fatura).
+    expect(banco.consultas[0].params.some(v => typeof v === "string" && v.startsWith("\\m(multas?|") && v.includes("proporcional|mensalidades?"))).toBe(true);
+    // Da mais recente para a mais antiga: a mensalidade lida e da PRIMEIRA que declara.
+    expect(banco.consultas[0].sql).toMatch(/order by "invoices"\."due_date" desc, "invoices"\."id" desc/);
     expect(banco.consultas[0].params).toContain("2026-09-05");
     expect(banco.consultas[0].params).toEqual(expect.arrayContaining(["aberta", "pending", "overdue"]));
     // A MESMA foto da divida: o corte e o menor entre hoje e o dia da varredura do cliente.
@@ -765,5 +768,28 @@ describe("a fatura de saida nao concorre a moda da mensalidade (revisao de 09/09
     banco.consultas.length = 0;
     await storage.mensalidadeDoCliente(PROVEDOR, 1);
     expect(banco.consultas[0].sql).toMatch(/order by bool_or\((?:"invoices"\.)?"descricao" ~\* \$\d+\) asc, count\(\*\) desc/);
+  });
+});
+
+describe("a moda usa o padrao ESTREITO, e o historico traz a PRIMEIRA paga", () => {
+  it("a ordem da moda nao trata 'Mensalidade 09/2026' como fatura de saida", async () => {
+    banco.responder = () => [];
+    await storage.mensalidadesDoProvedor(PROVEDOR, [1]);
+    const padrao = banco.consultas[0].params.find(v => typeof v === "string" && v.startsWith("\\m(multas?|")) as string;
+    expect(padrao).toBeTruthy();
+    expect(padrao).not.toMatch(/mensalidade|proporcional/);
+  });
+  it("historico em lote e unitario: min(paid_date) vira primeiraConfirmacaoEm", async () => {
+    // No formato do DRIVER ("AAAA-MM-DD HH:MM:SS"): o decodificador de timestamp do Drizzle anexa "+0000" — ISO com "Z" viraria data invalida.
+    banco.responder = () => [[42, 4, 1, "359.60", "2026-08-12 00:00:00", "2026-01-26 00:00:00"]];
+    const m = await storage.historicosDePagamentosDoProvedor(PROVEDOR, [42]);
+    expect(banco.consultas[0].sql).toContain("min(");
+    expect(m.get(42)?.primeiraConfirmacaoEm?.toISOString().slice(0, 10)).toBe("2026-01-26");
+    expect(m.get(42)?.ultimaConfirmacaoEm?.toISOString().slice(0, 10)).toBe("2026-08-12");
+    banco.consultas.length = 0;
+    banco.responder = () => [[42, 4, 1, "359.60", "2026-08-12 00:00:00", "2026-01-26 00:00:00"]];
+    const u = await storage.historicoDePagamentosDoCliente(PROVEDOR, 42);
+    expect(banco.consultas[0].sql).toContain("min(");
+    expect(u.primeiraConfirmacaoEm?.toISOString().slice(0, 10)).toBe("2026-01-26");
   });
 });

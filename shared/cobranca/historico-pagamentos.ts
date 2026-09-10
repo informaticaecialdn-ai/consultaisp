@@ -7,6 +7,12 @@ export interface HistoricoDePagamentos {
   recebido: number;
   taxaAtraso: number | null;
   ultimaConfirmacaoEm: Date | null;
+  /**
+   * A PRIMEIRA paga confirmada: diz ate onde o historico alcanca. Na Amplinet
+   * (SGP) 48 ativos com anos de casa so tem pagas desde jan/2026 — o "recebido"
+   * deles e parcial, e a Economia precisa saber para nao inventar prejuizo.
+   */
+  primeiraConfirmacaoEm?: Date | null;
   fonte: "pagamentos_com_data" | null;
 }
 
@@ -23,6 +29,7 @@ export function resumirHistoricoDePagamentos(faturas: readonly {
     recebido: Math.round(validas.reduce((s, f) => s + (Number(f.valorPago) || 0), 0) * 100) / 100,
     taxaAtraso: validas.length ? atrasadas / validas.length : null,
     ultimaConfirmacaoEm: validas.length ? new Date(Math.max(...validas.map(f => f.pagoEm!.getTime()))) : null,
+    primeiraConfirmacaoEm: validas.length ? new Date(Math.min(...validas.map(f => f.pagoEm!.getTime()))) : null,
     fonte: validas.length ? "pagamentos_com_data" : null,
   };
 }
@@ -33,11 +40,14 @@ export function resumirHistoricoDePagamentos(faturas: readonly {
  * vivo segue projetada e a do ex-cliente fica pendente, como sempre. E a
  * unica porta: o servidor nunca monta esse objeto na mao.
  */
-export function historicoParaEconomia(h: HistoricoDePagamentos | null | undefined): { pagas: number; recebido: number; pct_em_dia: number } | null {
+export interface HistoricoParaEconomia { pagas: number; recebido: number; pct_em_dia: number; /** 'AAAA-MM-DD' da primeira paga confirmada; null sem ela. */ primeira_paga?: string | null }
+export function historicoParaEconomia(h: HistoricoDePagamentos | null | undefined): HistoricoParaEconomia | null {
   if (!h || h.historicoInsuficiente || h.faturasPagas <= 0) return null;
+  const primeira = h.primeiraConfirmacaoEm ? new Date(h.primeiraConfirmacaoEm) : null;
   return {
     pagas: h.faturasPagas,
     recebido: h.recebido,
     pct_em_dia: h.taxaAtraso === null ? 100 : Math.round((1 - h.taxaAtraso) * 1000) / 10,
+    primeira_paga: primeira && Number.isFinite(primeira.getTime()) ? primeira.toISOString().slice(0, 10) : null,
   };
 }

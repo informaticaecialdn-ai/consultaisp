@@ -395,7 +395,7 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
                 <span>
                   {cliente.plano
                     ? <b className="text-[var(--text-2)]">{cliente.plano}</b>
-                    : <Traco titulo="O sync do ERP não guarda o plano do cliente" />}
+                    : <Traco titulo="O ERP não informou o plano deste cliente" />}
                 </span>
                 <span className={NUM} title="CPF/CNPJ do cliente, como está no cadastro do ERP." data-testid="painel-documento">
                   {cliente.cpfCnpj || TRACO}

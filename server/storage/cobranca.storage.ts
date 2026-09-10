@@ -205,11 +205,7 @@ export interface ClienteDaCarteira {
   dividaAtual: number;
   diasAtraso: number;
   faturasAbertas: number;
-  /**
-   * Sempre `null` hoje: `customers` nao guarda plano (o `contractPlan` que o
-   * conector traz e descartado pelo upsert). O campo fica para a tela nao
-   * mudar quando a fase 2 o trouxer — ate la, mostra "—".
-   */
+  /** `customers.contract_plan` (0036): o plano que o ERP informou na varredura; null quando o ERP nao informou. */
   plano: string | null;
   /** `YYYY-MM-DD`, ou null quando o ERP nao informou. Fidelidade do DNA. */
   contractStartDate: string | null;
@@ -390,6 +386,8 @@ export interface CandidatoACaso {
   diasAtraso: number;
   faturasAbertas: number;
   contractStartDate: string | null;
+  /** `customers.contract_plan` (0036): o plano que o ERP informou na varredura; null quando o ERP nao informou. */
+  plano: string | null;
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -459,6 +457,8 @@ const colunasDaLinha = {
   clienteDias: customers.maxDaysOverdue,
   clienteFaturas: customers.overdueInvoicesCount,
   clienteContrato: customers.contractStartDate,
+  // Por ultimo de proposito: os dubles de teste dao linhas posicionais.
+  clientePlano: customers.contractPlan,
 };
 
 type LinhaCrua = { [K in keyof typeof colunasDaLinha]: (typeof colunasDaLinha)[K]["_"]["data"] | null };
@@ -500,7 +500,7 @@ function montarLinha(l: LinhaCrua): LinhaDaCarteira {
       dividaAtual: num(l.clienteDivida),
       diasAtraso: num(l.clienteDias),
       faturasAbertas: num(l.clienteFaturas),
-      plano: null,
+      plano: l.clientePlano ?? null,
       contractStartDate: l.clienteContrato,
     },
   };
@@ -1699,6 +1699,7 @@ export class CobrancaStorage {
       diasAtraso: customers.maxDaysOverdue,
       faturasAbertas: customers.overdueInvoicesCount,
       contractStartDate: customers.contractStartDate,
+      plano: customers.contractPlan,
     }).from(customers)
       .where(and(
         eq(customers.providerId, providerId),
@@ -1721,6 +1722,7 @@ export class CobrancaStorage {
       diasAtraso: num(l.diasAtraso),
       faturasAbertas: num(l.faturasAbertas),
       contractStartDate: l.contractStartDate,
+      plano: l.plano ?? null,
     }));
   }
 
@@ -1761,12 +1763,13 @@ export class CobrancaStorage {
       cidade: customers.city,
       bairro: customers.neighborhood,
       contractStartDate: customers.contractStartDate,
+      plano: customers.contractPlan,
     }).from(customers)
       .where(onde)
       .orderBy(asc(customers.name), asc(customers.id))
       .offset(Math.max(0, pagina.offset))
       .limit(pagina.limite);
-    return { linhas: linhas.map(l => ({ ...l, statusErp: l.statusErp as string })), total };
+    return { linhas: linhas.map(l => ({ ...l, statusErp: l.statusErp as string, plano: l.plano ?? null })), total };
   }
 }
 
@@ -1780,6 +1783,8 @@ export interface ClienteEmDia {
   cidade: string | null;
   bairro: string | null;
   contractStartDate: string | null;
+  /** `customers.contract_plan` (0036): o plano que o ERP informou na varredura; null quando o ERP nao informou. */
+  plano: string | null;
 }
 
 /** `metadata.motivo` da nota de sistema que avisa que o DNA saiu sem a data do contrato. */

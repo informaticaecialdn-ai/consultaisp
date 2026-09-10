@@ -6,7 +6,7 @@
  * como divida); negacao nao e multa; nada passa do valor da fatura.
  */
 import { describe, expect, it } from "vitest";
-import { mensalidadeDaDescricao, parcelasDaDescricao, somarCobrancaDeSaida, valorBrasileiro } from "./multa";
+import { mensalidadeDaDescricao, PADRAO_DE_COBRANCA_DE_SAIDA, PADRAO_DE_LEITURA_DE_FATURAS, parcelasDaDescricao, somarCobrancaDeSaida, valorBrasileiro } from "./multa";
 
 describe("valorBrasileiro", () => {
   it("le milhar com ponto e centavos com virgula, e o inteiro cru", () => {
@@ -153,5 +153,23 @@ describe("mensalidadeDaDescricao — a mensalidade que a fatura de saida declara
     ]);
     expect(s).toEqual({ multa: 600, equipamento: 300, indeterminadas: 0, faturas: 2, mensalidadeLida: 89.9 });
     expect(somarCobrancaDeSaida([{ descricao: "referente ao equipamento", valor: 300 }]).mensalidadeLida).toBeNull();
+  });
+});
+
+describe("os dois padroes do banco, e o que a propria fatura decide", () => {
+  it("o padrao da MODA e estreito (multa/equipamento); o da LEITURA tambem pega proporcional e mensalidades", () => {
+    expect(PADRAO_DE_COBRANCA_DE_SAIDA).not.toMatch(/mensalidade|proporcional/);
+    expect(PADRAO_DE_LEITURA_DE_FATURAS).toMatch(/proporcional\|mensalidades\?/);
+    expect(PADRAO_DE_LEITURA_DE_FATURAS.startsWith(PADRAO_DE_COBRANCA_DE_SAIDA.slice(0, -1))).toBe(true);
+  });
+  it("'N mensalidades V': total ou unidade, quem decide e o valor da fatura", () => {
+    expect(mensalidadeDaDescricao("2 Mensalidades 199,80 + multa 500,00", 699.8)).toEqual({ valor: 99.9, origem: "mensalidades_na_fatura" });   // 199,80 + 500 = 699,80 → total
+    expect(mensalidadeDaDescricao("2 mensalidades 89,90 + multa 500,00", 679.8)).toEqual({ valor: 89.9, origem: "mensalidades_na_fatura" });    // 2 × 89,90 + 500 = 679,80 → unidade
+    expect(mensalidadeDaDescricao("2 mensalidades 89,90", 179.8)).toEqual({ valor: 89.9, origem: "mensalidades_na_fatura" });
+    expect(mensalidadeDaDescricao("2 Mensalidades 199,80", 199.8)).toEqual({ valor: 99.9, origem: "mensalidades_na_fatura" });
+  });
+  it("mistura indeterminada (multa sem valor) nao rende mensalidade — nem pelo proporcional", () => {
+    expect(mensalidadeDaDescricao("Proporcional 40 dias + multa", 719.86)).toBeNull();
+    expect(mensalidadeDaDescricao("2 Mensalidades 199,80 + multa", 699.8)).toBeNull();
   });
 });

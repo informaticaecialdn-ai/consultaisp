@@ -104,7 +104,7 @@ export interface DevedorDaCarteira {
 
 export interface MensalidadeParaPrejuizo { valor: number; concordam: number; faturas: number; baixadas: number }
 /** O recebido real do cliente, quando o ERP confirmou pagamentos (0036). */
-export interface HistoricoParaPrejuizo { pagas: number; recebido: number; pct_em_dia: number }
+export interface HistoricoParaPrejuizo { pagas: number; recebido: number; pct_em_dia: number; primeira_paga?: string | null }
 
 export interface MotivoDoTraco { motivo: string; clientes: number; divida: number }
 
@@ -217,6 +217,7 @@ export function agregarPrejuizo(entrada: {
       contractStartDate: d.contractStartDate,
       cortadoEm: d.cortadoEm,
       ultimaFaturaEmitidaEm: d.ultimaFatura,
+      primeiraFaturaVencidaEm: d.devemDesde,
       plano: d.plano ?? null,
       dividaAtual: d.dividaAtual,
       economia,

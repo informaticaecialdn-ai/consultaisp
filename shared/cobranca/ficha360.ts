@@ -40,6 +40,14 @@ export interface EntradaDaFicha360 {
    * do card de prejuízo e não entra no ledger. Coincidem quando há uma fatura só.
    */
   ultimaFaturaEmitidaEm?: string | Date | null;
+  /**
+   * O vencimento da fatura vencida MAIS ANTIGA em aberto: quando o cliente
+   * parou de pagar. E o fim do ciclo do SUSPENSO sem data de corte (o IXC nao
+   * informa corte de contrato suspenso) — o servico parou ali, e cobrar custo
+   * de servir ate hoje inventava prejuizo (Felipe, Amplinet: 4 meses pagos e
+   * 38 de custo).
+   */
+  primeiraFaturaVencidaEm?: string | Date | null;
   plano: string | null;
   /**
    * O ERP deste provedor ja confirmou ALGUM pagamento (0036)? `false` = nao ha
@@ -85,7 +93,7 @@ export interface EntradaDaFicha360 {
    */
   mensalidadeObservada?: { valor: number; concordam: number; faturas: number; baixadas?: number } | null;
   /** Histórico de pagamento sincronizado, quando existir (fase 2). */
-  historicoPagamento: { pagas: number; recebido: number; pct_em_dia: number } | null;
+  historicoPagamento: { pagas: number; recebido: number; pct_em_dia: number; primeira_paga?: string | null } | null;
 }
 
 export interface ScoresDaFicha {
@@ -115,7 +123,7 @@ export interface Ficha360 {
    * faturas e um número que o admin cadastrou merecem crédito diferente.
    * `null` quando não há mensalidade nenhuma.
    */
-  origemDoValorMensal: "plano_cadastrado" | "faturas_do_erp" | "fatura_de_saida" | null;
+  origemDoValorMensal: "plano_cadastrado" | "faturas_do_erp" | "deduzida_da_fatura" | null;
   /** Quando o resultado do contrato e ESTIMADO (sem fatura paga): o porque, para o selo. */
   economiaEstimada: string | null;
   /** Multa e equipamento cobrados a parte — fora do prejuizo (o equipamento ja esta no investimento). */
@@ -135,10 +143,12 @@ function dataOuNull(v: string | Date | null): Date | null {
 
 /** O que a Economia precisa da ficha — o subconjunto que o card de prejuízo também tem por linha. */
 export type EntradaDaEconomia = Pick<EntradaDaFicha360,
-  "hoje" | "statusErp" | "carteira" | "contractStartDate" | "cortadoEm" | "ultimaFaturaEmitidaEm" | "plano"
+  "hoje" | "statusErp" | "carteira" | "contractStartDate" | "cortadoEm" | "ultimaFaturaEmitidaEm" | "primeiraFaturaVencidaEm" | "plano"
   | "dividaAtual" | "economia" | "mensalidadeObservada" | "historicoPagamento" | "erpConfirmaPagamentos" | "erpSource" | "cobrancaDeSaida">;
 
 const centavos = (n: number) => Math.round(n * 100) / 100;
+const reais = (n: number) => "R$ " + n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+const mesAno = (d: Date) => `${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
 
 /**
  * A divida que a Economia ve: a do ERP MENOS a multa e o equipamento cobrados
@@ -205,11 +215,28 @@ export interface EconomiaDoCliente {
  */
 export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
   const situacaoReal = situacaoRealDe(e.statusErp, e.carteira);
-  const cicloVivo = situacaoReal === "ativo" || situacaoReal === "suspenso";
-  // O fim do ciclo do ex-cliente é o que o ERP PROVOU: o corte, ou a última
-  // fatura emitida. `hoje` só quando não há nada — e aí a permanência é teto.
-  const fim = cicloVivo ? e.hoje : (dataOuNull(e.cortadoEm) ?? dataOuNull(e.ultimaFaturaEmitidaEm ?? null) ?? e.hoje);
+  const corte = dataOuNull(e.cortadoEm);
+  // SUSPENSO com corte (ou, sem corte informado, com fatura vencida gravada) e
+  // servico PARADO: o ciclo termina ali, nao hoje. No SGP "suspenso" e o
+  // cancelado com divida; no IXC o contrato suspenso nao traz data de corte.
+  const fimDoSuspenso = situacaoReal === "suspenso" ? (corte ?? dataOuNull(e.primeiraFaturaVencidaEm ?? null)) : null;
+  const cicloVivo = situacaoReal === "ativo" || (situacaoReal === "suspenso" && fimDoSuspenso === null);
+  // O fim do ciclo e o que o ERP PROVOU: o corte, a parada de pagamento do
+  // suspenso, ou a ultima fatura emitida. `hoje` so quando nao ha nada — e ai
+  // NAO se estima (meses ate hoje inventariam receita e custo).
+  const fimProvado = cicloVivo ? null : (fimDoSuspenso ?? corte ?? dataOuNull(e.ultimaFaturaEmitidaEm ?? null));
+  const fim = cicloVivo ? e.hoje : (fimProvado ?? e.hoje);
   const mesesCliente = mesesEntre(e.contractStartDate, fim);
+  // Ate onde o historico de pagas alcanca: a primeira paga confirmada mais de
+  // 60 dias depois da adesao diz que os meses anteriores NAO estao no recebido
+  // (o SGP da Amplinet so entregou pagas desde jan/2026 para gente de 2019).
+  const h = e.historicoPagamento;
+  const inicio = dataOuNull(e.contractStartDate);
+  const primeiraPaga = dataOuNull(h?.primeira_paga ?? null);
+  const CARENCIA_DO_HISTORICO_MS = 60 * 86_400_000;
+  const mesesEstimados = h && inicio && primeiraPaga && primeiraPaga.getTime() - inicio.getTime() > CARENCIA_DO_HISTORICO_MS
+    ? Math.max(0, Math.min(mesesCliente ?? 0, mesesEntre(inicio, primeiraPaga) ?? 0))
+    : 0;
   // Preço cadastrado primeiro (o admin mandou), mensalidade observada depois.
   const precoCadastrado = precoDoPlano(e.economia?.precoPorPlano, e.plano);
   const obs = e.mensalidadeObservada ?? null;
@@ -217,7 +244,11 @@ export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
   // ela, e R$ 719,86 viraria "MRR" — a ficha mesma diz que R$ 600 disso e multa.
   const saida = e.cobrancaDeSaida ?? null;
   const soFaturaDeSaida = !!obs && obs.faturas <= 1 && !!saida && (saida.multa + saida.equipamento > 0 || saida.indeterminadas > 0 || (saida.mensalidadeLida ?? null) !== null);
-  const observadaConfiavel = !!obs && obs.valor > 0 && !soFaturaDeSaida && (cicloVivo || (obs.concordam >= 2 && (obs.baixadas ?? 0) >= 1));
+  // Para o ativo E para o suspenso a fatura aberta e estruturalmente a mensalidade
+  // (o ERP segue emitindo mes a mes — Felipe, Amplinet: 12 abertas do plano); so o
+  // ex-cliente tem o saldo consolidado, e por isso so ele exige prova de pagamento.
+  const mensalidadeEstrutural = situacaoReal === "ativo" || situacaoReal === "suspenso";
+  const observadaConfiavel = !!obs && obs.valor > 0 && !soFaturaDeSaida && (mensalidadeEstrutural || (obs.concordam >= 2 && (obs.baixadas ?? 0) >= 1));
   const observada = observadaConfiavel ? obs!.valor : null;
   // A terceira fonte: a mensalidade que a propria fatura de saida declara
   // ("2 Mensalidades 199,80" → 99,90; "Proporcional 40 dias" pro-rata). E o
@@ -234,7 +265,7 @@ export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
       : "sem mensalidade: a única fatura aberta deste ex-cliente é o saldo final, não a mensalidade";
   const valorMensal = precoCadastrado ?? observada ?? lida;
   const origemDoValorMensal: Ficha360["origemDoValorMensal"] =
-    precoCadastrado !== null ? "plano_cadastrado" : observada !== null ? "faturas_do_erp" : lida !== null ? "fatura_de_saida" : null;
+    precoCadastrado !== null ? "plano_cadastrado" : observada !== null ? "faturas_do_erp" : lida !== null ? "deduzida_da_fatura" : null;
 
   // A multa de cancelamento e o equipamento cobrados na fatura de saida NAO
   // sao divida para a Economia: a instalacao nao recuperada ja e essa perda.
@@ -266,6 +297,10 @@ export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
       : cicloVivo
         ? "data de contrato no futuro segundo o ERP — a adesão informada é posterior a hoje"
         : "data de contrato posterior à última fatura — contrato renovado; o ERP não informa o ciclo anterior";
+  } else if (!cicloVivo && !h && !fimProvado) {
+    economiaPendente = "sem data de saída: o ERP não informou o corte e não há fatura vencida gravada — sem o fim do ciclo o resultado não pode ser estimado";
+  } else if (!cicloVivo && !h && centavos(valorMensal * mesesCliente) < dividaDeServico) {
+    economiaPendente = `saldo devedor de serviço (${reais(dividaDeServico)}) maior que as mensalidades do ciclo (${reais(centavos(valorMensal * mesesCliente))}) — a estimativa não fecha; confira o contrato no ERP`;
   } else {
     economia = computeEconomiaLedger({
       arpu: valorMensal,
@@ -285,11 +320,16 @@ export function economiaDoCliente(e: EntradaDaEconomia): EconomiaDoCliente {
       receitaRecebida: e.historicoPagamento ? e.historicoPagamento.recebido : null,
       // Ciclo encerrado sem fatura paga: o que o ERP emitiu no ciclo menos o que
       // ficou em aberto (de servico) e o que foi pago — estimado, e dito assim.
-      receitaEstimada: !cicloVivo && !e.historicoPagamento ? centavos(Math.max(0, valorMensal * mesesCliente - dividaDeServico)) : null,
+      receitaEstimada: !cicloVivo && !h ? centavos(Math.max(0, valorMensal * mesesCliente - dividaDeServico)) : null,
+      mesesEstimados,
       inadimplenciaAberta: dividaDeServico,
     });
   }
-  const economiaEstimada = economia?.fonte_receita === "estimada" ? motivoSemHistorico(e) : null;
+  const economiaEstimada = !economia ? null
+    : economia.fonte_receita === "estimada" ? motivoSemHistorico(e)
+    : economia.meses_estimados > 0
+      ? `histórico de pagamento desde ${mesAno(primeiraPaga!)}: os ${economia.meses_estimados} meses anteriores entram pela mensalidade (${reais(valorMensal!)} × ${economia.meses_estimados}) — o ERP não entregou as faturas pagas antes disso`
+      : null;
 
   return { situacaoReal, cicloVivo, fim, mesesCliente, valorMensal, origemDoValorMensal, economia, economiaPendente, multaForaDoPrejuizo, multasIndeterminadas, economiaEstimada };
 }

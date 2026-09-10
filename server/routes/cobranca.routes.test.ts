@@ -539,6 +539,24 @@ describe("GET /360 — quando o ERP do provedor nunca confirmou pagamento, o mot
   });
 });
 
+describe("GET /360 — o caminho ESTIMADO de ponta a ponta (ex-cliente sem fatura paga, com custos e mensalidade)", () => {
+  it("a ficha sai com fonte 'estimada' e o motivo no selo; o pendente do historico continua listado", async () => {
+    sessao = OPERADOR;
+    storageMock.getPoliticaDeCobranca.mockResolvedValueOnce({
+      id: 1, providerId: 42, ...POLITICA_PADRAO, updatedAt: new Date("2026-09-05T12:00:00Z"),
+      economia: { ...POLITICA_PADRAO.economia, cac: 120, capexInstalacao: 650, opexLink: 15, opexRedePop: 10, opexSuporte: 10, opexManutencaoNoc: 10, impostoReceitaPct: 8, cicloMeses: 36, confirmado: false },
+    });
+    storageMock.mensalidadeDoCliente.mockResolvedValueOnce({ valor: 89.9, concordam: 3, faturas: 4, maisRecente: null, baixadas: 2 });
+    storageMock.faturasDoCliente.mockResolvedValueOnce({ linhas: [], total: 1, limite: 1, doErp: 1, vencidas: 1, valorVencido: 100, vencimentoMaisAntigo: new Date("2026-03-05T00:00:00Z"), vencimentoMaisRecente: new Date("2026-03-05T00:00:00Z") });
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([{ ...clienteMaria, status: "cancelled", totalOverdueAmount: "100.00", contractStartDate: "2025-09-05" }]);
+    const body = await (await json("GET", "/api/cobranca/clientes/1/360?carteira=ex_cliente")).json();
+    expect(body.ficha.economia?.fonte_receita).toBe("estimada");
+    expect(body.ficha.economia?.receita_estimada).toBe(439.4);   // 89,90 × 6 − 100
+    expect(body.ficha.economiaEstimada).toMatch(/sem fatura paga sincronizada deste cliente — o resultado do contrato é estimado/);
+    expect(body.pendentes.map((x: any) => x.campo)).toContain("historicoPagamento");
+  });
+});
+
 describe("GET /360 — o fim do ciclo e a evidência da mensalidade chegam à ficha", () => {
   it("ex-cliente: ultimaFaturaEmitidaEm vem da fatura vencida mais recente (limite 1) e baixadas vai na mensalidade", async () => {
     sessao = OPERADOR;
@@ -550,6 +568,7 @@ describe("GET /360 — o fim do ciclo e a evidência da mensalidade chegam à fi
     const body = await res.json();
     expect(storageMock.faturasDoCliente).toHaveBeenCalledWith(42, 1, { limite: 1, hoje: expect.any(Date) });
     expect(body.fichaEntrada.ultimaFaturaEmitidaEm).toBe("2026-03-05");
+    expect(body.fichaEntrada.primeiraFaturaVencidaEm).toBe("2026-03-05");
     expect(body.fichaEntrada.mensalidadeObservada).toMatchObject({ valor: 89.9, concordam: 3, faturas: 4, baixadas: 2 });
     // Sem fatura paga o ex-cliente sai ESTIMADO (09/09/2026); aqui a politica e a padrao, sem custos.
     expect(body.ficha.economiaPendente).toMatch(/faltam os custos do provedor/);
@@ -2289,5 +2308,23 @@ describe("GET /api/cobranca/casos/:id/detalhe", () => {
     expect(body.eventos.linhas).toHaveLength(200);
     expect(body.eventos.total).toBe(250);
     expect(body.eventos.limite).toBe(200);
+  });
+});
+
+describe("o plano do ERP (contract_plan, 0036) chega aos itens da carteira — casos, candidatos e em dia", () => {
+  it("caso: o plano da linha; candidato: o plano do storage; em dia: idem; ausente = null, nunca texto inventado", async () => {
+    sessao = OPERADOR;
+    storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [linhaCaso({ id: 1, cliente: { ...linhaCaso().cliente, id: 1, plano: "Smart 700MB" } })], total: 1 });
+    storageMock.clientesParaAbrirCaso.mockResolvedValueOnce([
+      { customerId: 3, nome: "Sem plano", cpfCnpj: "111", statusErp: "active", carteira: "ativo", dividaAtual: 50, diasAtraso: 10, faturasAbertas: 1, contractStartDate: null, plano: null },
+      { customerId: 4, nome: "Com plano", cpfCnpj: "222", statusErp: "active", carteira: "ativo", dividaAtual: 60, diasAtraso: 12, faturasAbertas: 1, contractStartDate: null, plano: "Fibra 500" },
+    ]);
+    storageMock.clientesAtivosEmDia.mockResolvedValueOnce({ linhas: [{ customerId: 5, nome: "Em dia", cpfCnpj: "333", statusErp: "active", telefone: null, cidade: null, bairro: null, contractStartDate: null, plano: "Smart 1000" }], total: 1 });
+    const body = await (await json("GET", "/api/cobranca/carteira?carteira=ativo")).json();
+    const porId = new Map(body.itens.map((i: any) => [i.customerId, i.plano]));
+    expect(porId.get(1)).toBe("Smart 700MB");
+    expect(porId.get(3)).toBeNull();
+    expect(porId.get(4)).toBe("Fibra 500");
+    expect(porId.get(5)).toBe("Smart 1000");
   });
 });

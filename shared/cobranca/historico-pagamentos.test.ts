@@ -18,3 +18,16 @@ describe("histórico de pagamentos confirmados", () => {
     expect(r).toMatchObject({ historicoInsuficiente: false, faturasPagas: 2, faturasPagasComAtraso: 1, taxaAtraso: 0.5 });
   });
 });
+
+describe("a primeira paga confirmada viaja para a Economia", () => {
+  it("resumir e historicoParaEconomia expoem primeira_paga como dia em texto", async () => {
+    const { historicoParaEconomia, resumirHistoricoDePagamentos } = await import("./historico-pagamentos");
+    const h = resumirHistoricoDePagamentos([
+      { status: "paid", vencimento: new Date("2026-03-10T00:00:00Z"), pagoEm: new Date("2026-03-09T00:00:00Z"), valorPago: 100 },
+      { status: "paid", vencimento: new Date("2026-01-10T00:00:00Z"), pagoEm: new Date("2026-01-26T00:00:00Z"), valorPago: 100 },
+    ]);
+    expect(h.primeiraConfirmacaoEm?.toISOString().slice(0, 10)).toBe("2026-01-26");
+    expect(historicoParaEconomia(h)).toMatchObject({ pagas: 2, recebido: 200, primeira_paga: "2026-01-26" });
+    expect(historicoParaEconomia({ ...h, primeiraConfirmacaoEm: null })?.primeira_paga).toBeNull();
+  });
+});

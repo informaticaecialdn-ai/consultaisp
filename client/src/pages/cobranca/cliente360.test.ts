@@ -374,9 +374,9 @@ describe("o texto da cobranca de saida no card R24 (multa/equipamento fora do pr
 describe("a mensalidade deduzida da fatura de saida tem rotulo proprio", () => {
   it("rotuloDaMensalidade e ORIGEM_DO_VALOR conhecem 'fatura_de_saida'", async () => {
     const { rotuloDaMensalidade, ORIGEM_DO_VALOR } = await import("./cliente360");
-    expect(rotuloDaMensalidade("fatura_de_saida", null)).toBe("deduzida da fatura de saída");
-    expect(ORIGEM_DO_VALOR.fatura_de_saida.rotulo).toBe("deduzida da fatura de saída");
-    expect(ORIGEM_DO_VALOR.fatura_de_saida.titulo).toMatch(/Proporcional 40 dias/);
+    expect(rotuloDaMensalidade("deduzida_da_fatura", null)).toBe("deduzida da própria fatura");
+    expect(ORIGEM_DO_VALOR.deduzida_da_fatura.rotulo).toBe("deduzida da própria fatura");
+    expect(ORIGEM_DO_VALOR.deduzida_da_fatura.titulo).toMatch(/Proporcional 40 dias/);
   });
   it("o card R24 troca 'Recebido' por 'Receita estimada' e leva o selo quando a fonte e estimada", () => {
     const fonte = ler("./cliente360.tsx");
@@ -384,5 +384,15 @@ describe("a mensalidade deduzida da fatura de saida tem rotulo proprio", () => {
     expect(fonte).toMatch(/Receita estimada/);
     expect(fonte).toMatch(/data-testid="economia-estimada"/);
     expect(fonte).toMatch(/LTV estimado/);
+  });
+});
+
+describe("o suspenso com corte e o historico parcial na tela", () => {
+  it("o card R24 diz 'ate o corte' para o suspenso, e o selo distingue estimado de historico parcial", () => {
+    const fonte = ler("./cliente360.tsx");
+    expect(fonte).toMatch(/Resultado até o corte · R24/);
+    expect(fonte).toMatch(/≈ histórico parcial/);
+    expect(fonte).toMatch(/ciclo encerrado · histórico parcial/);
+    expect(fonte).toMatch(/suspenso=\{ficha\?\.situacaoReal === "suspenso"\}/);
   });
 });

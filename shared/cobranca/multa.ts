@@ -61,7 +61,13 @@ export interface ParcelasDaFatura { multa: number; equipamento: number; indeterm
 const MULTA_NOMES = String.raw`multas?|rescis\w*|fidelid\w*|quebra\s+de\s+contrato`;
 const EQUIP_NOMES = String.raw`equipamentos?|roteador(?:es)?|onus?|modems?|comodato`;
 /** O filtro do banco (`~*`, regex do Postgres): so a fatura cuja descricao fala nisso passa pelo parser. */
-export const PADRAO_DE_COBRANCA_DE_SAIDA = String.raw`\m(multas?|rescis|fidelid|quebra de contrato|equipamentos?|roteador|onus?|modems?|comodato|proporcional|mensalidades?)`;
+export const PADRAO_DE_COBRANCA_DE_SAIDA = String.raw`\m(multas?|rescis|fidelid|quebra de contrato|equipamentos?|roteador|onus?|modems?|comodato)`;
+/**
+ * O padrao LARGO da LEITURA (`cobrancasDeSaida`): alem da saida, a fatura que
+ * declara a mensalidade ("2 Mensalidades 199,80", "Proporcional 40 dias").
+ * NAO serve para a moda: "Mensalidade 09/2026" e a fatura comum do mes.
+ */
+export const PADRAO_DE_LEITURA_DE_FATURAS = String.raw`\m(multas?|rescis|fidelid|quebra de contrato|equipamentos?|roteador|onus?|modems?|comodato|proporcional|mensalidades?)`;
 
 const VALOR = String.raw`(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)`;
 const NEGACAO_MULTA = /n[ãa]o\s+(?:ser[áa]\s+|foi\s+|est[áa]\s+)?(?:cobrad[ao]|possui|tem|h[áa]|cobra|cobrar|aplicad[ao])\s+(?:a\s+)?multa|sem\s+(?:cobran[çc]a\s+d[ea]\s+)?multa|isen(?:t[oa]|[çc][ãa]o)\s+d[ea]\s+multa|multa\s+(?:isenta|dispensada|zerada|n[ãa]o\s+(?:cobrada|aplicada|devida))/i;
@@ -177,18 +183,28 @@ export function mensalidadeDaDescricao(descricao: string | null | undefined, val
   const teto = Number.isFinite(valorDaFatura) && valorDaFatura > 0 ? centavos(valorDaFatura) : 0;
   if (!d || teto <= 0) return null;
   const plausivel = (v: number) => Number.isFinite(v) && v >= MENSALIDADE_MIN && v <= MENSALIDADE_MAX ? centavos(v) : null;
+  // Multa/equipamento sem valor ("mistura indeterminada"): o resto nao e so
+  // mensalidade, e qualquer conta em cima dele inventaria valor.
+  const { multa, equipamento, indeterminada } = parcelasDaDescricao(d, teto);
+  if (indeterminada) return null;
+  const resto = centavos(teto - multa - equipamento);
   const nm = d.match(N_MENSALIDADES);
   if (nm) {
     const n = Number(nm[1]);
-    const total = valorBrasileiro(nm[2]);
-    const v = n >= 1 && n <= 24 && total > 0 && total <= teto + 0.01 ? plausivel(total / n) : null;
-    if (v !== null) return { valor: v, origem: "mensalidades_na_fatura" };
+    const v = valorBrasileiro(nm[2]);
+    if (n >= 1 && n <= 24 && v > 0) {
+      // "2 Mensalidades 199,80": V e o TOTAL das duas (199,80 + multa = a fatura)
+      // ou o valor de CADA uma (2 × V + multa = a fatura)? A propria fatura decide.
+      const bateTotal = Math.abs(v - resto) <= 0.05;
+      const bateUnidade = Math.abs(v * n - resto) <= 0.05;
+      const mensalidade = bateTotal ? v / n : bateUnidade ? v : v <= resto + 0.05 ? v / n : v * n <= resto + 0.05 ? v : null;
+      const ok = mensalidade === null ? null : plausivel(mensalidade);
+      if (ok !== null) return { valor: ok, origem: "mensalidades_na_fatura" };
+    }
   }
   const pd = d.match(PROPORCIONAL_DIAS);
   if (pd) {
     const dias = Number(pd[1]);
-    const { multa, equipamento } = parcelasDaDescricao(d, teto);
-    const resto = centavos(teto - multa - equipamento);
     const v = dias >= 1 && dias <= 90 && resto > 0 ? plausivel((resto * 30) / dias) : null;
     if (v !== null) return { valor: v, origem: "proporcional_na_fatura" };
   }

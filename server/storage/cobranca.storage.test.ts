@@ -1408,3 +1408,32 @@ describe("paridade com shared/cobranca — o vocabulario e um so", () => {
     expect(POLITICA_DE_COBRANCA_PADRAO.economia).toEqual(POLITICA_PADRAO.economia);
   });
 });
+
+describe("o plano do ERP (contract_plan, 0036) atravessa os tres selects da carteira", () => {
+  const clienteComPlano = (plano: string | null, extra: Record<string, unknown> = {}) =>
+    banco.linhas.set("customers", [{ ...banco.linhas.get("customers")![0], contractPlan: plano, ...extra }]);
+  it("listarCasosDeCobranca: contract_plan vai por ULTIMO no select (fixtures posicionais) e chega em cliente.plano", async () => {
+    clienteComPlano("Smart 700MB");
+    const { linhas } = await storage.listarCasosDeCobranca(PROVEDOR);
+    expect(linhas[0].cliente.plano).toBe("Smart 700MB");
+    const q = banco.consultas.find(c => c.sql.includes('"contract_plan"'))!;
+    expect(q, "o select dos casos precisa trazer contract_plan").toBeTruthy();
+    expect(q.sql.lastIndexOf('"contract_plan"')).toBeGreaterThan(q.sql.lastIndexOf('"contract_start_date"'));
+  });
+  it("clientesParaAbrirCaso: o candidato leva o plano; sem plano no ERP, null — nunca texto inventado", async () => {
+    clienteComPlano("Fibra 500");
+    const [c] = await storage.clientesParaAbrirCaso(PROVEDOR, 20);
+    expect(c.plano).toBe("Fibra 500");
+    const q = banco.consultas.find(x => x.sql.includes('"contract_plan"'))!;
+    expect(q.sql.indexOf('"contract_plan"')).toBeGreaterThan(q.sql.indexOf('"contract_start_date"'));
+    clienteComPlano(null);
+    expect((await storage.clientesParaAbrirCaso(PROVEDOR, 20))[0].plano).toBeNull();
+  });
+  it("clientesAtivosEmDia: idem, com a contagem respondida pelo simulador", async () => {
+    clienteComPlano("Smart 1000", { totalOverdueAmount: "0", maxDaysOverdue: 0, overdueInvoicesCount: 0, paymentStatus: "current" });
+    banco.agregados.push({ quando: /^select count\(\*\) from "customers"/, linha: [1] });
+    const r = await storage.clientesAtivosEmDia(PROVEDOR, {}, { offset: 0, limite: 10 });
+    expect(r.total).toBe(1);
+    expect(r.linhas[0]).toMatchObject({ customerId: 42, plano: "Smart 1000", contractStartDate: "2021-03-20" });
+  });
+});

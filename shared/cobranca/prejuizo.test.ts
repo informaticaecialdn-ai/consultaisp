@@ -206,3 +206,16 @@ describe("o card tira a multa e o equipamento da divida antes do prejuizo (dono,
     expect(dentro.resumo.multaForaDoPrejuizo).toBe(600);
   });
 });
+
+describe("o suspenso no card: o ciclo termina em 'devem desde', nao em hoje", () => {
+  it("suspenso sem corte com fatura vencida: meses ate a primeira vencida, estimado; o ativo com a mesma fatura segue projetado ate hoje", () => {
+    const susp = agregarPrejuizo({ devedores: [devedor({ id: 1, statusErp: "suspended", dividaAtual: 100, contractStartDate: "2025-09-05", devemDesde: "2026-03-05", ultimaFatura: "2026-08-05" })], mensalidades: new Map([[1, mensal(89.9, 2)]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ativo" });
+    expect(susp.resumo.avaliados).toBe(1);
+    expect(susp.resumo.estimados).toBe(1);
+    // (89,90 × 6 − 100) × 0,92 − 45 × 6 − 770 = −635,75
+    expect(susp.resumo.prejuizo).toBeCloseTo(635.75, 2);
+    const ativo = agregarPrejuizo({ devedores: [devedor({ id: 1, statusErp: "active", dividaAtual: 100, contractStartDate: "2025-09-05", devemDesde: "2026-03-05", ultimaFatura: "2026-08-05" })], mensalidades: new Map([[1, mensal(89.9, 2)]]), economia: NSLINK, hoje: HOJE, periodo: parsePeriodo("2026-T1")!, carteira: "ativo" });
+    expect(ativo.resumo.estimados).toBe(0);
+    expect(ativo.resumo.prejuizo).not.toBeCloseTo(635.75, 2);
+  });
+});

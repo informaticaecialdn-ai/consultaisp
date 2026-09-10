@@ -335,10 +335,10 @@ describe("o motivo do traco quando o ERP do PROVEDOR nunca confirmou pagamento (
     expect(motivoSemHistorico({})).toMatch(/sem fatura paga sincronizada deste cliente/);
   });
   it("a ficha do ex-cliente da NsLink leva esse motivo no SELO do estimado — e nao muda nada para quem tem historico", () => {
-    const semApi = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", erpConfirmaPagamentos: false, erpSource: "mk" });
+    const semApi = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", erpConfirmaPagamentos: false, erpSource: "mk" });
     expect(semApi.economia!.fonte_receita).toBe("estimada");
     expect(semApi.economiaEstimada).toMatch(/MK Solutions/);
-    const comHistorico = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", erpConfirmaPagamentos: false, erpSource: "mk", historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 } });
+    const comHistorico = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", erpConfirmaPagamentos: false, erpSource: "mk", historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 } });
     expect(comHistorico.economia!.fonte_receita).toBe("recebida");
     expect(comHistorico.economiaEstimada).toBeNull();
   });
@@ -408,7 +408,7 @@ describe("a mensalidade deduzida da fatura de saida e a terceira fonte do ARPU",
       mensalidadeObservada: { valor: 719.86, concordam: 1, faturas: 1, baixadas: 0 },
       cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1, mensalidadeLida: 89.9 } });
     expect(f.valorMensal).toBe(89.9);
-    expect(f.origemDoValorMensal).toBe("fatura_de_saida");
+    expect(f.origemDoValorMensal).toBe("deduzida_da_fatura");
     expect(f.economia!.fonte_receita).toBe("estimada");
     expect(f.economia!.receita_estimada).toBe(419.54);       // 89,90 × 6 − 119,86 de saldo de servico
   });
@@ -422,5 +422,64 @@ describe("a mensalidade deduzida da fatura de saida e a terceira fonte do ARPU",
       cobrancaDeSaida: { multa: 600, equipamento: 0, indeterminadas: 0, faturas: 1, mensalidadeLida: null } });
     expect(semNada.economia).toBeNull();
     expect(semNada.economiaPendente).toMatch(/a única fatura aberta é a de saída .* cadastre o preço do plano "Smart 700MB" em Política > Economia/);
+  });
+});
+
+describe("o suspenso termina no corte (Felipe, Amplinet: 4 meses pagos, 38 de custo)", () => {
+  it("suspenso COM corte: o ciclo acaba no corte, o ledger e de ciclo encerrado, e sem paga sai estimado", () => {
+    const f = montarFicha360({ ...base, statusErp: "suspended", cortadoEm: "2026-03-05" });
+    expect(f.situacaoReal).toBe("suspenso");
+    expect(f.mesesCliente).toBe(6);
+    expect(f.economia!.ciclo_encerrado).toBe(true);
+    expect(f.economia!.fonte_receita).toBe("estimada");
+    expect(f.economia!.lucro_acumulado).toBe(-140);
+  });
+  it("suspenso SEM corte mas com fatura vencida gravada: parou de pagar ali — e o fim; sem nada, continua vivo e projetado", () => {
+    const parou = montarFicha360({ ...base, statusErp: "suspended", cortadoEm: null, primeiraFaturaVencidaEm: "2026-03-05" });
+    expect(parou.mesesCliente).toBe(6);
+    expect(parou.economia!.ciclo_encerrado).toBe(true);
+    const vivo = montarFicha360({ ...base, statusErp: "suspended", cortadoEm: null });
+    expect(vivo.economia!.ciclo_encerrado).toBe(false);
+    expect(vivo.economia!.fonte_receita).toBe("projetada");
+  });
+  it("com pagas, o suspenso com corte sai RECEBIDO ate o corte — o custo de servir para no corte, nao em hoje", () => {
+    const f = montarFicha360({ ...base, statusErp: "suspended", cortadoEm: "2026-03-05", historicoPagamento: { pagas: 4, recebido: 400, pct_em_dia: 100, primeira_paga: "2025-09-10" } });
+    expect(f.economia!.fonte_receita).toBe("recebida");
+    expect(f.economia!.mes_atual).toBe(6);
+    expect(f.economia!.lucro_acumulado).toBe(-230);   // 400 × 0,9 − 40 × 6 − 350
+  });
+});
+
+describe("a estimativa so quando o fim e provado e a conta fecha", () => {
+  it("ex-cliente sem corte, sem ultima fatura e sem paga: PENDENTE 'sem data de saida' — meses ate hoje inventariam receita", () => {
+    const f = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: null });
+    expect(f.economia).toBeNull();
+    expect(f.economiaPendente).toMatch(/sem data de saída/);
+  });
+  it("saldo devedor maior que as mensalidades do ciclo: PENDENTE 'a estimativa nao fecha', nunca 'receita estimada R$ 0,00'", () => {
+    const f = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: "2026-03-05", dividaAtual: 900 });
+    expect(f.economia).toBeNull();
+    expect(f.economiaPendente).toMatch(/saldo devedor de serviço \(R\$ 900,00\) maior que as mensalidades do ciclo \(R\$ 600,00\)/);
+  });
+  it("com paga confirmada nada disso vale: o recebido e real", () => {
+    const f = montarFicha360({ ...base, statusErp: "cancelled", carteira: "ex_cliente", cortadoEm: null, historicoPagamento: { pagas: 6, recebido: 600, pct_em_dia: 100 } });
+    expect(f.economia!.fonte_receita).toBe("recebida");
+  });
+});
+
+describe("historico PARCIAL: a primeira paga longe da adesao (Amplisinal/SGP, pagas so desde jan/2026)", () => {
+  it("cliente vivo desde 2019 com pagas desde 2026: os meses anteriores entram pela mensalidade, e o selo diz desde quando", () => {
+    const f = montarFicha360({ ...base, contractStartDate: "2019-09-26", historicoPagamento: { pagas: 9, recebido: 900, pct_em_dia: 100, primeira_paga: "2026-01-26" } });
+    expect(f.economia!.fonte_receita).toBe("recebida");
+    expect(f.economia!.meses_estimados).toBe(76);
+    expect(f.economia!.receita_estimada).toBe(7600);
+    expect(f.economia!.ltv_realizado).toBe(900);
+    expect(f.economiaEstimada).toMatch(/histórico de pagamento desde 01\/2026: os 76 meses anteriores entram pela mensalidade \(R\$ 100,00 × 76\)/);
+  });
+  it("primeira paga ate 60 dias da adesao: historico completo, nada estimado, selo nenhum", () => {
+    const f = montarFicha360({ ...base, historicoPagamento: { pagas: 12, recebido: 1200, pct_em_dia: 100, primeira_paga: "2025-10-10" } });
+    expect(f.economia!.meses_estimados).toBe(0);
+    expect(f.economia!.receita_estimada).toBeNull();
+    expect(f.economiaEstimada).toBeNull();
   });
 });
