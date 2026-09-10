@@ -443,9 +443,12 @@ banco nem ao log.
 
 **Direitos do titular** (`server/services/lgpd-titular.service.ts`, processado
 de hora em hora): o relatório de **acesso** e o de **portabilidade** passam a
-incluir `confissoesDeDivida` (id, provedor, status, valor, ambiente, datas);
-o processamento de **exclusão** não toca nas confissões preservadas e devolve
-`confissoesPreservadas` + a base legal da preservação junto com o resultado.
+incluir `confissoesDeDivida` (id, provedor, status, valor, ambiente, datas). O
+processamento de **exclusão** não anonimiza nenhuma confissão na hora — quem
+limpa o que não é título são os 90 dias da retenção automática acima,
+independente de haver pedido —; a resposta ao titular só informa
+`confissoesPreservadas` (assinada + produção) junto com a base legal de cada
+uma.
 
 ---
 
