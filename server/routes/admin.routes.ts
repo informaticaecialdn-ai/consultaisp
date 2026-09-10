@@ -13,7 +13,7 @@ import {
 } from "../services/email";
 import { avisarProvedor, contextoDeEmail } from "../services/email-destinatario";
 import { ROTULO_DO_PLANO } from "../services/precos.service";
-import { PLAN_CREDITS } from "@shared/planos";
+import { PLAN_CREDITS, PLAN_PRICES } from "@shared/planos";
 import { esquecerMarcas, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
 import { esquecerStatusDeProvedor } from "../auth";
 import { getConnector, getSupportedSources } from "../erp/registry";
@@ -898,7 +898,19 @@ export function registerAdminRoutes(): Router {
        * produto.
        */
       if (plan && plan !== planoAnterior) {
-        const creditosDoPlano = PLAN_CREDITS[plan]?.isp ?? 0;
+        /**
+         * "N creditos inclusos por mes" so pode ser dito de plano que FATURA
+         * todo mes — a mesma condicao de `recorrente` no catalogo e de
+         * generate-monthly: preco zero nao gera fatura. Os 50 do Gratuito sao
+         * de boas-vindas, concedidos uma vez no cadastro pelo default da
+         * coluna; anunciados como mensais, viravam promessa que ninguem cumpre.
+         *
+         * Desde 10/09/2026 o Profissional nao inclui credito, entao na pratica
+         * esta linha nao aparece em e-mail nenhum — e a regra fica de pe se o
+         * catalogo voltar a incluir.
+         */
+        const recorrente = (PLAN_PRICES[plan] ?? 0) > 0;
+        const creditosDoPlano = recorrente ? (PLAN_CREDITS[plan]?.isp ?? 0) : 0;
         await avisarProvedor(
           { ...provider, ...(updated || {}) },
           (para, ctx) => sendPlanoAlteradoEmail(para, ctx.nome, {

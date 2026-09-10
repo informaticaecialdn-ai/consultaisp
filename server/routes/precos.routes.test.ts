@@ -131,16 +131,20 @@ describe("GET /api/public/precos", () => {
   });
 
   /**
-   * Os 30 creditos do Profissional sao a unica promessa mensal do catalogo, e
-   * agora ela e cumprida pelo sistema (ver `creditarPlanoDaFatura`). O
-   * Gratuito declara 50 porque sao os de boas-vindas, concedidos uma vez no
-   * cadastro — por isso ele nao e recorrente.
+   * O catalogo nao promete credito mensal nenhum (decisao do dono em
+   * 10/09/2026): o Profissional e ACESSO, e consulta na rede se paga por
+   * credito avulso. O Gratuito declara 50 porque sao os de boas-vindas,
+   * concedidos uma vez no cadastro — por isso ele nao e recorrente.
+   *
+   * A landing le ESTE numero. Enquanto o `pro` declarou 30, ela anunciava "30
+   * creditos por mes"; declarando zero, o card fala de acesso e nao de
+   * franquia. Nenhuma tela escreve o numero na mao.
    */
-  it("o Profissional declara os 30 creditos mensais e o Gratuito os de boas-vindas", async () => {
+  it("o Profissional nao declara credito mensal e o Gratuito declara os de boas-vindas", async () => {
     const body = await comServidor(async (base) =>
       (await fetch(`${base}/api/public/precos`)).json(),
     );
-    expect(body.planos.find((p: any) => p.chave === "pro").creditosInclusos).toEqual({ isp: 30, spc: 0 });
+    expect(body.planos.find((p: any) => p.chave === "pro").creditosInclusos).toEqual({ isp: 0, spc: 0 });
     expect(body.planos.find((p: any) => p.chave === "free").creditosInclusos).toEqual({ isp: 50, spc: 0 });
   });
 });
