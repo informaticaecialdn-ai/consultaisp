@@ -21,6 +21,7 @@
 import { describe, expect, it } from "vitest";
 import { CobrancaStorage } from "./cobranca.storage";
 import { FaturasStorage } from "./faturas.storage";
+import { AssinaturaStorage } from "./assinatura.storage";
 
 /** Nomes públicos de uma classe: protótipo + o que a instância cria. */
 function metodosPublicos(alvo: object): string[] {
@@ -69,5 +70,15 @@ describe("a fachada expõe todo método do storage de faturas", () => {
 
   it.each(faturas)("%s está delegado em DatabaseStorage", (nome) => {
     expect(delegadoNaFachada(nome), `${nome} existe em FaturasStorage e não está na fachada`).toBe(true);
+  });
+});
+
+describe("a fachada expõe todo método do storage de assinatura", () => {
+  const assinatura = metodosPublicos(Object.create(AssinaturaStorage.prototype));
+  it("tem métodos para conferir", () => {
+    expect(assinatura.length).toBeGreaterThan(15);
+  });
+  it.each(assinatura)("%s está delegado em DatabaseStorage", (nome) => {
+    expect(delegadoNaFachada(nome), `${nome} existe em AssinaturaStorage e não está na fachada: em runtime seria undefined`).toBe(true);
   });
 });

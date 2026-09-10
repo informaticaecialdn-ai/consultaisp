@@ -21,10 +21,17 @@ import type {
   Marca, InsertMarca,
   AcessoDeSuporte,
   CarteiraDeCobranca, CobrancaPolitica, CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela,
+  AssinaturaIntegracao, CobrancaConfissao,
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
 import type { FaturaAbertaDoErp } from "../erp/types";
 import { FaturasStorage, type CoberturaDaMensalidade, type FaturasDoCliente, type GrupoDoMes, type MensalidadeDoCliente, type ResumoDoMes } from "./faturas.storage";
+import {
+  AssinaturaStorage,
+  type ConfissaoAssinadaViva, type ConfissaoDoTitular, type DadosDaIntegracaoDeAssinatura,
+  type IntegracaoComCredencial, type IntegracaoDeAssinaturaParaAdmin, type NovaConfissao,
+  type PatchDeConfissao, type PdfDaConfissao, type TipoDePdf,
+} from "./assinatura.storage";
 
 import { UsersStorage } from "./users.storage";
 import { ProvidersStorage, type ProviderWithStats } from "./providers.storage";
@@ -370,6 +377,34 @@ export interface IStorage {
   cobrancasDeSaida(...args: Parameters<FaturasStorage["cobrancasDeSaida"]>): ReturnType<FaturasStorage["cobrancasDeSaida"]>;
   /** Quantos clientes vivos tem mensalidade legivel — o sinal de prontidao da Economia. */
   coberturaDaMensalidade(providerId: number): Promise<CoberturaDaMensalidade>;
+
+  // ── Assinatura eletrônica / confissão de dívida (ZapSign) ──
+  getIntegracaoParaAdmin(...args: Parameters<AssinaturaStorage["getIntegracaoParaAdmin"]>): ReturnType<AssinaturaStorage["getIntegracaoParaAdmin"]>;
+  getIntegracaoComCredencial(...args: Parameters<AssinaturaStorage["getIntegracaoComCredencial"]>): ReturnType<AssinaturaStorage["getIntegracaoComCredencial"]>;
+  salvarIntegracaoDeAssinatura(...args: Parameters<AssinaturaStorage["salvarIntegracaoDeAssinatura"]>): ReturnType<AssinaturaStorage["salvarIntegracaoDeAssinatura"]>;
+  ativarIntegracaoDeAssinatura(...args: Parameters<AssinaturaStorage["ativarIntegracaoDeAssinatura"]>): ReturnType<AssinaturaStorage["ativarIntegracaoDeAssinatura"]>;
+  marcarModeloRevisado(...args: Parameters<AssinaturaStorage["marcarModeloRevisado"]>): ReturnType<AssinaturaStorage["marcarModeloRevisado"]>;
+  webhookSecretDoProvedor(...args: Parameters<AssinaturaStorage["webhookSecretDoProvedor"]>): ReturnType<AssinaturaStorage["webhookSecretDoProvedor"]>;
+  criarConfissao(...args: Parameters<AssinaturaStorage["criarConfissao"]>): ReturnType<AssinaturaStorage["criarConfissao"]>;
+  obterConfissao(...args: Parameters<AssinaturaStorage["obterConfissao"]>): ReturnType<AssinaturaStorage["obterConfissao"]>;
+  obterConfissaoPorToken(...args: Parameters<AssinaturaStorage["obterConfissaoPorToken"]>): ReturnType<AssinaturaStorage["obterConfissaoPorToken"]>;
+  obterConfissaoPorChave(...args: Parameters<AssinaturaStorage["obterConfissaoPorChave"]>): ReturnType<AssinaturaStorage["obterConfissaoPorChave"]>;
+  confissaoVivaDoCliente(...args: Parameters<AssinaturaStorage["confissaoVivaDoCliente"]>): ReturnType<AssinaturaStorage["confissaoVivaDoCliente"]>;
+  confissaoAssinadaVivaDoCliente(...args: Parameters<AssinaturaStorage["confissaoAssinadaVivaDoCliente"]>): ReturnType<AssinaturaStorage["confissaoAssinadaVivaDoCliente"]>;
+  confissaoEnviadaDaNegociacao(...args: Parameters<AssinaturaStorage["confissaoEnviadaDaNegociacao"]>): ReturnType<AssinaturaStorage["confissaoEnviadaDaNegociacao"]>;
+  listarConfissoesDoCliente(...args: Parameters<AssinaturaStorage["listarConfissoesDoCliente"]>): ReturnType<AssinaturaStorage["listarConfissoesDoCliente"]>;
+  confissoesAssinadasVivasPorCliente(...args: Parameters<AssinaturaStorage["confissoesAssinadasVivasPorCliente"]>): ReturnType<AssinaturaStorage["confissoesAssinadasVivasPorCliente"]>;
+  atualizarConfissao(...args: Parameters<AssinaturaStorage["atualizarConfissao"]>): ReturnType<AssinaturaStorage["atualizarConfissao"]>;
+  transicionarConfissao(...args: Parameters<AssinaturaStorage["transicionarConfissao"]>): ReturnType<AssinaturaStorage["transicionarConfissao"]>;
+  marcarSubstituidas(...args: Parameters<AssinaturaStorage["marcarSubstituidas"]>): ReturnType<AssinaturaStorage["marcarSubstituidas"]>;
+  guardarPdf(...args: Parameters<AssinaturaStorage["guardarPdf"]>): ReturnType<AssinaturaStorage["guardarPdf"]>;
+  obterPdf(...args: Parameters<AssinaturaStorage["obterPdf"]>): ReturnType<AssinaturaStorage["obterPdf"]>;
+  apagarPdfs(...args: Parameters<AssinaturaStorage["apagarPdfs"]>): ReturnType<AssinaturaStorage["apagarPdfs"]>;
+  confissoesParaReconciliar(...args: Parameters<AssinaturaStorage["confissoesParaReconciliar"]>): ReturnType<AssinaturaStorage["confissoesParaReconciliar"]>;
+  confissoesParaExpirar(...args: Parameters<AssinaturaStorage["confissoesParaExpirar"]>): ReturnType<AssinaturaStorage["confissoesParaExpirar"]>;
+  confissoesParaRetencao(...args: Parameters<AssinaturaStorage["confissoesParaRetencao"]>): ReturnType<AssinaturaStorage["confissoesParaRetencao"]>;
+  anonimizarConfissao(...args: Parameters<AssinaturaStorage["anonimizarConfissao"]>): ReturnType<AssinaturaStorage["anonimizarConfissao"]>;
+  confissoesDoTitular(...args: Parameters<AssinaturaStorage["confissoesDoTitular"]>): ReturnType<AssinaturaStorage["confissoesDoTitular"]>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -703,6 +738,35 @@ class DatabaseStorage implements IStorage {
   historicosDePagamentosDoProvedor = (...args: Parameters<FaturasStorage["historicosDePagamentosDoProvedor"]>) => this._faturas.historicosDePagamentosDoProvedor(...args);
   historicoDePagamentosDoCliente = (...args: Parameters<FaturasStorage["historicoDePagamentosDoCliente"]>) => this._faturas.historicoDePagamentosDoCliente(...args);
   registrarQuitacaoConfirmada = (...args: Parameters<FaturasStorage["registrarQuitacaoConfirmada"]>) => this._faturas.registrarQuitacaoConfirmada(...args);
+
+  // ── Assinatura eletrônica / confissão de dívida (ZapSign) ──
+  private _assinatura = new AssinaturaStorage();
+  getIntegracaoParaAdmin = (...args: Parameters<AssinaturaStorage["getIntegracaoParaAdmin"]>) => this._assinatura.getIntegracaoParaAdmin(...args);
+  getIntegracaoComCredencial = (...args: Parameters<AssinaturaStorage["getIntegracaoComCredencial"]>) => this._assinatura.getIntegracaoComCredencial(...args);
+  salvarIntegracaoDeAssinatura = (...args: Parameters<AssinaturaStorage["salvarIntegracaoDeAssinatura"]>) => this._assinatura.salvarIntegracaoDeAssinatura(...args);
+  ativarIntegracaoDeAssinatura = (...args: Parameters<AssinaturaStorage["ativarIntegracaoDeAssinatura"]>) => this._assinatura.ativarIntegracaoDeAssinatura(...args);
+  marcarModeloRevisado = (...args: Parameters<AssinaturaStorage["marcarModeloRevisado"]>) => this._assinatura.marcarModeloRevisado(...args);
+  webhookSecretDoProvedor = (...args: Parameters<AssinaturaStorage["webhookSecretDoProvedor"]>) => this._assinatura.webhookSecretDoProvedor(...args);
+  criarConfissao = (...args: Parameters<AssinaturaStorage["criarConfissao"]>) => this._assinatura.criarConfissao(...args);
+  obterConfissao = (...args: Parameters<AssinaturaStorage["obterConfissao"]>) => this._assinatura.obterConfissao(...args);
+  obterConfissaoPorToken = (...args: Parameters<AssinaturaStorage["obterConfissaoPorToken"]>) => this._assinatura.obterConfissaoPorToken(...args);
+  obterConfissaoPorChave = (...args: Parameters<AssinaturaStorage["obterConfissaoPorChave"]>) => this._assinatura.obterConfissaoPorChave(...args);
+  confissaoVivaDoCliente = (...args: Parameters<AssinaturaStorage["confissaoVivaDoCliente"]>) => this._assinatura.confissaoVivaDoCliente(...args);
+  confissaoAssinadaVivaDoCliente = (...args: Parameters<AssinaturaStorage["confissaoAssinadaVivaDoCliente"]>) => this._assinatura.confissaoAssinadaVivaDoCliente(...args);
+  confissaoEnviadaDaNegociacao = (...args: Parameters<AssinaturaStorage["confissaoEnviadaDaNegociacao"]>) => this._assinatura.confissaoEnviadaDaNegociacao(...args);
+  listarConfissoesDoCliente = (...args: Parameters<AssinaturaStorage["listarConfissoesDoCliente"]>) => this._assinatura.listarConfissoesDoCliente(...args);
+  confissoesAssinadasVivasPorCliente = (...args: Parameters<AssinaturaStorage["confissoesAssinadasVivasPorCliente"]>) => this._assinatura.confissoesAssinadasVivasPorCliente(...args);
+  atualizarConfissao = (...args: Parameters<AssinaturaStorage["atualizarConfissao"]>) => this._assinatura.atualizarConfissao(...args);
+  transicionarConfissao = (...args: Parameters<AssinaturaStorage["transicionarConfissao"]>) => this._assinatura.transicionarConfissao(...args);
+  marcarSubstituidas = (...args: Parameters<AssinaturaStorage["marcarSubstituidas"]>) => this._assinatura.marcarSubstituidas(...args);
+  guardarPdf = (...args: Parameters<AssinaturaStorage["guardarPdf"]>) => this._assinatura.guardarPdf(...args);
+  obterPdf = (...args: Parameters<AssinaturaStorage["obterPdf"]>) => this._assinatura.obterPdf(...args);
+  apagarPdfs = (...args: Parameters<AssinaturaStorage["apagarPdfs"]>) => this._assinatura.apagarPdfs(...args);
+  confissoesParaReconciliar = (...args: Parameters<AssinaturaStorage["confissoesParaReconciliar"]>) => this._assinatura.confissoesParaReconciliar(...args);
+  confissoesParaExpirar = (...args: Parameters<AssinaturaStorage["confissoesParaExpirar"]>) => this._assinatura.confissoesParaExpirar(...args);
+  confissoesParaRetencao = (...args: Parameters<AssinaturaStorage["confissoesParaRetencao"]>) => this._assinatura.confissoesParaRetencao(...args);
+  anonimizarConfissao = (...args: Parameters<AssinaturaStorage["anonimizarConfissao"]>) => this._assinatura.anonimizarConfissao(...args);
+  confissoesDoTitular = (...args: Parameters<AssinaturaStorage["confissoesDoTitular"]>) => this._assinatura.confissoesDoTitular(...args);
 }
 
 export const storage = new DatabaseStorage();
