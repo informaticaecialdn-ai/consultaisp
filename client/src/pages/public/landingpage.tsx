@@ -85,7 +85,7 @@ const PERGUNTAS: { q: string; a: string }[] = [
   },
   {
     q: "Consultas na minha própria base são cobradas?",
-    a: "Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado.",
+    a: "Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. O crédito é consumido só quando a consulta encontra registro em outro provedor da rede: 1 crédito por consulta positiva, tanto faz se um ou cinco provedores tiverem registro daquele CPF.",
   },
   {
     q: "Como funciona a análise por endereço?",
@@ -864,7 +864,7 @@ export default function LandingPage() {
             <div className="price-table">
               <div className="price-table-title">Custo por consulta</div>
               <div className="price-table-row"><span className="k">Consulta na própria base</span><span className="v free">GRÁTIS</span></div>
-              <div className="price-table-row"><span className="k">Consulta ISP (rede colaborativa)</span><span className="v">{emCreditos(CUSTO_EM_CREDITOS.isp)} por provedor com registro</span></div>
+              <div className="price-table-row"><span className="k">Consulta ISP (rede colaborativa)</span><span className="v">{emCreditos(CUSTO_EM_CREDITOS.isp)} por consulta positiva</span></div>
               <div className="price-table-row"><span className="k">Consulta cadastral (dados do CPF/CNPJ)</span><span className="v">{emCreditos(CUSTO_EM_CREDITOS.cadastral)}</span></div>
               <div className="price-table-row"><span className="k">Consulta SPC Brasil</span><span className="v">{emCreditos(CUSTO_EM_CREDITOS.spc)}</span></div>
               <p className="price-table-foot">Crédito só é debitado quando a consulta encontra registro em outro provedor. Consulta que volta limpa não custa nada.</p>

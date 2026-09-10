@@ -551,6 +551,16 @@ esta em `server/sem-importacao-manual.test.ts`, que le o FONTE de `server/` e
 GET/POST isp-consultations   // NAO existe rota de lote — nunca foi construida
 GET/POST spc-consultations
 
+**Uma consulta positiva custa UM crédito** (decisão do dono, 10/09/2026). Até
+essa data `creditsCost` era `externalProviders.size` — um crédito por provedor
+da rede com registro —, então o mesmo CPF saía por 1, 3 ou 5 créditos e o
+provedor não tinha como prever a conta antes de consultar; a vitrine, enquanto
+isso, sempre anunciou 1 (`CUSTO_EM_CREDITOS.isp`). O que não mudou: consulta
+que volta limpa não custa nada, e registro na própria base do provedor nunca
+conta — o crédito paga o acesso ao dado da REDE. Linha antiga não é reescrita:
+o custo cobrado fica na coluna `cost` da consulta, e é dela que a auditoria do
+suporte lê (`custoDaConsulta` em `admin.routes.ts`).
+
 ### Anti-Fraude (requireAuth)
 GET anti-fraud/alerts, PATCH alerts/:id/status, GET customer-risk, GET migradores, GET/PUT anti-fraud/rules (regras + canais do provedor; PUT só admin)
 

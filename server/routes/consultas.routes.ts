@@ -584,9 +584,26 @@ export function registerConsultasRoutes(): Router {
           }
         }
 
-        // Credit cost: 1 per external provider found
+        /**
+         * UMA consulta positiva, UM credito. Decisao do dono em 10/09/2026.
+         *
+         * Ate aqui o custo era `externalProviders.size` — um credito por
+         * provedor da rede com registro. O mesmo CPF saia por 1, 3 ou 5
+         * creditos, e o provedor nao tinha como prever a conta ANTES de
+         * consultar: quantos parceiros tem registro e exatamente o que ele nao
+         * sabe. Pior, a vitrine (`CUSTO_EM_CREDITOS.isp`) sempre disse 1, e era
+         * o unico numero que o cliente lia antes de comprar.
+         *
+         * O que nao mudou: consulta que volta limpa nao custa nada, e registro
+         * na propria base do provedor nunca conta. O credito paga o acesso ao
+         * dado da REDE — por isso o gatilho segue sendo "existe provedor
+         * externo com registro", e nao "quantos".
+         *
+         * Linha antiga nao e reescrita: o custo cobrado fica gravado na coluna
+         * `cost` de cada consulta, e e dela que a auditoria do suporte le.
+         */
         const externalProviders = new Set(allCustomers.filter(c => !c.isSameProvider).map(c => c.providerId));
-        const creditsCost = externalProviders.size;
+        const creditsCost = externalProviders.size > 0 ? CUSTO_EM_CREDITOS.isp : 0;
 
         // Alerta de risco por endereco — cruza endereco completo com inadimplentes da rede
         let addressRiskAlerts: { cpfMasked: string; nomeMascarado: string; overdueRange: string; maxDaysOverdue: number; status: string; matchType: string }[] = [];

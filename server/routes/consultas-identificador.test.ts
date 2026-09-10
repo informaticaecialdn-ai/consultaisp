@@ -350,6 +350,55 @@ describe("POST /api/isp-consultations — identificador", () => {
   });
 });
 
+/**
+ * O PRECO DA CONSULTA ISP.
+ *
+ * Mora neste arquivo porque e aqui que a rota vive montada, com ERP, score e
+ * storage dublados; um arquivo novo so para isto copiaria as 180 linhas de
+ * mock e passaria a envelhecer sozinho.
+ *
+ * A regra e do dono (10/09/2026): uma consulta positiva custa UM credito, e
+ * nao um por provedor com registro. Ate entao o mesmo CPF podia sair por 1, 3
+ * ou 5 creditos — o provedor nao tem como saber quantos parceiros tem registro
+ * antes de consultar, e a vitrine sempre anunciou 1.
+ */
+describe("POST /api/isp-consultations — custo em creditos", () => {
+  const OUTRO_PARCEIRO = 77;
+
+  it("dois provedores da rede com registro custam UM credito, nao dois", async () => {
+    storageMock.getAllEnabledErpIntegrationsWithCredentials.mockResolvedValue([
+      integracao(PROVEDOR), integracao(PARCEIRO), integracao(OUTRO_PARCEIRO),
+    ]);
+    erpMock.queryRegionalErps.mockResolvedValue([
+      erpResult(PROVEDOR), erpResult(PARCEIRO), erpResult(OUTRO_PARCEIRO),
+    ]);
+
+    const { status, body } = await consultarIsp();
+
+    expect(status).toBe(200);
+    expect(body.result.providersFound).toBe(3);          // achou nos tres
+    expect(body.result.creditsCost).toBe(1);             // e cobrou um
+    expect(storageMock.debitAndCreateIspConsultation).toHaveBeenCalledTimes(1);
+    const [, creditos] = storageMock.debitAndCreateIspConsultation.mock.calls[0];
+    expect(creditos).toBe(1);
+  });
+
+  /**
+   * O credito paga o acesso ao dado da REDE. Registro so na base de quem
+   * consultou e o proprio cliente dele — sempre foi gratis, e continua.
+   */
+  it("registro so na propria base nao custa credito nenhum", async () => {
+    erpMock.queryRegionalErps.mockResolvedValue([erpResult(PROVEDOR)]);
+
+    const { status, body } = await consultarIsp();
+
+    expect(status).toBe(200);
+    expect(body.result.creditsCost).toBe(0);
+    expect(storageMock.debitAndCreateIspConsultation).not.toHaveBeenCalled();
+    expect(storageMock.createIspConsultation).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("POST /api/spc-consultations — identificador", () => {
   const resultadoSpc = {
     protocolo: "14723249770-10",
