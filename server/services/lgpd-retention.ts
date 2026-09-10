@@ -10,6 +10,7 @@ import { db } from "../db";
 import { ispConsultations, spcConsultations } from "@shared/schema";
 import { sql, lt } from "drizzle-orm";
 import { logger } from "../logger";
+import { apagarConfissoesSemTitulo } from "./lgpd-confissoes";
 
 const RETENTION_YEARS = 5;
 const RETENTION_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -59,6 +60,7 @@ export function startRetentionScheduler() {
       if (count > 0) {
         logger.info({ count }, "[LGPD-RETENTION] Anonymized old consultations");
       }
+      await apagarConfissoesSemTitulo();
     } catch (err) {
       logger.error({ err }, "[LGPD-RETENTION] Error during anonymization");
     }
@@ -71,6 +73,7 @@ export function startRetentionScheduler() {
       if (count > 0) {
         logger.info({ count }, "[LGPD-RETENTION] Anonymized old consultations");
       }
+      await apagarConfissoesSemTitulo();
     } catch (err) {
       logger.error({ err }, "[LGPD-RETENTION] Error during anonymization");
     }

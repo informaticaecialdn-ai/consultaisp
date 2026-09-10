@@ -15,6 +15,7 @@ import { titularRequests, ispConsultations, spcConsultations } from "@shared/sch
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { logger } from "../logger";
 import { sendCompletionEmail, sendSlaAlertEmail } from "./lgpd-email.service";
+import { confissoesDoTitularParaRelatorio, BASE_LEGAL_DA_PRESERVACAO } from "./lgpd-confissoes";
 
 const PROCESS_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const AUTO_PROCESSABLE_TYPES = ["acesso", "exclusao", "portabilidade"];
@@ -68,6 +69,7 @@ async function processAcesso(cpf: string): Promise<Record<string, any>> {
       score: r.score,
       date: r.createdAt?.toISOString(),
     })),
+    confissoesDeDivida: (await confissoesDoTitularParaRelatorio(cpf)).confissoes,
   };
 }
 
@@ -99,6 +101,8 @@ async function processExclusao(cpf: string, protocolo: string): Promise<Record<s
     ispRecordsAnonymized: ispResult.length,
     spcRecordsAnonymized: spcResult.length,
     processedAt: new Date().toISOString(),
+    confissoesPreservadas: (await confissoesDoTitularParaRelatorio(cpf)).preservadas,
+    baseLegalDasConfissoes: BASE_LEGAL_DA_PRESERVACAO,
   };
 }
 
@@ -132,6 +136,7 @@ async function processPortabilidade(cpf: string): Promise<Record<string, any>> {
       score: r.score,
       createdAt: r.createdAt?.toISOString(),
     })),
+    confissoesDeDivida: (await confissoesDoTitularParaRelatorio(cpf)).confissoes,
   };
 }
 
