@@ -197,14 +197,15 @@ valor**:
 
 ### Bloqueios (a emissão não segue com nenhum destes)
 
-Cadastro e configuração: sem integração ativa; provedor assina mas falta o
-representante; cliente sem CPF/CNPJ; cliente sem e-mail **e** sem telefone;
-devedor PJ sem representante informado; sem caso de cobrança aberto ("abra o
-caso antes").
+Cadastro e configuração: cliente não encontrado nesta carteira; sem
+integração ativa; provedor assina mas falta o representante; cliente sem
+CPF/CNPJ; cliente sem e-mail **e** sem telefone; devedor PJ sem representante
+informado; sem caso de cobrança aberto ("abra o caso antes").
 
 Leitura do ERP: ERP não respondeu (sem leitura ao vivo); soma das faturas
 vencidas diferente do saldo que o ERP informa; nada a formalizar (acordo sem
-parcela aberta, ou sem fatura vencida no saldo integral); todas as faturas
+parcela aberta, ou sem fatura vencida no saldo integral); no acordo, saldo no
+ERP menor que o do acordo ("confira antes de formalizar"); todas as faturas
 foram desmarcadas.
 
 Prescrição: dívida prescrita pela régua de cobrança bloqueia sempre, citando
@@ -228,9 +229,11 @@ Sob uma trava por cliente, o servidor grava o **rascunho** com a foto completa
 (base canônica, hash, Anexo I, PDF original) e só então, fora da transação,
 fala com o ZapSign: cria o documento (por PDF ou por `template_id`), registra
 o webhook **daquele documento** com o cabeçalho secreto, e só marca `enviada`
-depois de tudo dar certo. Falha em qualquer chamada mantém `rascunho` com
-`erroUltimo`; documento criado sem webhook registrado é apagado no ZapSign
-para não ficar órfão.
+depois de tudo dar certo. A falha em qualquer chamada ao ZapSign **encerra o
+rascunho como `cancelada`**, grava o motivo em `erro_ultimo` e **libera a
+chave de idempotência** — a próxima tentativa não precisa cancelar nada, e um
+documento criado sem webhook registrado é apagado no ZapSign para não ficar
+órfão.
 
 ### O que o sandbox não faz
 

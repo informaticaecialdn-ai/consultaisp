@@ -7,8 +7,9 @@
  * completa e o PDF original; e só então, fora de qualquer transação, fala com
  * o ZapSign — criar documento, registrar o webhook DAQUELE documento com o
  * cabeçalho secreto. Sucesso = `enviada` + evento + follow-up. Falha em
- * qualquer chamada = rascunho com `erro_ultimo`; documento criado sem webhook
- * é apagado para não ficar órfão.
+ * qualquer chamada encerra o rascunho como `cancelada`, grava `erro_ultimo` e
+ * libera a chave de idempotência; documento criado sem webhook é apagado para
+ * não ficar órfão.
  */
 import { storage } from "../../storage";
 import { logger } from "../../logger";

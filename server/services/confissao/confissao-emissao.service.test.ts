@@ -161,7 +161,7 @@ describe("emitir a confissão", () => {
     await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "BLOQUEADA" });
     expect(storageMock.criarConfissao).not.toHaveBeenCalled();
   });
-  it("falha ao registrar o webhook apaga o documento órfão, mantém o rascunho com erro_ultimo e propaga o erro", async () => {
+  it("falha ao registrar o webhook apaga o documento órfão, encerra o rascunho e libera a chave", async () => {
     zapsign.registrarWebhookDoDocumento.mockRejectedValueOnce(new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", "O ZapSign não respondeu (HTTP 503)", 502));
     await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "ZAPSIGN_INDISPONIVEL" });
     expect(zapsign.excluirDocumento).toHaveBeenCalledWith("doc-1");
