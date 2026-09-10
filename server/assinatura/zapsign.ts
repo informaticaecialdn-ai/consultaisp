@@ -161,7 +161,7 @@ export function clienteZapSign(config: { apiToken: string; ambiente: AmbienteDeA
     },
     excluirWebhook: id => chamar("DELETE", "/user/company/webhook/delete/", { id }),
     reenviarNotificacoes: async docToken => {
-      const r = await chamar("POST", `/docs/${encodeURIComponent(docToken)}/resend-notifications-bulk/`, {}, z.object({ sent_count: z.number().default(0), failed_count: z.number().default(0) }));
+      const r = await chamar("POST", `/docs/${encodeURIComponent(docToken)}/resend-notifications-bulk/`, undefined, z.object({ sent_count: z.number().default(0), failed_count: z.number().default(0) }));
       return { enviados: r.sent_count, falhas: r.failed_count };
     },
     testarToken: async () => { await chamar("GET", "/docs/?page=1", undefined, z.unknown()); },

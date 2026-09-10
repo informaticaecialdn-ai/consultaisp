@@ -85,6 +85,7 @@ describe("conector do ZapSign", () => {
     ]);
     expect(corpoDe(chamadas[2])).toEqual({ url: "https://consultaisp.com.br/api/webhooks/zapsign/1", type: "", doc_token: "doc-1", headers: [{ name: "X-Consulta-ISP-Assinatura", value: "segredo" }] });
     expect(corpoDe(chamadas[3])).toEqual({ id: "4242" });
+    expect(chamadas[4].init.body).toBeUndefined();
   });
   it.each([
     [401, "ZAPSIGN_CREDENCIAL", 422], [403, "ZAPSIGN_CREDENCIAL", 422], [402, "ZAPSIGN_CREDITOS", 422],
