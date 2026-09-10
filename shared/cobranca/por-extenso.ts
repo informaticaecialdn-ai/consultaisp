@@ -50,6 +50,8 @@ export function numeroPorExtenso(n: number): string {
 }
 
 export function valorPorExtenso(valor: number): string {
+  if (!Number.isFinite(valor)) throw new Error("valorPorExtenso: valor não numérico");
+  // A magnitude por extenso: o sinal é do contexto, nunca do texto.
   const centavosTotais = Math.round(Math.abs(valor) * 100);
   const reais = Math.floor(centavosTotais / 100);
   const centavos = centavosTotais % 100;

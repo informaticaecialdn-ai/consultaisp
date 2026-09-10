@@ -23,5 +23,7 @@ describe("por extenso", () => {
   it("recusa o que não é inteiro não negativo", () => {
     expect(() => numeroPorExtenso(-1)).toThrow();
     expect(() => numeroPorExtenso(1.5)).toThrow();
+    expect(() => valorPorExtenso(Number.NaN)).toThrow();
+    expect(() => valorPorExtenso(Number.POSITIVE_INFINITY)).toThrow();
   });
 });
