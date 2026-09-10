@@ -928,7 +928,7 @@ describe("POST /api/admin/providers/:id/plan", () => {
     expect(dados.para).toBe("Profissional");
   });
 
-  it("leva as notas do superadmin como observacao e os creditos do plano novo", async () => {
+  it("leva as notas do superadmin como observacao", async () => {
     storageMock.getProvider.mockResolvedValue(provedorBase({ plan: "free" }));
     storageMock.updateProviderPlan.mockResolvedValue(provedorBase({ plan: "pro" }));
 
@@ -936,7 +936,36 @@ describe("POST /api/admin/providers/:id/plan", () => {
 
     const dados = emailMock.sendPlanoAlteradoEmail.mock.calls[0][2] as unknown as any;
     expect(dados.observacao).toBe("Negociado com desconto de 3 meses.");
-    expect(dados.creditosDoPlano).toBe(30);
+  });
+
+  /**
+   * O Profissional nao inclui credito desde 10/09/2026 (decisao do dono), entao
+   * o e-mail nao pode anunciar franquia mensal nenhuma — `sendPlanoAlteradoEmail`
+   * so escreve a linha quando o numero e maior que zero.
+   */
+  it("nao anuncia credito mensal ao subir para o Profissional", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ plan: "free" }));
+    storageMock.updateProviderPlan.mockResolvedValue(provedorBase({ plan: "pro" }));
+
+    await trocarPlano(42, { plan: "pro" });
+
+    const dados = emailMock.sendPlanoAlteradoEmail.mock.calls[0][2] as unknown as any;
+    expect(dados.creditosDoPlano).toBe(0);
+  });
+
+  /**
+   * E na descida para o Gratuito muito menos: os 50 dele sao de boas-vindas,
+   * concedidos UMA VEZ no cadastro. Anunciados como mensais viravam promessa
+   * que nenhuma fatura cumpre — plano de preco zero nem fatura gera.
+   */
+  it("nao trata os creditos de boas-vindas do Gratuito como franquia mensal", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ plan: "pro" }));
+    storageMock.updateProviderPlan.mockResolvedValue(provedorBase({ plan: "free" }));
+
+    await trocarPlano(42, { plan: "free" });
+
+    const dados = emailMock.sendPlanoAlteradoEmail.mock.calls[0][2] as unknown as any;
+    expect(dados.creditosDoPlano).toBe(0);
   });
 
   it("confirmar o mesmo plano grava o registro mas nao manda e-mail", async () => {

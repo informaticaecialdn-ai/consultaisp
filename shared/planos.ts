@@ -104,22 +104,23 @@ export const PLAN_PRICES: Record<string, number> = {
  * Creditos inclusos no plano, por mes.
  *
  * O `free` sao os creditos de boas-vindas, concedidos uma vez no cadastro
- * (o default da coluna `providers.isp_credits` faz isso).
+ * (o default da coluna `providers.isp_credits` faz isso). E o UNICO plano com
+ * credito incluso: sao para conhecer a rede, nao uma franquia mensal.
  *
- * O `pro` sao 30 por mes, e sao CONCEDIDOS DE VERDADE quando a fatura do mes e
- * paga — ver `creditarPlanoDaFatura`. Decisao do dono em 03/09/2026, junto com
- * a reducao para dois planos. A conta que sustenta o numero: o credito e
- * vendido avulso a R$ 1,00 e custa ate R$ 0,72 na origem, entao 30 creditos
- * consomem no maximo R$ 21,60 de um plano de R$ 99. Cem creditos, por
- * exemplo, entregariam R$ 100 de consulta num plano de R$ 99 e o avulso
- * deixaria de fazer sentido.
+ * O `pro` NAO inclui credito — decisao do dono em 10/09/2026: *"o plano nao
+ * tem creditos, creditos somente no plano gratis pra teste"*. O Profissional e
+ * ACESSO a plataforma; consulta na rede se paga por credito avulso, e consulta
+ * na propria base do provedor nunca custou nada. Entre 03/09 e 10/09/2026 ele
+ * incluiu 30 por mes (concedidos na quitacao da fatura); voltou a zero.
  *
- * Ate esta versao NADA era creditado automaticamente: o numero aqui era so o
- * que a fatura ESCREVIA, e quem somava ao saldo era o superadmin, na mao.
+ * **A mudanca so vale para fatura NOVA.** `creditarPlanoDaFatura` le a
+ * quantidade da FATURA (`ispCreditsIncluded`), que e a foto do que foi vendido
+ * naquele mes — quem tem fatura de setembro com 30 escritos recebe os 30 ao
+ * pagar. Esta tabela decide o que a PROXIMA fatura vai escrever.
  */
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },
-  pro: { isp: 30, spc: 0 },
+  pro: { isp: 0, spc: 0 },
 };
 
 /**

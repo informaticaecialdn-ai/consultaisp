@@ -176,12 +176,16 @@ export default function LandingPage() {
   const creditosFree = planoFree
     ? `${planoFree.creditosInclusos.isp} créditos para testar a rede`
     : "Créditos de boas-vindas para testar a rede";
-  const creditosPro = planoPro
-    ? `${planoPro.creditosInclusos.isp} créditos por mês, renovados a cada fatura paga`
-    : "Créditos inclusos por mês, renovados a cada fatura paga";
-  const notaPro = planoPro
+
+  /**
+   * O Profissional nao inclui credito — e ACESSO (decisao do dono em
+   * 10/09/2026). Ainda assim a frase segue o NUMERO do servidor em vez de
+   * afirmar "sem franquia" por conta propria: se a tabela voltar a incluir
+   * credito, o card conta a verdade sem ninguem lembrar de vir aqui.
+   */
+  const notaPro = planoPro && planoPro.creditosInclusos.isp > 0
     ? `${planoPro.creditosInclusos.isp} créditos por mês inclusos. Consultas além disso, por crédito.`
-    : "Créditos inclusos por mês. Consultas além disso, por crédito.";
+    : "Acesso à plataforma inteira. Consulta na rede é paga por crédito, sem franquia mensal.";
 
   return (
     <>
@@ -604,18 +608,26 @@ export default function LandingPage() {
                 <ul className="pillar-list">
                   <li>
                     <span className="n">01</span>
-                    <div><div className="t">Anti-fraude</div><div className="d">Alerta no instante em que seu devedor é consultado por outro provedor.</div></div>
+                    <div><div className="t">Cobrança</div><div className="d">Carteiras de ativos e ex-clientes separadas, régua por dias de atraso e um quadro com o caso de cada devedor.</div></div>
                   </li>
                   <li>
                     <span className="n">02</span>
-                    <div><div className="t">Controle de equipamentos</div><div className="d">ONUs por modelo, serial e status de comodato.</div></div>
+                    <div><div className="t">Acordo dentro da política</div><div className="d">Desconto, entrada e parcelas por faixa de atraso — o sistema não deixa passar do teto que você definiu.</div></div>
                   </li>
                   <li>
                     <span className="n">03</span>
-                    <div><div className="t">SPC integrada</div><div className="d">Score, restrições e negativação sem contrato à parte.</div></div>
+                    <div><div className="t">Anti-fraude</div><div className="d">Alerta no instante em que seu devedor é consultado por outro provedor.</div></div>
                   </li>
                   <li>
                     <span className="n">04</span>
+                    <div><div className="t">Recuperação de equipamentos</div><div className="d">ONU em comodato por modelo, serial e status, em fila por idade do caso, com o prazo correndo.</div></div>
+                  </li>
+                  <li>
+                    <span className="n">05</span>
+                    <div><div className="t">SPC integrada</div><div className="d">Score, restrições e negativação sem contrato à parte.</div></div>
+                  </li>
+                  <li>
+                    <span className="n">06</span>
                     <div><div className="t">Mapa de inadimplência</div><div className="d">Onde a sua base perde dinheiro, por bairro.</div></div>
                   </li>
                 </ul>
@@ -824,7 +836,7 @@ export default function LandingPage() {
                 <ul className="price-list">
                   <li>{creditosFree}</li>
                   <li>Consultas ilimitadas na sua base</li>
-                  <li>Anti-fraude básico</li>
+                  <li>Anti-fraude ligado desde o primeiro dia</li>
                   <li>Integração com o seu ERP</li>
                 </ul>
                 <a href={CADASTRO} className="btn btn-secondary" style={{ width: "100%" }} onClick={irPara(CADASTRO)}>Criar conta grátis</a>
@@ -837,12 +849,13 @@ export default function LandingPage() {
                 </div>
                 <div className="price-note">{notaPro}</div>
                 <ul className="price-list">
-                  <li>{creditosPro}</li>
-                  <li>Integração com o seu ERP</li>
+                  <li>Cobrança: carteiras de ativos e ex-clientes, régua por atraso e quadro de casos</li>
+                  <li>Acordo dentro da política do provedor: desconto, entrada e parcelas com teto</li>
+                  <li>Recuperação de equipamentos em comodato, com prazo e responsável</li>
                   <li>Anti-fraude por e-mail e webhook</li>
-                  <li>Consulta cadastral</li>
-                  <li>Consulta SPC Brasil</li>
-                  <li>Cruzamento por endereço</li>
+                  <li>Consulta cadastral, SPC Brasil e cruzamento por endereço</li>
+                  <li>Mapa de inadimplência por bairro</li>
+                  <li>Integração com o seu ERP</li>
                 </ul>
                 <a href={CADASTRO} className="btn btn-primary" style={{ width: "100%" }} onClick={irPara(CADASTRO)}>Começar agora <span className="arrow">→</span></a>
               </article>

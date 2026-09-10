@@ -818,8 +818,17 @@ pilares → bloco escuro da rede (topologia, anonimato, LGPD) → antes e depois
 - Preço e créditos inclusos: `GET /api/public/precos` (`usePrecosPublicos`).
   Sem resposta, o card diz "Preço indisponível no momento" — nunca R$ 0.
 - Custo por consulta: `CUSTO_EM_CREDITOS` (`isp` 1, `cadastral` 1, `spc` 3).
-- Vitrine: só **Gratuito** (R$ 0, 50 créditos de boas-vindas) e **Profissional**
-  (R$ 99/mês, 30 créditos por mês creditados quando a fatura é paga).
+- Vitrine: só **Gratuito** (R$ 0, 50 créditos de boas-vindas, concedidos uma vez
+  no cadastro) e **Profissional** (R$ 99/mês, **sem crédito incluso**).
+  Decisão do dono em 10/09/2026: *"o plano não tem créditos, créditos somente no
+  plano grátis pra teste"* — o Profissional é ACESSO, e consulta na rede se paga
+  por crédito avulso. Entre 03/09 e 10/09 ele incluiu 30 por mês; `PLAN_CREDITS`
+  voltou a zero e a mudança só vale para fatura nova (`creditarPlanoDaFatura` lê
+  a quantidade da FATURA, não da tabela).
+- O card do Profissional lista os módulos — cobrança, acordo dentro da política,
+  recuperação de equipamentos, anti-fraude, cadastral/SPC/endereço e mapa. Note
+  que **nenhum módulo é travado por plano** no código: o card descreve o que a
+  plataforma faz, e não uma trava que não existe.
 
 ### CTA
 Tudo que converte vai para `/login?mode=register`; "Login" e "Fazer login" para

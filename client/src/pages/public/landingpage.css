@@ -68,7 +68,7 @@
   }
   .lp a { color: inherit; text-decoration: none; }
   .lp button { font-family: inherit; cursor: pointer; }
-  .lp section { scroll-margin-top: 68px; }
+  .lp section { scroll-margin-top: 76px; }
 
   @keyframes ci-pulso { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
 
@@ -113,9 +113,15 @@
 .lp .logo.on-dark .logo-mark .ext { color: var(--dark-mute); }
   .lp .logo.on-dark .logo-tag { color: var(--dark-mute); }
 
-  .lp .logo-nav .logo-mark { font-size: 16px; }
-  .lp .logo-nav .logo-tag { font-size: 7px; letter-spacing: 0.20em; }
-  .lp .logo-nav .logo-tag::before { width: 9px; }
+  /*
+   * Nav: 16px/7px no standalone. Ao lado de links de 13.5px numa barra de 68px
+   * a marca sumia — pedido do dono em 10/09/2026 ("a logo esta muito pequena").
+   * 22px/9px poe o bloco na mesma medida do rodape, e a barra sobe para 76px
+   * para o lockup nao encostar nas bordas (`scroll-margin-top` acompanha).
+   */
+  .lp .logo-nav .logo-mark { font-size: 22px; }
+  .lp .logo-nav .logo-tag { font-size: 9px; letter-spacing: 0.18em; }
+  .lp .logo-nav .logo-tag::before { width: 12px; }
 
   .lp .logo-hero .logo-mark { font-size: 20px; letter-spacing: -0.04em; }
   .lp .logo-hero .logo-tag { font-size: 8px; letter-spacing: 0.22em; }
@@ -323,7 +329,7 @@
     z-index: 50;
     background: var(--surface);
     border-bottom: 1px solid var(--line);
-    min-height: 68px;
+    min-height: 76px;
     display: flex;
     align-items: center;
   }
