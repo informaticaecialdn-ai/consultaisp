@@ -17,5 +17,6 @@ describe("SeloConfissao", () => {
   it("está no card do kanban e na linha da carteira", () => {
     expect(card).toContain('import { SeloConfissao } from "./SeloConfissao";');
     expect((card.match(/<SeloConfissao confissao=\{item\.confissao\}/g) ?? []).length).toBe(2);
+    expect(card).toContain('<span className="min-w-0 flex-1 truncate">{item.nome}</span>');
   });
 });

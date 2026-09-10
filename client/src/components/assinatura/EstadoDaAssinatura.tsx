@@ -16,7 +16,7 @@ export function EstadoDaAssinatura({ podeAdministrar }: { podeAdministrar: boole
   const { toast } = useToast();
   const qc = useQueryClient();
   const chave = ["/api/cobranca/confissoes/estado"];
-  const { data, isLoading } = useQuery<Estado>({ queryKey: chave, queryFn: async () => (await apiRequest("GET", "/api/cobranca/confissoes/estado")).json() });
+  const { data, isLoading, isError } = useQuery<Estado>({ queryKey: chave, queryFn: async () => (await apiRequest("GET", "/api/cobranca/confissoes/estado")).json() });
   const revisar = useMutation({
     mutationFn: async () => (await apiRequest("PUT", "/api/cobranca/confissoes/modelo/revisado")).json() as Promise<Estado>,
     onSuccess: novo => { qc.setQueryData(chave, novo); toast({ title: "Modelo marcado como revisado", description: "As próximas confissões saem sem o aviso de parecer jurídico" }); },
@@ -36,7 +36,8 @@ export function EstadoDaAssinatura({ podeAdministrar }: { podeAdministrar: boole
           <p className="text-[12px] text-[var(--text-muted)]">Conta ZapSign do provedor, cadastrada pelo superadmin. Os custos por documento são da sua conta ZapSign.</p>
         </div>
       </div>
-      {isLoading || !data ? <p className="text-[12px] text-[var(--text-muted)]">Lendo…</p> : (
+      {isError ? <p className="text-[12px] text-[var(--danger)]" data-testid="assinatura-erro">Não foi possível ler o estado da assinatura eletrônica.</p>
+        : isLoading || !data ? <p className="text-[12px] text-[var(--text-muted)]">Lendo…</p> : (
         <div>
           {linha("estado", data.ativa ? "ativa" : data.configurada ? "salva, não ativada" : "não configurada — peça ao superadmin")}
           {linha("ambiente", data.ambiente === "producao" ? "produção" : data.ambiente === "sandbox" ? "sandbox — sem validade jurídica, nada é enviado ao cliente" : "—")}

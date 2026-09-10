@@ -21,4 +21,8 @@ describe("EstadoDaAssinatura (Painel do Provedor)", () => {
     expect(painel).toContain('import { EstadoDaAssinatura } from "@/components/assinatura/EstadoDaAssinatura";');
     expect(painel).toContain("<EstadoDaAssinatura podeAdministrar={podeAdministrar} />");
   });
+  it("uma leitura que falha diz que falhou, em vez de ficar em 'Lendo…'", () => {
+    expect(fonte).toContain("isError");
+    expect(fonte).toContain('data-testid="assinatura-erro"');
+  });
 });

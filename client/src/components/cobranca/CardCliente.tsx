@@ -153,7 +153,10 @@ export function LinhaDoCliente({ item, etapas, hoje, onAbrir }: {
         <div className="flex items-center gap-2">
           <Avatar nome={item.nome} tamanho="sm" />
           <div className="min-w-0">
-            <p className="flex items-center gap-1.5 truncate text-[12.5px] font-medium text-[var(--text)]">{item.nome}<SeloConfissao confissao={item.confissao} compacto /></p>
+            <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-[var(--text)]">
+              <span className="min-w-0 flex-1 truncate">{item.nome}</span>
+              <span className="shrink-0"><SeloConfissao confissao={item.confissao} compacto /></span>
+            </p>
             <p className="truncate text-[11px] text-[var(--text-muted)]">{item.cidade ?? TRACO}{item.bairro ? ` · ${item.bairro}` : ""}</p>
           </div>
         </div>
