@@ -16,6 +16,7 @@ import { FOCO, Td } from "@/components/painel/ui";
 import { faixaDoScore, proximoContato } from "./formatacao";
 import type { ItemDaCarteira } from "./tipos";
 import { Avatar, BarraDeScore, PilulaAtraso, SeloCobranca, SeloErp, SeloQuadrante, SeloStatusCaso, Traco, type TomDeSelo } from "./ui";
+import { SeloConfissao } from "./SeloConfissao";
 
 /** Desde a 0036 a varredura grava o plano que o ERP informa; o traco e do cliente que o ERP nao informou. */
 export const MOTIVO_SEM_PLANO = "O ERP não informou o plano deste cliente";
@@ -97,6 +98,7 @@ export function CardCliente({ item, etapas, hoje, onAbrir }: {
         <SeloQuadrante quadrante={item.quadrante} />
         <SeloHistorico confiabilidade={item.confiabilidade} />
         {item.caso && <SeloStatusCaso status={item.caso.status} />}
+        <SeloConfissao confissao={item.confissao} compacto />
       </div>
 
       {/* grana: em aberto (vencidas) ou "em dia" + D+atraso */}
@@ -151,7 +153,7 @@ export function LinhaDoCliente({ item, etapas, hoje, onAbrir }: {
         <div className="flex items-center gap-2">
           <Avatar nome={item.nome} tamanho="sm" />
           <div className="min-w-0">
-            <p className="truncate text-[12.5px] font-medium text-[var(--text)]">{item.nome}</p>
+            <p className="flex items-center gap-1.5 truncate text-[12.5px] font-medium text-[var(--text)]">{item.nome}<SeloConfissao confissao={item.confissao} compacto /></p>
             <p className="truncate text-[11px] text-[var(--text-muted)]">{item.cidade ?? TRACO}{item.bairro ? ` · ${item.bairro}` : ""}</p>
           </div>
         </div>
