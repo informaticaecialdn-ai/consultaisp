@@ -149,7 +149,11 @@ describe("cancelar, reenviar, PDF, estado, modelo", () => {
     expect(r.headers.get("content-disposition")).toBe('attachment; filename="confissao-77-original.pdf"');
     expect(Buffer.from(await r.arrayBuffer()).toString()).toBe("%PDF-1.4");
     expect(storageMock.obterPdf).toHaveBeenCalledWith(42, 77, "original", { registrarDownload: true });
-    expect((await json("GET", "/api/cobranca/confissoes/77/pdf?tipo=assinado")).status).toBe(404);
+    storageMock.obterConfissao.mockResolvedValueOnce(confissao());
+    const semAssinado = await json("GET", "/api/cobranca/confissoes/77/pdf?tipo=assinado");
+    expect(semAssinado.status).toBe(404);
+    expect((await semAssinado.json()).message).toContain("PDF assinado ainda não chegou");
+    expect(storageMock.obterPdf).toHaveBeenLastCalledWith(42, 77, "assinado", { registrarDownload: true });
     expect((await json("GET", "/api/cobranca/confissoes/77/pdf?tipo=outro")).status).toBe(400);
   });
   it("estado e modelo revisado", async () => {
