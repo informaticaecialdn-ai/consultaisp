@@ -18,7 +18,9 @@ Hoje o 360 tem só o botão desligado ("GATED: sem assinatura eletrônica nem pa
 | De onde vem o texto | **Os dois.** Texto padrão nosso, gerado em PDF, com o aviso "modelo padrão, sem parecer jurídico" até um admin marcar como revisado; e o modelo do próprio ZapSign quando o provedor cadastrar o id dele. |
 | O que a confissão formaliza | **Os dois.** Com acordo aceito, espelha as parcelas do acordo; sem acordo, o saldo integral do ERP com a data que o operador definir. O operador nunca digita valor. |
 
-### 2.2 Que ficam para o dono confirmar na leitura desta spec **[rev]**
+### 2.2 Decisões abertas na revisão — adotadas como padrão em 09/09/2026 ("continuar" do dono) **[rev]**
+
+O dono mandou seguir sem alterar a spec. Valem as recomendações abaixo como padrão do sistema, cada uma ajustável por provedor pelo superadmin: (1) saldo integral = principal **mais** multa e juros até a leitura; (2) `provedor_assina = false`; (3) contato alterado exige `validate_cpf`, selfie desligada.
 
 1. **Saldo integral: o que se confessa.** Recomendado: principal **mais** multa e juros até a data da leitura, pela `politica.encargos` do provedor (é o "valor atualizado" que o 360 já mostra), discriminados no Anexo I. Alternativa: só o principal, com a frase "o credor renuncia aos encargos vencidos até esta data".
 2. **O provedor assina?** Recomendado: **não** por padrão (`provedor_assina = false`): o título exige a assinatura do devedor; a do credor é dispensável, custa um fluxo a mais e trava o status enquanto ninguém do provedor assina. Liga-se por provedor.
