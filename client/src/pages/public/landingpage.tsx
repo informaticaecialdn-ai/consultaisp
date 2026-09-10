@@ -1,618 +1,926 @@
-import { useState, useEffect } from "react";
+/**
+ * Landing page publica — desenho "/consulta.isp" (10/09/2026).
+ *
+ * O HTML de origem e o standalone que o dono aprovou; o que mudou aqui e o
+ * que um arquivo solto nao consegue fazer:
+ *
+ * 1. **CSS ESCOPADO.** O desenho declara `--bg`, `--surface`, `--ink` — nomes
+ *    que colidem com os tokens do sistema em `index.css`. Se entrassem por
+ *    `:root`, TODA tela do app viraria creme. Por isso a folha inteira vive
+ *    sob `.lp` (`landingpage.css`), e o app la dentro nao existe.
+ * 2. **PRECO VEM DO SERVIDOR.** O standalone traz "R$ 0" e "R$ 99" no texto.
+ *    Numero de vitrine que diverge do numero cobrado e a forma mais rapida de
+ *    perder um cliente — entao o valor e os creditos inclusos saem de
+ *    `GET /api/public/precos`, e o custo por consulta de `CUSTO_EM_CREDITOS`.
+ * 3. **CTA leva a algum lugar.** No standalone os botoes apontam para `#cta`;
+ *    aqui vao para `/login?mode=register` e `/login`, com href real (abrir em
+ *    nova aba funciona) e navegacao pelo wouter no clique.
+ * 4. O splash preto e o beacon do Cloudflare do arquivo original NAO vieram.
+ */
+import { useEffect, useState, type MouseEvent } from "react";
 import { useLocation } from "wouter";
-import { Button } from "@/components/ui/button";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import LandingChatbot from "@/components/landing-chatbot";
-import Marca, { SimboloConsultaISP } from "@/components/marca";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { usePrecosPublicos, planoPorChave, precoCurto, type PrecoDePlano } from "@/hooks/use-precos";
-import {
-  Shield, Search, Bell, Database, CheckCircle2,
-  ArrowRight, AlertTriangle, CreditCard, Lock,
-  Zap, Router, MapPin, Star, Menu
-} from "lucide-react";
+import "./landingpage.css";
 
-type ErpItem = { key: string; name: string; logoBase64: string | null };
+const CADASTRO = "/login?mode=register";
+const LOGIN = "/login";
+const WHATSAPP = "https://wa.me/5543991191100";
+
+/** Um giro do banner do hero. O original usava 7s e reiniciava a cada clique. */
+const GIRO_MS = 7000;
+
+type Slide = { pill: string; strong: string; light: string; lead: string };
+
+const SLIDES: Slide[] = [
+  {
+    pill: "O bureau de crédito dos provedores de internet",
+    strong: "Saiba quem não vai pagar",
+    light: "antes de instalar",
+    lead: "O Consulta ISP é a base colaborativa entre provedores de internet. Consulte o CPF, o CNPJ ou o endereço e receba, em tempo real via API, o histórico de inadimplência na rede, os equipamentos retidos e uma sugestão de decisão — antes de liberar a instalação.",
+  },
+  {
+    pill: "Cruzamento por endereço",
+    strong: "CPF novo,",
+    light: "mesma casa, mesmo calote",
+    lead: "O golpe mais comum do setor troca o titular e mantém o imóvel. O Consulta ISP cruza CEP e número em toda a rede: se houver outros devedores naquele endereço, o sistema avisa antes da instalação.",
+  },
+  {
+    pill: "Anti-fraude na migração",
+    strong: "Ele tentou migrar.",
+    light: "Você soube na hora.",
+    lead: "Quando o seu inadimplente é consultado por outro provedor da rede, o alerta chega por e-mail e webhook no mesmo instante. Dá tempo de agir antes que a ONU saia da sua mão.",
+  },
+  {
+    pill: "Consulta anônima por hash",
+    strong: "Consulta anônima,",
+    light: "resposta objetiva",
+    lead: "Cada consulta é criada com um hash aleatório próprio. O resultado diz que existe dívida, há quanto tempo e em que faixa de valor — nunca em qual provedor. E o seu nome também não aparece para ninguém.",
+  },
+  {
+    pill: "Inadimplência",
+    strong: "O problema começa",
+    light: "antes do primeiro atraso",
+    lead: "Quando a fatura atrasa, o prejuízo já aconteceu: a ONU saiu do estoque, o técnico foi pago e a Resolução 765 dá ao cliente 75 dias antes do corte. A decisão que muda o resultado é a da hora da venda.",
+  },
+  {
+    pill: "Novo módulo · Cobrança",
+    strong: "A cobrança inteira",
+    light: "em um quadro só",
+    lead: "Carteiras de ativos e ex-clientes separadas, régua por dias de atraso, quadro de casos e negociação com desconto, parcelas e entrada dentro da política do seu provedor. O contato sai pelo WhatsApp do próprio provedor e a baixa da fatura volta do ERP.",
+  },
+  {
+    pill: "Novo módulo · Recuperação de equipamentos",
+    strong: "A ONU que ficou lá",
+    light: "tem prazo, caso e responsável",
+    lead: "Todo equipamento em comodato com retirada pendente entra numa fila por idade, com o prazo regulatório contando. Agende a retirada, escolha o método, registre a devolução ou dê baixa econômica quando o resgate custa mais que o aparelho.",
+  },
+];
+
+const PERGUNTAS: { q: string; a: string }[] = [
+  {
+    q: "O que é a base de dados compartilhada?",
+    a: "É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica em todos os provedores da rede e retorna dados anonimizados: dias de atraso, faixa de valor, equipamentos pendentes. Nunca dados pessoais identificáveis.",
+  },
+  {
+    q: "Consultas na minha própria base são cobradas?",
+    a: "Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado.",
+  },
+  {
+    q: "Como funciona a análise por endereço?",
+    a: "Você informa o CEP e o número da residência. O sistema cruza em toda a rede de provedores e mostra o histórico de inadimplência associado àquele imóvel — independente do CPF do morador atual. Isso detecta casos onde o inadimplente usa o CPF de um parente mas mora no mesmo local.",
+  },
+  {
+    q: "Quanto tempo leva para configurar?",
+    a: "15 minutos para conectar um ERP (IXC, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP) via API. A consulta vai ao ERP ao vivo, então o dado da decisão é sempre o de agora. Em paralelo, uma varredura completa da sua base roda três vezes por semana e alimenta o mapa de inadimplência. Sem instalação, sem técnico.",
+  },
+  {
+    q: "Compartilhar dados de inadimplentes viola a LGPD?",
+    a: "Não. O sistema compartilha apenas indicadores anonimizados — dias de atraso, faixa de valor e se há equipamentos pendentes. Nunca nome, CPF, endereço ou dados pessoais identificáveis. O sistema foi construído em conformidade com a LGPD.",
+  },
+  {
+    q: "E a Resolução Anatel 765 — como ela afeta meu provedor?",
+    a: "A Resolução 765 obriga a notificar o cliente em D+15 e aguardar até D+60 antes de cancelar. São 75 dias que o inadimplente pode usar para contratar outro provedor sem pagar. Com o anti-fraude, você recebe alerta em tempo real quando ele tenta migrar — e pode agir antes que a ONU saia da sua mão.",
+  },
+  {
+    q: "Quais ERPs são suportados na integração automática?",
+    a: "IXC Soft, SGP, MK Solutions, Hubsoft, Voalle, RBX ISP e outros. Solicitações para novos ERPs são avaliadas semanalmente — basta abrir um chamado pelo painel.",
+  },
+];
+
+/** "1 crédito" / "3 créditos" — plural errado ja denunciou tabela desatualizada antes. */
+function emCreditos(n: number): string {
+  return `${n} crédito${n === 1 ? "" : "s"}`;
+}
 
 /**
- * O preco no card da vitrine.
+ * O preco no card da vitrine, com os tres estados que a leitura tem.
  *
- * Tres estados, e o terceiro faltava: com a leitura falhada `precos` fica
- * `undefined` em definitivo — a query nao refaz a leitura ao voltar o foco —
- * e o esqueleto ficava pulsando para sempre no lugar do preco. Retangulo
- * animado eterno numa pagina de conversao e pior do que dizer que o numero
- * nao carregou.
+ * O terceiro e o que costuma faltar: com a leitura falhada `precos` fica
+ * `undefined` em definitivo, e um esqueleto pulsando para sempre no lugar do
+ * valor e pior do que dizer que o numero nao carregou.
  */
-function PrecoDaVitrine({ plano, sufixo, erro, larguraEsqueleto }: {
-  plano: PrecoDePlano | undefined;
-  sufixo: string;
-  erro: boolean;
-  larguraEsqueleto: string;
-}) {
+function Preco({ plano, sufixo, erro }: { plano: PrecoDePlano | undefined; sufixo: string; erro: boolean }) {
   if (plano) {
     return (
       <>
-        <span className="text-4xl font-mono font-black tabular-nums text-[var(--color-ink)]">{precoCurto(plano)}</span>
-        <span className="text-sm text-[var(--color-muted)]">{sufixo}</span>
+        <span className="val">{precoCurto(plano)}</span>
+        <span className="per">{sufixo}</span>
       </>
     );
   }
   if (erro) {
-    return (
-      <span className="text-base font-medium text-[var(--color-muted)]" data-testid="preco-indisponivel">
-        Preço indisponível no momento
-      </span>
-    );
+    return <span className="per" data-testid="preco-indisponivel">Preço indisponível no momento</span>;
   }
-  return <span className={`inline-block h-9 ${larguraEsqueleto} rounded bg-[var(--surface-inset)] animate-pulse`} aria-hidden />;
+  return <span className="price-esqueleto" aria-hidden />;
 }
 
 export default function LandingPage() {
   const [, setLocation] = useLocation();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [slide, setSlide] = useState(0);
+  const [faqAberta, setFaqAberta] = useState<number | null>(0);
 
-  const fallbackErps: ErpItem[] = [
-    { key: "ixc", name: "IXC Soft", logoBase64: null },
-    { key: "sgp", name: "SGP", logoBase64: null },
-    { key: "mk", name: "MK Solutions", logoBase64: null },
-    { key: "hubsoft", name: "Hubsoft", logoBase64: null },
-    { key: "voalle", name: "Voalle", logoBase64: null },
-    { key: "rbx", name: "RBX ISP", logoBase64: null },
-  ];
-  const [erps, setErps] = useState<ErpItem[]>(fallbackErps);
-
-  useEffect(() => {
-    fetch("/api/public/erp-catalog")
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data) && data.length > 0) setErps(data); })
-      .catch(() => {});
-  }, []);
-
-  /**
-   * A vitrine le a tabela do SERVIDOR, resolvida pelo host. No dominio proprio
-   * de um revendedor a landing tem que anunciar o preco DELE — uma constante
-   * importada anunciaria sempre o da plataforma.
-   */
   const { data: precos, isError: erroPrecos } = usePrecosPublicos();
   const planoFree = planoPorChave(precos, "free");
   const planoPro = planoPorChave(precos, "pro");
-  /**
-   * Sem a tabela a pagina nao inventa quantos creditos o cadastro da: some o
-   * numero, fica a promessa. Antes o `?? "—"` imprimia literalmente
-   * "— creditos gratuitos para testar a rede".
-   */
-  const creditosDeBoasVindas = planoFree?.creditosInclusos.isp;
-  const fraseCreditosFree = creditosDeBoasVindas != null
-    ? `${creditosDeBoasVindas} creditos para testar a rede`
-    : "Creditos para testar a rede";
-  const fraseCreditosCta = creditosDeBoasVindas != null
-    ? `${creditosDeBoasVindas} créditos gratuitos para testar a rede.`
-    : "Créditos gratuitos para testar a rede.";
 
-  const goRegister = () => setLocation("/login?mode=register");
-  const goLogin = () => setLocation("/login");
+  /**
+   * `scroll-behavior` precisa morar no elemento que rola — o `<html>` —, e a
+   * folha da landing e escopada em `.lp`. Sem esta classe o link de ancora
+   * salta seco.
+   */
+  useEffect(() => {
+    document.documentElement.classList.add("lp-scroll");
+    return () => document.documentElement.classList.remove("lp-scroll");
+  }, []);
+
+  /**
+   * Um `setTimeout` por slide, e nao um `setInterval`: mudar de slide na mao
+   * troca a dependencia do efeito e o relogio recomeca — o comportamento do
+   * original. Com `prefers-reduced-motion` nao ha giro automatico.
+   */
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const t = setTimeout(() => setSlide((i) => (i + 1) % SLIDES.length), GIRO_MS);
+    return () => clearTimeout(t);
+  }, [slide]);
+
+  const atual = SLIDES[slide];
+  const classeDoSlide = (i: number) => `hero-slide${i === slide ? " active" : ""}`;
+  const irPara = (destino: string) => (e: MouseEvent) => {
+    e.preventDefault();
+    setLocation(destino);
+  };
+
+  const creditosFree = planoFree
+    ? `${planoFree.creditosInclusos.isp} créditos para testar a rede`
+    : "Créditos de boas-vindas para testar a rede";
+  const creditosPro = planoPro
+    ? `${planoPro.creditosInclusos.isp} créditos por mês, renovados a cada fatura paga`
+    : "Créditos inclusos por mês, renovados a cada fatura paga";
+  const notaPro = planoPro
+    ? `${planoPro.creditosInclusos.isp} créditos por mês inclusos. Consultas além disso, por crédito.`
+    : "Créditos inclusos por mês. Consultas além disso, por crédito.";
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] overflow-x-hidden" data-testid="landing-page">
-
-      {/* NAV */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-b border-[var(--color-border)]">
-        <div className="max-w-[1800px] mx-auto px-6 h-16 flex items-center justify-between">
-          <Marca tamanho={30} />
-          <div className="hidden lg:flex items-center gap-7 text-sm text-[var(--color-muted)]">
-            {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
-              <button key={id} onClick={() => document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}
-                className="cursor-pointer hover:text-[var(--color-brand)] transition-colors font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-2 rounded-sm">{l}</button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" className="hidden lg:inline-flex text-[var(--color-muted)] hover:text-[var(--color-ink)] text-sm h-9"
-              onClick={goLogin} data-testid="button-landing-login">Login</Button>
-            <Button className="hidden lg:inline-flex bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-[var(--text-on-brand)] text-sm h-9 px-5 font-semibold rounded"
-              onClick={goRegister} data-testid="button-landing-cadastro">Começar grátis</Button>
-            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="sm" className="lg:hidden text-[var(--color-muted)] hover:text-[var(--color-ink)]" data-testid="button-mobile-menu">
-                  <Menu className="w-5 h-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-72 bg-[var(--color-surface)] border-l border-[var(--color-border)]">
-                <nav className="flex flex-col gap-4 mt-8">
-                  {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
-                    <button key={id} onClick={() => { setMobileMenuOpen(false); document.getElementById(id)?.scrollIntoView({behavior:"smooth"}); }}
-                      className="cursor-pointer text-left text-sm font-medium text-[var(--color-ink)] hover:text-[var(--color-brand)] transition-colors py-2 border-b border-[var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">{l}</button>
-                  ))}
-                  <Button className="w-full bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-[var(--text-on-brand)] text-sm h-10 font-semibold rounded mt-2"
-                    onClick={() => { setMobileMenuOpen(false); goLogin(); }}>Login</Button>
-                </nav>
-              </SheetContent>
-            </Sheet>
+    <>
+      <div className="lp">
+        {/* =================== BARRA UTILITÁRIA =================== */}
+        <div className="utilbar">
+          <div className="utilbar-inner">
+            <div className="utilbar-msg">Rede colaborativa de provedores de internet do Brasil</div>
+            <a className="utilbar-link" href="https://wa.me/5543991191100?text=Ol%C3%A1%21%20Sou%20provedor%20e%20quero%20conhecer%20o%20Consulta%20ISP." target="_blank" rel="noopener">Falar no WhatsApp</a>
           </div>
         </div>
-      </nav>
 
-      {/* HERO */}
-      <section className="pt-16 bg-[var(--color-bg)]">
-        <div className="max-w-[1800px] mx-auto px-6 py-10 sm:py-14 lg:py-16 grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
-          {/* `min-w-0` nao e detalhe: item de grid nasce com `min-width: auto`,
-              que o impede de encolher abaixo do proprio conteudo. Em 375px a
-              linha de botoes tem 427px de min-content e esticava a coluna
-              inteira para 407px — o titulo saia cortado, lia-se "Consulte o
-              CP". Com o zero a faixa volta aos 327px que cabem na tela. */}
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] border border-[var(--color-border)] text-[var(--color-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-6">
-              <div className="w-1.5 h-1.5 bg-[var(--color-brand)] rounded-full animate-pulse" />
-              Plataforma Colaborativa de Credito para ISPs
+        {/* =================== NAV =================== */}
+        <nav className="nav">
+          <div className="nav-inner">
+            <a href="#topo" className="logo logo-nav" aria-label="/consulta.isp">
+              <span className="logo-mark"><span className="slash">/</span>consulta<span className="ext">.isp</span></span>
+              <span className="logo-tag">Rede Colaborativa</span>
+            </a>
+            <div className="nav-links">
+              <a href="#o-que-e">O que é</a>
+              <a href="#rede">A rede</a>
+              <a href="#funcionalidades">Funcionalidades</a>
+              <a href="#precos">Preços</a>
+              <a href="#faq">FAQ</a>
             </div>
-            {/* Os tamanhos sao ARBITRARIOS de proposito — nao troque por
-                `text-3xl sm:text-4xl lg:text-5xl`.
-
-                `client/src/index.css` marca toda utilitaria `.text-*` com
-                `!important`, e repete o bloco com especificidade maior sob
-                `[data-testid="landing-page"]`. Como `!important` vence
-                independentemente da ordem, a classe SEM prefixo mata as
-                variantes: com os presets este titulo ficava travado em 36px de
-                768px para cima — `lg:text-5xl` nunca aplicava.
-
-                Valor arbitrario gera um seletor que aquelas regras nao casam
-                (`.lg\:text-\[3rem\]`), entao a escada volta a funcionar. Medido
-                depois da troca: 30px em 390, 36px em 768, 48px em 1440.
-
-                A raiz e o `!important` do index.css, que afeta o app inteiro e
-                merece decisao propria. */}
-            <h1 className="font-display font-light text-[1.875rem] sm:text-[2.25rem] lg:text-[3rem] text-[var(--color-ink)] leading-[1.08] lg:leading-[1.05] tracking-tight text-balance mb-5" data-testid="text-hero-title">
-              Consulte o CPF antes de instalar.<br/>
-              <span className="text-[var(--color-brand)]">Evite perdas antes que acontecam.</span>
-            </h1>
-            <p className="text-lg text-[var(--color-muted)] leading-relaxed mb-8 max-w-[60ch] lg:max-w-[38rem]">
-              Score de risco em tempo real, direto do ERP de toda a rede de provedores. Saiba se o cliente ja deixou dividas em outro provedor antes de liberar a instalacao.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 mb-10">
-              <Button size="lg" onClick={goRegister} data-testid="button-hero-cta"
-                className="bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-[var(--text-on-brand)] w-full sm:w-auto px-5 sm:px-8 gap-2 h-12 text-base font-bold rounded whitespace-normal sm:whitespace-nowrap">
-                Proteger Meu Provedor — Gratis <ArrowRight className="w-4 h-4" />
-              </Button>
-              <Button size="lg" variant="outline" onClick={() => document.getElementById("como-funciona")?.scrollIntoView({behavior:"smooth"})}
-                className="border-[var(--color-border)] text-[var(--color-muted)] w-full sm:w-auto px-5 sm:px-8 h-12 text-base rounded" data-testid="button-hero-features">
-                Ver como funciona
-              </Button>
+            <div className="nav-right">
+              <a href={LOGIN} className="nav-login" onClick={irPara(LOGIN)}>Login</a>
+              <a href={CADASTRO} className="btn btn-primary" onClick={irPara(CADASTRO)}>Começar grátis</a>
             </div>
-            <div className="flex items-center gap-6 pt-6 border-t border-[var(--color-border)]">
-              {[{v:"R$ 690",l:"prejuizo medio evitado"},{v:"ao vivo",l:"consulta direto no ERP"},{v:"Gratis",l:"consultas na propria base"}].map(s => (
-                <div key={s.l}><p className="text-xl font-mono font-black text-[var(--color-ink)]">{s.v}</p><p className="text-xs text-[var(--color-muted)] mt-0.5">{s.l}</p></div>
+          </div>
+        </nav>
+
+        {/* =================== HERO / BANNER ROTATIVO =================== */}
+        <section id="topo" className="hero">
+          <div className="hero-grid"></div>
+          <div className="hero-inner">
+            {/* Coluna esquerda: texto muda por slide */}
+            <div className="hero-left">
+              <div className="pill on-dark" id="heroPill">
+                <span className="dot"></span>
+                <span id="heroPillText">{atual.pill}</span>
+              </div>
+              <h1>
+                <span className="strong" id="heroH1Strong">{atual.strong}</span>
+                <span className="light" id="heroH1Light">{atual.light}</span>
+              </h1>
+              <p className="hero-lead" id="heroLead">
+                {atual.lead}
+              </p>
+              <div className="hero-ctas">
+                <a href={CADASTRO} className="btn btn-primary on-dark btn-lg" onClick={irPara(CADASTRO)}>Criar conta grátis <span className="arrow">→</span></a>
+                <a href={WHATSAPP} target="_blank" rel="noopener" className="btn btn-secondary on-dark btn-lg">Falar no WhatsApp</a>
+              </div>
+              <div className="hero-guarantees">
+                <span className="item"><span className="check">✓</span> Consultas na sua base sempre grátis</span>
+                <span className="item"><span className="check">✓</span> Consulta anônima, com hash por consulta</span>
+                <span className="item"><span className="check">✓</span> Conformidade com a LGPD</span>
+              </div>
+              <div className="banner-controls">
+                <div className="banner-bars" id="bannerBars" role="tablist">
+                  {SLIDES.map((s, i) => (
+                    <button
+                      key={s.pill}
+                      type="button"
+                      role="tab"
+                      aria-label={s.pill}
+                      aria-selected={i === slide}
+                      className={i === slide ? "active" : undefined}
+                      onClick={() => setSlide(i)}
+                    />
+                  ))}
+                </div>
+                <div className="banner-arrows">
+                  <button type="button" id="btnPrev" aria-label="Slide anterior" onClick={() => setSlide((i) => (i - 1 + SLIDES.length) % SLIDES.length)}>←</button>
+                  <button type="button" id="btnNext" aria-label="Próximo slide" onClick={() => setSlide((i) => (i + 1) % SLIDES.length)}>→</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Coluna direita: visual muda por slide */}
+            <div className="hero-right">
+              <div className="hero-rings" aria-hidden="true"><div className="hero-ring-3"></div></div>
+              <div className="hero-visual" id="heroVisual">
+
+                {/* SLIDE 1 */}
+                <div className={classeDoSlide(0)} data-slide="0">
+                  <div className="mock-browser">
+                    <div className="mock-titlebar">
+                      <div className="tb-dots"><div className="tb-dot"></div><div className="tb-dot"></div><div className="tb-dot"></div></div>
+                      <div className="tb-url">consultaisp.com.br/consulta-isp</div>
+                    </div>
+                    <div className="mock-body">
+                      <div className="mock-header">
+                        <div>
+                          <div className="mock-label">CPF consultado</div>
+                          <div className="mock-cpf">041.179.***-40</div>
+                        </div>
+                        <span className="mock-badge neg">CRÍTICO</span>
+                      </div>
+                      <div className="mock-score-row">
+                        <div className="score-ring">
+                          <svg width="60" height="60"><circle cx="30" cy="30" r="24" fill="none" stroke="#F0E1DE" strokeWidth="6"/><circle cx="30" cy="30" r="24" fill="none" stroke="#8A2A20" strokeWidth="6" strokeDasharray="151" strokeDashoffset="128" strokeLinecap="round"/></svg>
+                          <div className="score-num">152</div>
+                        </div>
+                        <div className="mock-chips">
+                          <span className="mock-chip">2 provedores</span>
+                          <span className="mock-chip">2 equip. retidos</span>
+                        </div>
+                      </div>
+                      <div className="mock-suggestion">
+                        <span className="lbl">Sugestão</span>
+                        <span className="val">REJEITAR</span>
+                      </div>
+                      <div className="mock-two">
+                        <div className="mock-two-card self">
+                          <div className="who">O seu provedor</div>
+                          <div className="val">325 dias · R$ 350</div>
+                          <div className="cost">GRÁTIS</div>
+                        </div>
+                        <div className="mock-two-card">
+                          <div className="who">Outro provedor</div>
+                          <div className="val">1441 dias · R$ 890</div>
+                          <div className="cost">1 CRÉDITO</div>
+                        </div>
+                      </div>
+                      <div className="mock-alert">2 equipamentos não devolvidos — R$ 580 em risco</div>
+                    </div>
+                  </div>
+                  <div className="float-card float-tl">
+                    <div className="lbl">Instalação evitada</div>
+                    <div className="val">R$ 930</div>
+                    <div className="sub">ONU + 2 meses</div>
+                  </div>
+                  <div className="float-card float-br">
+                    <div className="lbl">Consulta ao vivo</div>
+                    <div className="val">Via API</div>
+                    <div className="sub">Resposta em segundos</div>
+                  </div>
+                </div>
+
+                {/* SLIDE 2 */}
+                <div className={classeDoSlide(1)} data-slide="1">
+                  <div className="side-card">
+                    <div className="head">
+                      <span className="head-title">Consulta por endereço</span>
+                    </div>
+                    <h3>Rua das Palmeiras, 412 — Centro</h3>
+                    <div className="sub">CEP 88010-000 · cruzamento em toda a rede</div>
+                    <div className="side-row neg">
+                      <div className="info">
+                        <span className="line">CPF 041.***.***-40</span>
+                        <span className="sub">325 dias em atraso · morador atual</span>
+                      </div>
+                      <span className="tag neg">DEVEDOR</span>
+                    </div>
+                    <div className="side-row neg">
+                      <div className="info">
+                        <span className="line">CPF 712.***.***-08</span>
+                        <span className="sub">1441 dias em atraso · mesmo imóvel</span>
+                      </div>
+                      <span className="tag neg">DEVEDOR</span>
+                    </div>
+                    <div className="mock-alert" style={{ marginTop: "14px" }}>CPF novo, mesmo endereço. O sistema aponta os dois registros anteriores do imóvel.</div>
+                  </div>
+                </div>
+
+                {/* SLIDE 3 */}
+                <div className={classeDoSlide(2)} data-slide="2">
+                  <div className="side-card">
+                    <div className="head">
+                      <span className="head-title">Alerta anti-fraude</span>
+                      <span className="mock-badge neg" style={{ animation: "ci-pulso 2.4s ease-in-out infinite" }}>AGORA</span>
+                    </div>
+                    <h3>Seu inadimplente foi consultado por outro provedor da rede</h3>
+                    <div className="sub">Consulta anônima — nenhum dos lados sabe quem é o outro.</div>
+                    <div className="side-list-item">
+                      <span className="k">Dívida na sua base</span>
+                      <span className="v" style={{ color: "var(--neg)" }}>R$ 350 · 325 DIAS</span>
+                    </div>
+                    <div className="side-list-item">
+                      <span className="k">Equipamento em comodato</span>
+                      <span className="v" style={{ color: "var(--warn)" }}>2 ONUs · R$ 580</span>
+                    </div>
+                    <div className="side-list-item">
+                      <span className="k">Canal do aviso</span>
+                      <span className="v">E-MAIL + WEBHOOK</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SLIDE 4 */}
+                <div className={classeDoSlide(3)} data-slide="3">
+                  <div className="side-card">
+                    <div className="head">
+                      <span className="head-title">Consulta anônima por hash</span>
+                    </div>
+                    <div className="side-hash">a7f3c9e1-4b28-47d6-9c05-e81b2f6d33a0</div>
+                    <div className="side-note">Hash gerado só para esta consulta. Não vincula sua identidade, nem a de quem registrou a dívida.</div>
+                    <div className="side-list-item pos">
+                      <span className="k">Existe dívida na rede</span>
+                      <span className="v">SIM · 2 REGISTROS</span>
+                    </div>
+                    <div className="side-list-item pos">
+                      <span className="k">Tempo de atraso e faixa</span>
+                      <span className="v">VISÍVEL</span>
+                    </div>
+                    <div className="side-list-item neutral">
+                      <span className="k">Nome do provedor da dívida</span>
+                      <span className="v">NUNCA</span>
+                    </div>
+                    <div className="side-list-item neutral">
+                      <span className="k">Dados pessoais do devedor</span>
+                      <span className="v">NUNCA</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SLIDE 5 */}
+                <div className={classeDoSlide(4)} data-slide="4">
+                  <div className="side-card side-questions">
+                    <div className="head">
+                      <span className="head-title">As perguntas que a venda não responde</span>
+                    </div>
+                    <div className="side-list-item neutral">
+                      <span className="q-num">?</span>
+                      <span className="k">Ele já deve pra quem?</span>
+                    </div>
+                    <div className="side-list-item neutral">
+                      <span className="q-num">?</span>
+                      <span className="k">Tem devedor nesse endereço?</span>
+                    </div>
+                    <div className="side-list-item neutral">
+                      <span className="q-num">?</span>
+                      <span className="k">A ONU volta?</span>
+                    </div>
+                    <div className="side-close">Cláusula de fidelidade não substitui análise. O Consulta ISP responde as três em segundos, antes da ordem de serviço.</div>
+                  </div>
+                </div>
+
+                {/* SLIDE 6 */}
+                <div className={classeDoSlide(5)} data-slide="5">
+                  <div className="side-card">
+                    <div className="head">
+                      <span className="head-title">Quadro de cobrança</span>
+                    </div>
+                    <div className="kanban-header">
+                      <span className="kanban-pill active">Ativos</span>
+                      <span className="kanban-pill idle">Ex-clientes</span>
+                    </div>
+                    <div className="kanban-cols">
+                      <div className="kanban-col">
+                        <div className="lbl">Aviso</div>
+                        <div className="num">18</div>
+                        <div className="note">antes do corte</div>
+                      </div>
+                      <div className="kanban-col">
+                        <div className="lbl">Negociando</div>
+                        <div className="num" style={{ color: "var(--warn)" }}>07</div>
+                        <div className="note">acordo em curso</div>
+                      </div>
+                      <div className="kanban-col">
+                        <div className="lbl">Acordo</div>
+                        <div className="num" style={{ color: "var(--pos)" }}>05</div>
+                        <div className="note">parcelas ativas</div>
+                      </div>
+                      <div className="kanban-col">
+                        <div className="lbl">Perdido</div>
+                        <div className="num" style={{ color: "var(--neg)" }}>02</div>
+                        <div className="note">baixa contábil</div>
+                      </div>
+                    </div>
+                    <div className="side-close">Acordo dentro da política: desconto, parcelas e entrada mínima por faixa de atraso — o sistema não deixa passar do teto.</div>
+                    <div className="kanban-tags">
+                      <span className="kanban-tag">Régua por dias de atraso</span>
+                      <span className="kanban-tag">WhatsApp do provedor</span>
+                      <span className="kanban-tag">Baixa via ERP</span>
+                      <span className="kanban-tag">Prescrição vigiada</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SLIDE 7 */}
+                <div className={classeDoSlide(6)} data-slide="6">
+                  <div className="side-card">
+                    <div className="head">
+                      <span className="head-title">Comodato a recuperar</span>
+                      <span className="mock-badge neg">1 EM PRAZO CRÍTICO</span>
+                    </div>
+                    <div className="side-row neg">
+                      <div className="info">
+                        <span className="line">ONU Nokia · ALCLFC65623D</span>
+                        <span className="sub">rescisão 12/07 · em comodato</span>
+                      </div>
+                      <span className="tag neg">4 DIAS</span>
+                    </div>
+                    <div className="side-row warn">
+                      <div className="info">
+                        <span className="line">ONU Intelbras 110 · SN-4471</span>
+                        <span className="sub">retirada agendada 18/09</span>
+                      </div>
+                      <span className="tag warn">22 DIAS</span>
+                    </div>
+                    <div className="side-row pos">
+                      <div className="info">
+                        <span className="line">Roteador TP-Link · SN-9902</span>
+                        <span className="sub">devolvido na loja 02/09</span>
+                      </div>
+                      <span className="tag pos">ENCERRADO</span>
+                    </div>
+                    <div className="kanban-tags" style={{ marginTop: "14px" }}>
+                      <span className="kanban-tag">Retirada gratuita ou logística reversa</span>
+                      <span className="kanban-tag">Baixa econômica com motivo</span>
+                      <span className="kanban-tag">Fila por idade do caso</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* =================== MURO DE ERPs =================== */}
+        <section className="erps">
+          <div className="erps-inner">
+            <div className="erps-title">Integra com os principais ERPs do mercado ISP</div>
+            <div className="erps-chips">
+              <span className="chip"><span className="chip-dot"></span>IXC Soft</span>
+              <span className="chip"><span className="chip-dot"></span>MK Solutions</span>
+              <span className="chip"><span className="chip-dot"></span>Hubsoft</span>
+              <span className="chip"><span className="chip-dot"></span>SGP</span>
+              <span className="chip"><span className="chip-dot"></span>Voalle</span>
+              <span className="chip"><span className="chip-dot"></span>RBX ISP</span>
+              <span className="chip"><span className="chip-dot"></span>API aberta</span>
+            </div>
+          </div>
+        </section>
+
+        {/* =================== O QUE É + JORNADA =================== */}
+        <section id="o-que-e" className="section-alt section-pad">
+          <div className="container">
+            <div className="kicker">O que é</div>
+            <div className="two-col">
+              <h2>A decisão de crédito entra <em>no meio da sua venda</em></h2>
+              <p className="lead">
+                O Consulta ISP não é um bureau de crédito nem um sistema de cobrança. É a consulta que faltava entre o pedido do cliente e a ordem de serviço: um minuto de verificação na rede de provedores que decide se aquela instalação vira receita ou prejuízo.
+              </p>
+            </div>
+            <div className="journey">
+              <div className="journey-card">
+                <span className="num">01</span>
+                <span className="title">Pedido do cliente</span>
+                <p className="desc">Venda entra pelo balcão, telefone ou WhatsApp.</p>
+                <span className="tag">seu ERP</span>
+              </div>
+              <div className="journey-card hi">
+                <span className="num">02</span>
+                <span className="title">Consulta na rede</span>
+                <p className="desc">CPF, CNPJ ou endereço conferidos ao vivo no ERP de todos os provedores conectados. Hash aleatório por consulta, sem identificar quem registrou.</p>
+                <span className="tag">/consulta.isp</span>
+              </div>
+              <div className="journey-card hi">
+                <span className="num">03</span>
+                <span className="title">Decisão</span>
+                <p className="desc">Score de 0 a 1000, equipamentos retidos e sugestão: aprovar, atenção, análise manual ou rejeitar.</p>
+                <span className="tag">/consulta.isp</span>
+              </div>
+              <div className="journey-card">
+                <span className="num">04</span>
+                <span className="title">Instalação</span>
+                <p className="desc">Técnico só sai com risco conhecido e registrado na proposta.</p>
+                <span className="tag">seu ERP</span>
+              </div>
+              <div className="journey-card hi">
+                <span className="num">05</span>
+                <span className="title">Cobrança e alerta</span>
+                <p className="desc">Se atrasar, o registro entra na rede e o anti-fraude avisa quando ele tentar migrar.</p>
+                <span className="tag">/consulta.isp</span>
+              </div>
+            </div>
+            <p className="journey-note">Os passos 02, 03 e 05 são o Consulta ISP. O resto continua no seu ERP, como já é hoje.</p>
+          </div>
+        </section>
+
+        {/* =================== DOIS PILARES =================== */}
+        <section className="section-light section-pad">
+          <div className="container">
+            <div className="kicker">Dois pilares</div>
+            <h2>Prevenção na venda e <em>defesa da carteira</em></h2>
+            <p className="lead">Escolha a ponta que mais aperta hoje. As duas usam a mesma base e o mesmo crédito.</p>
+            <div className="pillars">
+              <article className="pillar-card">
+                <span className="pillar-label">Pilar 01 · Prevenção na venda</span>
+                <h3>A verificação que acontece antes de a ONU sair do estoque.</h3>
+                <p>Filtra o cliente no minuto da proposta e evita instalação de quem já é conhecido da rede.</p>
+                <ul className="pillar-list">
+                  <li>
+                    <span className="n">01</span>
+                    <div><div className="t">Consulta ISP</div><div className="d">Score de risco na rede colaborativa, ao vivo.</div></div>
+                  </li>
+                  <li>
+                    <span className="n">02</span>
+                    <div><div className="t">Consulta cadastral</div><div className="d">Quem é o cliente, na fonte: Receita, endereços, sócios.</div></div>
+                  </li>
+                  <li>
+                    <span className="n">03</span>
+                    <div><div className="t">Cruzamento por endereço</div><div className="d">Mesma casa, CPF novo. Se houver outros devedores naquele imóvel, o sistema avisa.</div></div>
+                  </li>
+                  <li>
+                    <span className="n">04</span>
+                    <div><div className="t">Parecer por IA</div><div className="d">Aprovar, aprovar com atenção, análise manual ou rejeitar.</div></div>
+                  </li>
+                </ul>
+              </article>
+              <article className="pillar-card">
+                <span className="pillar-label">Pilar 02 · Defesa da carteira</span>
+                <h3>O que fazer com o inadimplente que você já tem dentro de casa.</h3>
+                <p>Recupera equipamento, negocia dentro da política e evita que o devedor migre invisível.</p>
+                <ul className="pillar-list">
+                  <li>
+                    <span className="n">01</span>
+                    <div><div className="t">Anti-fraude</div><div className="d">Alerta no instante em que seu devedor é consultado por outro provedor.</div></div>
+                  </li>
+                  <li>
+                    <span className="n">02</span>
+                    <div><div className="t">Controle de equipamentos</div><div className="d">ONUs por modelo, serial e status de comodato.</div></div>
+                  </li>
+                  <li>
+                    <span className="n">03</span>
+                    <div><div className="t">SPC integrada</div><div className="d">Score, restrições e negativação sem contrato à parte.</div></div>
+                  </li>
+                  <li>
+                    <span className="n">04</span>
+                    <div><div className="t">Mapa de inadimplência</div><div className="d">Onde a sua base perde dinheiro, por bairro.</div></div>
+                  </li>
+                </ul>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        {/* =================== A REDE COLABORATIVA (DARK) =================== */}
+        <section id="rede" className="rede">
+          <div className="rede-inner">
+            <div className="kicker on-dark">A rede colaborativa</div>
+            <div className="two-col">
+              <h2 className="on-dark">O dado que um provedor registra <em>protege todos os outros</em></h2>
+              <p className="lead on-dark">
+                Nenhum provedor tem histórico suficiente sozinho. O inadimplente que sai da sua base é cliente novo na base do vizinho — e volta a ser prejuízo três meses depois. A rede fecha esse circuito: cada provedor conectado alimenta e consulta o mesmo mapa de risco.
+              </p>
+            </div>
+
+            {/* Topologia */}
+            <div className="topo">
+              <div className="topo-head">
+                <div className="kicker on-dark" style={{ margin: "0" }}>Topologia da integração</div>
+                <div className="desc">Seu ERP conversa com a rede por API. Nada de cadastro manual, nada para baixar.</div>
+              </div>
+              <div className="topo-row">
+                <div className="topo-node">
+                  <div className="lbl">Seu provedor</div>
+                  <div className="name">ERP integrado</div>
+                  <div className="state">chave de API ativa</div>
+                </div>
+                <div className="topo-node">
+                  <div className="lbl">Provedor da rede</div>
+                  <div className="name">ERP integrado</div>
+                  <div className="state">responde ao vivo</div>
+                </div>
+                <div className="topo-node">
+                  <div className="lbl">Provedor da rede</div>
+                  <div className="name">ERP integrado</div>
+                  <div className="state">responde ao vivo</div>
+                </div>
+              </div>
+              <div className="topo-connector">
+                <div className="rule"></div>
+                <div className="txt">↓ REQUISIÇÃO · RESPOSTA ↑</div>
+                <div className="rule mirror"></div>
+              </div>
+              <div className="topo-api">
+                <div className="topo-api-icon">API</div>
+                <div className="topo-api-text">
+                  <div className="t">/consulta.isp · camada de consulta</div>
+                  <div className="s">pergunta ao ERP de cada provedor no momento da sua consulta</div>
+                </div>
+              </div>
+              <div className="topo-connector">
+                <div className="rule"></div>
+                <div className="txt">↓ RESULTADO EM SEGUNDOS</div>
+                <div className="rule mirror"></div>
+              </div>
+              <div className="topo-node" style={{ maxWidth: "420px", margin: "0 auto" }}>
+                <div className="lbl">Sua tela de consulta</div>
+                <div className="name">score · dívidas na rede · equipamentos · sugestão</div>
+              </div>
+              <div className="rede-guarantees">
+                <span className="chip"><span className="chip-dot"></span>Uma chave de API e está pronto</span>
+                <span className="chip"><span className="chip-dot"></span>Sem cadastro manual de inadimplente</span>
+                <span className="chip"><span className="chip-dot"></span>Nada para baixar, nada para enviar</span>
+              </div>
+            </div>
+
+            {/* Três etapas da rede */}
+            <div className="rede-steps">
+              <div className="rede-step">
+                <div className="n">01</div>
+                <div className="t">Você conecta o ERP</div>
+                <div className="d">Uma chave de API e a sua base de inadimplentes passa a alimentar o mapa da rede. Nenhum dado pessoal sai do seu servidor.</div>
+              </div>
+              <div className="rede-step">
+                <div className="n">02</div>
+                <div className="t">A rede responde ao vivo</div>
+                <div className="d">Ao consultar um CPF, o sistema pergunta na hora ao ERP de cada provedor conectado. A resposta é o estado de agora, não o de um cadastro velho.</div>
+              </div>
+              <div className="rede-step">
+                <div className="n">03</div>
+                <div className="t">O aviso volta para você</div>
+                <div className="d">Quando o seu devedor é consultado por outro provedor da rede, você sabe na mesma hora — por e-mail e webhook.</div>
+              </div>
+            </div>
+
+            {/* Anonimato + LGPD */}
+            <div className="rede-pair">
+              <div className="card">
+                <div className="lbl">Consulta anônima</div>
+                <p className="txt">Cada consulta é criada com um hash aleatório próprio. O resultado diz que existe dívida, há quanto tempo e em que faixa de valor — nunca em qual provedor. Nenhum provedor da rede sabe o nome de quem registrou a dívida, e o seu nome também não aparece para ninguém.</p>
+              </div>
+              <div className="card">
+                <div className="lbl">LGPD</div>
+                <p className="txt">A rede troca indicadores, não pessoas. Dias de atraso, faixa de valor e equipamentos pendentes circulam entre os provedores. Nome, CPF, endereço e telefone nunca saem da base de origem.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* =================== ANTES / DEPOIS =================== */}
+        <section className="section-alt section-pad">
+          <div className="container container-narrow">
+            <div className="kicker">Antes e depois</div>
+            <h2>A mesma venda, com e sem <em>a consulta</em></h2>
+            <div className="compare">
+              <article className="compare-card compare-neg">
+                <div className="compare-head">Sem o Consulta ISP</div>
+                <div className="compare-row"><span className="when">Dia 0</span><span>Venda aprovada com o CPF limpo no SPC. O débito dele é de internet, e internet não vai para o SPC.</span></div>
+                <div className="compare-row"><span className="when">Dia 1</span><span>Técnico sai, ONU instalada, contrato assinado.</span></div>
+                <div className="compare-row"><span className="when">D+15</span><span>Primeira fatura atrasa. Notificação obrigatória pela Resolução 765.</span></div>
+                <div className="compare-row"><span className="when">D+60</span><span>Só agora o corte é permitido. Dois meses de serviço prestado sem receber.</span></div>
+                <div className="compare-row"><span className="when">D+90</span><span>Equipamento não voltou. O cliente já está instalado no provedor vizinho.</span></div>
+                <div className="compare-close">Resultado: ONU perdida, três meses sem receber e um chamado de cobrança que ninguém vai ganhar.</div>
+              </article>
+              <article className="compare-card compare-pos">
+                <div className="compare-head">Com o Consulta ISP</div>
+                <div className="compare-row"><span className="when">Dia 0</span><span>Antes da ordem de serviço, o CPF vai à rede. Score 152, dois provedores com registro.</span></div>
+                <div className="compare-row"><span className="when">1 min</span><span>O painel mostra 325 dias de atraso na sua própria base e dois equipamentos retidos.</span></div>
+                <div className="compare-row"><span className="when">Decisão</span><span>Sugestão automática: rejeitar. Ou aprovar com caução e sem comodato de equipamento.</span></div>
+                <div className="compare-row"><span className="when">Depois</span><span>O caso fica registrado. Se ele procurar outro provedor, a rede avisa.</span></div>
+                <div className="compare-row"><span className="when">Sempre</span><span>A consulta na sua própria base é gratuita e ilimitada.</span></div>
+                <div className="compare-close">Resultado: equipamento no estoque, técnico livre para uma venda boa e o risco documentado na proposta.</div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        {/* =================== FUNCIONALIDADES =================== */}
+        <section id="funcionalidades" className="section-light section-pad">
+          <div className="container">
+            <div className="kicker">Funcionalidades</div>
+            <h2>Sete ferramentas, <em>um único crédito</em></h2>
+            <p className="lead">Cada funcionalidade resolve um problema real do dia a dia do provedor.</p>
+            <div className="feats">
+              <article className="feat-card">
+                <div className="feat-head">
+                  <div className="feat-sigil">ISP</div>
+                  <div className="feat-title">Consulta ISP</div>
+                </div>
+                <p className="feat-desc">Score de risco 0–1000 em tempo real. Histórico de inadimplência em toda a rede colaborativa, equipamentos retidos e sugestão automática de decisão.</p>
+              </article>
+              <article className="feat-card">
+                <div className="feat-head">
+                  <div className="feat-sigil">CAD</div>
+                  <div className="feat-title">Consulta cadastral</div>
+                </div>
+                <p className="feat-desc">Dados do CPF ou CNPJ direto na fonte: nome, situação na Receita, endereços, telefones, sócios, processos e capacidade de pagamento. Serve para confirmar quem é o cliente antes de instalar.</p>
+              </article>
+              <article className="feat-card">
+                <div className="feat-head">
+                  <div className="feat-sigil">AF</div>
+                  <div className="feat-title">Anti-fraude</div>
+                </div>
+                <p className="feat-desc">Alerta por e-mail e webhook no instante em que seu cliente inadimplente é consultado por outro provedor. Detecta migradores seriais.</p>
+              </article>
+              <article className="feat-card">
+                <div className="feat-head">
+                  <div className="feat-sigil">ONU</div>
+                  <div className="feat-title">Controle de equipamentos</div>
+                </div>
+                <p className="feat-desc">Registre ONUs por modelo, serial e status. Rastreie equipamentos em comodato e identifique retenções antes que virem prejuízo.</p>
+              </article>
+              <article className="feat-card">
+                <div className="feat-head">
+                  <div className="feat-sigil">END</div>
+                  <div className="feat-title">Consulta por endereço</div>
+                </div>
+                <p className="feat-desc">Cruza CEP e número em toda a rede. Detecta inadimplência no imóvel mesmo com CPF diferente — identifica golpes de familiares.</p>
+              </article>
+              <article className="feat-card">
+                <div className="feat-head">
+                  <div className="feat-sigil">SPC</div>
+                  <div className="feat-title">SPC integrada</div>
+                </div>
+                <p className="feat-desc">Score SPC, restrições financeiras e protestos direto na plataforma. Negativação sem contrato adicional com Serasa.</p>
+              </article>
+              <article className="feat-card">
+                <div className="feat-head">
+                  <div className="feat-sigil">IA</div>
+                  <div className="feat-title">Análise com IA</div>
+                </div>
+                <p className="feat-desc">Recomendação automática a partir do score: aprovar, aprovar com atenção, análise manual ou rejeitar — com o parecer escrito por IA.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        {/* =================== PREÇOS =================== */}
+        <section id="precos" className="section-alt section-pad">
+          <div className="container container-narrow">
+            <div className="kicker">Preços</div>
+            <h2>Simples, transparente, <em>sem surpresa</em></h2>
+            <p className="lead">Consultas na sua própria base são sempre gratuitas. Você paga apenas pelo que usar na rede.</p>
+
+            <div className="prices">
+              <article className="price-card">
+                <h3 className="price-title">Gratuito</h3>
+                <div className="price-value">
+                  <Preco plano={planoFree} sufixo="para sempre" erro={erroPrecos} />
+                </div>
+                <div className="price-note">Para conhecer a plataforma</div>
+                <ul className="price-list">
+                  <li>{creditosFree}</li>
+                  <li>Consultas ilimitadas na sua base</li>
+                  <li>Anti-fraude básico</li>
+                  <li>Integração com o seu ERP</li>
+                </ul>
+                <a href={CADASTRO} className="btn btn-secondary" style={{ width: "100%" }} onClick={irPara(CADASTRO)}>Criar conta grátis</a>
+              </article>
+              <article className="price-card hi">
+                <span className="price-recomended">Recomendado</span>
+                <h3 className="price-title">Profissional</h3>
+                <div className="price-value">
+                  <Preco plano={planoPro} sufixo="/mês" erro={erroPrecos} />
+                </div>
+                <div className="price-note">{notaPro}</div>
+                <ul className="price-list">
+                  <li>{creditosPro}</li>
+                  <li>Integração com o seu ERP</li>
+                  <li>Anti-fraude por e-mail e webhook</li>
+                  <li>Consulta cadastral</li>
+                  <li>Consulta SPC Brasil</li>
+                  <li>Cruzamento por endereço</li>
+                </ul>
+                <a href={CADASTRO} className="btn btn-primary" style={{ width: "100%" }} onClick={irPara(CADASTRO)}>Começar agora <span className="arrow">→</span></a>
+              </article>
+            </div>
+
+            <div className="price-table">
+              <div className="price-table-title">Custo por consulta</div>
+              <div className="price-table-row"><span className="k">Consulta na própria base</span><span className="v free">GRÁTIS</span></div>
+              <div className="price-table-row"><span className="k">Consulta ISP (rede colaborativa)</span><span className="v">{emCreditos(CUSTO_EM_CREDITOS.isp)} por provedor com registro</span></div>
+              <div className="price-table-row"><span className="k">Consulta cadastral (dados do CPF/CNPJ)</span><span className="v">{emCreditos(CUSTO_EM_CREDITOS.cadastral)}</span></div>
+              <div className="price-table-row"><span className="k">Consulta SPC Brasil</span><span className="v">{emCreditos(CUSTO_EM_CREDITOS.spc)}</span></div>
+              <p className="price-table-foot">Crédito só é debitado quando a consulta encontra registro em outro provedor. Consulta que volta limpa não custa nada.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* =================== FAQ =================== */}
+        <section id="faq" className="section-light section-pad">
+          <div className="container container-faq">
+            <div className="kicker">FAQ</div>
+            <h2>Perguntas frequentes</h2>
+            <div className="faq-list" id="faqList">
+              {PERGUNTAS.map((p, i) => (
+                <details key={p.q} className={i === faqAberta ? "faq-item open" : "faq-item"} open={i === faqAberta}>
+                  <summary
+                    className="faq-q"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setFaqAberta(i === faqAberta ? null : i);
+                    }}
+                  >
+                    {p.q} <span className="sign"></span>
+                  </summary>
+                  <div className="faq-a">{p.a}</div>
+                </details>
               ))}
             </div>
           </div>
+        </section>
 
-          {/* Mockup hero */}
-          <div className="relative hidden lg:block">
-            <div className="bg-[var(--surface-3)] rounded p-2 border border-[var(--color-border)]">
-              <div className="bg-[#1A1922] rounded overflow-hidden">
-                <div className="flex items-center gap-1.5 px-4 py-3 bg-[#201F2A]">
-                  <div className="w-3 h-3 rounded-full bg-[var(--color-danger)]"/>
-                  <div className="w-3 h-3 rounded-full bg-[var(--color-gold)]"/>
-                  <div className="w-3 h-3 rounded-full bg-[var(--color-success)]"/>
-                  <div className="flex-1 bg-[#2F2D3A] rounded-md mx-3 px-3 py-1 text-xs text-[#918DA1]">
-                    consultaisp.com.br/consulta-isp
-                  </div>
-                </div>
-                <div className="bg-[var(--color-bg)] p-5">
-                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-[var(--color-border)]">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 bg-[var(--color-brand-bg)] rounded flex items-center justify-center">
-                        <Search className="w-4 h-4 text-[var(--color-brand)]"/>
-                      </div>
-                      <div>
-                        <p className="text-xs text-[var(--color-muted)]">CPF consultado</p>
-                        <p className="text-sm font-bold text-[var(--color-ink)]">041.179.***-40</p>
-                      </div>
-                    </div>
-                    <span className="text-xs bg-[var(--color-danger-bg)] text-[var(--color-danger)] font-bold px-2.5 py-1 rounded-sm">CRÍTICO</span>
-                  </div>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="relative w-14 h-14 flex-shrink-0">
-                      <svg width="56" height="56" className="-rotate-90">
-                        <circle cx="28" cy="28" r="22" fill="none" stroke="#FEE2E2" strokeWidth="5"/>
-                        <circle cx="28" cy="28" r="22" fill="none" stroke="#DC2626" strokeWidth="5"
-                          strokeDasharray="138" strokeDashoffset="117" strokeLinecap="round"/>
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-sm font-mono font-black text-[var(--color-danger)]">152</span>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-[var(--color-muted)] mb-1">Score ISP / 1000</p>
-                      <div className="flex gap-2">
-                        <span className="text-xs bg-[var(--color-danger-bg)] text-[var(--color-danger)] font-semibold px-2 py-0.5 rounded">2 provedores</span>
-                        <span className="text-xs bg-[var(--color-gold-bg)] text-[var(--color-gold)] font-semibold px-2 py-0.5 rounded">2 equip. retidos</span>
-                      </div>
-                    </div>
-                    <div className="ml-auto bg-[var(--color-danger)] text-[var(--text-on-brand)] px-3 py-2 rounded text-center">
-                      <p className="font-mono text-xs opacity-80 uppercase font-semibold">Sugestão</p>
-                      <p className="text-sm font-black">REJEITAR</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    <div className="bg-[var(--color-success-bg)] border border-[var(--color-border)] rounded p-3">
-                      <p className="font-mono text-xs text-[var(--color-success)] font-bold uppercase mb-1">Seu Provedor</p>
-                      <p className="text-xs font-bold text-[var(--color-ink)]">VALDIRENE ***</p>
-                      <p className="text-xs text-[var(--color-danger)] mt-1">325 dias · R$ 350</p>
-                      <span className="text-xs bg-[var(--color-success-bg)] text-[var(--color-success)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">Grátis</span>
-                    </div>
-                    <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded p-3">
-                      <p className="font-mono text-xs text-[var(--color-muted)] font-bold uppercase mb-1">Outro Provedor</p>
-                      <p className="text-xs font-bold text-[var(--color-ink)]">Dados restritos</p>
-                      <p className="text-xs text-[var(--color-danger)] mt-1">1441 dias · R$400-600</p>
-                      <span className="text-xs bg-[var(--color-brand-bg)] text-[var(--color-brand)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">1 crédito</span>
-                    </div>
-                  </div>
-                  <div className="bg-[var(--color-gold-bg)] border border-[var(--color-border)] rounded p-2.5 flex items-center gap-2">
-                    <AlertTriangle className="w-3 h-3 text-[var(--color-gold)] flex-shrink-0"/>
-                    <p className="text-xs text-[var(--color-gold)] font-medium">2 equipamentos não devolvidos — R$ 580 em risco</p>
-                  </div>
-                </div>
-              </div>
+        {/* =================== CTA FINAL =================== */}
+        <section id="cta" className="final-cta">
+          <div className="final-cta-inner">
+            <div className="pill on-dark"><span className="dot"></span> Começa grátis — sem cartão de crédito</div>
+            <h2>Consulte o próximo CPF <em>antes de mandar o técnico</em></h2>
+            <p>Cadastro em 2 minutos e 50 créditos gratuitos para testar a rede. Consultas na sua base seguem sempre gratuitas.</p>
+            <div className="final-cta-buttons">
+              <a href={CADASTRO} className="btn btn-primary on-dark btn-lg" style={{ background: "#F5F3EE", color: "#0E0D0B" }} onClick={irPara(CADASTRO)}>Criar conta grátis <span className="arrow">→</span></a>
+              <a href={WHATSAPP} target="_blank" rel="noopener" className="btn btn-secondary on-dark btn-lg">Tirar dúvida no WhatsApp</a>
             </div>
-            <div className="absolute -bottom-3 -left-3 bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-[var(--color-success)] animate-pulse"/>
-                <span className="text-xs font-semibold text-[var(--color-ink)]">Consulta ao vivo na rede</span>
-              </div>
-            </div>
+            <p className="final-cta-login">Já tem conta? <a href={LOGIN} onClick={irPara(LOGIN)}>Fazer login</a></p>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* BARRA ERPs */}
-      <section className="bg-[var(--color-surface)] border-y border-[var(--color-border)] py-6">
-        <div className="max-w-[1800px] mx-auto px-6">
-          <p className="text-center font-mono text-xs uppercase tracking-[0.15em] text-[var(--color-muted)] mb-5">Integra com os principais ERPs do mercado ISP</p>
-          <div className="flex items-center justify-center gap-4 flex-wrap">
-            {[
-              { name: "IXC Soft", color: "var(--cat-blue)" },
-              { name: "MK Solutions", color: "var(--cat-green)" },
-              { name: "Hubsoft", color: "var(--cat-violet)" },
-              { name: "SGP", color: "var(--cat-orange)" },
-              { name: "Voalle", color: "var(--cat-teal)" },
-              { name: "RBX ISP", color: "var(--cat-red)" },
-            ].map(erp => (
-              <div key={erp.name} className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-brand)]/30 transition-colors">
-                <div className="w-7 h-7 rounded flex items-center justify-center" style={{ background: erp.color }}>
-                  <Router className="w-3.5 h-3.5 text-[var(--text-on-brand)]" />
-                </div>
-                <span className="text-sm font-semibold text-[var(--color-ink)]">{erp.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* COMO FUNCIONA */}
-      <section id="como-funciona" className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
-        <div className="max-w-[1800px] mx-auto px-6">
-          <div className="text-center mb-14">
-            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Simples assim</p>
-            <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">3 passos. Resposta antes de instalar.</h2>
-          </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {n:"01",icon:Database,title:"Configure em 15 min",desc:"Conecte seu ERP (IXC, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP) via API. Sem instalacao, sem tecnico.",badge:"Setup: 15 min"},
-              {n:"02",icon:Search,title:"Consulte antes de ativar",desc:"CPF, CNPJ ou endereço. Score de risco, histórico na rede, equipamentos retidos e sugestão de decisão — buscados ao vivo no ERP dos parceiros.",badge:"Tempo real"},
-              {n:"03",icon:Bell,title:"Receba alertas anti-fraude",desc:"Quando seu cliente inadimplente é consultado por outro provedor para migrar, você recebe alerta imediato por e-mail e webhook.",badge:"Tempo real"},
-            ].map((s,i) => (
-              <div key={i} className="relative bg-[var(--color-surface)] border border-[var(--border)] rounded p-6 hover:border-[var(--color-brand)] transition-all">
-                <span className="font-mono text-6xl font-black text-[var(--color-tag-bg)] absolute top-4 right-5 leading-none select-none">{s.n}</span>
-                <div className="relative">
-                  <div className="w-12 h-12 bg-[var(--color-brand-bg)] border border-[var(--color-border)] rounded flex items-center justify-center mb-4">
-                    <s.icon className="w-5 h-5 text-[var(--color-brand)]"/>
-                  </div>
-                  <span className="inline-block bg-[var(--color-brand-bg)] text-[var(--color-brand)] text-xs font-bold px-3 py-1 rounded-sm mb-3 border border-[var(--color-border)]">{s.badge}</span>
-                  <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-2">{s.title}</h3>
-                  <p className="text-sm text-[var(--color-muted)] leading-relaxed">{s.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* FUNCIONALIDADES */}
-      <section id="funcionalidades" className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
-        <div className="max-w-[1800px] mx-auto px-6">
-          <div className="text-center mb-14">
-            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Funcionalidades</p>
-            <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">Tudo que você precisa para proteger sua receita</h2>
-            <p className="text-[var(--color-muted)] mt-3 max-w-xl mx-auto">Cada funcionalidade resolve um problema real do dia a dia do provedor.</p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {[
-              {icon:Search, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta ISP", desc:"Score de risco 0–1000 em tempo real. Histórico de inadimplência em toda a rede colaborativa, equipamentos retidos e sugestão automática de decisão."},
-              {icon:Search, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta Cadastral", desc:"Dados do CPF ou CNPJ direto na fonte: nome, situação na Receita, endereços, telefones, sócios, processos e capacidade de pagamento. Serve para confirmar quem é o cliente antes de instalar."},
-              {icon:Bell, color:"bg-[var(--color-danger-bg)]", ic:"text-[var(--color-danger)]", title:"Anti-Fraude", desc:"Alerta por e-mail e webhook no instante em que seu cliente inadimplente é consultado por outro provedor. Detecta migradores seriais."},
-              {icon:Router, color:"bg-[var(--color-gold-bg)]", ic:"text-[var(--color-gold)]", title:"Controle de Equipamentos", desc:"Registre ONUs por modelo, serial e status. Rastreie equipamentos em comodato e identifique retenções antes que virem prejuízo."},
-              {icon:MapPin, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta por Endereço", desc:"Cruza CEP + número em toda a rede. Detecta inadimplência no imóvel mesmo com CPF diferente — identifica golpes de familiares."},
-              {icon:CreditCard, color:"bg-[var(--color-success-bg)]", ic:"text-[var(--color-success)]", title:"SPC Integrada", desc:"Score SPC, restrições financeiras e protestos direto na plataforma. Negativação sem contrato adicional com Serasa."},
-              {icon:Zap, color:"bg-[var(--color-gold-bg)]", ic:"text-[var(--color-gold)]", title:"Análise com IA", desc:"Recomendação automática a partir do score: APROVAR, APROVAR COM ATENÇÃO, ANÁLISE MANUAL ou REJEITAR — com o parecer escrito por IA."},
-            ].map((f,i) => (
-              <div key={i} className="bg-[var(--color-surface)] border border-[var(--border)] rounded p-5 hover:border-[var(--color-brand)] transition-all">
-                <div className={`w-10 h-10 ${f.color} rounded flex items-center justify-center mb-4`}>
-                  <f.icon className={`w-5 h-5 ${f.ic}`}/>
-                </div>
-                <h4 className="font-display font-semibold text-sm text-[var(--color-ink)] mb-2">{f.title}</h4>
-                <p className="text-xs text-[var(--color-muted)] leading-relaxed">{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* PRECOS */}
-      <section id="precos" className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
-        <div className="max-w-[1800px] mx-auto px-6">
-          <div className="text-center mb-14">
-            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Preços</p>
-            <h2 className="font-display font-light text-4xl text-[var(--color-ink)] mb-3">Simples, transparente, sem surpresa</h2>
-            <p className="text-[var(--color-muted)] max-w-lg mx-auto text-sm">Consultas na sua própria base são sempre gratuitas. Pague apenas pelo que usar na rede.</p>
-          </div>
-          <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
-            {/* Gratuito */}
-            <div className="rounded p-6 flex flex-col border border-[var(--border)] transition-all" data-testid="plan-0">
-              <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">{planoFree?.rotulo || "Gratuito"}</h3>
-              <div className="mb-1 flex items-baseline gap-1">
-                <PrecoDaVitrine plano={planoFree} sufixo="para sempre" erro={erroPrecos} larguraEsqueleto="w-24" />
-              </div>
-              <p className="text-xs text-[var(--color-muted)] mb-6">Para conhecer a plataforma</p>
-              <ul className="space-y-2.5 mb-6 flex-1">
-                {[fraseCreditosFree,"Consultas ilimitadas na sua base","Anti-fraude basico","Integracao com o seu ERP"].map(f => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
-                    <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
-                  </li>
-                ))}
-              </ul>
-              <Button onClick={goRegister}
-                className="w-full font-bold h-11 rounded bg-[var(--color-bg)] hover:bg-[var(--color-tag-bg)] text-[var(--color-ink)] border border-[var(--color-border)]">
-                Criar conta grátis
-              </Button>
-            </div>
-            {/* Profissional */}
-            <div className="rounded p-6 flex flex-col border-2 border-[var(--color-brand)] transition-all relative" data-testid="plan-1">
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[var(--color-brand)] text-[var(--text-on-brand)] text-xs font-black px-4 py-1 rounded-sm">RECOMENDADO</div>
-              <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">{planoPro?.rotulo || "Profissional"}</h3>
-              <div className="mb-1 flex items-baseline gap-1">
-                <PrecoDaVitrine plano={planoPro} sufixo="/mes" erro={erroPrecos} larguraEsqueleto="w-28" />
-              </div>
-              {/* Os creditos inclusos vem do servidor, nao do texto: desde
-                  03/09/2026 o plano inclui 30 por mes e eles entram no saldo
-                  quando a fatura e paga. Enquanto a tabela nao chega, a frase
-                  fala so do que nao depende de numero — prometer "N creditos"
-                  com N carregando seria promessa antes do dado. */}
-              <p className="text-xs text-[var(--color-muted)] mb-6">
-                {planoPro?.creditosInclusos?.isp
-                  ? `${planoPro.creditosInclusos.isp} creditos por mes inclusos. Consultas alem disso, por credito.`
-                  : "Acesso completo. Consultas na rede por credito."}
-              </p>
-              <ul className="space-y-2.5 mb-6 flex-1">
-                {/* "Integracao com o seu ERP", nao "os 6 ERPs": o provedor usa
-                    um so. Os seis suportados aparecem na secao de integracoes.
-                    E a cadastral nao cita o fornecedor — quem compra nao compra
-                    o bureau, compra o dado. */}
-                {[
-                  ...(planoPro?.creditosInclusos?.isp
-                    ? [`${planoPro.creditosInclusos.isp} creditos por mes, renovados a cada fatura paga`]
-                    : []),
-                  "Integracao com o seu ERP","Anti-fraude por e-mail e webhook","Consulta cadastral","Consulta SPC Brasil","Cruzamento por endereco",
-                ].map(f => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
-                    <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
-                  </li>
-                ))}
-              </ul>
-              <Button onClick={goRegister}
-                className="w-full font-bold h-11 rounded bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-[var(--text-on-brand)]">
-                Começar agora
-              </Button>
-            </div>
-          </div>
-
-          {/* Per-query pricing */}
-          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-6 max-w-3xl mx-auto mt-8">
-            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-4">Custo por consulta</p>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                  <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0"/>Consulta na própria base
+        {/* =================== FOOTER =================== */}
+        <footer>
+          <div className="footer-inner">
+            <div className="footer-top">
+              <div className="footer-brand-block">
+                <span className="logo logo-footer on-dark">
+                  <span className="logo-mark"><span className="slash">/</span>consulta<span className="ext">.isp</span></span>
+                  <span className="logo-tag">Rede Colaborativa</span>
                 </span>
-                <span className="text-sm font-bold text-[var(--color-success)]">GRÁTIS</span>
+                <span>Base colaborativa para provedores</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                  <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta ISP (rede colaborativa)
-                </span>
-                <span className="text-sm font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.isp} credito por provedor com registro</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                  <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta cadastral (dados do CPF/CNPJ)
-                </span>
-                <span className="text-sm font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.cadastral} credito{CUSTO_EM_CREDITOS.cadastral === 1 ? "" : "s"}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                  <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta SPC Brasil
-                </span>
-                <span className="text-sm font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.spc} creditos</span>
+              <div className="footer-links">
+                <span>Dados criptografados</span>
+                <a href="/lgpd" onClick={irPara("/lgpd")}>Privacidade LGPD</a>
+                <a href={WHATSAPP} target="_blank" rel="noopener">WhatsApp</a>
               </div>
             </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-8 text-xs text-[var(--color-muted)]">
-            <span className="flex items-center gap-1.5"><Lock className="w-3 h-3 shrink-0"/>Sem contrato</span>
-            <span className="flex items-center gap-1.5"><Shield className="w-3 h-3 shrink-0"/>Dados LGPD</span>
-            <span className="flex items-center gap-1.5"><Zap className="w-3 h-3 shrink-0"/>Cancele quando quiser</span>
-          </div>
-        </div>
-      </section>
-
-      {/* SOCIAL PROOF */}
-      <section className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
-        <div className="max-w-[1800px] mx-auto px-6">
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] text-[var(--color-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-4">
-              <Star className="w-3.5 h-3.5 fill-[var(--color-brand)]" />
-              O que os provedores dizem
-            </div>
-            <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">ISPs que protegem sua receita</h2>
-          </div>
-          <div className="grid md:grid-cols-3 gap-6" data-testid="testimonials-section">
-            {[
-              { quote: "Em dois meses, bloqueamos 14 tentativas de contrato de inadimplentes que já estavam em fuga de outro provedor. Economia estimada: R$ 11.200 em equipamentos e mensalidades.", author: "Rodrigo M.", role: "Sócio-fundador", city: "ISP — Minas Gerais", stars: 5 },
-              { quote: "O cruzamento de endereço salvou nossa operação duas vezes. CPF diferente, mesma casa, mesmo golpe. Sem o sistema, nunca identificaríamos. Agora é protocolo antes de qualquer instalação.", author: "Camila F.", role: "Gerente Operacional", city: "ISP — Interior de SP", stars: 5 },
-              { quote: "Integrei com meu IXC Soft em 20 minutos. A sincronização automática funciona sem falhas há 8 meses. O alerta anti-fraude pagou o plano anual inteiro na primeira semana de uso.", author: "Tiago B.", role: "Diretor de TI", city: "ISP — Rio Grande do Sul", stars: 5 },
-              { quote: "Testei o plano gratuito por 15 dias antes de assinar. Logo na primeira semana, identifiquei um cliente com histórico em 3 provedores da região. Assino até hoje.", author: "Marcela P.", role: "Supervisora de Atendimento", city: "ISP — Paraná", stars: 5 },
-              { quote: "Antes ficávamos sabendo da inadimplência só depois de instalar. Agora consultamos todo CPF antes de agendar a visita técnica. Zero instalação desperdiçada nos últimos 4 meses.", author: "Fábio L.", role: "Proprietário", city: "ISP — Goiás", stars: 5 },
-              { quote: "A equipe de suporte respondeu minha dúvida de integração API em menos de 2 horas. Para quem tem sistema próprio, o webhook facilita muito — zero dependência do ERP.", author: "Juliana S.", role: "Coordenadora de CRM", city: "ISP — Bahia", stars: 5 },
-            ].map((t, i) => (
-              <div key={i} className="bg-[var(--color-surface)] rounded border border-[var(--border)] p-6 flex flex-col gap-4" data-testid={`testimonial-${i}`}>
-                <div className="flex gap-0.5">
-                  {Array.from({ length: t.stars }).map((_, s) => (
-                    <Star key={s} className="w-4 h-4 fill-[var(--color-gold)] text-[var(--color-gold)]" />
-                  ))}
-                </div>
-                <p className="text-sm text-[var(--color-ink)] leading-relaxed flex-1">"{t.quote}"</p>
-                <div className="border-t border-[var(--color-border)] pt-4">
-                  <p className="text-sm font-bold text-[var(--color-ink)]">{t.author}</p>
-                  <p className="text-xs text-[var(--color-muted)]">{t.role} · {t.city}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Comparativo */}
-          <div className="mt-16">
-            <h3 className="font-display font-semibold text-2xl text-[var(--color-ink)] text-center mb-8">Comparativo com o mercado</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full bg-[var(--color-surface)] rounded border border-[var(--border)] overflow-hidden">
-                <thead>
-                  <tr className="border-b border-[var(--color-border)]">
-                    <th className="p-4 text-left text-sm font-semibold text-[var(--color-ink)] w-1/3">Funcionalidade</th>
-                    <th className="p-4 text-center text-sm font-bold text-[var(--color-brand)] bg-[var(--color-brand-bg)]">Consulta ISP</th>
-                    <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">SPC/Serasa</th>
-                    <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">TeiaH Valid</th>
-                    <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">ISP Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    ["Consulta de CPF na rede ISP","yes","no","no","yes"],
-                    ["Análise de risco por endereço","yes","no","yes","no"],
-                    ["Anti-fraude — alerta de migração","yes","no","no","yes"],
-                    ["Controle de equipamentos em comodato","yes","no","no","no"],
-                    ["Consulta SPC/Serasa integrada","yes","yes","no","no"],
-                    ["Integração ERP (IXC, SGP, MK)","yes","no","yes","yes"],
-                    ["Plano gratuito disponível","yes","no","no","yes"],
-                  ].map((row,i) => (
-                    <tr key={i} className={i%2===0?"bg-[var(--color-surface)]":"bg-[var(--color-bg)]"}>
-                      <td className="p-4 text-sm text-[var(--color-ink)] font-medium border-b border-[var(--color-border)]">{row[0]}</td>
-                      <td className="p-4 text-center bg-[var(--color-brand-bg)]/50 border-b border-[var(--color-border)]">
-                        <span className={`text-sm font-bold ${row[1]==="yes"?"text-[var(--color-success)]":"text-[var(--color-border)]"}`}>{row[1]==="yes"?"✅":"❌"}</span>
-                      </td>
-                      {[row[2],row[3],row[4]].map((v,j) => (
-                        <td key={j} className="p-4 text-center border-b border-[var(--color-border)]">
-                          <span className={`text-sm ${v==="yes"?"text-[var(--color-success)]":"text-[var(--color-border)]"}`}>{v==="yes"?"✅":"❌"}</span>
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="footer-bottom">
+              /consulta.isp — Plataforma colaborativa de análise de crédito para provedores de internet do Brasil
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section id="faq" className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
-        <div className="max-w-3xl mx-auto px-6">
-          <div className="text-center mb-12">
-            <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">Perguntas frequentes</h2>
-          </div>
-          <Accordion type="single" collapsible className="border border-[var(--border)] rounded overflow-hidden" data-testid="faq-section">
-            {[
-              {q:"O que é a base de dados compartilhada?",a:"É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica em todos os provedores da rede e retorna dados anonimizados: dias de atraso, faixa de valor, equipamentos pendentes. Nunca dados pessoais identificáveis."},
-              {q:"Consultas na minha própria base são cobradas?",a:"Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado."},
-              {q:"Como funciona a análise por endereço?",a:"Você informa o CEP e o número da residência. O sistema cruza em toda a rede de provedores e mostra o histórico de inadimplência associado àquele imóvel — independente do CPF do morador atual. Isso detecta casos onde o inadimplente usa o CPF de um parente mas mora no mesmo local."},
-              {q:"Quanto tempo leva para configurar?",a:"15 minutos para conectar um ERP (IXC, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP) via API. A consulta vai ao ERP AO VIVO, entao o dado da decisao e sempre o de agora. Em paralelo, uma varredura completa da sua base roda tres vezes por semana e alimenta o mapa de inadimplencia. Sem instalacao, sem tecnico."},
-              {q:"Compartilhar dados de inadimplentes viola a LGPD?",a:"Não. O sistema compartilha apenas indicadores anonimizados — dias de atraso, faixa de valor e se há equipamentos pendentes. Nunca nome, CPF, endereço ou dados pessoais identificáveis. O sistema foi construído em conformidade com a LGPD."},
-              {q:"E a Resolução Anatel 765 — como ela afeta meu provedor?",a:"A Resolução 765 obriga a notificar o cliente em D+15 e aguardar até D+60 antes de cancelar. São 75 dias que o inadimplente pode usar para contratar outro provedor sem pagar. Com o anti-fraude, você recebe alerta em tempo real quando ele tenta migrar — e pode agir antes que a ONU saia da sua mão."},
-              {q:"Quais ERPs são suportados na integração automática?",a:"IXC Soft, SGP, MK Solutions, Hubsoft, Voalle, RBX ISP e outros. Solicitações para novos ERPs são avaliadas semanalmente — basta abrir um chamado pelo painel."},
-            ].map((faq, i) => (
-              <AccordionItem key={i} value={`faq-${i}`} className="border-b border-[var(--color-border)] last:border-0" data-testid={`faq-${i}`}>
-                <AccordionTrigger className="px-6 py-5 text-sm font-semibold text-[var(--color-ink)] hover:no-underline">{faq.q}</AccordionTrigger>
-                <AccordionContent className="px-6 pb-5 text-sm text-[var(--color-muted)] leading-relaxed">{faq.a}</AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </div>
-      </section>
-
-      {/* CTA FINAL */}
-      <section className="py-12 sm:py-16 lg:py-20 bg-[var(--color-brand)]">
-        <div className="max-w-3xl mx-auto px-6 text-center">
-          <div className="inline-flex items-center gap-2 bg-[var(--text-on-brand)]/10 text-[var(--text-on-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-8 border border-[var(--text-on-brand)]/25">
-            <div className="w-1.5 h-1.5 bg-[var(--text-on-brand)] rounded-full animate-pulse"/>
-            Começa grátis — sem cartão de crédito
-          </div>
-          <h2 className="font-display font-light text-[2.25rem] sm:text-[3rem] text-[var(--text-on-brand)] mb-5 leading-tight">
-            Saiba quem não vai pagar<br/>
-            <span className="text-[var(--text-on-brand)]/75">antes de instalar.</span>
-          </h2>
-          <p className="text-[var(--text-on-brand)]/85 mb-10 text-lg max-w-xl mx-auto leading-relaxed">
-            {/* Sai da mesma fonte do card do plano. Cravado, dizia 40 enquanto
-                o card dizia 50 — a mesma pagina prometia dois numeros
-                diferentes, e o certo e o do servidor, que e o que ele da. */}
-            Cadastro em 2 minutos. {fraseCreditosCta}<br/>
-            Consultas na sua base sempre gratuitas.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
-            <Button size="lg" onClick={goRegister} data-testid="button-cta-bottom"
-              className="bg-white text-[var(--color-brand)] hover:bg-[var(--color-brand-bg)] px-10 gap-2 h-12 text-base font-black rounded">
-              Criar conta grátis <ArrowRight className="w-4 h-4"/>
-            </Button>
-            <Button size="lg" variant="outline" onClick={goLogin} data-testid="button-login-bottom"
-              className="border-[var(--text-on-brand)]/35 text-[var(--text-on-brand)] hover:bg-[var(--text-on-brand)]/10 px-8 h-12 text-base rounded">
-              Já tenho conta — Login
-            </Button>
-          </div>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-5 text-sm text-[var(--text-on-brand)]/85">
-            <span className="flex items-center gap-2"><span className="text-[var(--text-on-brand)]">✓</span>Gratuito na base própria</span>
-            <span className="flex items-center gap-2"><span className="text-[var(--text-on-brand)]">✓</span>Sem contrato de fidelidade</span>
-            <span className="flex items-center gap-2"><span className="text-[var(--text-on-brand)]">✓</span>LGPD compliant</span>
-          </div>
-        </div>
-      </section>
-
-      {/* FOOTER */}
-      <footer className="bg-[#1A1714] py-8">
-        <div className="max-w-[1800px] mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <SimboloConsultaISP tamanho={26} />
-            <span className="text-white font-bold text-sm">Consulta ISP</span>
-            <span className="text-[#918DA1] text-xs hidden sm:inline">Base colaborativa para provedores</span>
-          </div>
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-[#918DA1]">
-            <span className="flex items-center gap-1"><Lock className="w-3 h-3 shrink-0"/>Dados criptografados</span>
-            <span className="flex items-center gap-1"><Shield className="w-3 h-3 shrink-0"/>Privacidade LGPD</span>
-          </div>
-        </div>
-        <div className="max-w-[1800px] mx-auto px-6 mt-5 pt-5 border-t border-[#2F2D3A]">
-          <p className="text-xs text-[#918DA1] text-center">
-            Consulta ISP — Plataforma colaborativa de análise de crédito para provedores de internet do Brasil
-          </p>
-        </div>
-      </footer>
-
-      <LandingChatbot onNavigate={setLocation}/>
-    </div>
+        </footer>
+      </div>
+      <LandingChatbot />
+    </>
   );
 }

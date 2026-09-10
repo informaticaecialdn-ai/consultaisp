@@ -793,31 +793,43 @@ POST/GET public/visitor-chat/*
 
 ---
 
-## 10. FUNCIONALIDADES DA LANDING PAGE (versão atualizada)
+## 10. LANDING PAGE (`client/src/pages/public/landingpage.tsx`)
 
-### Proposta de Valor
-- "Consulte o CPF antes de instalar. Evite o calote antes que aconteça."
-- R$ 690 prejuízo médio por inadimplente
-- < 2s resultado da consulta
-- Consultas na própria base são gratuitas
+Desenho **"/consulta.isp"**, aprovado pelo dono em 10/09/2026 e portado do HTML
+standalone que ele gerou no Claude Design. É a ÚNICA tela do produto que não
+segue o `DESIGN_SYSTEM.md`: paleta monocromática (creme `#F5F3EE` + preto
+`#0E0D0B`), JetBrains Mono no lugar do IBM Plex Mono, sem a berinjela. Foi
+decisão dele, e vale só aqui — a landing só é servida no host da plataforma
+(`marca.contexto !== "tenant"`), então não pisa em marca de revendedor.
 
-### Funcionalidades Destacadas
-1. **Consulta ISP** — Score em 2s, histórico em toda a rede, equipamentos retidos, sugestão APROVAR/REJEITAR
-2. **Anti-Fraude** — Alerta via WhatsApp em <5s quando CPF é consultado por outro provedor
-3. **Controle de Equipamentos** — Registro, rastreamento, status
-4. **Consulta por Endereço** — Cruza CEP + número independente do CPF
-5. **Consulta SPC** — Negativação integrada
-6. **Integração ERP** — IXC, MK Solutions, SGP, Hubsoft, RBX ISP, Voalle. A ÚNICA porta de entrada de dado.
-7. ~~Consulta em Lote via CSV~~ — nunca existiu rota de lote; e a importação por CSV acabou em 08/09/2026
+**A folha é escopada em `.lp`** (`landingpage.css`, chunk próprio de ~30 kB). O
+desenho declara `--bg`, `--surface` e `--ink` — os mesmos nomes dos tokens do
+sistema. Solto em `:root`, isso pintaria de creme TODAS as telas do app. Nada
+de CSS da landing pode sair de `.lp`; o `LandingChatbot` fica de fora do
+wrapper de propósito, senão herda os tokens errados.
 
-### Planos na Landing (versão mais recente)
-- **Gratuito R$0:** 30 créditos ISP, anti-fraude básico, integração com o ERP, 1 usuário
-- **Básico R$149/mês:** 200 ISP + 50 SPC/mês, WhatsApp, 1 ERP, 3 usuários
-- **Profissional R$349/mês:** 500 ISP + 150 SPC/mês, todos ERPs, lote 500 CPFs, ilimitado
+### Estrutura
+Barra utilitária → nav sticky → hero escuro com banner de 7 slides (7s, para com
+`prefers-reduced-motion`) → muro de ERPs → o que é / jornada em 5 passos → dois
+pilares → bloco escuro da rede (topologia, anonimato, LGPD) → antes e depois →
+7 funcionalidades → preços → FAQ (acordeão de item único) → CTA final → footer.
 
-### Depoimentos/Social Proof
-- Provedores de MG, SP, RS, PR, GO, BA
-- Economia de R$11.200 em equipamentos citada
+### Números — nenhum é digitado na página
+- Preço e créditos inclusos: `GET /api/public/precos` (`usePrecosPublicos`).
+  Sem resposta, o card diz "Preço indisponível no momento" — nunca R$ 0.
+- Custo por consulta: `CUSTO_EM_CREDITOS` (`isp` 1, `cadastral` 1, `spc` 3).
+- Vitrine: só **Gratuito** (R$ 0, 50 créditos de boas-vindas) e **Profissional**
+  (R$ 99/mês, 30 créditos por mês creditados quando a fatura é paga).
+
+### CTA
+Tudo que converte vai para `/login?mode=register`; "Login" e "Fazer login" para
+`/login`. Os `href` são reais (abrir em nova aba funciona) e o clique navega
+pelo wouter. "Privacidade LGPD" no footer aponta para `/lgpd`, que é pública.
+
+**A landing não vende importação manual.** `server/sem-importacao-manual.test.ts`
+lê o fonte desta página e falha se aparecer "CSV" ou "planilha" — inclusive numa
+frase que NEGA a existência delas. É trava de palavra, de propósito: promessa de
+importação por planilha é o tipo de coisa que volta pelo texto de marketing.
 
 ---
 
