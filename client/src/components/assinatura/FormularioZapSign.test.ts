@@ -32,4 +32,12 @@ describe("FormularioZapSign", () => {
     expect(pagina).toContain('import { FormularioZapSign } from "@/components/assinatura/FormularioZapSign";');
     expect(pagina).toContain("<FormularioZapSign providerId={providerId} ativo={ativo} />");
   });
+  it("acessibilidade e edição segura: todo Label aponta para o controle, e Ativar não apaga o que ainda não foi salvo", () => {
+    for (const id of ["zapsign-ambiente", "zapsign-token", "zapsign-template", "zapsign-prazo", "zapsign-auth-mode", "zapsign-rep-nome", "zapsign-rep-cpf", "zapsign-rep-email", "zapsign-rep-telefone"]) {
+      expect(fonte, id).toContain(`htmlFor="${id}"`);
+      expect(fonte, id).toContain(`id="${id}"`);
+    }
+    expect(fonte).toContain("if (data && !form) setForm(formularioDe(data));");
+    expect(fonte).toContain("configuração SALVA");
+  });
 });

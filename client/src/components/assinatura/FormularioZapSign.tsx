@@ -68,7 +68,7 @@ export function FormularioZapSign({ providerId, ativo }: { providerId: number; a
     enabled: ativo,
   });
   const [form, setForm] = useState<Formulario | null>(null);
-  useEffect(() => { if (data) setForm(formularioDe(data)); }, [data]);
+  useEffect(() => { if (data && !form) setForm(formularioDe(data)); }, [data, form]);
 
   const salvar = useMutation({
     mutationFn: async (f: Formulario) => {
@@ -117,32 +117,32 @@ export function FormularioZapSign({ providerId, ativo }: { providerId: number; a
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1">
-          <Label className="text-[12px]">Ambiente</Label>
+          <Label htmlFor="zapsign-ambiente" className="text-[12px]">Ambiente</Label>
           <Select value={form.ambiente} onValueChange={v => set("ambiente", v as AmbienteDeAssinatura)}>
-            <SelectTrigger className={CAMPO}><SelectValue /></SelectTrigger>
+            <SelectTrigger id="zapsign-ambiente" className={CAMPO}><SelectValue /></SelectTrigger>
             <SelectContent>{AMBIENTES_DE_ASSINATURA.map(a => <SelectItem key={a} value={a}>{ROTULO_AMBIENTE[a]}</SelectItem>)}</SelectContent>
           </Select>
           {form.ambiente === "sandbox" && <p className="text-[11px] text-[var(--gated)]">Sandbox: documento sem validade jurídica; nada é enviado ao cliente — o operador só copia o link.</p>}
         </div>
         <div className="space-y-1">
-          <Label className="text-[12px]">Token da API</Label>
-          <Input type="password" autoComplete="new-password" className={CAMPO} value={form.apiToken} onChange={e => set("apiToken", e.target.value)}
+          <Label htmlFor="zapsign-token" className="text-[12px]">Token da API</Label>
+          <Input id="zapsign-token" type="password" autoComplete="new-password" className={CAMPO} value={form.apiToken} onChange={e => set("apiToken", e.target.value)}
             placeholder={data?.apiTokenGravado ? `gravado · final ${data.apiTokenFinal ?? "????"} — deixe vazio para manter` : "cole o token da conta do provedor"} />
           <p className="text-[11px] text-[var(--text-faint)]">Trocar token ou ambiente exige Ativar de novo; o segredo do webhook é regenerado.</p>
         </div>
         <div className="space-y-1">
-          <Label className="text-[12px]">Modelo do ZapSign (opcional)</Label>
-          <Input className={CAMPO} value={form.templateId ?? ""} onChange={e => set("templateId", e.target.value || null)} placeholder="template_id — vazio usa o modelo padrão do Consulta ISP" />
+          <Label htmlFor="zapsign-template" className="text-[12px]">Modelo do ZapSign (opcional)</Label>
+          <Input id="zapsign-template" className={CAMPO} value={form.templateId ?? ""} onChange={e => set("templateId", e.target.value || null)} placeholder="template_id — vazio usa o modelo padrão do Consulta ISP" />
           <p className="text-[11px] text-[var(--text-faint)]">Variáveis do modelo: {"{{CREDOR_RAZAO_SOCIAL}}"}, {"{{DEVEDOR_NOME}}"}, {"{{VALOR_TOTAL}}"}, {"{{PARCELAS}}"}, {"{{ANEXO_FATURAS}}"} e as demais listadas na spec.</p>
         </div>
         <div className="space-y-1">
-          <Label className="text-[12px]">Prazo para assinar (dias)</Label>
-          <Input type="number" min={1} max={90} className={cn(CAMPO, "font-mono tabular-nums")} value={form.prazoAssinaturaDias} onChange={e => set("prazoAssinaturaDias", Math.max(1, Math.min(90, Number(e.target.value) || 1)))} />
+          <Label htmlFor="zapsign-prazo" className="text-[12px]">Prazo para assinar (dias)</Label>
+          <Input id="zapsign-prazo" type="number" min={1} max={90} className={cn(CAMPO, "font-mono tabular-nums")} value={form.prazoAssinaturaDias} onChange={e => set("prazoAssinaturaDias", Math.max(1, Math.min(90, Number(e.target.value) || 1)))} />
         </div>
         <div className="space-y-1 sm:col-span-2">
-          <Label className="text-[12px]">Como o cliente prova quem é (auth_mode)</Label>
+          <Label htmlFor="zapsign-auth-mode" className="text-[12px]">Como o cliente prova quem é (auth_mode)</Label>
           <Select value={form.authModeCliente} onValueChange={v => set("authModeCliente", v as AuthModeDoCliente)}>
-            <SelectTrigger className={CAMPO}><SelectValue /></SelectTrigger>
+            <SelectTrigger id="zapsign-auth-mode" className={CAMPO}><SelectValue /></SelectTrigger>
             <SelectContent>
               {AUTH_MODES_DO_CLIENTE.map(m => (
                 <SelectItem key={m} value={m}>{CUSTO_DO_AUTH_MODE[m].rotulo} · {CUSTO_DO_AUTH_MODE[m].creditos > 0 ? `${CUSTO_DO_AUTH_MODE[m].creditos} créditos` : CUSTO_DO_AUTH_MODE[m].reais > 0 ? `R$ ${CUSTO_DO_AUTH_MODE[m].reais.toFixed(2).replace(".", ",")}` : "sem custo"}</SelectItem>
@@ -170,16 +170,16 @@ export function FormularioZapSign({ providerId, ativo }: { providerId: number; a
 
       {form.provedorAssina && (
         <div className="grid gap-3 sm:grid-cols-4" data-testid="zapsign-representante">
-          <div className="space-y-1"><Label className="text-[12px]">Representante · nome</Label><Input className={CAMPO} value={form.signatarioNome ?? ""} onChange={e => set("signatarioNome", e.target.value || null)} /></div>
-          <div className="space-y-1"><Label className="text-[12px]">CPF</Label><Input className={cn(CAMPO, "font-mono tabular-nums")} value={form.signatarioCpf ?? ""} onChange={e => set("signatarioCpf", e.target.value || null)} /></div>
-          <div className="space-y-1"><Label className="text-[12px]">E-mail</Label><Input type="email" className={CAMPO} value={form.signatarioEmail ?? ""} onChange={e => set("signatarioEmail", e.target.value || null)} /></div>
-          <div className="space-y-1"><Label className="text-[12px]">Telefone</Label><Input className={cn(CAMPO, "font-mono tabular-nums")} value={form.signatarioTelefone ?? ""} onChange={e => set("signatarioTelefone", e.target.value || null)} /></div>
+          <div className="space-y-1"><Label htmlFor="zapsign-rep-nome" className="text-[12px]">Representante · nome</Label><Input id="zapsign-rep-nome" className={CAMPO} value={form.signatarioNome ?? ""} onChange={e => set("signatarioNome", e.target.value || null)} /></div>
+          <div className="space-y-1"><Label htmlFor="zapsign-rep-cpf" className="text-[12px]">CPF</Label><Input id="zapsign-rep-cpf" className={cn(CAMPO, "font-mono tabular-nums")} value={form.signatarioCpf ?? ""} onChange={e => set("signatarioCpf", e.target.value || null)} /></div>
+          <div className="space-y-1"><Label htmlFor="zapsign-rep-email" className="text-[12px]">E-mail</Label><Input id="zapsign-rep-email" type="email" className={CAMPO} value={form.signatarioEmail ?? ""} onChange={e => set("signatarioEmail", e.target.value || null)} /></div>
+          <div className="space-y-1"><Label htmlFor="zapsign-rep-telefone" className="text-[12px]">Telefone</Label><Input id="zapsign-rep-telefone" className={cn(CAMPO, "font-mono tabular-nums")} value={form.signatarioTelefone ?? ""} onChange={e => set("signatarioTelefone", e.target.value || null)} /></div>
         </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <button type="button" className="h-9 rounded bg-[var(--action)] px-4 text-[13px] font-medium text-[var(--text-on-brand)] hover:bg-[var(--action-hover)] disabled:opacity-60" disabled={ocupado} onClick={() => salvar.mutate(form)} data-testid="zapsign-salvar">Salvar</button>
-        <button type="button" className="h-9 rounded border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-[13px] font-medium text-[var(--text)] disabled:opacity-60" disabled={ocupado || !data?.apiTokenGravado || data?.apiTokenIlegivel} onClick={() => ativar.mutate()} title="Testa o token no ZapSign e liga a integração" data-testid="zapsign-ativar">Ativar</button>
+        <button type="button" className="h-9 rounded border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-[13px] font-medium text-[var(--text)] disabled:opacity-60" disabled={ocupado || !data?.apiTokenGravado || data?.apiTokenIlegivel} onClick={() => ativar.mutate()} title="Testa no ZapSign o token da configuração SALVA e liga a integração — salve antes o que alterou" data-testid="zapsign-ativar">Ativar</button>
         <span className="text-[11px] text-[var(--text-faint)]">
           {data?.modeloRevisadoEm ? `Modelo padrão marcado como revisado pelo provedor em ${new Date(data.modeloRevisadoEm).toLocaleDateString("pt-BR")}.` : "O modelo padrão sai com o aviso \"sem parecer jurídico\" até um admin do provedor marcá-lo como revisado."}
         </span>
