@@ -189,6 +189,22 @@ async function exigirSuporteDoFork(cliente: ChatBullqClient, organizationId: str
   if (!suporta) throw new ErroDaPonteDoChat("CHAT_SEM_SUPORTE", "O chat ainda não aceita este serviço de WhatsApp. Nenhum token foi enviado; peça ao administrador da instalação a atualização de canais.");
 }
 
+const TIPOS_DE_CANAL_DE_WHATSAPP = new Set(["WHATSAPP_ZAPPFY", "WHATSAPP_OFFICIAL"]);
+
+/** Remove no fork todo canal de WhatsApp da organizacao que nao seja o atual. Falha vira aviso: o canal novo ja esta de pe. */
+export async function removerCanaisAntigosDeWhatsapp(cliente: ChatBullqClient, providerId: number, organizationId: string, canalAtualId: string): Promise<{ removidos: number; falhas: number }> {
+  const lista = await cliente.listarCanais(organizationId);
+  if (falhou(lista)) { logger.warn({ providerId, erro: lista.erro }, "Chat: nao foi possivel listar os canais para limpar os antigos"); return { removidos: 0, falhas: 1 }; }
+  let removidos = 0, falhas = 0;
+  for (const canal of lista.valor) {
+    if (canal.id === canalAtualId || !TIPOS_DE_CANAL_DE_WHATSAPP.has(canal.type)) continue;
+    const r = await cliente.removerCanal(organizationId, canal.id, canal.name);
+    if (falhou(r)) { falhas++; logger.warn({ providerId, canalId: canal.id, erro: r.erro }, "Chat: canal antigo de WhatsApp nao foi removido"); }
+    else { removidos++; logger.info({ providerId, canalId: canal.id }, "Chat: canal antigo de WhatsApp removido — um numero por provedor"); }
+  }
+  return { removidos, falhas };
+}
+
 async function configurarCanalWhatsappSemTrava(providerId: number, dados: CanalWhatsapp | { nome: string; token: string; webhookSecret?: string }) {
   const cliente = clienteDoChat();
   if (!cliente) throw desligado();
@@ -227,6 +243,12 @@ async function configurarCanalWhatsappSemTrava(providerId: number, dados: CanalW
     const vinculo = await cliente.ligarAgenteAoCanal(intg.organizationId, agenteId, criado.valor.id, "DISABLED");
     if (falhou(vinculo)) logger.warn({ providerId, agenteId, erro: vinculo.erro }, "Chat: canal criado, mas o agente nao foi ligado a ele");
   }
+  // UM numero por provedor. Cada "salvar" cria um canal novo no fork (e so o
+  // create configura o webhook na instancia), e o fork entrega a mensagem
+  // recebida ao PRIMEIRO canal ativo cujo token bate — com dois canais iguais,
+  // a conversa cai no canal que a ponte nao acompanha (NsLink, 09/09/2026:
+  // cinco canais com o mesmo token). Os antigos saem, depois do novo existir.
+  await removerCanaisAntigosDeWhatsapp(cliente, providerId, intg.organizationId, criado.valor.id);
   const atualizada = await storage.marcarEstadoDaIntegracaoDoChat(providerId, {
     status,
     ultimoErro,

@@ -26,16 +26,42 @@ beforeEach(() => {
 describe("conexão WhatsApp não oficial", () => {
   it("consulta apenas organização/canal do provedor e remove campos remotos extras", async () => {
     fake.estadoDaConexaoWhatsapp.mockResolvedValue({ ok: true, valor: { ...conectado, token: "segredo", instance: { token: "segredo" } } });
-    expect(await consultarOuConectarWhatsapp(7, "consultar")).toEqual(conectado);
+    expect(await consultarOuConectarWhatsapp(7, "consultar")).toEqual({ ...conectado, aviso: null });
     expect(fake.estadoDaConexaoWhatsapp).toHaveBeenCalledWith("org-7", "canal-7");
     expect(fake.marcarEstadoDaIntegracaoDoChat).toHaveBeenCalledWith(7, { status: "ativo", ultimoErro: null });
   });
+  it("numero JA conectado: 'conectar' nao pede QR nem codigo (derrubaria a sessao) e devolve o estado com aviso", async () => {
+    const r = await consultarOuConectarWhatsapp(7, "conectar", undefined, { espera: 0 });
+    expect(fake.conectarWhatsapp).not.toHaveBeenCalled();
+    expect(r.connected).toBe(true);
+    expect(r.aviso).toMatch(/já está conectado/);
+    expect(fake.marcarEstadoDaIntegracaoDoChat).toHaveBeenCalledWith(7, expect.objectContaining({ status: "ativo" }));
+  });
+  it("desconectado: pede o QR e RELE o estado depois — o QR que aparece no status vale mais que a resposta do pedido", async () => {
+    fake.estadoDaConexaoWhatsapp
+      .mockResolvedValueOnce({ ok: true, valor: { ...conectado, status: "disconnected", connected: false, loggedIn: false } })
+      .mockResolvedValueOnce({ ok: true, valor: { ...conectado, status: "connecting", connected: false, loggedIn: false, qrCode: "data:image/png;base64,iVBORw0KGgoRELIDO=" } });
+    fake.conectarWhatsapp.mockResolvedValueOnce({ ok: true, valor: { ...conectado, status: "connecting", connected: false, loggedIn: false, qrCode: null } });
+    const r = await consultarOuConectarWhatsapp(7, "conectar", undefined, { espera: 0 });
+    expect(fake.conectarWhatsapp).toHaveBeenCalledWith("org-7", "canal-7", undefined);
+    expect(r.qrCode).toBe("data:image/png;base64,iVBORw0KGgoRELIDO=");
+    expect(r.aviso).toBeNull();
+  });
+  it("releitura sem QR nem codigo: fica a resposta do pedido", async () => {
+    fake.estadoDaConexaoWhatsapp
+      .mockResolvedValueOnce({ ok: true, valor: { ...conectado, status: "disconnected", connected: false, loggedIn: false } })
+      .mockResolvedValueOnce({ ok: true, valor: { ...conectado, status: "disconnected", connected: false, loggedIn: false } });
+    const r = await consultarOuConectarWhatsapp(7, "conectar", undefined, { espera: 0 });
+    expect(r.qrCode).toBe("data:image/png;base64,iVBORw0KGgo=");
+  });
   it("conectar QR não envia telefone e marca pareamento pendente", async () => {
+    fake.estadoDaConexaoWhatsapp.mockResolvedValue({ ok: true, valor: { ...conectado, status: "disconnected", connected: false, loggedIn: false } });
     expect((await consultarOuConectarWhatsapp(7, "conectar")).qrCode).toContain("data:image/png");
     expect(fake.conectarWhatsapp).toHaveBeenCalledWith("org-7", "canal-7", undefined);
     expect(fake.marcarEstadoDaIntegracaoDoChat).toHaveBeenCalledWith(7, { status: "aguardando_conexao", ultimoErro: "Aguardando o pareamento do WhatsApp" });
   });
   it("encaminha o número somente ao pedir código de pareamento", async () => {
+    fake.estadoDaConexaoWhatsapp.mockResolvedValue({ ok: true, valor: { ...conectado, status: "disconnected", connected: false, loggedIn: false } });
     await consultarOuConectarWhatsapp(7, "conectar", "5543999990000");
     expect(fake.conectarWhatsapp).toHaveBeenCalledWith("org-7", "canal-7", "5543999990000");
   });

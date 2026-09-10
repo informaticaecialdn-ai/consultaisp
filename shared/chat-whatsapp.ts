@@ -42,6 +42,8 @@ export const EstadoDaConexaoWhatsappSchema = z.object({
   phone: z.string().regex(/^\d{8,15}$/).nullable(),
   qrCode: z.string().max(500_000).regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/).nullable(),
   pairCode: z.string().max(30).regex(/^[A-Za-z0-9-]+$/).nullable(),
+  /** O que o servidor decidiu NAO fazer, e por que (ex.: numero ja conectado — nao pede QR). */
+  aviso: z.string().max(300).nullable().optional(),
 });
 export type EstadoDaConexaoWhatsapp = z.infer<typeof EstadoDaConexaoWhatsappSchema>;
 

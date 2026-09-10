@@ -496,3 +496,15 @@ describe("log", () => {
     }
   });
 });
+
+describe("remover canal", () => {
+  it("DELETE /channels/:id leva o nome exato do canal em confirmName (a confirmacao do fork), na query", async () => {
+    const s = servidorComSessao();
+    s.quando("DELETE", "/channels/c1", ch => ({ corpo: { data: { id: "c1", deleted: true } } }));
+    const r = await cliente(s).removerCanal(ORG, "c1", "WhatsApp principal");
+    expect(r.ok).toBe(true);
+    const chamada = s.chamadas.find(c => c.metodo === "DELETE")!;
+    expect(chamada.caminho).toBe("/channels/c1");
+    expect(chamada.query.get("confirmName")).toBe("WhatsApp principal");
+  });
+});

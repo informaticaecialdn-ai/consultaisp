@@ -202,3 +202,12 @@ describe("o bloco de conversa na ficha 360", () => {
     expect(chamada).not.toContain("casoId");
   });
 });
+
+describe("a conexao do WhatsApp mostra o estado ao abrir e o aviso do servidor", () => {
+  it("consulta o estado na montagem (sem clique) e desenha o aviso de 'numero ja conectado'", () => {
+    const fonte = ler("components/chat/ConexaoWhatsapp.tsx");
+    expect(fonte).toMatch(/useEffect\(\(\) => \{ if \(podeAdministrar && !oficial\) acao\.mutate\("consultar"\); \}, \[\]\)/);
+    expect(fonte).toMatch(/data-testid="chat-conexao-aviso"/);
+    expect(fonte).toMatch(/\{estado\?\.aviso && /);
+  });
+});

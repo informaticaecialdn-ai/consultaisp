@@ -243,6 +243,14 @@ export class ChatBullqClient {
     return this.operacao<Canal[]>(orgId, "GET", "/channels");
   }
 
+  /**
+   * Soft delete no fork (`DELETE /channels/:id?confirmName=`): ele exige o nome
+   * exato do canal como confirmacao. Conversas e mensagens ficam guardadas.
+   */
+  removerCanal(orgId: string, canalId: string, nome: string): Promise<Resultado<void>> {
+    return this.operacao<void>(orgId, "DELETE", `/channels/${enc(canalId)}`, { query: { confirmName: nome } });
+  }
+
   criarCanalZappfy(
     orgId: string,
     dados: { nome: string; token: string; webhookSecret?: string },

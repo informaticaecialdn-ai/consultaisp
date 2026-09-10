@@ -116,3 +116,22 @@ Documentação pública consultada:
 A prosa Zappfy orienta omitir `phone` para QR, embora seu schema público ainda o
 marque como obrigatório. A implementação segue a descrição do fluxo; o schema
 atual da Uazapi confirma explicitamente que esse campo é opcional.
+
+## Lições da NsLink com o Uazapi (09/09/2026)
+
+- **Pedir QR ou código para um número já conectado derruba a sessão.** No Uazapi,
+  `POST /instance/connect` com `phone` inicia OUTRO login: o painel registra
+  "disconnected by API" e, se ninguém digitar o código no celular, quatro minutos
+  depois "Pair Code timeout". A ponte agora lê o estado antes de pedir e, conectado
+  e logado, devolve o estado com um aviso em vez de pedir.
+- **O QR e o código aparecem no status logo DEPOIS do pedido**, não na resposta
+  dele. A ponte espera ~1,2 s e relê `connection-status`; a tela consulta o estado
+  ao abrir, sem clique.
+- **Um número por provedor.** Cada `POST /channels` cria um canal novo (e só o
+  create configura o webhook na instância); o fork entrega a mensagem recebida ao
+  PRIMEIRO canal ativo cujo token bate. Ao salvar, a ponte remove os canais de
+  WhatsApp antigos da organização (`DELETE /channels/:id?confirmName=`); para quem
+  já estava duplicado: `npx tsx script/limpar-canais-do-chat.ts <providerId>`.
+- **`free.uazapi.com` é servidor de testes:** a instância é desconectada e apagada
+  em uma hora, e pode responder 429 por lotação. Para uso real é preciso um
+  servidor Uazapi contratado (ou Zappfy).

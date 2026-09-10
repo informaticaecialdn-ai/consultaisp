@@ -54,6 +54,8 @@ function clienteFalso(sobrescritas: Record<string, any> = {}) {
     criarCanalZappfy: vi.fn(async () => ({ ok: true, valor: { id: "ch_1", type: "WHATSAPP_ZAPPFY", name: "Principal", isActive: true } })),
     criarCanalWhatsapp: vi.fn(async () => ({ ok: true, valor: { id: "ch_2", type: "WHATSAPP_ZAPPFY", name: "Principal", isActive: true } })),
     testarCanal: vi.fn(async () => ({ ok: true, valor: { ok: true } })),
+    listarCanais: vi.fn(async () => ({ ok: true, valor: [] })),
+    removerCanal: vi.fn(async () => ({ ok: true, valor: undefined })),
     capacidadesDosCanais: vi.fn(async () => ({ ok: true, valor: { whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", uazapi: true, datafy: true, templateFirstContact: true } })),
     estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: true, valor: { provider: "ZAPPFY", status: "connected", connected: true, loggedIn: true, phone: "5543999990000", qrCode: null, pairCode: null } })),
     ligarAgenteAoCanal: vi.fn(async () => ({ ok: true, valor: undefined })),
@@ -133,6 +135,30 @@ describe("garantirIntegracao", () => {
 });
 
 describe("configurarCanalWhatsapp", () => {
+  it("um numero por provedor: ao salvar, os canais de WhatsApp antigos da organizacao saem do fork (com o nome, que e a confirmacao) — o novo e outros tipos ficam", async () => {
+    const c = clienteFalso({ listarCanais: vi.fn(async () => ({ ok: true, valor: [
+      { id: "ch_velho", type: "WHATSAPP_ZAPPFY", name: "WhatsApp principal", isActive: true },
+      { id: "ch_1", type: "WHATSAPP_ZAPPFY", name: "Principal", isActive: true },
+      { id: "ch_datafy", type: "WHATSAPP_OFFICIAL", name: "Oficial", isActive: true },
+      { id: "ch_email", type: "EMAIL", name: "E-mail", isActive: true },
+    ] })) });
+    _usarClienteDoChatParaTestes(c as never);
+    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_zap_1234567890", provider: "ZAPPFY" } as never);
+    expect(c.removerCanal).toHaveBeenCalledTimes(2);
+    expect(c.removerCanal).toHaveBeenCalledWith("org_1", "ch_velho", "WhatsApp principal");
+    expect(c.removerCanal).toHaveBeenCalledWith("org_1", "ch_datafy", "Oficial");
+    expect(c.removerCanal).not.toHaveBeenCalledWith("org_1", "ch_1", expect.anything());
+  });
+  it("remocao dos antigos que falha nao derruba o salvar: o canal novo ja esta de pe", async () => {
+    const c = clienteFalso({
+      listarCanais: vi.fn(async () => ({ ok: true, valor: [{ id: "ch_velho", type: "WHATSAPP_ZAPPFY", name: "Antigo", isActive: true }] })),
+      removerCanal: vi.fn(async () => ({ ok: false, erro: "HTTP 500" })),
+    });
+    _usarClienteDoChatParaTestes(c as never);
+    const r = await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_zap_1234567890", provider: "ZAPPFY" } as never);
+    expect(r.canalOk).toBe(true);
+    expect(r.integracao.canalId).toBe("ch_1");
+  });
   it("cria o canal, testa, confirma o numero conectado e logado, e so entao marca ativo", async () => {
     const c = clienteFalso();
     const r = await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
