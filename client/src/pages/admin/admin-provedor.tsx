@@ -32,6 +32,7 @@ import {
   KeyRound, Receipt, History, ScanSearch, IdCard, Lock, LogIn,
 } from "lucide-react";
 import FormularioErp, { type ConectorMeta } from "@/components/erp/FormularioErp";
+import { FormularioZapSign } from "@/components/assinatura/FormularioZapSign";
 import { lembrarPersonificacao } from "@/components/FaixaSuporte";
 import {
   cadastroDoProvedor, corpoDoPatch, errosDoCadastro,
@@ -4317,6 +4318,9 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
           </TabelaPainel>
         )}
       </Card>
+
+      {/* A assinatura eletrônica mora aqui, ao lado do ERP: é a outra conta de terceiro que o superadmin grava pelo provedor. */}
+      <FormularioZapSign providerId={providerId} ativo={ativo} />
     </TabsContent>
   );
 }
