@@ -33,7 +33,10 @@ function cabecalhoConfere(recebido: string | undefined, esperado: string | null)
   // Comprimentos diferentes também comparam (contra um buffer do mesmo tamanho) para o tempo não denunciar.
   const iguais = a.length === b.length && timingSafeEqual(a, b);
   if (a.length !== b.length) timingSafeEqual(b, b);
-  return iguais && esperado !== null;
+  // Segredo vazio NÃO autentica: dois buffers de comprimento zero são "iguais",
+  // e a coluna é `text` sem NOT NULL — a única defesa deste endpoint não pode
+  // depender de um invariante que mora em outro arquivo.
+  return iguais && !!esperado;
 }
 
 function excedeuLimiteDoProvedor(providerId: number): boolean {
@@ -71,22 +74,34 @@ export function registerWebhooksZapSignRoutes(): Router {
     const eventType = parsed.data.event_type;
     logger.info({ providerId, eventType, token }, "ZAPSIGN webhook");
 
+    let confissaoId: number | null = null;
     try {
       const confissao = await storage.obterConfissaoPorToken(providerId, token);
       if (!confissao) return res.json({ ok: true, ignorado: true });
+      confissaoId = confissao.id;
       if (EVENTOS_INFORMATIVOS.has(eventType)) return res.json({ ok: true });
       if (confissao.status !== "enviada") return res.json({ ok: true, ignorado: "fora de enviada" });
       if (eventType === "doc_refused" || eventType === "doc_expired") {
         await registrarInformadoPeloWebhook(providerId, confissao.id, eventType === "doc_refused" ? "recusa" : "expiracao", eventType);
         return res.json({ ok: true, informado: true });
       }
+      const agora = Date.now();
       const ultima = ultimaReconsulta.get(confissao.id) ?? 0;
-      if (Date.now() - ultima < JANELA_DE_RECONSULTA_MS) return res.json({ ok: true, ignorado: "dentro da janela" });
-      ultimaReconsulta.set(confissao.id, Date.now());
+      if (agora - ultima < JANELA_DE_RECONSULTA_MS) return res.json({ ok: true, ignorado: "dentro da janela" });
+      // A cada reconsulta nova, aproveita para varrer entradas já expiradas —
+      // sem isso o mapa só cresce (uma confissão nunca mais reconsultada nunca sai dele).
+      for (const [id, quando] of ultimaReconsulta) if (agora - quando >= JANELA_DE_RECONSULTA_MS) ultimaReconsulta.delete(id);
+      ultimaReconsulta.set(confissao.id, agora);
       const r = await aplicarRetorno(providerId, confissao.id, "webhook");
       return res.json({ ok: true, status: r.status, mudou: r.mudou });
     } catch (e) {
-      if (e instanceof ErroDeConfissao) return res.status(e.http >= 500 ? 502 : e.http).json({ message: e.message, code: e.codigo });
+      // A janela de 30 s existe para não martelar o ZapSign, não para engolir a
+      // próxima entrega: se a reconsulta falhou, o próximo evento tem de tentar.
+      if (confissaoId !== null) ultimaReconsulta.delete(confissaoId);
+      if (e instanceof ErroDeConfissao) {
+        logger.warn({ providerId, eventType, token, code: e.codigo, erro: e.message }, "ZAPSIGN webhook: reconsulta falhou");
+        return res.status(502).json({ message: "Falha ao processar o evento", code: e.codigo });
+      }
       logger.error({ providerId, eventType, token, err: e }, "ZAPSIGN webhook falhou");
       return res.status(502).json({ message: "Falha ao processar o evento" });
     }

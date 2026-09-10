@@ -53,6 +53,10 @@ describe("autenticação", () => {
     expect(corpos[0]).toEqual(corpos[1]);
     expect(retorno.aplicarRetorno).not.toHaveBeenCalled();
     expect((await post("abc", evento("doc_signed"), "segredo-certo")).status).toBe(401);
+    storageMock.webhookSecretDoProvedor.mockResolvedValueOnce({ webhookSecret: "", isEnabled: true, ambiente: "producao" });
+    expect((await post(1, evento("doc_signed"))).status).toBe(401);
+    storageMock.webhookSecretDoProvedor.mockResolvedValueOnce({ webhookSecret: "", isEnabled: true, ambiente: "producao" });
+    expect((await post(1, evento("doc_signed"), "")).status).toBe(401);
   });
   it("o corpo do webhook nunca vai ao log — só providerId, event_type e token", async () => {
     await post(1, evento("doc_signed"), "segredo-certo");
@@ -100,9 +104,16 @@ describe("eventos", () => {
     expect(retorno.registrarInformadoPeloWebhook).toHaveBeenCalledWith(1, 77, "expiracao", "doc_expired");
     expect(retorno.aplicarRetorno).not.toHaveBeenCalled();
   });
-  it("reconsulta que falha → 502 (o serviço já gravou reconciliar_em)", async () => {
-    retorno.aplicarRetorno.mockRejectedValueOnce(new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", "fora", 502));
-    expect((await post(1, evento("doc_signed"), "segredo-certo")).status).toBe(502);
+  it("reconsulta que falha → 502 sempre (mesmo com http < 500), sem detalhe interno, e libera a janela para a próxima entrega", async () => {
+    retorno.aplicarRetorno.mockRejectedValueOnce(new ErroDeConfissao("NAO_CONFIGURADA", "A integração com o ZapSign não está configurada para este provedor", 409));
+    const r = await post(1, evento("doc_signed"), "segredo-certo");
+    expect(r.status).toBe(502);
+    const corpo = await r.json();
+    expect(corpo.message).toBe("Falha ao processar o evento");
+    expect(JSON.stringify(corpo)).not.toContain("integração");
+    retorno.aplicarRetorno.mockResolvedValueOnce({ status: "assinada", mudou: true, motivo: null, confirmado: true });
+    expect((await post(1, evento("doc_signed"), "segredo-certo")).status).toBe(200);
+    expect(retorno.aplicarRetorno).toHaveBeenCalledTimes(2);
   });
   it("corpo sem event_type ou sem token → 400; limite por provedor → 429", async () => {
     expect((await post(1, { foo: 1 }, "segredo-certo")).status).toBe(400);
