@@ -90,6 +90,8 @@ CHAT_BULLQ_TOOLS_HOSTS=             # Opcional; hosts que uma "conexao" do conso
                                     # A base de CHAT_BULLQ_AGENTE_URL entra sempre. Sem a variavel, so ela e permitida — e e o
                                     # que faz sentido: a skill util aqui chama a NOSSA API do agente. Quem escolhe o destino
                                     # escolhe para onde vao os headers de credencial.
+ASSINATURA_WEBHOOK_URL=             # Opcional; base do webhook do ZapSign (padrao https://consultaisp.com.br/api/webhooks/zapsign).
+                                    # O caminho final e /:providerId; o cabecalho X-Consulta-ISP-Assinatura autentica.
 ```
 
 ---
@@ -685,6 +687,19 @@ selo "≈ estimado" com o motivo (`economiaEstimada`), `estimados` no card. A
 mensalidade do ex-cliente cuja única fatura é o saldo vem do preço do plano, ou da
 própria fatura de saída ("2 Mensalidades 199,80" → 99,90; "Proporcional 40 dias"
 pro-rata), origem `fatura_de_saida`.
+
+**Confissão de dívida (migração 0037, 09/09/2026):** instrumento particular de
+confissão de dívida (CPC 784, III e §4º) assinado eletronicamente pelo devedor
+via ZapSign — conta do PRÓPRIO PROVEDOR, token gravado pelo superadmin na aba
+Integração ERP (Salvar/Ativar, como o ERP). Nada é digitado: o valor vem do
+acordo aceito ou do saldo lido AO VIVO no ERP. `enviada` só vira `assinada`
+depois que o servidor RECONSULTA o ZapSign — o webhook nunca decide sozinho.
+Uma confissão viva por cliente; sandbox não tem validade jurídica. Rotas:
+`GET/PUT/POST /api/admin/providers/:id/assinatura/zapsign[/ativar]` (superadmin);
+`.../api/cobranca/confissoes*` e `.../clientes/:id/confissoes*` (provedor,
+emitir/cancelar/reenviar só admin); `POST /api/webhooks/zapsign/:providerId`
+(retorno). Reconciliação e retenção rodam no WORKER. Ver
+`docs/confissao-de-divida-2026-09-09.md` e a spec em `docs/superpowers/specs/`.
 
 ### Chat, agentes e assistente autônomo (requireAuth + requireProvider)
 O atendimento vive DENTRO do sistema: `/cobranca/chat` e `/equipamentos/chat`, a
