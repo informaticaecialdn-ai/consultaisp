@@ -479,6 +479,8 @@ export interface ItemDaFila extends CasoDetalhe {
   chat?: ChatDoCaso | null;
   /** O acordo vivo, quando ha — vem no kanban. */
   negociacao?: NegociacaoResumo | null;
+  /** O selo da confissão de dívida assinada viva do cliente — vem no kanban. */
+  confissao?: SeloDaConfissao | null;
   cliente: ClienteDaFila;
   quadrante?: string | null;
   tomSugerido?: string | null;

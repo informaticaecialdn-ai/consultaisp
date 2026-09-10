@@ -8,6 +8,11 @@ import { getSafeErrorMessage } from "../utils/safe-error";
 import { casoEstaEncerrado } from "../services/equipment-recovery-rules";
 import { snapshotAoVivoDoCliente } from "../services/cobranca/snapshot-ao-vivo.service";
 import { cancelarConfissao } from "../services/confissao/confissao-retorno.service";
+// Alias: este arquivo ja tem seu proprio `dataLocal` (partes LOCAIS do processo,
+// linha ~297) — reaproveitar o formatador com fuso EXPLICITO America/Sao_Paulo do
+// chat de cobranca em vez de duplicar `Intl.DateTimeFormat`, sob outro nome pra
+// nao colidir com o de baixo.
+import { dataLocal as diaEmBrasilia } from "../services/chat/chat-autonomia-politica";
 import { ErroDeConfissao } from "../assinatura/erro";
 import { podeAdministrarOProvedor } from "./provider.routes";
 import {
@@ -1625,7 +1630,9 @@ export function registerCobrancaRoutes(): Router {
         comunicacoes30d: contatos.filter(ev => ev.ocorridoEm && new Date(ev.ocorridoEm) >= ha30d).length,
         totalComunicacoes: contatos.length,
         // Confissao assinada viva (spec §6.6): interrompe a prescricao em `montarFicha360`.
-        confissaoAssinadaEm: confissaoAssinada?.assinadaEm ? confissaoAssinada.assinadaEm.toISOString().slice(0, 10) : null,
+        // O DIA em Brasilia, nao em UTC: as 21h daqui o UTC ja virou o dia seguinte,
+        // e e esta data que o 360 declara como a interrupcao (CC art. 202, VI).
+        confissaoAssinadaEm: confissaoAssinada?.assinadaEm ? diaEmBrasilia(confissaoAssinada.assinadaEm) : null,
       };
       // Desde a 0036 o ERP confirma pagamento (IXC e SGP em lote; MK pela API
       // licenciada): com fatura paga sincronizada a Economia sai REALIZADA —

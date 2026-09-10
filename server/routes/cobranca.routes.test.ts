@@ -2360,9 +2360,12 @@ describe("acordo × confissão e os selos", () => {
     const lista = await (await json("GET", "/api/cobranca/carteira?carteira=ativo")).json();
     expect(lista.itens[0].confissao).toEqual({ id: 77, assinadaEm: "2026-09-01T12:00:00.000Z", valorTotal: 819.76, ambiente: "producao" });
     storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
-    storageMock.confissaoAssinadaVivaDoCliente.mockResolvedValueOnce({ id: 77, assinadaEm: new Date("2026-09-01T12:00:00Z"), valorTotal: "819.76", ambiente: "producao" });
+    // Fronteira de fuso: 2026-09-02T01:00:00Z = 01/09 22h em Brasilia (UTC-3).
+    // O dia UTC ja e 02/09; o dia de Brasilia, que e o que vale para a
+    // interrupcao da prescricao, ainda e 01/09.
+    storageMock.confissaoAssinadaVivaDoCliente.mockResolvedValueOnce({ id: 77, assinadaEm: new Date("2026-09-02T01:00:00Z"), valorTotal: "819.76", ambiente: "producao" });
     const ficha = await (await json("GET", `/api/cobranca/clientes/${clienteMaria.id}/360`)).json();
-    expect(ficha.confissaoViva).toEqual({ id: 77, assinadaEm: "2026-09-01T12:00:00.000Z", valorTotal: 819.76, ambiente: "producao" });
+    expect(ficha.confissaoViva).toEqual({ id: 77, assinadaEm: "2026-09-02T01:00:00.000Z", valorTotal: 819.76, ambiente: "producao" });
     expect(ficha.fichaEntrada.confissaoAssinadaEm).toBe("2026-09-01");
     expect(ficha.ficha.prescricao.interrompida_em).toBe("2026-09-01");
   });
