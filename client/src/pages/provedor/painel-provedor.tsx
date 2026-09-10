@@ -26,6 +26,7 @@ import { AbaSuporte } from "@/components/painel/AbaSuporte";
 import { AbaChat } from "@/components/painel/AbaChat";
 import { AbaCobranca } from "@/components/painel/AbaCobranca";
 import { AbaAgentesDeIa } from "@/components/painel/AbaAgentesDeIa";
+import { EstadoDaAssinatura } from "@/components/assinatura/EstadoDaAssinatura";
 import { Bot, MessageSquareShare, Scale } from "lucide-react";
 import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 import { rotuloDoPlano } from "@/lib/planos";
@@ -2225,6 +2226,8 @@ export default function PainelProvedorPage() {
               </div>
             )}
           </Card>
+
+          <EstadoDaAssinatura podeAdministrar={podeAdministrar} />
         </TabsContent>
 
         {/* ======================== ANTI-FRAUDE ======================== */}
