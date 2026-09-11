@@ -106,6 +106,14 @@ describe("base e emissão", () => {
     expect((await json("GET", "/api/cobranca/clientes/abc/confissoes/base")).status).toBe(400);
     expect((await json("GET", "/api/cobranca/clientes/5/confissoes/base?vencimento=10/10/2026")).status).toBe(400);
   });
+  it("e-mail e nome do representante pela metade não são 400 na base: um 400 apaga o diálogo — quem recusa é o bloqueio da base", async () => {
+    const r = await json("GET", "/api/cobranca/clientes/5/confissoes/base?email=%20maria%40%20&representanteNome=Jo&representanteCpf=1");
+    expect(r.status).toBe(200);
+    expect(servicos.montarBase).toHaveBeenCalledWith(42, 5, expect.objectContaining({ email: "maria@", representante: { nome: "Jo", cpf: "1" } }));
+    // Na emissão o formato continua validado: ali o 400 é o certo.
+    expect((await json("POST", "/api/cobranca/clientes/5/confissoes", { ...corpo(), clienteEmail: "maria@" })).status).toBe(400);
+    expect(servicos.emitirConfissao).not.toHaveBeenCalled();
+  });
   it("o corpo da emissão é validado; erros de domínio saem com o HTTP do erro e o código", async () => {
     expect((await json("POST", "/api/cobranca/clientes/5/confissoes", { ...corpo(), chaveIdempotencia: "nao-e-uuid" })).status).toBe(400);
     expect((await json("POST", "/api/cobranca/clientes/5/confissoes", { ...corpo(), origem: "outra" })).status).toBe(400);

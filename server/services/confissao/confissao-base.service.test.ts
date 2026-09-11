@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * muda quando a base muda e não muda com o relógio.
  */
 const storageMock = vi.hoisted(() => ({
+  obterCliente: vi.fn(async (): Promise<any> => cliente()),
   getCustomersByProvider: vi.fn(async (): Promise<any[]> => [cliente()]),
   getProvider: vi.fn(async (): Promise<any> => ({ id: 1, name: "NsLink Telecom Ltda", tradeName: "NsLink", cnpj: "12345678000199", addressStreet: "Rua A", addressNumber: "10", addressNeighborhood: "Centro", addressCity: "Lavras do Norte", addressState: "MG", addressZip: "39000000" })),
   casoAbertoDoCliente: vi.fn(async (): Promise<any> => ({ id: 9, status: "aberto", customerId: 42 })),
@@ -41,7 +42,7 @@ function snapshot(extra: Record<string, unknown> = {}) {
   }, ...extra };
 }
 
-beforeEach(() => { vi.clearAllMocks(); storageMock.getCustomersByProvider.mockResolvedValue([cliente()]); storageMock.getIntegracaoComCredencial.mockResolvedValue(integracao()); snapshotMock.snapshotAoVivoDoCliente.mockResolvedValue(snapshot()); });
+beforeEach(() => { vi.clearAllMocks(); storageMock.obterCliente.mockResolvedValue(cliente()); storageMock.getIntegracaoComCredencial.mockResolvedValue(integracao()); snapshotMock.snapshotAoVivoDoCliente.mockResolvedValue(snapshot()); });
 
 describe("saldo integral", () => {
   it("lê o ERP ao vivo (forçado), só faturas vencidas, divide multa com valor em linha própria e soma encargos só no serviço", async () => {
@@ -139,16 +140,16 @@ describe("bloqueios de cadastro e configuração", () => {
     expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContainEqual(expect.stringContaining("assinatura eletrônica não configurada"));
     storageMock.casoAbertoDoCliente.mockResolvedValueOnce(undefined);
     expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContainEqual(expect.stringContaining("abra o caso antes"));
-    storageMock.getCustomersByProvider.mockResolvedValueOnce([cliente({ cpfCnpj: "" })]);
+    storageMock.obterCliente.mockResolvedValueOnce(cliente({ cpfCnpj: "" }));
     expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContainEqual(expect.stringContaining("sem CPF/CNPJ"));
-    storageMock.getCustomersByProvider.mockResolvedValueOnce([cliente({ email: null, phone: null })]);
+    storageMock.obterCliente.mockResolvedValueOnce(cliente({ email: null, phone: null }));
     snapshotMock.snapshotAoVivoDoCliente.mockResolvedValueOnce(snapshot({ cliente: { ...snapshot().cliente, email: null, telefone: null } }));
     expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContainEqual(expect.stringContaining("sem e-mail e sem telefone"));
-    storageMock.getCustomersByProvider.mockResolvedValueOnce([cliente({ cpfCnpj: "11222333000181", name: "Padaria Ltda" })]);
+    storageMock.obterCliente.mockResolvedValueOnce(cliente({ cpfCnpj: "11222333000181", name: "Padaria Ltda" }));
     const pj = await montarBase(1, 42, { hoje: HOJE });
     expect(pj.dto.cliente.pessoaJuridica).toBe(true);
     expect(pj.dto.bloqueios).toContainEqual(expect.stringContaining("representante legal"));
-    storageMock.getCustomersByProvider.mockResolvedValueOnce([cliente({ cpfCnpj: "11222333000181", name: "Padaria Ltda" })]);
+    storageMock.obterCliente.mockResolvedValueOnce(cliente({ cpfCnpj: "11222333000181", name: "Padaria Ltda" }));
     expect((await montarBase(1, 42, { hoje: HOJE, representante: { nome: "João", cpf: "98765432100" } })).dto.bloqueios).toEqual([]);
   });
   it("provedor assina exige representante (nome e e-mail) cadastrado", async () => {
@@ -156,6 +157,18 @@ describe("bloqueios de cadastro e configuração", () => {
     expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContainEqual(expect.stringContaining("representante (nome e e-mail)"));
     storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(integracao({ provedorAssina: true, signatarioNome: "Ana Link", signatarioEmail: "ana@nslink.com" }));
     expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).not.toContainEqual(expect.stringContaining("representante (nome e e-mail)"));
+  });
+  it("e-mail digitado inválido é bloqueio (não 400); nome de representante com menos de 3 letras conta como não informado", async () => {
+    const b = await montarBase(1, 42, { hoje: HOJE, email: "maria@" });
+    expect(b.dto.bloqueios).toContainEqual("e-mail do cliente inválido");
+    expect((await montarBase(1, 42, { hoje: HOJE, email: " maria@example.com " })).dto.bloqueios).not.toContainEqual("e-mail do cliente inválido");
+    storageMock.obterCliente.mockResolvedValueOnce(cliente({ cpfCnpj: "11222333000181", name: "Padaria Ltda" }));
+    expect((await montarBase(1, 42, { hoje: HOJE, representante: { nome: "Jo", cpf: "98765432100" } })).dto.bloqueios).toContainEqual(expect.stringContaining("representante legal"));
+  });
+  it("lê UM cliente pelo id, escopado ao provedor — não a carteira inteira", async () => {
+    await montarBase(1, 42, { hoje: HOJE });
+    expect(storageMock.obterCliente).toHaveBeenCalledWith(1, 42);
+    expect(storageMock.getCustomersByProvider).not.toHaveBeenCalled();
   });
   it("contato informado pelo operador substitui o do cadastro e marca alteração", async () => {
     const b = await montarBase(1, 42, { hoje: HOJE, email: "outro@example.com" });
@@ -175,7 +188,7 @@ describe("bloqueios de cadastro e configuração", () => {
     expect(b.dto.encargos).toMatchObject({ multaPct: 1, jurosMesPct: 0.5 });
   });
   it("o custo usa o telefone que vai ao ZapSign — o do ERP quando o cadastro não tem", async () => {
-    storageMock.getCustomersByProvider.mockResolvedValueOnce([cliente({ phone: null })]);
+    storageMock.obterCliente.mockResolvedValueOnce(cliente({ phone: null }));
     const b = await montarBase(1, 42, { hoje: HOJE });
     expect(b.dto.cliente.telefone).toBe("31999990000");
     expect(b.dto.custo.reais).toBe(0.5);

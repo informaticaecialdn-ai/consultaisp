@@ -87,12 +87,17 @@ async function nomesDaEquipe(providerId: number): Promise<Map<number, string>> {
 }
 
 const dia = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data no formato AAAA-MM-DD");
+// A base é relida enquanto o operador digita: e-mail e nome pela metade são
+// estado normal do formulário, não requisição inválida. Um 400 aqui deixa o
+// diálogo sem base (e sem o campo sendo digitado); quem recusa o contato ou o
+// representante incompleto é o bloqueio do `montarBase`. Na emissão o formato
+// continua validado — lá o 400 é o certo.
 const BaseQuerySchema = z.object({
   vencimento: dia.optional(),
   faturasExcluidas: z.string().max(4000).optional(),
-  email: z.string().trim().email().max(160).optional(),
+  email: z.string().trim().max(160).optional(),
   telefone: z.string().trim().max(30).optional(),
-  representanteNome: z.string().trim().min(3).max(160).optional(),
+  representanteNome: z.string().trim().max(160).optional(),
   representanteCpf: z.string().trim().max(20).optional(),
 });
 const EmissaoSchema = z.object({

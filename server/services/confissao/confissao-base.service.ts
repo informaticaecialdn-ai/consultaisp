@@ -15,6 +15,7 @@
  * devolve de volta, e o servidor recalcula — se mudou, "A dívida mudou".
  */
 import { createHash } from "node:crypto";
+import { z } from "zod";
 import { storage } from "../../storage";
 import { logger } from "../../logger";
 import { snapshotAoVivoDoCliente, type SnapshotAoVivo } from "../cobranca/snapshot-ao-vivo.service";
@@ -62,6 +63,10 @@ export interface BaseMontada {
 }
 
 const digitos = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
+/** O MESMO validador do POST de emissão (`EmissaoSchema.clienteEmail`): o que a base aceita, a emissão aceita. */
+const formatoDeEmail = z.string().email();
+/** Nome com menos de 3 letras é o operador no meio da digitação — a mesma régua do POST (`representante.nome` min 3). */
+const representanteInformado = (r: Representante | null | undefined): r is Representante => !!r && r.nome.trim().length >= 3;
 const centavos = (n: number) => Math.round(n * 100) / 100;
 const reais = (n: number) => `R$ ${n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
 const isoDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -150,7 +155,8 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
 
   const [provedor, cliente, caso, politica] = await Promise.all([
     storage.getProvider(providerId),
-    storage.getCustomersByProvider(providerId).then(lista => lista.find(c => c.id === customerId) ?? null),
+    // UM cliente, pelo id E pelo provedor — a base é relida a cada escolha do diálogo.
+    storage.obterCliente(providerId, customerId).then(c => c ?? null),
     storage.casoAbertoDoCliente(providerId, customerId),
     politicaDoProvedor(providerId),
   ]);
@@ -181,7 +187,7 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
   const documento = digitos(cliente.cpfCnpj);
   const pessoaJuridica = documento.length === 14;
   if (!documento) bloqueios.push("cliente sem CPF/CNPJ no cadastro — não há quem confesse");
-  if (pessoaJuridica && !opcoes.representante) bloqueios.push("devedor pessoa jurídica: informe nome e CPF do representante legal que assina");
+  if (pessoaJuridica && !representanteInformado(opcoes.representante)) bloqueios.push("devedor pessoa jurídica: informe nome e CPF do representante legal que assina");
 
   // O acordo, quando existe, manda; senão o saldo integral.
   const negociacoes = caso ? await storage.listarNegociacoesDoCaso(providerId, caso.id) : [];
@@ -197,6 +203,10 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
   const telefone = opcoes.telefone !== undefined && opcoes.telefone !== null ? (digitos(opcoes.telefone) || null) : contatoDoErp.telefone;
   const contatoAlterado = (email ?? null) !== (contatoDoErp.email ?? null) || digitos(telefone) !== digitos(contatoDoErp.telefone);
   if (!email && !telefone) bloqueios.push("cliente sem e-mail e sem telefone — informe um dos dois para o ZapSign entregar o documento");
+  // O e-mail DIGITADO chega aqui a cada pausa do operador, pela metade inclusive:
+  // formato inválido é bloqueio (o diálogo segue de pé), não 400 da rota.
+  const emailDigitado = opcoes.email?.trim() || null;
+  if (emailDigitado && !formatoDeEmail.safeParse(emailDigitado).success) bloqueios.push("e-mail do cliente inválido");
   if (contatoAlterado) avisos.push("contato diferente do cadastro do ERP: a emissão exige validação do CPF pelo ZapSign (validate_cpf)");
 
   const { linhas: anexoCompleto, indeterminadas } = aoVivo ? anexoDoSnapshot(snapshot, hoje, encargos) : { linhas: [], indeterminadas: 0 };

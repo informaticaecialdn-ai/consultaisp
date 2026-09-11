@@ -6,10 +6,12 @@
  * vem do servidor com a prévia, o custo, os bloqueios e o `baseHash`; o que
  * ele escolhe é o vencimento (saldo integral), quais faturas de saída ficam
  * de fora, o contato do cliente e, para PJ, o representante. Toda escolha
- * recarrega a base — é ela que o servidor confere na emissão.
+ * recarrega a base — é ela que o servidor confere na emissão. O que é
+ * DIGITADO (contato e representante) só recarrega depois de uma pausa: cada
+ * leitura é uma ida ao vivo ao ERP do provedor.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, FileSignature, RefreshCw, Send, XCircle } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -36,6 +38,29 @@ interface Props {
 }
 
 interface Escolhas { vencimento: string; faturasExcluidas: string[]; email: string; telefone: string; representanteNome: string; representanteCpf: string; confirmoTeste: boolean }
+type Digitado = Pick<Escolhas, "email" | "telefone" | "representanteNome" | "representanteCpf">;
+
+/** A pausa na digitação antes de reler a base. */
+export const PAUSA_DA_DIGITACAO_MS = 600;
+
+const digitadoDe = (e: Escolhas): Digitado => ({ email: e.email, telefone: e.telefone, representanteNome: e.representanteNome, representanteCpf: e.representanteCpf });
+
+/**
+ * Contato e representante entram na leitura da base só depois de uma pausa.
+ * Eles PRECISAM ir ao GET — viram o devedor do texto e, por isso, o `baseHash`
+ * que o POST devolve —, mas entrando direto na chave cada tecla era uma chave
+ * nova: uma leitura ao vivo no ERP por caractere e, sem dado para a chave
+ * nova, o formulário (com o campo sendo digitado) desmontava a cada letra.
+ */
+function useDigitadoDepoisDaPausa(e: Escolhas): Digitado {
+  const [lido, setLido] = useState<Digitado>(() => digitadoDe(e));
+  useEffect(() => {
+    const timer = setTimeout(() => setLido(digitadoDe(e)), PAUSA_DA_DIGITACAO_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [e.email, e.telefone, e.representanteNome, e.representanteCpf]);
+  return lido;
+}
 
 function queryDaBase(e: Escolhas): string {
   const p = new URLSearchParams();
@@ -137,12 +162,20 @@ function DialogoEmissao({ customerId, estado, onFechar, onEmitida }: { customerI
   const { toast } = useToast();
   const [escolhas, setEscolhas] = useState<Escolhas>({ vencimento: "", faturasExcluidas: [], email: "", telefone: "", representanteNome: "", representanteCpf: "", confirmoTeste: false });
   const [chave] = useState(() => crypto.randomUUID());
-  const query = queryDaBase(escolhas);
-  const { data: base, isFetching, error } = useQuery<BaseDaConfissaoDto>({
+  const digitado = useDigitadoDepoisDaPausa(escolhas);
+  const query = queryDaBase({ ...escolhas, ...digitado });
+  const { data: base, isFetching, isPlaceholderData, error } = useQuery<BaseDaConfissaoDto>({
     queryKey: ["/api/cobranca/clientes", customerId, "confissoes", "base", query],
     queryFn: async () => (await apiRequest("GET", `/api/cobranca/clientes/${customerId}/confissoes/base?${query}`)).json(),
     staleTime: 0,
+    // Enquanto a leitura nova não volta, a anterior fica na tela: o formulário
+    // nunca desmonta no meio de uma leitura (o Emitir fica travado, abaixo).
+    placeholderData: keepPreviousData,
   });
+  // A base na tela tem de ser a das escolhas de AGORA: com a leitura anterior
+  // o Emitir mandaria o hash de outra base (409 BASE_MUDOU) — ou, pior, a
+  // leitura velha iria para o documento.
+  const baseEmDia = !!base && !isPlaceholderData && !isFetching && query === queryDaBase(escolhas);
   useEffect(() => {
     // O contato do cadastro entra como valor inicial editável — uma vez só.
     if (base && !escolhas.email && !escolhas.telefone && (base.cliente.email || base.cliente.telefone)) {
@@ -171,7 +204,7 @@ function DialogoEmissao({ customerId, estado, onFechar, onEmitida }: { customerI
   });
   const alternarFatura = (chaveDaLinha: string) => setEscolhas(e => ({ ...e, faturasExcluidas: e.faturasExcluidas.includes(chaveDaLinha) ? e.faturasExcluidas.filter(x => x !== chaveDaLinha) : [...e.faturasExcluidas, chaveDaLinha] }));
   const sandbox = base?.ambiente === "sandbox";
-  const podeEmitir = !!base && base.bloqueios.length === 0 && !isFetching && (!sandbox || escolhas.confirmoTeste) && (base.origem !== "saldo_integral" || !!(escolhas.vencimento || base.vencimento.minimo));
+  const podeEmitir = !!base && baseEmDia && base.bloqueios.length === 0 && (!sandbox || escolhas.confirmoTeste) && (base.origem !== "saldo_integral" || !!(escolhas.vencimento || base.vencimento.minimo));
   const previa = useMemo(() => (base?.previa && base.previa.modelo === "padrao" ? base.previa.texto : null), [base]);
 
   return (
@@ -184,6 +217,7 @@ function DialogoEmissao({ customerId, estado, onFechar, onEmitida }: { customerI
         {error && <p className="text-[12px] text-[var(--danger)]">{(error as Error).message}</p>}
         {base && (
           <div className="space-y-3 text-[12.5px]">
+            {!baseEmDia && <p role="status" aria-live="polite" className="text-[11px] text-[var(--text-muted)]" data-testid="confissao-base-atualizando">Atualizando a prévia com o que foi escolhido…</p>}
             {base.bloqueios.length > 0 && <ul className="rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] p-2 text-[12px] text-[var(--danger)]" data-testid="confissao-bloqueios">{base.bloqueios.map(b => <li key={b}>• {b}</li>)}</ul>}
             {base.avisos.length > 0 && <ul className="rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] p-2 text-[12px] text-[var(--gated)]" data-testid="confissao-avisos">{base.avisos.map(a => <li key={a}>• {a}</li>)}</ul>}
             <div className="grid gap-2 sm:grid-cols-3">
@@ -207,12 +241,13 @@ function DialogoEmissao({ customerId, estado, onFechar, onEmitida }: { customerI
                 {escolhas.faturasExcluidas.length > 0 && <p className="mt-1 text-[11px] text-[var(--text-muted)]">Fora do título: {escolhas.faturasExcluidas.join(", ")} <button type="button" className="text-[var(--brand)] underline" onClick={() => setEscolhas(e => ({ ...e, faturasExcluidas: [] }))}>incluir de volta</button></p>}
               </div>
             )}
+            {/* Os limites são os do GET da base: acima deles o servidor responderia 400 e o diálogo ficaria sem base. */}
             <div className="grid gap-2 sm:grid-cols-2">
-              <label>E-mail do cliente<input type="email" className={cn(CONTROLE_CAMPO, "mt-1")} value={escolhas.email} onChange={e => setEscolhas(x => ({ ...x, email: e.target.value }))} /></label>
-              <label>Telefone (WhatsApp)<input className={cn(CONTROLE_CAMPO, "mt-1", NUM)} value={escolhas.telefone} onChange={e => setEscolhas(x => ({ ...x, telefone: e.target.value }))} /></label>
+              <label>E-mail do cliente<input type="email" maxLength={160} className={cn(CONTROLE_CAMPO, "mt-1")} value={escolhas.email} onChange={e => setEscolhas(x => ({ ...x, email: e.target.value }))} /></label>
+              <label>Telefone (WhatsApp)<input maxLength={30} className={cn(CONTROLE_CAMPO, "mt-1", NUM)} value={escolhas.telefone} onChange={e => setEscolhas(x => ({ ...x, telefone: e.target.value }))} /></label>
               {base.cliente.pessoaJuridica && (<>
-                <label>Representante legal · nome<input className={cn(CONTROLE_CAMPO, "mt-1")} value={escolhas.representanteNome} onChange={e => setEscolhas(x => ({ ...x, representanteNome: e.target.value }))} /></label>
-                <label>Representante legal · CPF<input className={cn(CONTROLE_CAMPO, "mt-1", NUM)} value={escolhas.representanteCpf} onChange={e => setEscolhas(x => ({ ...x, representanteCpf: e.target.value }))} /></label>
+                <label>Representante legal · nome<input maxLength={160} className={cn(CONTROLE_CAMPO, "mt-1")} value={escolhas.representanteNome} onChange={e => setEscolhas(x => ({ ...x, representanteNome: e.target.value }))} /></label>
+                <label>Representante legal · CPF<input maxLength={20} className={cn(CONTROLE_CAMPO, "mt-1", NUM)} value={escolhas.representanteCpf} onChange={e => setEscolhas(x => ({ ...x, representanteCpf: e.target.value }))} /></label>
               </>)}
             </div>
             {previa && <details className="rounded border border-[var(--border)] p-2"><summary className="cursor-pointer text-[12px] font-medium">Prévia do texto (modelo padrão v1.0{base.modeloRevisado ? "" : " — sem parecer jurídico"})</summary><pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap font-sans text-[11.5px] leading-4">{previa}</pre></details>}
