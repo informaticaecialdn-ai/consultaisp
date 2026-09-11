@@ -44,7 +44,7 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
           <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
         </div>
         <h3 className="font-semibold text-lg mb-2">Email enviado</h3>
-        <p className="text-sm text-[var(--color-muted)] mb-4">Se o email estiver cadastrado, voce recebera instrucoes para redefinir sua senha.</p>
+        <p className="text-sm text-[var(--color-muted)] mb-4">Se o e-mail estiver cadastrado, você receberá as instruções para redefinir sua senha.</p>
         <Button variant="ghost" onClick={onBack} className="text-[var(--color-brand)]">Voltar ao login</Button>
       </div>
     );
@@ -78,7 +78,7 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password !== confirm) { setError("Senhas nao conferem"); return; }
+    if (password !== confirm) { setError("As senhas não conferem"); return; }
     setError("");
     setLoading(true);
     try {
@@ -100,7 +100,7 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
           <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
         </div>
         <h3 className="font-semibold text-lg mb-2">Senha alterada</h3>
-        <p className="text-sm text-[var(--color-muted)] mb-4">Sua senha foi redefinida com sucesso. Faca login com a nova senha.</p>
+        <p className="text-sm text-[var(--color-muted)] mb-4">Sua senha foi redefinida. Faça login com a nova senha.</p>
         <Button onClick={onBack} className="bg-[var(--color-brand)] text-white">Ir para login</Button>
       </div>
     );
@@ -197,8 +197,8 @@ export default function LoginPage() {
         return;
       }
       toast({
-        title: "Nao foi possivel entrar",
-        description: err.message || "Verifique seu email e senha e tente novamente.",
+        title: "Não foi possível entrar",
+        description: err.message || "Confira o e-mail e a senha e tente de novo.",
         variant: "destructive",
       });
     } finally {
@@ -309,7 +309,7 @@ export default function LoginPage() {
                   {[
                     `Abra seu email e procure a mensagem do ${marca.nomeProduto}`,
                     "Clique no botao \"Confirmar Email\"",
-                    "Voce sera redirecionado automaticamente para o sistema",
+                    "Você será levado ao sistema automaticamente",
                   ].map((step, i) => (
                     <div key={i} className="flex items-start gap-3">
                       <span className="w-5 h-5 rounded-full bg-[var(--color-brand)] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
@@ -380,8 +380,8 @@ export default function LoginPage() {
                   )}
                   <p className="text-[var(--color-muted)] text-sm mt-1">
                     {isSubdomainMode
-                      ? "Faca login para acessar o painel"
-                      : pageState === "register" ? "Crie sua conta para acessar o sistema" : "Faca login para acessar o painel"}
+                      ? "Faça login para acessar o painel"
+                      : pageState === "register" ? "Crie sua conta para acessar o sistema" : "Faça login para acessar o painel"}
                   </p>
                 </div>
 
@@ -479,21 +479,21 @@ export default function LoginPage() {
 
                 {!isSubdomainMode && pageState !== "forgot" && pageState !== "reset" && (
                   <p className="mt-5 text-center text-sm text-[var(--color-muted)]">
-                    {pageState === "register" ? "Ja tem uma conta? " : "Ainda nao tem uma conta? "}
+                    {pageState === "register" ? "Já tem uma conta? " : "Ainda não tem uma conta? "}
                     <button
                       type="button"
                       className="text-[var(--color-brand)] font-semibold hover:text-[var(--color-steel)]"
                       onClick={() => setPageState(pageState === "register" ? "login" : "register")}
                       data-testid="button-toggle-register"
                     >
-                      {pageState === "register" ? "Faca login" : "Cadastre-se"}
+                      {pageState === "register" ? "Faça login" : "Cadastre-se"}
                     </button>
                   </p>
                 )}
 
                 <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-[var(--color-muted)]">
                   <Lock className="w-3 h-3" />
-                  <span>Conexao segura e criptografada</span>
+                  <span>Conexão segura e criptografada</span>
                 </div>
               </Card>
             )}
@@ -503,7 +503,7 @@ export default function LoginPage() {
       </div>
 
       <footer className="text-center py-4 text-[var(--color-muted)] text-xs">
-        2026 {marca.nomeProduto} — Analise de credito para provedores de internet
+        2026 {marca.nomeProduto} — análise de crédito para provedores de internet
       </footer>
     </div>
   );
