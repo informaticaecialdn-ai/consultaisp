@@ -6,15 +6,21 @@
  * (execução de contrato), VI (exercício regular de direitos) e X (proteção do
  * crédito).
  *
- * Retenção: `assinada` em produção é TÍTULO — fica até 5 anos após o último
- * vencimento das parcelas ou a quitação (CC art. 206, §5º, I), e o pedido de
- * exclusão do titular não a anonimiza (LGPD art. 16, I). O resto (rascunho,
- * cancelada, expirada e tudo de sandbox) perde PDFs e dados pessoais 90 dias
- * depois da última mudança, mantendo status, hashes e datas — ou na hora, se o
- * titular pedir a exclusão (`anonimizarConfissoesDoTitular`).
+ * Retenção: em produção, a confissão cujo status prova a assinatura
+ * (`assinada`, `quitada`, `substituida`) é TÍTULO — fica até 5 anos após o
+ * último vencimento das parcelas ou a quitação (CC art. 206, §5º, I), e o
+ * pedido de exclusão do titular não a anonimiza (LGPD art. 16, I). O resto
+ * (rascunho, cancelada, expirada e tudo de sandbox) perde PDFs e dados
+ * pessoais 90 dias depois da última mudança, mantendo status, hashes e datas.
+ *
+ * Pedido de exclusão do titular (`anonimizarConfissoesDoTitular`): o que não
+ * é título perde os dados NA HORA — exceto a `enviada`, de qualquer ambiente
+ * (sandbox inclusive), que é documento vivo no ZapSign e fica até encerrar,
+ * listada em `confissoesEmAndamento` (MOTIVO_DA_CONFISSAO_EM_ANDAMENTO).
  */
 import { storage } from "../storage";
 import { logger } from "../logger";
+import { STATUS_QUE_PROVAM_A_ASSINATURA } from "@shared/cobranca/confissao";
 import type { ConfissaoDoTitular } from "../storage/assinatura.storage";
 
 export const RETENCAO_SEM_TITULO_DIAS = 90;
@@ -22,13 +28,11 @@ export const BASE_LEGAL_DA_PRESERVACAO = "Confissão de dívida assinada em prod
 export const MOTIVO_DA_CONFISSAO_EM_ANDAMENTO = "Confissão de dívida aguardando assinatura: o documento está vivo na conta ZapSign do provedor e ainda pode ser assinado — apagá-la no meio deixaria a linha sem dados e a assinatura que viesse depois traria de volta o PDF assinado, com os dados pessoais. Se o prazo vencer ou ela for cancelada, perde os dados pessoais 90 dias depois; se for assinada em produção, passa a ser título e segue a base legal das preservadas.";
 
 /**
- * Status que só existem DEPOIS da assinatura do devedor: `quitada` e
- * `substituida` nascem de `assinada` (TRANSICOES_DE_CONFISSAO) — a linha
- * continua sendo o título que ele assinou.
+ * Título = produção (sandbox não tem validade jurídica) com a assinatura
+ * provada pelo status — a MESMA lista que decide o selo do cliente
+ * (`confissaoDoSelo`), para a retenção e a tela não discordarem do que é título.
  */
-const STATUS_QUE_PROVAM_A_ASSINATURA = new Set(["assinada", "quitada", "substituida"]);
-/** Título = produção (sandbox não tem validade jurídica) com a assinatura provada pelo status. */
-export const ehTitulo = (c: { status: string; ambiente: string }) => c.ambiente === "producao" && STATUS_QUE_PROVAM_A_ASSINATURA.has(c.status);
+export const ehTitulo = (c: { status: string; ambiente: string }) => c.ambiente === "producao" && (STATUS_QUE_PROVAM_A_ASSINATURA as readonly string[]).includes(c.status);
 /**
  * `enviada`, em QUALQUER ambiente: o devedor ainda pode assinar — não é título,
  * mas também não é descarte. A de sandbox também: o documento e o webhook

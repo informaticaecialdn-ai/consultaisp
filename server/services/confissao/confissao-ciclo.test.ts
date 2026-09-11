@@ -209,7 +209,10 @@ describe("404 do ZapSign (token trocado para outra conta, ou documento expurgado
  * Assinar uma confissão substitui a assinada anterior do cliente — mas só no
  * MESMO ambiente. Sem o filtro, o teste de integração de um provedor (sandbox,
  * sem validade jurídica) assinado rebaixava o título de PRODUÇÃO do mesmo
- * cliente para `substituida`: o título some do selo e da prescrição.
+ * cliente para `substituida`. Este filtro só garante que o título continua
+ * `assinada`. Quem faz o selo e a prescrição do 360 preferirem esse título ao
+ * teste, seja qual for a data, é outra regra — `confissaoDoSelo`
+ * (shared/cobranca/confissao.ts), com testes no storage e na rota do 360.
  */
 describe("assinar substitui só no mesmo ambiente", () => {
   const titulo = () => ({ ...enviada({ id: 70, status: "assinada", zapsignDocToken: "doc-titulo", assinadaEm: new Date("2026-08-01T12:00:00Z") }) });
