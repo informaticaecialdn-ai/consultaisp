@@ -208,7 +208,7 @@ function blocoDeScript(marca: MarcaResolvida): string {
 function blocoDeCabecalho(marca: MarcaResolvida): string {
   const nome = escaparHtml(marca.nomeProduto);
   const descricao = escaparHtml(
-    marca.assinatura || "Analise de credito para provedores de internet"
+    marca.assinatura || "Base colaborativa entre provedores de internet"
   );
   const favicon = caminhoInterno(marca.faviconUrl) ?? "/marca/favicon-v2.svg";
   const logo = caminhoInterno(marca.logoUrl);

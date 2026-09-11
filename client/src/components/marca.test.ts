@@ -131,3 +131,44 @@ describe("tela de login", () => {
     expect(login).not.toMatch(/Uptime</);
   });
 });
+
+describe("a frase da marca (dono, 11/09/2026)", () => {
+  /**
+   * "Rede colaborativa de crédito", solta na prévia do WhatsApp, lia como curso
+   * ou empréstimo de dinheiro — e o produto é a análise da situação do cliente.
+   * A frase do dono vira o título da prévia; "de crédito" não volta a nada em
+   * que a plataforma se apresenta.
+   */
+  const FRASE = "O Consulta ISP é a base colaborativa entre provedores de internet";
+  const conteudo = (texto: string, re: RegExp) => texto.match(re)?.[1] ?? "";
+
+  it("a prévia do link leva a frase do dono como título", () => {
+    expect(conteudo(indexHtml, /<meta property="og:title" content="([^"]*)"/)).toBe(FRASE);
+  });
+
+  it("nada em que a plataforma se apresenta diz \"de crédito\"", () => {
+    const apresentacao = {
+      titulo: conteudo(indexHtml, /<title>([^<]*)<\/title>/),
+      descricao: conteudo(indexHtml, /<meta name="description" content="([^"]*)"/),
+      ogTitulo: conteudo(indexHtml, /<meta property="og:title" content="([^"]*)"/),
+      ogDescricao: conteudo(indexHtml, /<meta property="og:description" content="([^"]*)"/),
+      ogImagemAlt: conteudo(indexHtml, /<meta property="og:image:alt" content="([^"]*)"/),
+      manifest: String(manifest.description ?? ""),
+      assinaturaDoServidor: conteudo(ler("server/services/marca.service.ts"), /assinatura:\s*"([^"]*)"/),
+      assinaturaDoClient: conteudo(ler("client/src/lib/marca.ts"), /assinatura:\s*"([^"]*)"/),
+    };
+    for (const [onde, texto] of Object.entries(apresentacao)) {
+      expect(texto.length, `${onde}: a leitura voltou vazia`).toBeGreaterThan(0);
+      expect(texto, onde).not.toMatch(/de cr[eé]dito/i);
+    }
+  });
+
+  /** A prévia é guardada pelo endereço da imagem: o nome antigo serve a arte nova. */
+  it("a imagem da prévia de nome antigo é a mesma arte da versionada", () => {
+    const bytes = (rel: string) => readFileSync(join(RAIZ, rel));
+    const atual = bytes("client/public/marca/og-image-v3.png");
+    expect(indexHtml).toContain("/marca/og-image-v3.png");
+    expect(bytes("client/public/marca/og-image-v2.png").equals(atual)).toBe(true);
+    expect(bytes("client/public/marca/og-image.png").equals(atual)).toBe(true);
+  });
+});

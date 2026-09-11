@@ -48,7 +48,7 @@ const PADRAO: MarcaCliente = {
   contexto: "plataforma",
   marcaId: null,
   nomeProduto: "Consulta ISP",
-  assinatura: "Base colaborativa de crédito",
+  assinatura: "Base colaborativa entre provedores de internet",
   logoUrl: null,
   suporteEmail: null,
   suporteWhatsapp: null,

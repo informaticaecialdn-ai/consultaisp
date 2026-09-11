@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Previa de compartilhamento (og:image) do /consulta.isp, 1200x630.
+  E o 11-og-image.svg do brand kit de 10/09/2026 com UMA mudanca: a tagline.
+  "REDE COLABORATIVA DE CREDITO" virou "BASE COLABORATIVA ENTRE PROVEDORES DE
+  INTERNET" (dono, 11/09/2026 — a frase dele e "O Consulta ISP e a base
+  colaborativa entre provedores de internet"; "de credito" soava a emprestimo).
+  A frase e mais longa: o tracking foi de 0.22em (5.72) para 0.2em (5.2) para
+  terminar a 95 px da borda direita, espelhando os 90 px da esquerda.
+
+  Como virou PNG (client/public/marca/og-image-v3.png): Chrome headless com a
+  JetBrains Mono do Google Fonts, sem escala. Flags (cada uma com dois hifens
+  na frente, que um comentario XML nao aceita escrever):
+    headless=new, hide-scrollbars, force-device-scale-factor=1,
+    window-size=1200,630, virtual-time-budget=15000,
+    screenshot=og-image-v3.png  e, por ultimo, pagina.html
+  onde pagina.html so embrulha este SVG (width=1200 height=630, margem zero).
+  O PNG anterior tinha sido renderizado sem a fonte (caiu numa monoespacada do
+  sistema); este sai com a JetBrains Mono do kit, a mesma do wordmark do site.
+  Proxima troca de arte = proximo sufixo (-v4), e os nomes antigos passam a
+  servir a arte nova, como os icones.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+<defs><style>@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&amp;display=swap');</style></defs>
+<rect width="1200" height="630" fill="#0E0D0B"/>
+<defs>
+  <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
+    <path d="M 56 0 L 0 0 0 56" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+  </pattern>
+</defs>
+<rect width="1200" height="630" fill="url(#grid)"/>
+<text font-family="'JetBrains Mono', ui-monospace, monospace" font-weight="700" letter-spacing="-5.2" font-size="130" y="320" x="90" fill="#F5F3EE"><tspan fill="#77726A">/</tspan>consulta<tspan fill="#77726A">.isp</tspan></text>
+<line x1="90" y1="362" x2="140" y2="362" stroke="#77726A" stroke-width="2"/>
+<text font-family="'JetBrains Mono', ui-monospace, monospace" font-weight="500" letter-spacing="5.2" font-size="26" y="372" x="154" fill="#77726A">BASE COLABORATIVA ENTRE PROVEDORES DE INTERNET</text>
+<text font-family="'JetBrains Mono', ui-monospace, monospace" font-weight="500" letter-spacing="4" font-size="20" y="580" x="90" fill="#77726A">CONSULTAISP.COM.BR</text>
+</svg>

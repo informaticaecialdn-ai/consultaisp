@@ -166,7 +166,8 @@ describe("envelope", () => {
    */
   it("a plataforma leva o wordmark /consulta.isp em texto, com a assinatura como tagline", () => {
     expect(html).toContain(`<span style="color:#77726A;">/</span>consulta<span style="color:#77726A;">.isp</span>`);
-    expect(html).toContain("Rede colaborativa de crédito");
+    expect(html).toContain("Base colaborativa entre provedores de internet");
+    expect(html).not.toMatch(/de crédito/i);
     expect(html).toMatch(/font-family:'JetBrains Mono',[^"]*monospace/);
     expect(html).not.toContain("<img");
   });

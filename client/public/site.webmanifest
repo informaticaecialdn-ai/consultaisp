@@ -1,7 +1,7 @@
 {
   "name": "Consulta ISP",
   "short_name": "Consulta ISP",
-  "description": "Rede colaborativa de crédito para provedores de internet",
+  "description": "Base colaborativa entre provedores de internet",
   "lang": "pt-BR",
   "start_url": "/",
   "display": "standalone",

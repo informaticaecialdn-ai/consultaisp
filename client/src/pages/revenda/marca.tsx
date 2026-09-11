@@ -364,7 +364,7 @@ export default function MinhaMarca() {
               />
               <div className="sm:col-span-2">
                 <Campo rotulo="linha de apoio">
-                  <Input {...campo("assinatura")} placeholder="Crédito para provedores" className={CONTROLE_CAMPO} maxLength={120} />
+                  <Input {...campo("assinatura")} placeholder="Base colaborativa entre provedores" className={CONTROLE_CAMPO} maxLength={120} />
                 </Campo>
                 <ProblemaDoCampo>{problemas.assinatura}</ProblemaDoCampo>
               </div>

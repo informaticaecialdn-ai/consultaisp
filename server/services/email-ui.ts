@@ -241,7 +241,7 @@ export function envelope(
   const nome = esc(marca.nomeProduto);
   const url = urlDaMarca(marca);
   const inicial = esc(marca.nomeProduto.trim().charAt(0).toUpperCase() || "C");
-  const assinatura = esc(marca.assinatura || "Análise de crédito para provedores de internet");
+  const assinatura = esc(marca.assinatura || "Base colaborativa entre provedores de internet");
 
   // PLATAFORMA: o wordmark /consulta.isp em texto, com a assinatura no traje da
   // tagline do kit. REVENDEDOR: quadrado com a inicial, sempre; a imagem entra

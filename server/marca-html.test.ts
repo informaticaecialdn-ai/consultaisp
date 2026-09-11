@@ -28,7 +28,7 @@ const TEMPLATE = `<!DOCTYPE html>
 
 const PLATAFORMA: MarcaResolvida = {
   origem: "plataforma", contexto: "plataforma", marcaId: null,
-  nomeProduto: "Consulta ISP", assinatura: "Rede colaborativa de crédito",
+  nomeProduto: "Consulta ISP", assinatura: "Base colaborativa entre provedores de internet",
   logoUrl: null, faviconUrl: "/marca/favicon-v2.svg", cores: null,
   suporteEmail: null, suporteWhatsapp: null, site: "https://consultaisp.com.br",
   responsavelRazaoSocial: null, responsavelCnpj: null,

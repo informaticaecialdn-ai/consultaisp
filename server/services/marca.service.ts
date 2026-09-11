@@ -74,7 +74,7 @@ export const MARCA_PLATAFORMA: MarcaResolvida = {
   dominio: MAIN_DOMAIN,
   dominioAtivo: true,
   nomeProduto: "Consulta ISP",
-  assinatura: "Rede colaborativa de crédito",
+  assinatura: "Base colaborativa entre provedores de internet",
   logoUrl: null,
   faviconUrl: "/marca/favicon-v2.svg",
   cores: null,

@@ -443,7 +443,7 @@ export default function LoginDaPlataforma() {
 
         {/* ── RODAPÉ ─────────────────────────────────────────────── */}
         <footer className="page-footer">
-          <span>© {new Date().getFullYear()} · /consulta.isp · Rede colaborativa de crédito para provedores</span>
+          <span>© {new Date().getFullYear()} · /consulta.isp · Base colaborativa entre provedores de internet</span>
           <div className="footer-links">
             <a href="/lgpd" onClick={irParaRota("/lgpd")}>Privacidade</a>
             <a href={WHATSAPP_SUPORTE} target="_blank" rel="noopener noreferrer">Suporte</a>

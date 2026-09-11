@@ -933,7 +933,7 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="footer-bottom">
-              /consulta.isp — Plataforma colaborativa de análise de crédito para provedores de internet do Brasil
+              /consulta.isp — A base colaborativa entre provedores de internet do Brasil
             </div>
           </div>
         </footer>

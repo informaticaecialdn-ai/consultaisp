@@ -786,7 +786,7 @@ export default function AdminMarcasPage() {
                            onChange={e => setForm(f => ({ ...f, slug: slugificar(e.target.value) }))} />
                   </Campo>
                   <Campo rotulo="linha de apoio" className="sm:col-span-2">
-                    <Input value={form.assinatura} placeholder="Crédito para provedores" className={CONTROLE_CAMPO}
+                    <Input value={form.assinatura} placeholder="Base colaborativa entre provedores" className={CONTROLE_CAMPO}
                            onChange={e => setForm(f => ({ ...f, assinatura: e.target.value }))} />
                   </Campo>
                 </div>

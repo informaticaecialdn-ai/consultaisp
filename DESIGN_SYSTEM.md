@@ -94,10 +94,20 @@ Onde a marca mora: `client/src/components/marca.tsx` (`WordmarkConsultaISP`,
 `SimboloConsultaISP`, `Marca`), barra lateral, login, verificação de e-mail,
 fatura, e-mails (`server/services/email-ui.ts`, wordmark em TEXTO — cliente de
 e-mail não carrega fonte da web), favicon e manifest (`client/public/marca/`),
-prévia de compartilhamento (`og-image-v2.png`). A landing (`landingpage.css`,
+prévia de compartilhamento (`og-image-v3.png`, fonte em `docs/marca/og-image.svg`).
+A landing (`landingpage.css`,
 escopo `.lp`) e a porta de entrada da plataforma (`login-plataforma.css`, escopo
 `.lg`) usam a mesma marca com CSS próprio — as duas únicas telas fora deste
 sistema, por desenho do dono.
+
+**A frase da marca** (dono, 11/09/2026): *"O Consulta ISP é a base colaborativa
+entre provedores de internet."* É o título da prévia do WhatsApp; a linha de
+apoio da plataforma (`assinatura` em `MARCA_PLATAFORMA` e no padrão do client,
+rodapé do e-mail, manifest, rodapés do login e da landing) é "Base colaborativa
+entre provedores de internet". **"Rede colaborativa de crédito" não volta:** lida
+solta soava a curso ou a empréstimo de dinheiro, e o produto é a análise da
+situação do cliente. O `marca.test.ts` falha se "de crédito" reaparecer no
+`<head>`, no manifest ou na assinatura.
 
 **Regras do kit:** nunca deformar; nunca trocar as cores; em espaço pequeno, o
 `/c` no lugar do wordmark; o `/c` e o wordmark juntos lado a lado, nunca — os

@@ -162,7 +162,7 @@ function LoginDoRevendedor() {
                 99.9% de uptime) SAIRAM: nenhum dos dois e medido pelo sistema, e a
                 regra do dono e so dado real e verificavel. */}
             <p className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--text-muted)] mb-5">
-              Rede colaborativa de crédito
+              Base colaborativa entre provedores
             </p>
 
             <h1 className="font-display text-3xl lg:text-4xl font-light leading-tight tracking-[-0.025em] mb-4 [text-wrap:balance]">
@@ -405,7 +405,7 @@ function LoginDoRevendedor() {
       </div>
 
       <footer className="text-center py-4 text-[var(--color-muted)] text-xs">
-        2026 {marca.nomeProduto} — análise de crédito para provedores de internet
+        2026 {marca.nomeProduto} — base colaborativa entre provedores de internet
       </footer>
     </div>
   );
