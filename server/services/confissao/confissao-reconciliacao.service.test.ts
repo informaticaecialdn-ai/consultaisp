@@ -3,8 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * O worker cobre o que o webhook não entregou: primeiro `reconciliar_em`
  * vencido (a cada passada, 10 min), depois toda `enviada` há mais de 1 h a
- * cada 6 h; expira pela data limite; avisa "falta a assinatura do provedor"
- * uma vez; quita a assinada cujo acordo cumpriu ou cujo Anexo I foi pago.
+ * cada 6 h; expira pela data limite; quita, só na passada completa e com a
+ * janela girando, a assinada cujo acordo cumpriu ou cujo Anexo I foi pago.
+ *
+ * O aviso "falta a assinatura do provedor" NÃO se prova aqui: ele depende do
+ * que o `aplicarRetorno` real grava na linha a cada reconsulta, e este arquivo
+ * dubla o retorno. Os testes dele estão em `confissao-ciclo.test.ts`, com os
+ * serviços reais sobre uma tabela em memória.
  */
 const storageMock = vi.hoisted(() => ({
   confissoesParaReconciliar: vi.fn(async (): Promise<any[]> => []),
@@ -64,28 +69,6 @@ describe("reconciliação", () => {
     expect(storageMock.confissoesParaExpirar).toHaveBeenCalledWith("2026-09-12");
     expect(retorno.expirarSeVencida).toHaveBeenCalledWith(1, 5, "2026-09-12");
     expect(r.expiradas).toBe(1);
-  });
-  it("avisa 'falta a assinatura do provedor' uma vez: cliente assinou, provedor não, integração com provedorAssina", async () => {
-    const c = { id: 7, providerId: 1, casoId: 9, valorTotal: "10", ambiente: "producao", status: "enviada", erroUltimo: null, zapsignSigners: [{ papel: "cliente", status: "link-opened", token: "a" }, { papel: "provedor", status: "new", token: "b" }] };
-    storageMock.confissoesParaReconciliar.mockResolvedValueOnce([c]);
-    storageMock.obterConfissao.mockResolvedValue({ ...c, zapsignSigners: [{ papel: "cliente", status: "signed", token: "a" }, { papel: "provedor", status: "new", token: "b" }] });
-    await rodarReconciliacao(AGORA);
-    expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledWith(1, expect.objectContaining({ metadata: expect.objectContaining({ status: "aguardando_provedor" }) }));
-    expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(1, 9, expect.objectContaining({ proximaAcao: expect.stringContaining("falta a assinatura do provedor") }), null);
-    expect(storageMock.atualizarConfissao).toHaveBeenCalledWith(1, 7, expect.objectContaining({ erroUltimo: "aguardando a assinatura do provedor" }));
-    vi.clearAllMocks();
-    storageMock.confissoesParaReconciliar.mockResolvedValueOnce([c]);
-    storageMock.obterConfissao.mockResolvedValue({ ...c, erroUltimo: "aguardando a assinatura do provedor", zapsignSigners: [{ papel: "cliente", status: "signed", token: "a" }, { papel: "provedor", status: "new", token: "b" }] });
-    await rodarReconciliacao(AGORA);
-    expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
-  });
-  it("sem a releitura não haveria aviso: a linha do storage ainda mostra o cliente sem assinar", async () => {
-    const antes = { id: 7, providerId: 1, casoId: 9, valorTotal: "10", ambiente: "producao", status: "enviada", erroUltimo: null, zapsignSigners: [{ papel: "cliente", status: "new", token: "a" }, { papel: "provedor", status: "new", token: "b" }] };
-    storageMock.confissoesParaReconciliar.mockResolvedValueOnce([antes]);
-    storageMock.obterConfissao.mockResolvedValueOnce(antes);
-    const r = await rodarReconciliacao(AGORA);
-    expect(r.avisosDeProvedor).toBe(0);
-    expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
   });
   it("quita: acordo cumprido → quitada; saldo integral com o Anexo I todo pago/baixado → quitada; parcial não", async () => {
     storageMock.confissoesAssinadasParaQuitacao.mockResolvedValueOnce([

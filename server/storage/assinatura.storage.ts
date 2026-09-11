@@ -118,6 +118,7 @@ export interface PatchDeConfissao {
   encerradaEm?: Date | null;
   pdfOriginalSha256?: string | null;
   pdfAssinadoSha256?: string | null;
+  avisoProvedorEm?: Date | null;
 }
 
 export type TipoDePdf = "original" | "assinado";

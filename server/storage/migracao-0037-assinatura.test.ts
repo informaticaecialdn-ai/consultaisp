@@ -61,6 +61,11 @@ describe("migração 0037 — confissão de dívida e ZapSign", () => {
     expect(colunas.quitacaoVerificadaEm).toMatchObject({ name: "quitacao_verificada_em", notNull: false, columnType: "PgTimestamp" });
     expect(sql).toMatch(/^\s*quitacao_verificada_em timestamp,$/m);
   });
+  it("a marca de 'provedor já avisado' é coluna própria, timestamp nulável — não o erro_ultimo, que é o canal de erro da tela", () => {
+    const colunas = getTableColumns(cobrancaConfissoes) as Record<string, { name: string; notNull: boolean; columnType: string }>;
+    expect(colunas.avisoProvedorEm).toMatchObject({ name: "aviso_provedor_em", notNull: false, columnType: "PgTimestamp" });
+    expect(sql).toMatch(/^\s*aviso_provedor_em timestamp,$/m);
+  });
   it("o PDF tem chave composta (confissao_id, tipo) e o token é cifrado no storage, não no banco", () => {
     expect(sql).toContain("PRIMARY KEY (confissao_id, tipo)");
     const colunas = getTableColumns(assinaturaIntegracoes) as Record<string, { name: string; notNull: boolean }>;

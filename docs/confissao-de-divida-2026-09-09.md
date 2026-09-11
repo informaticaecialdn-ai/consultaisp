@@ -317,7 +317,9 @@ Roda **só no worker** (`server/worker.ts`), a cada **10 minutos**
    quita (pagamento parcial, abandonado) não prende a fila.
 4. Quando `provedor_assina` está ligado e o cliente já assinou mas o
    representante do provedor não, registra um evento "falta a assinatura do
-   provedor" e um follow-up para o admin (no máximo uma vez por confissão).
+   provedor" e um follow-up para o admin — uma vez por confissão, marcada em
+   `aviso_provedor_em` (caso fechado não recebe evento, nem follow-up, nem a
+   marca).
 
 ### Cancelar
 
@@ -409,6 +411,9 @@ A confissão em si — sempre com `provider_id`, `customer_id` e `caso_id`
 - `quitacao_verificada_em` — o cursor da varredura de quitação do worker
   (quando a assinada foi conferida pela última vez). Não é `updated_at`: esse
   continua sendo "última alteração", e é dele que a retenção de 90 dias conta.
+- `aviso_provedor_em` — quando o worker avisou "falta a assinatura do
+  provedor" (nulo = ainda não avisou). Não é `erro_ultimo`: esse é o canal de
+  erro da tela, e a reconsulta o zera.
 
 Índices: `(provider_id, customer_id)`, `(provider_id, status)`,
 `(status, reconciliar_em)`, único parcial em `zapsign_doc_token` (quando não

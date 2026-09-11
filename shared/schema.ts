@@ -1729,6 +1729,13 @@ export const cobrancaConfissoes = pgTable("cobranca_confissoes", {
    * sempre. Não é `updated_at`: esse é "última alteração" para a tela e a retenção.
    */
   quitacaoVerificadaEm: timestamp("quitacao_verificada_em"),
+  /**
+   * Quando o worker avisou "falta a assinatura do provedor" (cliente assinou,
+   * representante do provedor não). Nulo = ainda não avisou. A marca morava em
+   * `erro_ultimo`, que o `aplicarRetorno` zera a cada reconsulta: o aviso se
+   * repetia a cada passada completa, e o `erro_ultimo` é o canal de erro da tela.
+   */
+  avisoProvedorEm: timestamp("aviso_provedor_em"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

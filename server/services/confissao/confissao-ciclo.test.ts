@@ -46,6 +46,8 @@ const AGORA = new Date("2026-09-12T12:00:00Z");
 let confissoes: Map<number, any>;
 let eventos: any[];
 let followUps: Array<{ casoId: number; patch: any }>;
+let integracao: Record<string, unknown>;
+let statusDoCaso: string;
 
 const viva = (status: string) => status === "rascunho" || status === "enviada";
 const copia = <T>(l: T): T => (l === undefined ? l : structuredClone(l));
@@ -81,8 +83,8 @@ function tabelaEmMemoria() {
     confissoesParaExpirar: async (hoje: string) => [...confissoes.values()].filter(l => l.status === "enviada" && l.dataLimiteAssinatura < hoje).map(copia),
     confissoesAssinadasParaQuitacao: async () => [],
     marcarQuitacaoVerificada: async () => undefined,
-    getIntegracaoComCredencial: async () => ({ apiToken: "tok", ambiente: "producao", provedorAssina: false, isEnabled: true }),
-    obterCasoDeCobranca: async (_p: number, id: number) => ({ id, status: "aberto" }),
+    getIntegracaoComCredencial: async () => ({ ...integracao }),
+    obterCasoDeCobranca: async (_p: number, id: number) => ({ id, status: statusDoCaso }),
     registrarEventoDeCobranca: async (_p: number, e: any) => { eventos.push(e); return { id: eventos.length }; },
     atualizarCasoDeCobranca: async (_p: number, casoId: number, patch: any) => { followUps.push({ casoId, patch }); return { id: casoId }; },
   };
@@ -124,6 +126,8 @@ beforeEach(() => {
   confissoes = new Map();
   eventos = [];
   followUps = [];
+  integracao = { apiToken: "tok", ambiente: "producao", provedorAssina: false, isEnabled: true };
+  statusDoCaso = "aberto";
   fake.storage = tabelaEmMemoria();
   baseMock.montarBase.mockResolvedValue(base());
   zap.criarDocumentoPorPdf.mockResolvedValue({ token: "doc-novo", status: "pending", sandbox: false, signers: [{ token: "s-9", status: "new", sign_url: "https://app.zapsign.com.br/verificar/s-9", signed_at: null, auth_mode: "assinaturaTela-tokenWhatsapp", external_id: "cliente" }] });
@@ -171,6 +175,71 @@ describe("404 do ZapSign (token trocado para outra conta, ou documento expurgado
     expect(resumo.falhas).toBeGreaterThanOrEqual(2);
     expect(confissoes.get(77).status).toBe("enviada");
     expect(zap.excluirDocumento).not.toHaveBeenCalled();
+    expect(eventos).toHaveLength(0);
+  });
+});
+
+/**
+ * "Falta a assinatura do provedor": o cliente assinou, o representante do
+ * provedor não. O aviso sai UMA vez — e a prova tem de passar pelo
+ * `aplicarRetorno` real, porque é ele que regrava a linha a cada reconsulta
+ * (o ramo pendente zera `erro_ultimo`). Enquanto a marca morava em
+ * `erro_ultimo`, ela era apagada antes de ser lida: evento novo e follow-up
+ * jogando o caso para "hoje" a cada passada completa, ~60 vezes numa janela de
+ * 15 dias. O teste antigo dublava o `aplicarRetorno` e injetava a marca na
+ * segunda leitura — afirmava o que a integração não entregava.
+ */
+describe("aviso 'falta a assinatura do provedor'", () => {
+  const signers = (cliente: string) => [
+    { papel: "cliente", token: "s-cli", signUrl: "u1", status: cliente, signedAt: cliente === "signed" ? "2026-09-12T10:00:00Z" : null, authMode: "x" },
+    { papel: "provedor", token: "s-prov", signUrl: "u2", status: "new", signedAt: null, authMode: "assinaturaTela-tokenEmail" },
+  ];
+  // O ZapSign: documento ainda pendente (falta o provedor), com o cliente já assinado.
+  const detalhePendente = () => ({ token: "doc-da-conta-antiga", status: "pending", signed_at: null, signed_file: null, original_file: "o", deleted: false, sandbox: false,
+    signers: [
+      { token: "s-cli", status: "signed", sign_url: "u1", signed_at: "2026-09-12T10:00:00Z", auth_mode: "x", external_id: "cliente" },
+      { token: "s-prov", status: "new", sign_url: "u2", signed_at: null, auth_mode: "assinaturaTela-tokenEmail", external_id: "provedor" },
+    ] });
+  const passadaCompletaSeguinte = new Date(AGORA.getTime() + 6 * 60 * 60_000 + 1);
+
+  beforeEach(() => {
+    integracao = { ...integracao, provedorAssina: true, signatarioNome: "Ana Link", signatarioEmail: "ana@nslink.com" };
+    zap.detalharDocumento.mockResolvedValue(detalhePendente());
+  });
+
+  it("duas passadas completas seguidas, cliente assinado e provedor pendente: UM evento e UMA atualização do caso", async () => {
+    // O webhook da assinatura do cliente se perdeu: é a reconsulta da passada que descobre.
+    confissoes.set(77, enviada({ zapsignSigners: signers("link-opened") }));
+    const primeira = await rodarReconciliacao(AGORA);
+    const segunda = await rodarReconciliacao(passadaCompletaSeguinte);
+    expect(zap.detalharDocumento, "as duas passadas reconsultaram de verdade").toHaveBeenCalledTimes(2);
+    expect([primeira.avisosDeProvedor, segunda.avisosDeProvedor]).toEqual([1, 0]);
+    const avisos = eventos.filter(e => e.metadata?.status === "aguardando_provedor");
+    expect(avisos).toHaveLength(1);
+    expect(followUps).toHaveLength(1);
+    expect(followUps[0]).toMatchObject({ casoId: 9, patch: { proximaAcao: expect.stringContaining("falta a assinatura do provedor") } });
+    const linha = confissoes.get(77);
+    expect(linha.avisoProvedorEm).toEqual(AGORA);
+    // O canal de erro da tela fica limpo: a marca não mora mais nele.
+    expect(linha.erroUltimo).toBeNull();
+    expect(linha.status).toBe("enviada");
+  });
+
+  it("caso fechado: sem evento não há aviso — nem follow-up, nem carimbo", async () => {
+    statusDoCaso = "pago";
+    confissoes.set(77, enviada({ zapsignSigners: signers("signed") }));
+    await rodarReconciliacao(AGORA);
+    await rodarReconciliacao(passadaCompletaSeguinte);
+    expect(eventos).toHaveLength(0);
+    expect(followUps).toHaveLength(0);
+    expect(confissoes.get(77).avisoProvedorEm ?? null).toBeNull();
+  });
+
+  it("o provedor que não assina não é avisado", async () => {
+    integracao = { ...integracao, provedorAssina: false };
+    confissoes.set(77, enviada({ zapsignSigners: signers("signed") }));
+    const r = await rodarReconciliacao(AGORA);
+    expect(r.avisosDeProvedor).toBe(0);
     expect(eventos).toHaveLength(0);
   });
 });

@@ -17,7 +17,6 @@ export const PASSADA_COMPLETA_MS = 6 * 60 * 60_000;
 export const ENVIADA_HA_MAIS_DE_MS = 60 * 60_000;
 /** Assinadas conferidas por passada completa; a janela gira pelo `quitacao_verificada_em`. */
 export const LIMITE_DA_QUITACAO = 500;
-export const MARCA_AGUARDANDO_PROVEDOR = "aguardando a assinatura do provedor";
 
 export interface ResumoDaReconciliacao { reconsultadas: number; falhas: number; expiradas: number; avisosDeProvedor: number; quitadas: number }
 
@@ -36,17 +35,27 @@ export function _reiniciarReconciliacaoParaTestes(): void {
 
 const isoDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-async function avisarProvedorPendente(c: CobrancaConfissao): Promise<boolean> {
+/**
+ * Uma vez por confissão: a marca é `aviso_provedor_em`, que o `aplicarRetorno`
+ * não conhece. Ela morava em `erro_ultimo` — que o ramo pendente da reconsulta
+ * zera antes de este aviso ler a linha —, e o aviso se repetia a cada passada
+ * completa: evento novo e o follow-up do operador sobrescrito, com o caso de
+ * volta para "hoje" no kanban.
+ */
+async function avisarProvedorPendente(c: CobrancaConfissao, agora: Date): Promise<boolean> {
   const signers = (c.zapsignSigners as SignatarioDaConfissao[] | null) ?? [];
   const cliente = signers.find(s => s.papel === "cliente");
   const provedor = signers.find(s => s.papel === "provedor");
   if (!cliente || cliente.status !== "signed" || !provedor || provedor.status === "signed") return false;
-  if (c.erroUltimo === MARCA_AGUARDANDO_PROVEDOR) return false;
+  if (c.avisoProvedorEm) return false;
   const integracao = await storage.getIntegracaoComCredencial(c.providerId).catch(() => undefined);
   if (!integracao?.provedorAssina) return false;
-  await registrarEventoDaConfissao(c.providerId, c, "aguardando_provedor", null, "O cliente assinou a confissão de dívida; falta a assinatura do representante do provedor");
-  await storage.atualizarCasoDeCobranca(c.providerId, c.casoId, { proximaAcao: "falta a assinatura do provedor na confissão — assinar pelo link do ZapSign", proximoContatoEm: new Date() }, null).catch(() => undefined);
-  await storage.atualizarConfissao(c.providerId, c.id, { erroUltimo: MARCA_AGUARDANDO_PROVEDOR });
+  // Caso fechado não recebe evento — nem follow-up, nem carimbo (o padrão da Task 12).
+  const vivo = await registrarEventoDaConfissao(c.providerId, c, "aguardando_provedor", null, "O cliente assinou a confissão de dívida; falta a assinatura do representante do provedor");
+  if (!vivo) return false;
+  await storage.atualizarConfissao(c.providerId, c.id, { avisoProvedorEm: agora });
+  await storage.atualizarCasoDeCobranca(c.providerId, c.casoId, { proximaAcao: "falta a assinatura do provedor na confissão — assinar pelo link do ZapSign", proximoContatoEm: agora }, null)
+    .catch(err => logger.warn({ providerId: c.providerId, confissaoId: c.id, err }, "CONFISSAO reconciliação: follow-up do aviso ao provedor não gravado"));
   return true;
 }
 
@@ -79,7 +88,7 @@ export async function rodarReconciliacao(agora: Date = new Date(), opcoes: { lim
       // A reconsulta pode ter acabado de descobrir que o cliente assinou: o aviso
       // olha a linha DEPOIS dela, nunca a foto que veio do storage antes.
       const atual = r.status === "enviada" ? await storage.obterConfissao(c.providerId, c.id) : null;
-      if (atual && await avisarProvedorPendente(atual)) resumo.avisosDeProvedor++;
+      if (atual && await avisarProvedorPendente(atual, agora)) resumo.avisosDeProvedor++;
     } catch (e) {
       resumo.falhas++;
       logger.warn({ providerId: c.providerId, confissaoId: c.id, err: e }, "CONFISSAO reconciliação: reconsulta falhou");

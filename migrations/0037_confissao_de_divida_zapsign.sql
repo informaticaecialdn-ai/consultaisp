@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS cobranca_confissoes (
   -- Cursor da varredura de quitacao do worker (nao e updated_at: esse e
   -- "ultima alteracao" para a tela e para a retencao de 90 dias).
   quitacao_verificada_em timestamp,
+  -- Quando o worker avisou "falta a assinatura do provedor"; nulo = nao avisou.
+  -- Nao mora em erro_ultimo: a reconsulta zera esse campo e ele e o erro da tela.
+  aviso_provedor_em timestamp,
   created_at timestamp DEFAULT now(),
   updated_at timestamp DEFAULT now()
 );
