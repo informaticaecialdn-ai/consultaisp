@@ -103,10 +103,11 @@ export async function rodarReconciliacao(agora: Date = new Date(), opcoes: { lim
       logger.warn({ providerId: c.providerId, confissaoId: c.id, err: e }, "CONFISSAO reconciliação: expirar falhou");
     }
   }
-  // Quitação muda no máximo uma vez por dia (o pagamento chega pela varredura
-  // do ERP): só a passada completa confere, e não a de 10 em 10 minutos — que
-  // eram ~500 idas ao banco por passada. Cada linha conferida é carimbada,
-  // inclusive a que falhou, para a janela andar em vez de prender nas mesmas.
+  // Quitação não tem pressa de minutos (o pagamento chega pela varredura do ERP
+  // ou pela baixa da última parcela do acordo): só a passada completa confere —
+  // na de 10 em 10 minutos eram ~500 idas ao banco a cada passada. Cada linha
+  // conferida é carimbada, inclusive a que falhou, para a janela andar em vez
+  // de prender nas mesmas.
   if (completa) {
     for (const c of await storage.confissoesAssinadasParaQuitacao(opcoes.limiteDaQuitacao ?? LIMITE_DA_QUITACAO)) {
       try {

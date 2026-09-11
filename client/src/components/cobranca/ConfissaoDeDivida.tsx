@@ -41,7 +41,7 @@ interface Escolhas { vencimento: string; faturasExcluidas: string[]; email: stri
 type Digitado = Pick<Escolhas, "email" | "telefone" | "representanteNome" | "representanteCpf">;
 
 /** A pausa na digitação antes de reler a base. */
-export const PAUSA_DA_DIGITACAO_MS = 600;
+const PAUSA_DA_DIGITACAO_MS = 600;
 
 const digitadoDe = (e: Escolhas): Digitado => ({ email: e.email, telefone: e.telefone, representanteNome: e.representanteNome, representanteCpf: e.representanteCpf });
 
