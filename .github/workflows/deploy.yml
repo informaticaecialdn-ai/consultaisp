@@ -1,12 +1,31 @@
 name: Deploy to VPS
 
+# O que este workflow NAO fazia, e passou despercebido por 236 execucoes:
+#
+#   1. `script_stop` nao e input do appleboy/ssh-action@v1. A action avisa e
+#      ignora. O script rodava sem parar no primeiro erro, entao um build
+#      quebrado ainda assim chamava o pm2 restart. Agora e `set -euo pipefail`
+#      dentro do proprio script, que e onde o v1 espera.
+#
+#   2. `git pull origin main` com o repo do VPS em OUTRA branch faz merge, nao
+#      troca de branch. O que esta no ar hoje e a feat/marca-consulta-isp; um
+#      deploy da main teria misturado as duas. Agora o deploy segue a branch
+#      que disparou, e `merge --ff-only` falha alto em vez de inventar merge.
+#
+#   3. O health check terminava em `|| echo " FAIL"`, que devolve zero. Deploy
+#      que derruba o servico ficava verde. Agora falha.
+#
+# Faltam os secrets VPS_HOST, VPS_USER e VPS_SSH_KEY: sem eles a action para
+# em "error: missing server host" em 4 segundos, que e o que vinha acontecendo.
+
 on:
   push:
-    branches: [main]
+    branches: [main, feat/marca-consulta-isp]
     paths-ignore:
       - '.planning/**'
       - '*.md'
       - '.gitignore'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -18,12 +37,15 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
           script: |
+            set -euo pipefail
+            BRANCH="${{ github.ref_name }}"
             cd /var/www/consulta-isp
 
-            echo "=== Pull ==="
-            git pull origin main
+            echo "=== Branch: $BRANCH ==="
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git merge --ff-only "origin/$BRANCH"
 
             echo "=== Install ==="
             npm install
@@ -39,4 +61,5 @@ jobs:
 
             echo "=== Health ==="
             sleep 3
-            curl -sf http://localhost:5000/api/health && echo " OK" || echo " FAIL"
+            curl -sf http://localhost:5000/api/health
+            echo " OK"
