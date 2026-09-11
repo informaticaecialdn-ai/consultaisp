@@ -8,19 +8,26 @@ name: Deploy to VPS
 #      dentro do proprio script, que e onde o v1 espera.
 #
 #   2. `git pull origin main` com o repo do VPS em OUTRA branch faz merge, nao
-#      troca de branch. O que esta no ar hoje e a feat/marca-consulta-isp; um
-#      deploy da main teria misturado as duas. Agora o deploy segue a branch
-#      que disparou, e `merge --ff-only` falha alto em vez de inventar merge.
+#      troca de branch. Agora o deploy segue a branch que disparou, e
+#      `merge --ff-only` falha alto em vez de inventar merge.
 #
 #   3. O health check terminava em `|| echo " FAIL"`, que devolve zero. Deploy
 #      que derruba o servico ficava verde. Agora falha.
+#
+# O QUE RODA EM PRODUCAO e a `feat/localizacao` (era ed69253 quando isto foi
+# escrito), e e a UNICA branch que dispara deploy. A `main` esta ~84 commits
+# atras: se ela disparasse, um push nela derrubaria producao para o estado de
+# agosto. A `feat/marca-consulta-isp` tambem saiu do gatilho — ela nasceu antes
+# da confissao de divida, da marca nova e do fim do login na landing, entao
+# subir aquela branch APAGARIA do ar tudo isso (o banco fica com a migracao
+# 0037 aplicada e o codigo sem as telas dela).
 #
 # Faltam os secrets VPS_HOST, VPS_USER e VPS_SSH_KEY: sem eles a action para
 # em "error: missing server host" em 4 segundos, que e o que vinha acontecendo.
 
 on:
   push:
-    branches: [main, feat/marca-consulta-isp]
+    branches: [feat/localizacao]
     paths-ignore:
       - '.planning/**'
       - '*.md'
@@ -50,14 +57,24 @@ jobs:
             echo "=== Install ==="
             npm install
 
-            echo "=== Schema ==="
-            npx drizzle-kit push --force
+            # Sem `drizzle-kit push`: desde a fase 1 da cobranca as migracoes sao
+            # arquivos SQL idempotentes que o server/migrate.ts aplica no BOOT da
+            # API, e a API nao sobe se alguma falhar. O push, alem de redundante,
+            # ainda pergunta "create vs rename" a cada tabela nova — num runner
+            # sem terminal isso trava o job ou escolhe sozinho a opcao errada.
 
             echo "=== Build ==="
             npm run build
 
+            # `pm2 restart` reusa o ambiente CONGELADO no start (o
+            # ecosystem.config.cjs le o .env na hora do start e congela em env),
+            # entao mudanca de variavel nao teria efeito. E o WORKER tambem sobe
+            # aqui: e ele que roda a regua de cobranca e a sentinela do numero —
+            # deixar so a API atualizada poe os dois em versoes diferentes.
             echo "=== Restart ==="
-            pm2 restart consulta-isp
+            pm2 delete consulta-isp consulta-isp-worker || true
+            pm2 start ecosystem.config.cjs
+            pm2 save
 
             echo "=== Health ==="
             sleep 3
