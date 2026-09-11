@@ -255,6 +255,19 @@ que é um TESTE", o selo vira "TESTE — sem validade jurídica" em vez de "tít
 executivo assinado", e o botão **"Enviar pelo chat" não aparece** (a condição
 é `ambiente !== "sandbox"` — só "copiar link" fica disponível).
 
+**Uma assinatura de sandbox nunca interrompe a prescrição** — só a de
+produção tem efeito jurídico, e o card "Prescrição" do 360 só diz
+"interrompida pela confissão de DD/MM (CC art. 202, VI)" com um título de
+produção. O selo do cliente segue a mesma regra (`confissaoDoSelo`,
+`shared/cobranca/confissao.ts`), no 360, na lista e no quadro: a assinada de
+**produção** vence qualquer outra, seja qual for a data; o selo "TESTE" só
+aparece para quem **nunca teve** título de produção. Depois de um título (mesmo
+quitado ou substituído), um teste de sandbox — antigo ou novo — não volta como
+o selo do cliente; ele continua listado no bloco "Confissão de dívida", com a
+marca de teste. É o caso do teste ponta a ponta do dono: feito num cliente real
+da carteira, o selo "TESTE" aparece nesse cliente, e o card de prescrição dele
+não muda.
+
 ### Depois de emitida
 
 "Copiar link" (`sign_url` do cliente) fica disponível sempre que a confissão

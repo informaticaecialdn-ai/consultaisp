@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTH_MODES_DO_CLIENTE, AUTH_MODE_PADRAO, ORIGENS_DA_CONFISSAO, STATUS_DE_CONFISSAO, STATUS_VIVOS_DE_CONFISSAO,
-  TRANSICOES_DE_CONFISSAO, confissaoAssinadaViva, confissaoViva, custoDaEmissao, transicaoDeConfissaoPermitida,
+  TRANSICOES_DE_CONFISSAO, confissaoAssinadaViva, confissaoDoSelo, confissaoViva, custoDaEmissao, transicaoDeConfissaoPermitida,
 } from "./confissao";
 import { ROTULO_TIPO_DE_EVENTO, TIPOS_DE_EVENTO } from "./estados";
 
@@ -48,5 +48,33 @@ describe("vocabulário da confissão", () => {
   it("o evento `confissao` existe e tem rótulo", () => {
     expect(TIPOS_DE_EVENTO).toContain("confissao");
     expect(ROTULO_TIPO_DE_EVENTO.confissao).toBe("Confissão de dívida");
+  });
+});
+
+/**
+ * Qual confissão acende o selo do cliente (e, se for de produção, é a data da
+ * interrupção da prescrição). Só a assinada de PRODUÇÃO tem efeito jurídico;
+ * o teste de sandbox — o selo "TESTE" — só aparece enquanto o cliente nunca
+ * teve título de produção.
+ */
+describe("confissaoDoSelo", () => {
+  const c = (id: number, status: string, ambiente: string, assinadaEm: string | null) => ({ id, status, ambiente, assinadaEm: assinadaEm ? new Date(assinadaEm) : null });
+
+  it("só um teste de sandbox assinado: é ele (selo TESTE)", () => {
+    expect(confissaoDoSelo([c(90, "assinada", "sandbox", "2026-09-12T15:00:00Z")])?.id).toBe(90);
+  });
+  it("título de produção de 01/08 e teste de sandbox de 12/09: vale o de produção, seja qual for a data", () => {
+    expect(confissaoDoSelo([c(90, "assinada", "sandbox", "2026-09-12T15:00:00Z"), c(70, "assinada", "producao", "2026-08-01T12:00:00Z")])?.id).toBe(70);
+  });
+  it("título de produção quitado (ou substituído) e um teste de sandbox: nenhum selo — o teste não volta como a confissão do cliente", () => {
+    expect(confissaoDoSelo([c(70, "quitada", "producao", "2026-08-01T12:00:00Z"), c(60, "assinada", "sandbox", "2026-07-20T12:00:00Z")])).toBeNull();
+    expect(confissaoDoSelo([c(70, "substituida", "producao", "2026-08-01T12:00:00Z"), c(95, "assinada", "sandbox", "2026-09-20T12:00:00Z")])).toBeNull();
+  });
+  it("produção que nunca foi assinada (cancelada, expirada, enviada) não é título: o teste de sandbox segue aparecendo", () => {
+    expect(confissaoDoSelo([c(70, "cancelada", "producao", null), c(71, "expirada", "producao", null), c(72, "enviada", "producao", null), c(90, "assinada", "sandbox", "2026-09-12T15:00:00Z")])?.id).toBe(90);
+  });
+  it("entre assinadas do mesmo ambiente, a mais recente; quitada e substituída de produção não acendem, mas não impedem a assinada nova", () => {
+    expect(confissaoDoSelo([c(70, "substituida", "producao", "2026-08-01T12:00:00Z"), c(80, "assinada", "producao", "2026-09-01T12:00:00Z"), c(81, "assinada", "producao", "2026-09-05T12:00:00Z")])?.id).toBe(81);
+    expect(confissaoDoSelo([])).toBeNull();
   });
 });

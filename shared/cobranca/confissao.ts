@@ -48,6 +48,36 @@ export function confissaoAssinadaViva(c: { status: string }): boolean {
   return c.status === "assinada";
 }
 
+/**
+ * Status que só existem DEPOIS da assinatura do devedor: `quitada` e
+ * `substituida` nascem de `assinada` (TRANSICOES_DE_CONFISSAO). Em produção,
+ * qualquer um deles prova que o cliente tem — ou teve — um título.
+ */
+export const STATUS_QUE_PROVAM_A_ASSINATURA: readonly StatusDeConfissao[] = ["assinada", "quitada", "substituida"];
+
+const instante = (d: Date | string | null) => (d ? new Date(d).getTime() : 0);
+
+/**
+ * A confissão que acende o selo do cliente, entre as dele (spec §6.6 e §8) —
+ * e, quando é de PRODUÇÃO, a data da interrupção da prescrição no 360.
+ *
+ * Só a assinada de produção tem efeito jurídico: ela ganha de qualquer outra,
+ * seja qual for a data. A de sandbox — o selo "TESTE" — só aparece enquanto o
+ * cliente nunca teve título de produção; depois que teve (mesmo quitado ou
+ * substituído), o teste antigo não volta como "a confissão do cliente". Sem
+ * esta regra, a leitura escolhia a assinada mais recente de QUALQUER ambiente:
+ * o teste de sandbox feito num cliente real virava o selo e a data da
+ * interrupção. Quitada e substituída não acendem o selo (não são viva).
+ */
+export function confissaoDoSelo<T extends { id: number; status: string; ambiente: string; assinadaEm: Date | string | null }>(confissoes: readonly T[]): T | null {
+  const maisRecentePrimeiro = (a: T, b: T) => (instante(b.assinadaEm) - instante(a.assinadaEm)) || (b.id - a.id);
+  const deProducao = confissoes.filter(c => c.ambiente === "producao");
+  const tituloVivo = deProducao.filter(confissaoAssinadaViva).sort(maisRecentePrimeiro)[0];
+  if (tituloVivo) return tituloVivo;
+  if (deProducao.some(c => (STATUS_QUE_PROVAM_A_ASSINATURA as readonly string[]).includes(c.status))) return null;
+  return confissoes.filter(c => c.ambiente === "sandbox" && confissaoAssinadaViva(c)).sort(maisRecentePrimeiro)[0] ?? null;
+}
+
 export const AMBIENTES_DE_ASSINATURA = ["sandbox", "producao"] as const;
 export type AmbienteDeAssinatura = (typeof AMBIENTES_DE_ASSINATURA)[number];
 

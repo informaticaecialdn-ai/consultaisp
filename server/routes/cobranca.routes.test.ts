@@ -2386,4 +2386,36 @@ describe("acordo × confissão e os selos", () => {
     expect(ficha.fichaEntrada.confissaoAssinadaEm).toBe("2026-09-01");
     expect(ficha.ficha.prescricao.interrompida_em).toBe("2026-09-01");
   });
+  it("só o título de PRODUÇÃO interrompe a prescrição; o selo prefere a produção e o TESTE só aparece sem título de produção", async () => {
+    // O dono testa o ZapSign em sandbox num cliente REAL da carteira (a base vem
+    // do ERP): a ficha dele não pode declarar "prescrição interrompida" por um
+    // documento sem validade jurídica. A escolha do selo é a regra real
+    // (`confissaoDoSelo`, a mesma que o storage aplica sobre as linhas do cliente).
+    sessao = ADMIN;
+    const { confissaoDoSelo } = await import("@shared/cobranca/confissao");
+    const ficha360 = async (linhas: Array<{ id: number; status: string; ambiente: string; assinadaEm: Date; valorTotal: string }>) => {
+      storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
+      storageMock.confissaoAssinadaVivaDoCliente.mockImplementationOnce(async () => confissaoDoSelo(linhas) ?? undefined);
+      return (await json("GET", `/api/cobranca/clientes/${clienteMaria.id}/360`)).json();
+    };
+    const TESTE_12_09 = { id: 90, status: "assinada", ambiente: "sandbox", assinadaEm: new Date("2026-09-12T15:00:00Z"), valorTotal: "10.00" };
+
+    // 1. Só o teste de sandbox: selo TESTE, prescrição NÃO interrompida.
+    const soTeste = await ficha360([TESTE_12_09]);
+    expect(soTeste.confissaoAssinada).toMatchObject({ id: 90, ambiente: "sandbox" });
+    expect(soTeste.fichaEntrada.confissaoAssinadaEm).toBeNull();
+    expect(soTeste.ficha.prescricao?.interrompida_em ?? null).toBeNull();
+
+    // 2. Título de produção de 01/08 + teste de 12/09: o título é o selo e a data.
+    const comTitulo = await ficha360([TESTE_12_09, { id: 70, status: "assinada", ambiente: "producao", assinadaEm: new Date("2026-08-01T15:00:00Z"), valorTotal: "819.76" }]);
+    expect(comTitulo.confissaoAssinada).toMatchObject({ id: 70, ambiente: "producao" });
+    expect(comTitulo.fichaEntrada.confissaoAssinadaEm).toBe("2026-08-01");
+    expect(comTitulo.ficha.prescricao.interrompida_em).toBe("2026-08-01");
+
+    // 3. Título de produção quitado + teste mais antigo: nenhum selo e nenhuma interrupção.
+    const quitado = await ficha360([{ id: 71, status: "quitada", ambiente: "producao", assinadaEm: new Date("2026-08-02T15:00:00Z"), valorTotal: "500.00" }, { ...TESTE_12_09, id: 60, assinadaEm: new Date("2026-07-20T15:00:00Z") }]);
+    expect(quitado.confissaoAssinada).toBeNull();
+    expect(quitado.fichaEntrada.confissaoAssinadaEm).toBeNull();
+    expect(quitado.ficha.prescricao?.interrompida_em ?? null).toBeNull();
+  });
 });

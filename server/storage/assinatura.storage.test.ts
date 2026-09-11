@@ -101,6 +101,51 @@ describe("integração de assinatura", () => {
   });
 });
 
+/**
+ * Um Postgres de mentira para as leituras do selo: responde às colunas que o
+ * SELECT pede, filtra pelos clientes e status que o WHERE pede e respeita o
+ * ORDER BY por `assinada_em` e o LIMIT — como o banco faria. Assim o teste vale
+ * para a leitura de antes e a de agora, e o que ele prende é o RESULTADO.
+ */
+function bancoDoSelo(linhas: Array<Record<string, unknown>>) {
+  return (sqlTexto: string, params: unknown[]): unknown[][] => {
+    const valor = (n: string) => params[Number(n) - 1];
+    const dosParametros = (trecho: RegExpMatchArray | null) => new Set(trecho ? [...trecho[1].matchAll(/\$(\d+)/g)].map(m => valor(m[1])) : []);
+    const colunas = [...sqlTexto.slice("select ".length, sqlTexto.indexOf(" from ")).matchAll(/"(\w+)"/g)].map(m => m[1]);
+    const clientes = dosParametros(sqlTexto.match(/"customer_id" (?:= |in \()([^)]*?)(?:\)| and| order| limit|$)/));
+    const status = dosParametros(sqlTexto.match(/"status" (?:= |in \()([^)]*?)(?:\)| and| order| limit|$)/));
+    let resultado = linhas.filter(l => clientes.has(l.customer_id) && status.has(l.status));
+    const ordem = sqlTexto.match(/"assinada_em" (asc|desc)/);
+    if (ordem) resultado = [...resultado].sort((a, b) => String(a.assinada_em).localeCompare(String(b.assinada_em)) * (ordem[1] === "asc" ? 1 : -1));
+    const limite = sqlTexto.match(/limit \$(\d+)/);
+    if (limite) resultado = resultado.slice(0, Number(valor(limite[1])));
+    return resultado.map(l => colunas.map(c => l[c] ?? null));
+  };
+}
+
+describe("o selo do cliente: só produção tem efeito jurídico", () => {
+  const linhas = [
+    { id: 70, customer_id: 42, status: "assinada", ambiente: "producao", assinada_em: "2026-08-01 12:00:00", valor_total: "819.76" },
+    { id: 90, customer_id: 42, status: "assinada", ambiente: "sandbox", assinada_em: "2026-09-12 15:00:00", valor_total: "10.00" },
+    { id: 71, customer_id: 43, status: "quitada", ambiente: "producao", assinada_em: "2026-08-02 12:00:00", valor_total: "500.00" },
+    { id: 60, customer_id: 43, status: "assinada", ambiente: "sandbox", assinada_em: "2026-07-20 12:00:00", valor_total: "10.00" },
+    { id: 95, customer_id: 44, status: "assinada", ambiente: "sandbox", assinada_em: "2026-09-10 12:00:00", valor_total: "10.00" },
+  ];
+  it("título de produção de 01/08 vence o teste de sandbox de 12/09; quitado + teste antigo não acende nada; só teste acende o TESTE", async () => {
+    banco.responder = bancoDoSelo(linhas);
+    expect(await storage.confissaoAssinadaVivaDoCliente(PROVEDOR, 42)).toMatchObject({ id: 70, ambiente: "producao", valorTotal: 819.76 });
+    expect(await storage.confissaoAssinadaVivaDoCliente(PROVEDOR, 43)).toBeUndefined();
+    expect(await storage.confissaoAssinadaVivaDoCliente(PROVEDOR, 44)).toMatchObject({ id: 95, ambiente: "sandbox" });
+    for (const c of banco.consultas) conferirTenant(c);
+  });
+  it("a leitura da lista e do quadro escolhe igual à do 360, cliente a cliente", async () => {
+    banco.responder = bancoDoSelo(linhas);
+    const mapa = await storage.confissoesAssinadasVivasPorCliente(PROVEDOR, [42, 43, 44]);
+    expect([...mapa.entries()].map(([cliente, selo]) => [cliente, selo.id, selo.ambiente]).sort((a, b) => Number(a[0]) - Number(b[0]))).toEqual([[42, 70, "producao"], [44, 95, "sandbox"]]);
+    conferirTenant(banco.consultas[0]);
+  });
+});
+
 describe("confissões", () => {
   const nova = {
     customerId: 42, casoId: 9, negociacaoId: null, origem: "saldo_integral" as const, ambiente: "producao" as const,

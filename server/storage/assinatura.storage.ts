@@ -22,7 +22,7 @@ import {
 import { decryptField, encryptField } from "../utils/crypto";
 import { ErroDeConfissao } from "../assinatura/erro";
 import {
-  transicaoDeConfissaoPermitida,
+  STATUS_QUE_PROVAM_A_ASSINATURA, confissaoDoSelo, transicaoDeConfissaoPermitida,
   type AmbienteDeAssinatura, type AuthModeDoCliente, type FaturaDoAnexo, type ModeloDaConfissao, type OrigemDaConfissao,
   type ParcelaConfessada, type SignatarioDaConfissao, type StatusDeConfissao,
 } from "@shared/cobranca/confissao";
@@ -325,8 +325,13 @@ export class AssinaturaStorage {
   confissaoVivaDoCliente(providerId: number, customerId: number) {
     return this._primeira(and(eq(cobrancaConfissoes.providerId, providerId), eq(cobrancaConfissoes.customerId, customerId), inArray(cobrancaConfissoes.status, ["rascunho", "enviada"])), [desc(cobrancaConfissoes.id)]);
   }
-  confissaoAssinadaVivaDoCliente(providerId: number, customerId: number) {
-    return this._primeira(and(eq(cobrancaConfissoes.providerId, providerId), eq(cobrancaConfissoes.customerId, customerId), eq(cobrancaConfissoes.status, "assinada")), [desc(cobrancaConfissoes.assinadaEm), desc(cobrancaConfissoes.id)]);
+  /**
+   * O selo DESTE cliente — a mesma escolha da lista e do quadro
+   * (`confissoesAssinadasVivasPorCliente`), para as telas não discordarem:
+   * produção vence qualquer data; o teste de sandbox só sem título de produção.
+   */
+  async confissaoAssinadaVivaDoCliente(providerId: number, customerId: number): Promise<ConfissaoAssinadaViva | undefined> {
+    return (await this.confissoesAssinadasVivasPorCliente(providerId, [customerId])).get(customerId);
   }
   confissaoEnviadaDaNegociacao(providerId: number, negociacaoId: number) {
     return this._primeira(and(eq(cobrancaConfissoes.providerId, providerId), eq(cobrancaConfissoes.negociacaoId, negociacaoId), eq(cobrancaConfissoes.status, "enviada")));
@@ -338,16 +343,28 @@ export class AssinaturaStorage {
       .orderBy(desc(cobrancaConfissoes.createdAt), desc(cobrancaConfissoes.id));
   }
 
+  /**
+   * O selo de cada cliente (`confissaoDoSelo`): a assinada de PRODUÇÃO vence
+   * qualquer data; a de sandbox ("TESTE") só aparece para quem nunca teve
+   * título de produção. Antes era "a assinada mais recente", de qualquer
+   * ambiente: o teste de sandbox feito num cliente real virava o selo — e, no
+   * 360, a data da interrupção da prescrição. Por isso a leitura traz também
+   * quitadas e substituídas: sem elas não se sabe se o cliente já teve título.
+   */
   async confissoesAssinadasVivasPorCliente(providerId: number, customerIds: number[]): Promise<Map<number, ConfissaoAssinadaViva>> {
     const mapa = new Map<number, ConfissaoAssinadaViva>();
     if (customerIds.length === 0) return mapa;
     const linhas = await db.select({
-      id: cobrancaConfissoes.id, customerId: cobrancaConfissoes.customerId, assinadaEm: cobrancaConfissoes.assinadaEm,
+      id: cobrancaConfissoes.id, customerId: cobrancaConfissoes.customerId, status: cobrancaConfissoes.status, assinadaEm: cobrancaConfissoes.assinadaEm,
       valorTotal: cobrancaConfissoes.valorTotal, ambiente: cobrancaConfissoes.ambiente,
     }).from(cobrancaConfissoes)
-      .where(and(eq(cobrancaConfissoes.providerId, providerId), inArray(cobrancaConfissoes.customerId, customerIds), eq(cobrancaConfissoes.status, "assinada")))
-      .orderBy(asc(cobrancaConfissoes.assinadaEm));
-    for (const l of linhas) mapa.set(l.customerId, { id: l.id, assinadaEm: l.assinadaEm, valorTotal: numero(l.valorTotal), ambiente: l.ambiente as AmbienteDeAssinatura });
+      .where(and(eq(cobrancaConfissoes.providerId, providerId), inArray(cobrancaConfissoes.customerId, customerIds), inArray(cobrancaConfissoes.status, [...STATUS_QUE_PROVAM_A_ASSINATURA])));
+    const porCliente = new Map<number, typeof linhas>();
+    for (const l of linhas) porCliente.set(l.customerId, [...(porCliente.get(l.customerId) ?? []), l]);
+    for (const [customerId, doCliente] of porCliente) {
+      const selo = confissaoDoSelo(doCliente);
+      if (selo) mapa.set(customerId, { id: selo.id, assinadaEm: selo.assinadaEm, valorTotal: numero(selo.valorTotal), ambiente: selo.ambiente as AmbienteDeAssinatura });
+    }
     return mapa;
   }
 

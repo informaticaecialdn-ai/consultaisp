@@ -1548,8 +1548,9 @@ export function registerCobrancaRoutes(): Router {
         // saem da divida da Economia (o equipamento ja esta no investimento).
         // Falha aqui = nada excluido, como sempre foi — com log.
         storage.cobrancasDeSaida(providerId, [customerId], hoje).catch((e: unknown) => { logger.warn({ providerId, customerId, err: e }, "COBRANCA cobranca de saida indisponivel — multa nao separada da divida"); return new Map<number, CobrancaDeSaida>(); }),
-        // A confissao de divida assinada viva (spec §6.6): interrompe a
-        // prescricao e acende o selo "titulo executivo assinado" no 360.
+        // O selo da confissao de divida (spec §6.6 e §8): o titulo de PRODUCAO
+        // vence qualquer data; o teste de sandbox so aparece sem titulo de
+        // producao. So o de producao interrompe a prescricao (abaixo).
         storage.confissaoAssinadaVivaDoCliente(providerId, customerId).catch(() => undefined),
       ]);
       const ha30d = new Date(hoje.getTime() - 30 * 86_400_000);
@@ -1629,10 +1630,12 @@ export function registerCobrancaRoutes(): Router {
         respostas90d: contatos90d.filter(ev => ev.resultado && RESPONDEU.has(ev.resultado)).length,
         comunicacoes30d: contatos.filter(ev => ev.ocorridoEm && new Date(ev.ocorridoEm) >= ha30d).length,
         totalComunicacoes: contatos.length,
-        // Confissao assinada viva (spec §6.6): interrompe a prescricao em `montarFicha360`.
+        // Confissao assinada viva (spec §6.6): interrompe a prescricao em `montarFicha360`
+        // — so a de PRODUCAO. O selo pode ser um teste de sandbox ("TESTE", sem
+        // validade juridica): ele aparece, mas nunca vira a data da interrupcao.
         // O DIA em Brasilia, nao em UTC: as 21h daqui o UTC ja virou o dia seguinte,
         // e e esta data que o 360 declara como a interrupcao (CC art. 202, VI).
-        confissaoAssinadaEm: confissaoAssinada?.assinadaEm ? diaEmBrasilia(confissaoAssinada.assinadaEm) : null,
+        confissaoAssinadaEm: confissaoAssinada?.ambiente === "producao" && confissaoAssinada.assinadaEm ? diaEmBrasilia(confissaoAssinada.assinadaEm) : null,
       };
       // Desde a 0036 o ERP confirma pagamento (IXC e SGP em lote; MK pela API
       // licenciada): com fatura paga sincronizada a Economia sai REALIZADA —
