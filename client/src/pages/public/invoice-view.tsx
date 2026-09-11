@@ -6,6 +6,7 @@ import { Printer, ArrowLeft, Download } from "lucide-react";
 import { useLocation } from "wouter";
 import { usePrecosPublicos, planoPorChave } from "@/hooks/use-precos";
 import { cnpjMascarado } from "@/lib/cnpj";
+import Marca from "@/components/marca";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending:   { label: "Pendente",   color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
@@ -88,16 +89,14 @@ export default function InvoiceViewPage() {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-8 print:shadow-none print:rounded-none">
           <div className="flex items-start justify-between mb-8">
             <div>
-              <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">CI</span>
-                </div>
-                <div>
-                  <h1 className="text-lg font-bold leading-tight">Consulta ISP</h1>
-                  <p className="text-xs text-muted-foreground">CNPJ: 00.000.000/0001-00</p>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">consultaisp.com.br</p>
+              {/* A fatura e da PLATAFORMA (a assinatura do provedor), entao a marca e
+                  sempre a dela. O "CNPJ: 00.000.000/0001-00" que ficava aqui era
+                  numero de mentira num documento de cobranca: saiu, e volta quando
+                  o CNPJ real entrar por configuracao — nunca escrito a mao. */}
+              <h1 className="leading-none">
+                <Marca sempreDaPlataforma comAssinatura tamanho={34} />
+              </h1>
+              <p className="text-xs text-muted-foreground mt-3">consultaisp.com.br</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Nota Fiscal de Servicos</p>

@@ -8,38 +8,47 @@
          aqui e a marca da plataforma, e continua servido byte a byte igual
          quando o host e o dela — a injecao nem roda nesse caso. -->
     <!-- marca:inicio -->
-    <title>Consulta ISP - Sistema de Analise de Credito para Provedores</title>
-    <meta name="description" content="Plataforma de analise de credito baseada em base de dados colaborativa de clientes inadimplentes de provedores de internet" />
-    <!-- Icones. O SVG e a versao simplificada da marca, desenhada para tamanho
-         pequeno: tracos laranja e miolo verde maior, porque a 16px o traco
-         escuro e o anel viram borrao. O PNG fica como reserva para navegador
-         que ainda nao le favicon vetorial. -->
-    <link rel="icon" type="image/svg+xml" href="/marca/favicon.svg" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <title>Consulta ISP — rede colaborativa de crédito para provedores de internet</title>
+    <meta name="description" content="Consulte o CPF, o CNPJ ou o endereço na rede colaborativa de provedores antes de instalar: histórico de inadimplência, equipamentos retidos e sugestão de decisão, ao vivo no ERP de cada provedor." />
+    <!-- Icones da marca /consulta.isp (brand kit de 10/09/2026). O SVG e o "/c"
+         do kit com os glifos CONVERTIDOS EM CONTORNO: o original desenha texto
+         com a fonte puxada por @import, e favicon SVG nao carrega recurso
+         externo — cairia na monoespacada do sistema. Os PNGs sao os do kit,
+         ja renderizados, para quem nao le favicon vetorial.
+         O "-v2" no nome e de proposito: navegador, atalho e previa do WhatsApp
+         guardam o icone PELO ENDERECO. Trocar so o conteudo de favicon.svg (o
+         que foi feito primeiro) deixou o Chrome e o WhatsApp com a marca antiga.
+         Proxima troca de arte = proximo sufixo; os nomes velhos continuam
+         servindo a arte nova para quem ainda apontar para eles. -->
+    <link rel="icon" type="image/svg+xml" href="/marca/favicon-v2.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/marca/favicon-v2-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/marca/favicon-v2-192.png" />
     <!-- iOS exige opaco: PNG transparente vira icone com fundo preto. -->
-    <link rel="apple-touch-icon" sizes="180x180" href="/marca/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/marca/apple-touch-icon-v2.png" />
     <link rel="manifest" href="/site.webmanifest" />
-    <meta name="theme-color" content="#F26201" />
+    <meta name="theme-color" content="#0E0D0B" />
 
-    <!-- Previa quando alguem compartilha o link. Nao existia: no WhatsApp e no
-         LinkedIn o site aparecia sem imagem nenhuma. -->
+    <!-- Previa quando alguem compartilha o link (WhatsApp, LinkedIn): a imagem
+         e a do kit, 1200x630. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Consulta ISP" />
-    <meta property="og:title" content="Consulta ISP — analise de credito para provedores" />
-    <meta property="og:description" content="Consulte o CPF antes de instalar. Score de risco em tempo real, direto do ERP de toda a rede de provedores." />
-    <meta property="og:image" content="https://consultaisp.com.br/marca/og-image.png" />
+    <meta property="og:title" content="/consulta.isp — rede colaborativa de crédito para provedores de internet" />
+    <meta property="og:description" content="Saiba quem não vai pagar antes de instalar. Consulta ao vivo no ERP de toda a rede de provedores: histórico de inadimplência, equipamentos retidos e sugestão de decisão." />
+    <meta property="og:image" content="https://consultaisp.com.br/marca/og-image-v2.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="/consulta.isp — rede colaborativa de crédito" />
     <meta property="og:url" content="https://consultaisp.com.br/" />
+    <meta property="og:locale" content="pt_BR" />
     <meta name="twitter:card" content="summary_large_image" />
     <!-- marca:fim -->
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- Montserrat entra SO pela marca (brief de 31/08/2026: Bold 700 no
-         wordmark, Medium 500 na assinatura). A interface segue em Inter e IBM
-         Plex Mono; sao dois pesos a mais, nao uma terceira familia de texto. -->
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&family=Montserrat:wght@500;700&display=swap" rel="stylesheet">
+    <!-- JetBrains Mono entra pela MARCA (wordmark /consulta.isp: 700 no nome,
+         500 na tagline) e pela landing. A interface segue em Inter e IBM Plex
+         Mono. Montserrat saiu com a marca antiga (10/09/2026). -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
       // Aplica o tema ANTES do primeiro paint, evitando flash de tema errado.
       // Roda antes do React: o toggle so grava a preferencia e recarrega.

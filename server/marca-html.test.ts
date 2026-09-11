@@ -20,7 +20,7 @@ const TEMPLATE = `<!DOCTYPE html>
     <meta charset="UTF-8" />
     <!-- marca:inicio -->
     <title>Consulta ISP</title>
-    <link rel="icon" href="/marca/favicon.svg" />
+    <link rel="icon" href="/marca/favicon-v2.svg" />
     <!-- marca:fim -->
   </head>
   <body><div id="root"></div></body>
@@ -28,8 +28,8 @@ const TEMPLATE = `<!DOCTYPE html>
 
 const PLATAFORMA: MarcaResolvida = {
   origem: "plataforma", contexto: "plataforma", marcaId: null,
-  nomeProduto: "Consulta ISP", assinatura: "Base colaborativa de crédito",
-  logoUrl: null, faviconUrl: "/marca/favicon.svg", cores: null,
+  nomeProduto: "Consulta ISP", assinatura: "Rede colaborativa de crédito",
+  logoUrl: null, faviconUrl: "/marca/favicon-v2.svg", cores: null,
   suporteEmail: null, suporteWhatsapp: null, site: "https://consultaisp.com.br",
   responsavelRazaoSocial: null, responsavelCnpj: null,
   emailRemetente: null, emailNomeExibicao: null,
@@ -156,7 +156,7 @@ describe("urls", () => {
 
   it("favicon fora do padrao cai no da plataforma em vez de virar href arbitrario", () => {
     const html = injetarMarca(TEMPLATE, marcaDe({ faviconUrl: "https://evil.com/f.svg" }));
-    expect(html).toContain('href="/marca/favicon.svg"');
+    expect(html).toContain('href="/marca/favicon-v2.svg"');
     expect(html).not.toContain("evil.com");
   });
 });

@@ -1,102 +1,134 @@
 /**
- * A marca do Consulta ISP.
+ * A marca do Consulta ISP: /consulta.isp (brand kit de 10/09/2026).
  *
- * Desenhada em SVG, e não servida como imagem, por três razões:
+ * Duas peças, cada uma no formato que a mantém fiel ao kit:
  *
- * 1. O PNG de origem tem 1254px e 897KB. O lugar mais frequente da marca é o
- *    quadrado de 32px da barra lateral — carregar 897KB para desenhar 32px sai
- *    caro em toda visita.
- * 2. Vetor é nítido em qualquer tamanho, e a marca aparece de 20px (favicon) a
- *    ~200px (tela de login).
- * 3. O traço estrutural precisa clarear no tema escuro. Num PNG isso exigiria
- *    dois arquivos; aqui é uma variável.
+ * 1. O WORDMARK é texto vivo em JetBrains Mono — a fonte já vem pelo
+ *    `index.html`. É o mesmo desenho da landing: peso 700 com tracking de -4%
+ *    no nome, "/" e ".isp" no cinza de destaque, tagline em 500 com o filete
+ *    antes. Texto, e não imagem, porque a marca aparece de ~17px (barra
+ *    lateral) a ~24px e precisa trocar de tinta no tema escuro — um PNG
+ *    exigiria dois arquivos e borraria fora do tamanho em que foi exportado.
+ * 2. O SÍMBOLO "/c" — o favicon do kit, para espaço pequeno — é vetor com os
+ *    glifos CONVERTIDOS EM CONTORNO a partir do `JetBrainsMono-Bold.ttf` (os
+ *    mesmos caminhos de `client/public/marca/favicon.svg`, centrados pela
+ *    tinta). Os SVGs do kit desenham `<text>` com a fonte puxada por
+ *    `@import`; favicon e `<img>` não carregam recurso externo, e o "/c"
+ *    cairia na monoespaçada do sistema.
  *
- * O SIMBOLO segue o `icone-512.png` aprovado — traco escuro e anel laranja em
- * volta do verde. ATENCAO: a tabela do brief de vetorizacao descreve outra
- * construcao (tracos LARANJA, sem anel), que e a do `favicon.svg`. As duas
- * existem de proposito — a laranja e a simplificacao para 16px —, mas o brief
- * mistura as duas ao mandar seguir a tabela E usar o PNG como referencia. Quem
- * for vetorizar precisa saber qual das duas e o master.
+ * Regras do kit que o código segue: nunca deformar; só dois modos (tinta
+ * grafite no claro, creme no escuro — o cinza não muda); em espaço pequeno, o
+ * "/c" no lugar do wordmark. Os tokens são `--marca-*` no `index.css`.
  *
- * A geometria foi MEDIDA do arquivo original (client/public/marca/simbolo.png),
- * amostrando os pixels: centro dos seis nós, espessura de linha 31, raio do nó
- * 82,5, disco verde de raio 146,5 e anel laranja externo em 178,5 — tudo no
- * sistema de 1254px do arquivo, que é o que estes números usam. O hexágono do
- * original é levemente mais largo que um hexágono regular (nós laterais em
- * ±387 onde o regular pediria ±372); mantive o desenho como ele é, porque
- * fidelidade à marca vale mais que pureza geométrica.
+ * WHITE LABEL: nada muda para o revendedor. O logo dele vem por `<img>`; sem
+ * logo, o monograma com a cor dele — nunca a marca da plataforma.
  */
 
 import { useMarca } from "@/lib/marca";
 
 type Props = {
-  /** Só o símbolo, ou o símbolo com o nome ao lado. */
+  /** Só o símbolo, ou a marca completa (wordmark da plataforma; símbolo + nome do revendedor). */
   variante?: "simbolo" | "completa";
-  /** Altura do símbolo em px. A largura sai da proporção. */
+  /** Altura de referência em px — a do símbolo. O wordmark sai proporcional a ela. */
   tamanho?: number;
-  /** Mostra a linha de apoio sob o nome. */
+  /** Mostra a tagline ("Rede Colaborativa") ou a assinatura do revendedor. */
   comAssinatura?: boolean;
   className?: string;
   /**
    * Ignora a marca do revendedor e desenha sempre a da plataforma.
    *
    * Para as telas que são da PLATAFORMA e não do tenant — o painel do
-   * superadmin, por exemplo. Ali a marca de um revendedor seria mentira.
+   * superadmin, a fatura da plataforma. Ali a marca de um revendedor seria mentira.
    */
   sempreDaPlataforma?: boolean;
 };
 
-/* Centros dos seis nós e do miolo, no sistema do arquivo original. */
-const NOS = [
-  { x: 626, y: 175 },   // topo
-  { x: 1013, y: 385 },  // direita superior
-  { x: 1012, y: 822 },  // direita inferior
-  { x: 626, y: 1034 },  // baixo
-  { x: 238, y: 822 },   // esquerda inferior
-  { x: 239, y: 385 },   // esquerda superior
-];
-const CENTRO = { x: 625, y: 604 };
-const R_NO = 82.5;
-const TRACO = 31;
+/** A tagline do kit, palavra por palavra. */
+export const TAGLINE_DA_MARCA = "Rede Colaborativa";
 
+/* O "/c" do favicon do kit em contorno, no quadrado de 64: JetBrains Mono Bold,
+   corpo 44, espaçamento -3, linha de base 47, deslocado 1,5 px para a tinta
+   ficar no centro (o <text> do kit ancora pelo avanço e sobra à direita). */
+const CONTORNO_BARRA = "M15.46 51.84L9.74 51.84L25.14 10.48L30.86 10.48L15.46 51.84Z";
+const CONTORNO_C =
+  "M44.10 47.44L44.10 47.44Q40.97 47.44 38.66 46.27Q36.35 45.11 35.08 42.97Q33.80 40.84 33.80 37.94L33.80 37.94L33.80 31.86Q33.80 28.96 35.08 26.83Q36.35 24.69 38.66 23.53Q40.97 22.36 44.10 22.36L44.10 22.36Q48.63 22.36 51.38 24.71Q54.13 27.07 54.26 31.12L54.26 31.12L48.85 31.12Q48.72 29.22 47.42 28.19Q46.12 27.16 44.10 27.16L44.10 27.16Q41.85 27.16 40.58 28.37Q39.30 29.58 39.30 31.82L39.30 31.82L39.30 37.94Q39.30 40.18 40.58 41.41Q41.85 42.64 44.10 42.64L44.10 42.64Q46.16 42.64 47.44 41.61Q48.72 40.58 48.85 38.68L48.85 38.68L54.26 38.68Q54.13 42.73 51.38 45.09Q48.63 47.44 44.10 47.44Z";
+
+/**
+ * O "/c" em ladrilho grafite. O raio sai do tamanho em px, com teto de 8 px —
+ * o limite do DESIGN_SYSTEM (o ícone de app do kit tem 22% de raio, pensado
+ * para a máscara do celular, não para a interface).
+ */
 export function SimboloConsultaISP({ tamanho = 32, className }: { tamanho?: number; className?: string }) {
-  const largura = Math.round(tamanho * (951 / 1035));
+  const raioPx = Math.min(8, Math.max(3, Math.round(tamanho * 0.18)));
+  const raio = (raioPx * 64) / tamanho;
   return (
     <svg
-      viewBox="150 87 951 1035"
-      width={largura}
+      viewBox="0 0 64 64"
+      width={tamanho}
       height={tamanho}
       className={className}
+      style={{ flex: "none" }}
       role="img"
       aria-label="Consulta ISP"
     >
-      {/* Perímetro e raios primeiro: os nós entram por cima e escondem as pontas. */}
-      <g stroke="var(--marca-traco)" strokeWidth={TRACO} strokeLinecap="round" fill="none">
-        {NOS.map((n, i) => {
-          const p = NOS[(i + 1) % NOS.length];
-          return <line key={`a${i}`} x1={n.x} y1={n.y} x2={p.x} y2={p.y} />;
-        })}
-        {NOS.map((n, i) => (
-          <line key={`r${i}`} x1={CENTRO.x} y1={CENTRO.y} x2={n.x} y2={n.y} />
-        ))}
-      </g>
-
-      {NOS.map((n, i) => (
-        <circle key={`n${i}`} cx={n.x} cy={n.y} r={R_NO} fill="var(--marca-no)" />
-      ))}
-
-      {/* Miolo: disco verde com anel laranja da mesma espessura das linhas. */}
-      <circle cx={CENTRO.x} cy={CENTRO.y} r={163} fill="var(--marca-no)" />
-      <circle cx={CENTRO.x} cy={CENTRO.y} r={146.5} fill="var(--marca-ok)" />
-      <path
-        d="M 552 611 L 605 664 L 705 557"
-        stroke="var(--marca-check)"
-        strokeWidth={45}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
+      <rect width="64" height="64" rx={raio} fill="var(--marca-ladrilho)" />
+      <path d={CONTORNO_BARRA} fill="var(--marca-destaque)" />
+      <path d={CONTORNO_C} fill="var(--marca-ladrilho-tinta)" />
     </svg>
+  );
+}
+
+/**
+ * O wordmark /consulta.isp, com a tagline opcional embaixo.
+ *
+ * `tamanho` é o corpo do nome em px. A tagline tem piso de 9 px: a proporção
+ * do kit (20% do nome) é de peça impressa, e a 20 px de nome daria 4 px de
+ * letra — ilegível.
+ *
+ * O leitor de tela ouve "Consulta ISP", não "barra consulta ponto isp".
+ */
+export function WordmarkConsultaISP({
+  tamanho = 20, tagline, className, sobreEscuro = false,
+}: {
+  tamanho?: number; tagline?: string | null; className?: string;
+  /**
+   * Sobre fundo escuro FIXO (o painel da tela de login, o bloco escuro da
+   * landing): a tinta vira creme nos dois temas. Sem isto a tinta segue o tema
+   * do app, e no tema claro o nome sairia grafite sobre grafite.
+   */
+  sobreEscuro?: boolean;
+}) {
+  const corpoDaTagline = Math.max(9, Math.round(tamanho * 0.41));
+  return (
+    <span
+      className={`inline-flex flex-col items-start min-w-0 ${className ?? ""}`}
+      style={{ fontFamily: "var(--marca-fonte)", lineHeight: 1 }}
+    >
+      <span className="sr-only">Consulta ISP</span>
+      <span
+        aria-hidden="true"
+        style={{
+          fontSize: tamanho, fontWeight: 700, letterSpacing: "-0.04em",
+          color: sobreEscuro ? "var(--marca-ladrilho-tinta)" : "var(--marca-tinta)", whiteSpace: "nowrap",
+        }}
+      >
+        <span style={{ color: "var(--marca-destaque)" }}>/</span>consulta<span style={{ color: "var(--marca-destaque)" }}>.isp</span>
+      </span>
+      {tagline && (
+        <span
+          className="flex items-center uppercase truncate max-w-full"
+          style={{
+            gap: Math.round(corpoDaTagline * 0.8),
+            marginTop: Math.max(5, Math.round(tamanho * 0.3)),
+            fontSize: corpoDaTagline, fontWeight: 500, letterSpacing: "0.2em",
+            color: "var(--marca-destaque)",
+          }}
+        >
+          <span aria-hidden="true" style={{ width: Math.round(corpoDaTagline * 1.3), height: 1, background: "currentColor", flex: "none" }} />
+          {tagline}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -130,12 +162,11 @@ export function SimboloDaMarca({ tamanho, className, sempreDaPlataforma }: {
   }
 
   /**
-   * Revendedor cadastrado mas sem logo: monograma, nunca o hexágono da casa.
+   * Revendedor cadastrado mas sem logo: monograma, nunca o "/c" da casa.
    *
-   * Encontrado ao olhar a tela: com marca ativa e sem logo, a versão anterior
-   * caía no símbolo da plataforma — e a porta de entrada de um revendedor
-   * exibia a marca de outra empresa. Isso derruba a razão de existir da
-   * feature. O monograma usa a cor dele e não afirma nada que seja falso.
+   * Com marca ativa e sem logo, a porta de entrada de um revendedor exibiria a
+   * marca de outra empresa — o que derruba a razão de existir do white label.
+   * O monograma usa a cor dele e não afirma nada que seja falso.
    */
   if (!sempreDaPlataforma && marca.marcaId !== null) {
     const inicial = marca.nomeProduto.trim().charAt(0).toUpperCase() || "?";
@@ -149,7 +180,7 @@ export function SimboloDaMarca({ tamanho, className, sempreDaPlataforma }: {
           display: "grid", placeItems: "center",
           background: "var(--brand)", color: "var(--text-on-brand)",
           borderRadius: Math.max(4, Math.round(tamanho * 0.18)),   /* teto de 8px do design */
-          fontFamily: "var(--marca-fonte)", fontWeight: 700,
+          fontFamily: "var(--font-sans)", fontWeight: 700,
           fontSize: Math.round(tamanho * 0.52), lineHeight: 1,
         }}
       >
@@ -162,8 +193,12 @@ export function SimboloDaMarca({ tamanho, className, sempreDaPlataforma }: {
 }
 
 /**
- * Símbolo + nome. `comAssinatura` acrescenta a linha de apoio, que só cabe
- * quando a marca é grande — abaixo de ~28px ela vira borrão.
+ * A marca completa.
+ *
+ * PLATAFORMA: só o wordmark — é o que o kit usa em nav e documento; o "/c" ao
+ * lado repetiria "/c" duas vezes. REVENDEDOR: símbolo + nome, como sempre.
+ * `comAssinatura` acrescenta a linha de apoio, que só cabe quando a marca é
+ * grande — abaixo de ~28px ela vira borrão.
  */
 export default function Marca({
   variante = "completa", tamanho = 32, comAssinatura = false, className, sempreDaPlataforma,
@@ -175,40 +210,43 @@ export default function Marca({
     return <SimboloDaMarca tamanho={tamanho} className={className} sempreDaPlataforma={sempreDaPlataforma} />;
   }
 
-  const nome = daPlataforma ? "Consulta ISP" : marca.nomeProduto;
-  const assinatura = daPlataforma ? "Base colaborativa de crédito" : marca.assinatura;
+  if (daPlataforma) {
+    return (
+      <WordmarkConsultaISP
+        tamanho={Math.round(tamanho * 0.62)}
+        tagline={comAssinatura ? TAGLINE_DA_MARCA : null}
+        className={className}
+      />
+    );
+  }
 
   return (
     <span className={`inline-flex items-center gap-2.5 ${className ?? ""}`}>
-      <SimboloDaMarca tamanho={tamanho} sempreDaPlataforma={sempreDaPlataforma} />
+      <SimboloDaMarca tamanho={tamanho} />
       <span className="flex flex-col leading-none">
+        {/* O nome do revendedor sai em Inter, na cor dele (`--marca-nome`,
+            injetada por server/marca-html.ts): a fonte da marca-mãe não é dele. */}
         <span
           style={{
-            fontFamily: "var(--marca-fonte)", fontWeight: 700,
+            fontFamily: "var(--font-sans)", fontWeight: 700,
             fontSize: Math.round(tamanho * 0.54), letterSpacing: "-0.01em",
             color: "var(--marca-nome)",
           }}
         >
-          {daPlataforma ? (
-            /* Montserrat Bold 700, cores do brief: "Consulta" em azul-ardósia no
-               tema claro e branco no escuro; "ISP" em laranja nos dois. O corte
-               em duas cores é ajustado à mão para ESTE nome — um nome de
-               revendedor sai numa cor só, que é o que não erra. */
-            <>Consulta <span style={{ color: "var(--marca-no)" }}>ISP</span></>
-          ) : nome}
+          {marca.nomeProduto}
         </span>
-        {comAssinatura && assinatura && (
+        {comAssinatura && marca.assinatura && (
           <span
             className="uppercase"
             style={{
-              fontFamily: "var(--marca-fonte)", fontWeight: 500,
+              fontFamily: "var(--font-sans)", fontWeight: 500,
               fontSize: Math.max(8, Math.round(tamanho * 0.2)),
-              letterSpacing: "0.1em",           /* o brief pede +8% a +12% */
+              letterSpacing: "0.1em",
               color: "var(--marca-assinatura)",
               marginTop: Math.round(tamanho * 0.16),
             }}
           >
-            {assinatura}
+            {marca.assinatura}
           </span>
         )}
       </span>

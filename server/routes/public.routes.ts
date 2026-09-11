@@ -85,6 +85,38 @@ export function registerPublicRoutes(): Router {
     });
   });
 
+  /**
+   * A rede em numero, para o selo da tela de login ("Rede online · N provedores
+   * ativos").
+   *
+   * O desenho trazia "47 provedores ativos" escrito a mao, e a base tinha 6.
+   * Regra do dono: so dado real e verificavel. O numero sai daqui, contado na
+   * hora — so provedor com status ativo — e guardado por 5 minutos: a tela de
+   * login e publica, e cada visita nao pode virar uma leitura de banco.
+   * Numero e tudo o que sai; nome nenhum.
+   */
+  const CINCO_MINUTOS = 5 * 60_000;
+  let redeEmCache: { valor: { provedoresAtivos: number; lidoEm: string }; ate: number } | null = null;
+
+  router.get("/api/public/rede", async (_req, res) => {
+    try {
+      const agora = Date.now();
+      if (!redeEmCache || redeEmCache.ate <= agora) {
+        const provedores = await storage.getAllProviders();
+        redeEmCache = {
+          valor: {
+            provedoresAtivos: provedores.filter(p => p.status === "active").length,
+            lidoEm: new Date(agora).toISOString(),
+          },
+          ate: agora + CINCO_MINUTOS,
+        };
+      }
+      return res.json(redeEmCache.valor);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
   router.get("/api/public/erp-catalog", async (_req, res) => {
     try {
       const items = await storage.getAllErpCatalog();

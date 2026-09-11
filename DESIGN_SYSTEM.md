@@ -70,6 +70,42 @@ Nem tudo saiu literal do handoff. Estas duas foram **derivadas**:
    `--wire`, o selo de proveniência "dado real do ERP". Escurecido e dessaturado
    para a família do projeto.
 
+### A marca: /consulta.isp (brand kit de 10/09/2026)
+
+A MARCA e a INTERFACE são duas coisas, com duas paletas — de propósito.
+
+- **Marca** — o wordmark `/consulta.isp` e o símbolo `/c`: monocromática.
+  JetBrains Mono 700 no nome (tracking -4%), "/" e ".isp" no cinza de destaque,
+  tagline "Rede Colaborativa" em 500 com tracking aberto e o filete antes.
+  Tokens próprios em `index.css`, que **só a marca usa**:
+
+  ```css
+  --marca-tinta:          #0E0D0B;  /* .dark: #F5F3EE — o kit só admite os dois modos */
+  --marca-destaque:       #77726A;  /* não muda com o tema */
+  --marca-ladrilho:       #0E0D0B;  /* fundo do "/c" */
+  --marca-ladrilho-tinta: #F5F3EE;
+  --marca-fonte:          "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+  ```
+
+- **Interface** — tudo o que as seções abaixo descrevem: berinjela como ação,
+  semânticas, Inter + IBM Plex Mono. **A troca de marca não mexeu na interface.**
+
+Onde a marca mora: `client/src/components/marca.tsx` (`WordmarkConsultaISP`,
+`SimboloConsultaISP`, `Marca`), barra lateral, login, verificação de e-mail,
+fatura, e-mails (`server/services/email-ui.ts`, wordmark em TEXTO — cliente de
+e-mail não carrega fonte da web), favicon e manifest (`client/public/marca/`),
+prévia de compartilhamento (`og-image-v2.png`). A landing (`landingpage.css`,
+escopo `.lp`) e a porta de entrada da plataforma (`login-plataforma.css`, escopo
+`.lg`) usam a mesma marca com CSS próprio — as duas únicas telas fora deste
+sistema, por desenho do dono.
+
+**Regras do kit:** nunca deformar; nunca trocar as cores; em espaço pequeno, o
+`/c` no lugar do wordmark; o `/c` e o wordmark juntos lado a lado, nunca — os
+dois repetem "/c". O favicon e o símbolo são **contorno** gerado da própria
+fonte: os SVGs do kit desenham `<text>` com `@import`, e favicon/`<img>` não
+carregam recurso externo. O **white label não herda nada disso**: revendedor
+sai com o logo dele (ou monograma na cor dele) e o nome em Inter.
+
 ---
 
 ## 2. Tipografia

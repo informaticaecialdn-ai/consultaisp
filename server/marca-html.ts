@@ -155,7 +155,7 @@ function blocoDeCores(marca: MarcaResolvida): string {
     --sidebar-accent:${hsl(p.soft)};--sidebar-primary:${hsl(p.brand)};
     --accent:${hsl(p.soft)};--accent-foreground:${hsl(p.ink)};
     --ring:${hsl(p.brand)};
-    --marca-nome:${p.brand};--marca-no:${p.brand};`;
+    --marca-nome:${p.brand};`;
 
   /**
    * Seletores repetidos (`:root:root`) de proposito: e especificidade, nao
@@ -210,7 +210,7 @@ function blocoDeCabecalho(marca: MarcaResolvida): string {
   const descricao = escaparHtml(
     marca.assinatura || "Analise de credito para provedores de internet"
   );
-  const favicon = caminhoInterno(marca.faviconUrl) ?? "/marca/favicon.svg";
+  const favicon = caminhoInterno(marca.faviconUrl) ?? "/marca/favicon-v2.svg";
   const logo = caminhoInterno(marca.logoUrl);
   const site = urlSegura(marca.site);
 

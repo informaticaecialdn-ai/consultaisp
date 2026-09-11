@@ -33,7 +33,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { SimboloDaMarca } from "@/components/marca";
+import { SimboloDaMarca, WordmarkConsultaISP } from "@/components/marca";
 import { useMarca } from "@/lib/marca";
 
 /* ==================================================================== */
@@ -93,19 +93,21 @@ const ITEM_INATIVO =
 type Icone = React.ElementType;
 
 /**
- * O glifo da plataforma: arco de score com ponteiro, o artefato que um bureau
- * entrega. Ecoa o medidor da propria tela de consulta.
+ * Cabecalho da PLATAFORMA: so o wordmark /consulta.isp.
  *
- * Fundo `--surface-2` e nao branco puro: a sidebar ja e branca, e um quadrado
- * branco sumiria nela. A hairline fecha a forma.
+ * Teve o subtitulo do painel no traje da tagline ("— ANALISE DE CREDITO",
+ * "— SISTEMA ADMIN") por um dia; saiu a pedido do dono (10/09/2026: "sem o
+ * analise de credito em baixo... fica mais limpo"). O painel continua
+ * identificavel pelo rodape — o nome do provedor, ou "Super Admin".
+ *
+ * Sem ladrilho ao lado: o kit usa o wordmark sozinho no nav e reserva o "/c"
+ * para espaco pequeno — os dois juntos repetiriam "/c" duas vezes. Sem a
+ * tagline, o nome sobe de 18 para 20px e ocupa a altura que ela deixou.
  */
-function LadrilhoDaPlataforma() {
+function CabecalhoDaPlataforma() {
   return (
-    <div className="w-[34px] h-[34px] rounded-lg bg-[var(--surface-2)] border border-[var(--border)] grid place-items-center flex-none">
-      <svg width="23" height="23" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M3.5 16.5a8.5 8.5 0 0 1 17 0" stroke="var(--brand)" strokeWidth="2.1" strokeLinecap="round" />
-        <path d="M12 16.5l4.4-4.4" stroke="var(--brand)" strokeWidth="2.1" strokeLinecap="round" />
-      </svg>
+    <div className="flex items-center cursor-pointer min-w-0">
+      <WordmarkConsultaISP tamanho={20} />
     </div>
   );
 }
@@ -653,11 +655,7 @@ export function AppSidebar() {
           >
             {/* Marca da plataforma, sempre: o painel do superadmin nao pertence
                 a nenhum revendedor, e exibir a marca de um seria mentira. */}
-            <CabecalhoSidebar
-              simbolo={<LadrilhoDaPlataforma />}
-              nome="Consulta ISP"
-              subtitulo="Sistema Admin"
-            />
+            <CabecalhoDaPlataforma />
           </button>
         }
         rodape={
@@ -722,9 +720,9 @@ export function AppSidebar() {
         cabecalho={
           <Link href="/revenda" className={CONTROLE_MARCA}>
             <CabecalhoSidebar
-              simbolo={
-                marca.marcaId !== null ? <SimboloDaMarca tamanho={34} /> : <LadrilhoDaPlataforma />
-              }
+              /* Sem marca resolvida pelo host (dev em localhost), SimboloDaMarca cai
+                 no "/c" da plataforma — o nome ao lado continua o da sessao. */
+              simbolo={<SimboloDaMarca tamanho={34} />}
               nome={nomeProduto}
               /* Com assinatura, a voz da marca vence. Sem ela, o rotulo diz em
                  QUAL painel voce esta — o mesmo trabalho que "Sistema Admin"
@@ -770,16 +768,18 @@ export function AppSidebar() {
       cabecalho={
         <Link href="/" className={CONTROLE_MARCA}>
           {/* White label: a marca do revendedor entra aqui (logo por <img>, ou
-              monograma quando ele ainda nao subiu um). Sem revendedor, fica o
-              arco de score da plataforma, intacto — white label nao e desculpa
-              para redesenhar a marca-mae. */}
-          <CabecalhoSidebar
-            simbolo={
-              marca.marcaId !== null ? <SimboloDaMarca tamanho={34} /> : <LadrilhoDaPlataforma />
-            }
-            nome={marca.nomeProduto}
-            subtitulo={marca.marcaId === null ? "Análise de Crédito" : (marca.assinatura ?? "")}
-          />
+              monograma quando ele ainda nao subiu um). Sem revendedor, o
+              wordmark da plataforma — e a marca-mae mudando de roupa nao
+              mexe na do revendedor. */}
+          {marca.marcaId === null ? (
+            <CabecalhoDaPlataforma />
+          ) : (
+            <CabecalhoSidebar
+              simbolo={<SimboloDaMarca tamanho={34} />}
+              nome={marca.nomeProduto}
+              subtitulo={marca.assinatura ?? ""}
+            />
+          )}
         </Link>
       }
       rodape={

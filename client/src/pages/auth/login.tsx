@@ -1,19 +1,15 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "@/lib/auth";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { reenviarVerificacao, type ResultadoDeReenvio } from "@/lib/verificacao-email";
-import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, ArrowLeft } from "lucide-react";
+import { CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { getSubdomain } from "@/lib/subdomain";
 import { useMarca } from "@/lib/marca";
 import Marca, { SimboloDaMarca } from "@/components/marca";
 import CadastroWizard from "@/pages/auth/cadastro-wizard";
-
-type PageState = "login" | "register" | "check-email" | "forgot" | "reset";
+import LoginDaPlataforma from "@/pages/auth/login-plataforma";
+import { useFluxoDeLogin, pedirLinkDeSenha, redefinirSenha, tokenDeRedefinicao } from "@/pages/auth/login-fluxo";
 
 function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   const [email, setEmail] = useState("");
@@ -25,16 +21,10 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    try {
-      const res = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.message); return; }
-      setSent(true);
-    } catch { setError("Erro de conexao"); } finally { setLoading(false); }
+    const resposta = await pedirLinkDeSenha(email.trim());
+    setLoading(false);
+    if (resposta.ok) setSent(true);
+    else setError(resposta.mensagem);
   };
 
   if (sent) {
@@ -44,7 +34,7 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
           <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
         </div>
         <h3 className="font-semibold text-lg mb-2">Email enviado</h3>
-        <p className="text-sm text-[var(--color-muted)] mb-4">Se o email estiver cadastrado, voce recebera instrucoes para redefinir sua senha.</p>
+        <p className="text-sm text-[var(--color-muted)] mb-4">Se o e-mail estiver cadastrado, você receberá as instruções para redefinir sua senha.</p>
         <Button variant="ghost" onClick={onBack} className="text-[var(--color-brand)]">Voltar ao login</Button>
       </div>
     );
@@ -73,24 +63,15 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("reset") || "";
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password !== confirm) { setError("Senhas nao conferem"); return; }
+    if (password !== confirm) { setError("As senhas não conferem"); return; }
     setError("");
     setLoading(true);
-    try {
-      const res = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, newPassword: password }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.message); return; }
-      setDone(true);
-    } catch { setError("Erro de conexao"); } finally { setLoading(false); }
+    const resposta = await redefinirSenha(tokenDeRedefinicao(), password);
+    setLoading(false);
+    if (resposta.ok) setDone(true);
+    else setError(resposta.mensagem);
   };
 
   if (done) {
@@ -100,7 +81,7 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
           <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
         </div>
         <h3 className="font-semibold text-lg mb-2">Senha alterada</h3>
-        <p className="text-sm text-[var(--color-muted)] mb-4">Sua senha foi redefinida com sucesso. Faca login com a nova senha.</p>
+        <p className="text-sm text-[var(--color-muted)] mb-4">Sua senha foi redefinida. Faça login com a nova senha.</p>
         <Button onClick={onBack} className="bg-[var(--color-brand)] text-white">Ir para login</Button>
       </div>
     );
@@ -121,123 +102,44 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
   );
 }
 
+/**
+ * Qual porta de entrada este host veste.
+ *
+ * Marca da plataforma (o dominio dela e os subdominios dos provedores dela):
+ * o desenho "/consulta.isp", continuacao da landing. Marca de revendedor: a tela
+ * neutra abaixo, com o logo e as cores dele — o traje da plataforma na porta de
+ * um revendedor seria a marca de outra empresa na casa dele.
+ */
 export default function LoginPage() {
-  const { login, register } = useAuth();
+  const marca = useMarca();
+  return marca.marcaId === null ? <LoginDaPlataforma /> : <LoginDoRevendedor />;
+}
+
+function LoginDoRevendedor() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const marca = useMarca();
-  const currentSubdomain = getSubdomain();
-  /**
-   * Modo tenant = só login, sem o formulário público de cadastro.
-   *
-   * Era `!!getSubdomain()`. Num domínio próprio de revendedor isso dá false, e
-   * a porta de entrada dele passaria a oferecer "criar conta" na plataforma —
-   * qualquer visitante abriria um provedor novo a partir da marca dele. Quem
-   * responde agora é o contexto que o servidor resolveu pelo host.
-   */
-  const isSubdomainMode = marca.contexto === "tenant";
-
-  const { data: tenantInfo } = useQuery<{ id: number; name: string; subdomain: string }>({
-    queryKey: ["/api/tenant/resolve", currentSubdomain],
-    queryFn: async () => {
-      const res = await fetch(`/api/tenant/resolve?subdomain=${encodeURIComponent(currentSubdomain!)}`);
-      if (!res.ok) return null;
-      return res.json();
-    },
-    enabled: !!currentSubdomain,
+  const {
+    marca, isSubdomainMode, tenantInfo, pageState, irPara,
+    form, setForm, showPassword, setShowPassword, isLoading, handleSubmit,
+    pendingEmail, setPendingEmail, pedirEmailDoReenvio, resultadoReenvio, resendLoading,
+    irParaReenvio, handleResend,
+  } = useFluxoDeLogin({
+    aoFalharLogin: (mensagem) => toast({ title: "Não foi possível entrar", description: mensagem, variant: "destructive" }),
+    aoReenviar: (resultado) => { if (resultado.ok) toast({ title: "E-mail enviado", description: resultado.mensagem }); },
   });
-
-  const [pageState, setPageState] = useState<PageState>(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("reset")) return "reset";
-    if (isSubdomainMode) return "login";
-    return params.get("mode") === "register" ? "register" : "login";
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [resendLoading, setResendLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [pendingEmail, setPendingEmail] = useState("");
-  const [resultadoReenvio, setResultadoReenvio] = useState<ResultadoDeReenvio | null>(null);
-  /**
-   * A tela de "verifique seu e-mail" pode ser alcancada de tres lugares, e num
-   * deles o endereco ainda nao e sabido: o atalho "não recebi o e-mail" com o
-   * campo de login vazio. So nesse caso ela pede o endereco; vindo do cadastro
-   * ou de um login recusado por e-mail nao verificado, o endereco ja e certo e
-   * um campo editavel so convidaria a digitar errado.
-   */
-  const [pedirEmailDoReenvio, setPedirEmailDoReenvio] = useState(false);
-
-  const irParaReenvio = (email: string) => {
-    setPendingEmail(email);
-    setPedirEmailDoReenvio(!email);
-    setResultadoReenvio(null);
-    setPageState("check-email");
-  };
-
-  /**
-   * Só o par de login. Todo o estado do cadastro — CNPJ, busca na Receita,
-   * subdomínio sugerido, confirmações — mudou para `CadastroWizard`, que é
-   * quem precisa dele. Aqui sobravam nove campos e três efeitos que nenhuma
-   * tela deste arquivo lia mais.
-   */
-  const [form, setForm] = useState({ email: "", password: "" });
-
-  /**
-   * Só o login. O cadastro saiu deste formulário e virou `CadastroWizard`, que
-   * pede empresa, responsável e acesso em três etapas — ver o arquivo dele.
-   */
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    try {
-      await login(form.email, form.password);
-    } catch (err: any) {
-      if (err.code === "EMAIL_NOT_VERIFIED") {
-        irParaReenvio(err.email || form.email);
-        return;
-      }
-      toast({
-        title: "Nao foi possivel entrar",
-        description: err.message || "Verifique seu email e senha e tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  /**
-   * O reenvio passa por `reenviarVerificacao`, que preserva o STATUS.
-   *
-   * Com `apiRequest` toda resposta ruim virava um `Error` sem status, e o 429
-   * do limitador — "seu pedido anterior saiu, espere" — era mostrado como
-   * "Nao foi possivel reenviar. Tente novamente", que e um convite a clicar de
-   * novo e empurrar a espera para mais longe.
-   */
-  const handleResend = async () => {
-    const alvo = pendingEmail.trim();
-    if (!alvo || resendLoading) return;
-    setResendLoading(true);
-    setResultadoReenvio(null);
-    const resultado = await reenviarVerificacao(alvo);
-    setResultadoReenvio(resultado);
-    setResendLoading(false);
-    if (resultado.ok) {
-      toast({ title: "E-mail enviado", description: resultado.mensagem });
-    }
-  };
+  const setPageState = irPara;
 
   const features = [
-    "Base Colaborativa de Inadimplentes entre Provedores",
-    "Consulta de Historico de Inadimplencia por CPF/CNPJ",
-    "Integracao com SPC Brasil para Analise Completa",
-    "Sistema Anti-Fraude e Deteccao de Risco",
+    "Base colaborativa de inadimplência entre provedores",
+    "Histórico na rede por CPF, CNPJ ou endereço, ao vivo no ERP",
+    "Consulta SPC Brasil integrada",
+    "Anti-fraude: aviso quando o seu cliente inadimplente é consultado por outro provedor",
   ];
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)] flex flex-col" data-testid="login-page">
       <header className="flex items-center justify-between px-8 py-5">
-        <Marca tamanho={32} />
+        <Marca tamanho={32} comAssinatura />
         {!isSubdomainMode && (
           <button
             onClick={() => setLocation("/")}
@@ -254,40 +156,27 @@ export default function LoginPage() {
         <div className="w-full max-w-5xl flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
 
           <div className="flex-1 text-[var(--color-ink)] text-center lg:text-left max-w-lg">
-            <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] rounded-sm px-4 py-1.5 mb-6">
-              <Shield className="w-4 h-4 text-[var(--color-gold)]" />
-              <span className="text-sm font-medium text-[var(--color-brand)]">Plataforma Colaborativa de Credito</span>
-            </div>
-
-            <h1 className="font-display text-3xl lg:text-4xl font-light leading-tight mb-4">
-              Proteja seu provedor,{" "}
-              <span className="text-[var(--color-gold)] font-semibold">consulte antes</span>
-              <br />de liberar contratos
-            </h1>
-            <p className="text-[var(--color-muted)] text-base lg:text-lg mb-8 leading-relaxed">
-              Base de dados <span className="text-[var(--color-gold)] font-medium">colaborativa</span> de clientes inadimplentes entre provedores. Consulte o historico e <span className="text-[var(--color-success)] font-medium">reduza riscos</span> na sua operacao.
+            {/* Traje da marca /consulta.isp (10/09/2026): kicker em mono, destaque
+                em italico na tinta — sem o selo dourado e sem cor de semantica
+                enfeitando palavra. Os "Numeros da plataforma" (100+ provedores,
+                99.9% de uptime) SAIRAM: nenhum dos dois e medido pelo sistema, e a
+                regra do dono e so dado real e verificavel. */}
+            <p className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--text-muted)] mb-5">
+              Rede colaborativa de crédito
             </p>
 
-            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Numeros da plataforma</p>
-            <div className="grid grid-cols-3 gap-3 mb-8">
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
-                <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">100+</span>
-                <span className="text-[var(--color-muted)] text-xs">Provedores</span>
-              </div>
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
-                <span className="font-mono font-semibold text-xl block text-[var(--color-success)]">Multi</span>
-                <span className="text-[var(--color-muted)] text-xs">Base Colaborativa</span>
-              </div>
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
-                <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">99.9%</span>
-                <span className="text-[var(--color-muted)] text-xs">Uptime</span>
-              </div>
-            </div>
+            <h1 className="font-display text-3xl lg:text-4xl font-light leading-tight tracking-[-0.025em] mb-4 [text-wrap:balance]">
+              Proteja seu provedor:{" "}
+              <em className="font-medium italic text-[var(--text)]">consulte antes</em> de liberar o contrato
+            </h1>
+            <p className="text-[var(--color-muted)] text-base lg:text-lg mb-8 leading-relaxed">
+              A base colaborativa de inadimplência entre provedores de internet. Consulte o histórico na rede e reduza o risco da sua operação.
+            </p>
 
             <div className="space-y-2.5">
               {features.map((feature) => (
                 <div key={feature} className="flex items-center gap-2.5 justify-center lg:justify-start">
-                  <CheckCircle className="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
+                  <CheckCircle className="w-4 h-4 text-[var(--text)] flex-shrink-0" />
                   <span className="text-[var(--color-muted)] text-sm">{feature}</span>
                 </div>
               ))}
@@ -322,7 +211,7 @@ export default function LoginPage() {
                   {[
                     `Abra seu email e procure a mensagem do ${marca.nomeProduto}`,
                     "Clique no botao \"Confirmar Email\"",
-                    "Voce sera redirecionado automaticamente para o sistema",
+                    "Você será levado ao sistema automaticamente",
                   ].map((step, i) => (
                     <div key={i} className="flex items-start gap-3">
                       <span className="w-5 h-5 rounded-full bg-[var(--color-brand)] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
@@ -393,8 +282,8 @@ export default function LoginPage() {
                   )}
                   <p className="text-[var(--color-muted)] text-sm mt-1">
                     {isSubdomainMode
-                      ? "Faca login para acessar o painel"
-                      : pageState === "register" ? "Crie sua conta para acessar o sistema" : "Faca login para acessar o painel"}
+                      ? "Faça login para acessar o painel"
+                      : pageState === "register" ? "Crie sua conta para acessar o sistema" : "Faça login para acessar o painel"}
                   </p>
                 </div>
 
@@ -492,21 +381,21 @@ export default function LoginPage() {
 
                 {!isSubdomainMode && pageState !== "forgot" && pageState !== "reset" && (
                   <p className="mt-5 text-center text-sm text-[var(--color-muted)]">
-                    {pageState === "register" ? "Ja tem uma conta? " : "Ainda nao tem uma conta? "}
+                    {pageState === "register" ? "Já tem uma conta? " : "Ainda não tem uma conta? "}
                     <button
                       type="button"
                       className="text-[var(--color-brand)] font-semibold hover:text-[var(--color-steel)]"
                       onClick={() => setPageState(pageState === "register" ? "login" : "register")}
                       data-testid="button-toggle-register"
                     >
-                      {pageState === "register" ? "Faca login" : "Cadastre-se"}
+                      {pageState === "register" ? "Faça login" : "Cadastre-se"}
                     </button>
                   </p>
                 )}
 
                 <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-[var(--color-muted)]">
                   <Lock className="w-3 h-3" />
-                  <span>Conexao segura e criptografada</span>
+                  <span>Conexão segura e criptografada</span>
                 </div>
               </Card>
             )}
@@ -516,7 +405,7 @@ export default function LoginPage() {
       </div>
 
       <footer className="text-center py-4 text-[var(--color-muted)] text-xs">
-        2026 {marca.nomeProduto} — Analise de credito para provedores de internet
+        2026 {marca.nomeProduto} — análise de crédito para provedores de internet
       </footer>
     </div>
   );
