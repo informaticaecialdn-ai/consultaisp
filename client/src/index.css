@@ -140,20 +140,20 @@
   --cat-navy:         #35405C;
 
   /* ── MARCA ─────────────────────────────────────────────────────────────
-     Cores do logo, do brief de marca de 31/08/2026 — sao os valores AUTORAIS.
-     Amostrar o PNG dava #FE5601 e #52C27C; a diferenca e compressao.
-     Ficam separadas dos tokens de interface DE PROPOSITO: a marca tem
-     laranja e verde que o sistema nao usa em lugar nenhum, e misturar as
-     duas paletas faria a interface herdar um laranja que ela nao quer.
-     O laranja e o verde nao mudam com o tema — leem bem nos dois. O TRACO
-     muda: #2B2938 sobre o fundo escuro (#131219) praticamente some. */
-  --marca-traco:      #2B2938;
-  --marca-no:         #F26201;
-  --marca-ok:         #58C48C;
-  --marca-check:      #FFFFFF;
-  --marca-nome:       #4A4670;
-  --marca-assinatura: #6B6878;
-  --marca-fonte:      "Montserrat", "Inter", ui-sans-serif, system-ui, sans-serif;
+     /consulta.isp, do brand kit de 10/09/2026: tinta grafite, cinza de
+     destaque no "/" e no ".isp", JetBrains Mono. Ficam separadas dos tokens
+     de interface DE PROPOSITO: a marca e monocromatica e a interface segue
+     com a berinjela como cor de acao — trocar uma nao pode arrastar a outra.
+     O kit so admite dois modos: tinta clara OU escura; o cinza nao muda.
+     --marca-nome e --marca-assinatura sao do REVENDEDOR (white label): o nome
+     dele sai na cor que ele cadastrou, injetada por server/marca-html.ts. */
+  --marca-tinta:          #0E0D0B;
+  --marca-destaque:       #77726A;
+  --marca-ladrilho:       #0E0D0B;
+  --marca-ladrilho-tinta: #F5F3EE;
+  --marca-fonte:          "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+  --marca-nome:           #1F1D29;
+  --marca-assinatura:     #6B6878;
 
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
@@ -244,10 +244,11 @@
 
 .dark {
 
-  /* Marca: so o traco e o nome clareiam; laranja e verde ficam. */
-  --marca-traco:      #C3C0CE;
-  --marca-nome:       #FFFFFF;
-  --marca-assinatura: #A9A2D8;
+  /* Marca: a tinta vira creme (a versao "dark" do kit); o cinza de destaque
+     e o ladrilho grafite ficam — e o que o kit manda. */
+  --marca-tinta:          #F5F3EE;
+  --marca-nome:           #FFFFFF;
+  --marca-assinatura:     #A9A2D8;
   /* DARK — mesma pele "Razao". Escuro com fundo violeta, nao cinza neutro:
      e o que mantem a berinjela coerente nos dois temas. */
   --bg:             #131219;

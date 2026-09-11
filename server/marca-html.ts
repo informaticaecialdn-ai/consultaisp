@@ -155,7 +155,7 @@ function blocoDeCores(marca: MarcaResolvida): string {
     --sidebar-accent:${hsl(p.soft)};--sidebar-primary:${hsl(p.brand)};
     --accent:${hsl(p.soft)};--accent-foreground:${hsl(p.ink)};
     --ring:${hsl(p.brand)};
-    --marca-nome:${p.brand};--marca-no:${p.brand};`;
+    --marca-nome:${p.brand};`;
 
   /**
    * Seletores repetidos (`:root:root`) de proposito: e especificidade, nao

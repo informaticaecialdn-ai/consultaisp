@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { reenviarVerificacao, type ResultadoDeReenvio } from "@/lib/verificacao-email";
-import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, ArrowLeft } from "lucide-react";
+import { CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { getSubdomain } from "@/lib/subdomain";
@@ -228,16 +228,16 @@ export default function LoginPage() {
   };
 
   const features = [
-    "Base Colaborativa de Inadimplentes entre Provedores",
-    "Consulta de Historico de Inadimplencia por CPF/CNPJ",
-    "Integracao com SPC Brasil para Analise Completa",
-    "Sistema Anti-Fraude e Deteccao de Risco",
+    "Base colaborativa de inadimplência entre provedores",
+    "Histórico na rede por CPF, CNPJ ou endereço, ao vivo no ERP",
+    "Consulta SPC Brasil integrada",
+    "Anti-fraude: aviso quando o seu cliente inadimplente é consultado por outro provedor",
   ];
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)] flex flex-col" data-testid="login-page">
       <header className="flex items-center justify-between px-8 py-5">
-        <Marca tamanho={32} />
+        <Marca tamanho={32} comAssinatura />
         {!isSubdomainMode && (
           <button
             onClick={() => setLocation("/")}
@@ -254,40 +254,27 @@ export default function LoginPage() {
         <div className="w-full max-w-5xl flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
 
           <div className="flex-1 text-[var(--color-ink)] text-center lg:text-left max-w-lg">
-            <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] rounded-sm px-4 py-1.5 mb-6">
-              <Shield className="w-4 h-4 text-[var(--color-gold)]" />
-              <span className="text-sm font-medium text-[var(--color-brand)]">Plataforma Colaborativa de Credito</span>
-            </div>
-
-            <h1 className="font-display text-3xl lg:text-4xl font-light leading-tight mb-4">
-              Proteja seu provedor,{" "}
-              <span className="text-[var(--color-gold)] font-semibold">consulte antes</span>
-              <br />de liberar contratos
-            </h1>
-            <p className="text-[var(--color-muted)] text-base lg:text-lg mb-8 leading-relaxed">
-              Base de dados <span className="text-[var(--color-gold)] font-medium">colaborativa</span> de clientes inadimplentes entre provedores. Consulte o historico e <span className="text-[var(--color-success)] font-medium">reduza riscos</span> na sua operacao.
+            {/* Traje da marca /consulta.isp (10/09/2026): kicker em mono, destaque
+                em italico na tinta — sem o selo dourado e sem cor de semantica
+                enfeitando palavra. Os "Numeros da plataforma" (100+ provedores,
+                99.9% de uptime) SAIRAM: nenhum dos dois e medido pelo sistema, e a
+                regra do dono e so dado real e verificavel. */}
+            <p className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--text-muted)] mb-5">
+              Rede colaborativa de crédito
             </p>
 
-            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Numeros da plataforma</p>
-            <div className="grid grid-cols-3 gap-3 mb-8">
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
-                <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">100+</span>
-                <span className="text-[var(--color-muted)] text-xs">Provedores</span>
-              </div>
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
-                <span className="font-mono font-semibold text-xl block text-[var(--color-success)]">Multi</span>
-                <span className="text-[var(--color-muted)] text-xs">Base Colaborativa</span>
-              </div>
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
-                <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">99.9%</span>
-                <span className="text-[var(--color-muted)] text-xs">Uptime</span>
-              </div>
-            </div>
+            <h1 className="font-display text-3xl lg:text-4xl font-light leading-tight tracking-[-0.025em] mb-4 [text-wrap:balance]">
+              Proteja seu provedor:{" "}
+              <em className="font-medium italic text-[var(--text)]">consulte antes</em> de liberar o contrato
+            </h1>
+            <p className="text-[var(--color-muted)] text-base lg:text-lg mb-8 leading-relaxed">
+              A base colaborativa de inadimplência entre provedores de internet. Consulte o histórico na rede e reduza o risco da sua operação.
+            </p>
 
             <div className="space-y-2.5">
               {features.map((feature) => (
                 <div key={feature} className="flex items-center gap-2.5 justify-center lg:justify-start">
-                  <CheckCircle className="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
+                  <CheckCircle className="w-4 h-4 text-[var(--text)] flex-shrink-0" />
                   <span className="text-[var(--color-muted)] text-sm">{feature}</span>
                 </div>
               ))}

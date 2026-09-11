@@ -127,9 +127,9 @@ describe("blocos que recebem dado de fora", () => {
 });
 
 describe("acento", () => {
-  it("sem cores, a berinjela da plataforma", () => {
+  it("sem cores, a tinta da marca /consulta.isp — botao grafite, texto creme", () => {
     expect(acento(MARCA_PLATAFORMA)).toEqual({
-      brand: "#4A4670", hover: "#3C3860", sobre: "#FFFFFF", suave: "#EDECF3",
+      brand: "#0E0D0B", hover: "#2A2724", sobre: "#F5F3EE", suave: "#EBE7DE",
     });
   });
 
@@ -159,9 +159,22 @@ describe("envelope", () => {
     expect(semPreheader).not.toContain("undefined");
   });
 
-  it("sem logo, o quadrado com a inicial do produto — imagem bloqueada nao pode apagar a marca", () => {
-    expect(html).toContain(">C<");
+  /**
+   * A plataforma sai com o wordmark /consulta.isp em TEXTO: imagem bloqueada
+   * nao pode apagar a marca, e o cliente de e-mail nao carrega a fonte da web —
+   * por isso a monoespacada de sistema atras da JetBrains Mono.
+   */
+  it("a plataforma leva o wordmark /consulta.isp em texto, com a assinatura como tagline", () => {
+    expect(html).toContain(`<span style="color:#77726A;">/</span>consulta<span style="color:#77726A;">.isp</span>`);
+    expect(html).toContain("Rede colaborativa de crédito");
+    expect(html).toMatch(/font-family:'JetBrains Mono',[^"]*monospace/);
     expect(html).not.toContain("<img");
+  });
+
+  it("revendedor sem logo continua com o quadrado da inicial — nunca o wordmark da plataforma", () => {
+    const semLogo = envelope("x", "y", { ...CREDNET, logoUrl: null });
+    expect(semLogo).toContain(">C<");
+    expect(semLogo).not.toContain("consulta<span");
   });
 
   it("com logo, a imagem sai sob o dominio da marca", () => {
@@ -193,9 +206,10 @@ describe("envelope, marca de revendedor", () => {
     expect(html).not.toContain("Consulta ISP");
   });
 
-  it("o filete e o botao usam a cor do revendedor", () => {
+  it("o filete e o botao usam a cor do revendedor — nada da tinta da plataforma", () => {
     expect(html).toContain("#1F6F7A");
-    expect(html).not.toContain("#4A4670");
+    expect(html).not.toContain("#0E0D0B");
+    expect(html).not.toContain("#77726A");
   });
 
   it("o rodape leva o e-mail de suporte do revendedor e o dominio dele", () => {

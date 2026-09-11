@@ -370,7 +370,7 @@ describe("com marca de revendedor", () => {
 
   it.each(lista.map(x => [x.chave, x] as const))("%s — a cor da marca entra, a da plataforma sai", (_chave, x) => {
     expect(x.html).toContain("#1F6F7A");
-    expect(x.html).not.toContain("#4A4670");
+    expect(x.html).not.toContain("#0E0D0B");
   });
 
   it.each(lista.map(x => [x.chave, x] as const))("%s — o suporte do revendedor esta no rodape", (_chave, x) => {
@@ -382,9 +382,11 @@ describe("com marca de revendedor", () => {
     expect(boasVindas.html).toContain(`bgcolor="#1F6F7A"`);
   });
 
-  it("marca sem cores cai na berinjela da plataforma — nao em branco", () => {
+  it("marca sem cores cai na tinta neutra da plataforma — nao em branco", () => {
     const semCor = exemplos({ ...CREDNET, cores: null }, URL_CREDNET)[0];
-    expect(semCor.html).toContain("#4A4670");
+    expect(semCor.html).toContain("#0E0D0B");
+    // ...mas so a COR: o wordmark /consulta.isp nao entra no e-mail do revendedor.
+    expect(semCor.html).not.toContain("consulta<span");
   });
 });
 

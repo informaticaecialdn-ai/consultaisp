@@ -54,14 +54,35 @@ export const SANS = "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'H
 /** Todo dado — documento, valor, data, contagem — sai daqui. */
 export const MONO = "'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace";
 
-/** A cor de acento e o texto sobre ela, para esta marca. */
+// ── Marca /consulta.isp (brand kit de 10/09/2026) ────────────────────────────
+/** Tinta grafite do wordmark e do acento da plataforma. */
+export const TINTA_DA_MARCA = "#0E0D0B";
+/** O cinza do "/" e do ".isp", e da tagline. */
+export const DESTAQUE_DA_MARCA = "#77726A";
+/** Creme do kit: o texto sobre a tinta. */
+export const CREME_DA_MARCA = "#F5F3EE";
+/**
+ * O wordmark em e-mail sai em monoespacada de SISTEMA, com a JetBrains Mono na
+ * frente para quem a tiver instalada: cliente de e-mail nao carrega fonte da
+ * web. Texto, e nao imagem, pela mesma regra do resto deste casco — imagem
+ * bloqueada nao pode apagar a marca.
+ */
+const MONO_DA_MARCA = "'JetBrains Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace";
+
+/**
+ * A cor de acento e o texto sobre ela, para esta marca.
+ *
+ * Sem cores cadastradas, a tinta da marca /consulta.isp — botao grafite com
+ * texto creme, como na landing. E tambem o que o revendedor sem cores recebe:
+ * um neutro que nao afirma identidade de ninguem.
+ */
 export function acento(marca: MarcaResolvida): { brand: string; hover: string; sobre: string; suave: string } {
   const c = marca.cores?.claro;
   return {
-    brand: c?.brand ?? "#4A4670",
-    hover: c?.hover ?? "#3C3860",
-    sobre: c?.textOnBrand ?? "#FFFFFF",
-    suave: c?.soft ?? "#EDECF3",
+    brand: c?.brand ?? TINTA_DA_MARCA,
+    hover: c?.hover ?? "#2A2724",
+    sobre: c?.textOnBrand ?? CREME_DA_MARCA,
+    suave: c?.soft ?? "#EBE7DE",
   };
 }
 
@@ -222,8 +243,12 @@ export function envelope(
   const inicial = esc(marca.nomeProduto.trim().charAt(0).toUpperCase() || "C");
   const assinatura = esc(marca.assinatura || "Análise de crédito para provedores de internet");
 
-  // Marca visual: quadrado com a inicial, sempre; a imagem entra por cima
-  // quando o cliente permitir. Nenhuma informacao depende de ela carregar.
+  // PLATAFORMA: o wordmark /consulta.isp em texto, com a assinatura no traje da
+  // tagline do kit. REVENDEDOR: quadrado com a inicial, sempre; a imagem entra
+  // por cima quando o cliente permitir. Nenhuma informacao depende de carregar.
+  const daPlataforma = marca.marcaId === null;
+  const wordmark = `<span style="display:block;color:${TINTA_DA_MARCA};font-family:${MONO_DA_MARCA};font-size:19px;font-weight:700;letter-spacing:-0.76px;line-height:1.1;"><span style="color:${DESTAQUE_DA_MARCA};">/</span>consulta<span style="color:${DESTAQUE_DA_MARCA};">.isp</span></span>
+                    <span style="display:block;margin-top:6px;color:${DESTAQUE_DA_MARCA};font-family:${MONO_DA_MARCA};font-size:9.5px;font-weight:500;letter-spacing:1.9px;text-transform:uppercase;">&#8212;&nbsp;${assinatura}</span>`;
   const marcaVisual = marca.logoUrl
     ? `<img src="${esc(url)}${esc(marca.logoUrl)}" alt="${nome}" height="28" style="height:28px;width:auto;display:block;border:0;" />`
     : `<table role="presentation" cellpadding="0" cellspacing="0" border="0">
@@ -257,7 +282,7 @@ export function envelope(
           <!-- Cabecalho -->
           <tr>
             <td style="padding:20px 28px;border-bottom:1px solid ${BORDER_FAINT};">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              ${daPlataforma ? wordmark : `<table role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td valign="middle">${marcaVisual}</td>
                   <td valign="middle" style="padding-left:11px;">
@@ -265,7 +290,7 @@ export function envelope(
                     <span style="display:block;margin-top:1px;color:${FAINT};font-family:${MONO};font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;">${assinatura}</span>
                   </td>
                 </tr>
-              </table>
+              </table>`}
             </td>
           </tr>
 
