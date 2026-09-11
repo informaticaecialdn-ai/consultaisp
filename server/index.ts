@@ -35,9 +35,13 @@ app.use(helmet({
       // da propria origem. `fonts.googleapis.com` e `fonts.gstatic.com` ficam:
       // sao o Google Fonts do index.html, outro servico e sem cobranca.
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      // `connect.facebook.net` serve o fbevents.js do Pixel da Meta, carregado
+      // no client/index.html. Sem ele o snippet do pixel nem chega a existir.
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://connect.facebook.net"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "blob:", "https://*.openstreetmap.org", "https://viacep.com.br"],
+      // `facebook.com` no imgSrc e o <noscript> do pixel e o beacon por imagem
+      // que o fbq usa como alternativa quando o fetch nao esta disponivel.
+      imgSrc: ["'self'", "data:", "blob:", "https://*.openstreetmap.org", "https://viacep.com.br", "https://www.facebook.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       // `brasilapi.com.br` FALTAVA e o navegador chama: o preenchimento
       // automatico por CNPJ (client/src/pages/auth/login.tsx e o painel do
@@ -48,6 +52,11 @@ app.use(helmet({
         "https://viacep.com.br",
         "https://brasilapi.com.br",
         "https://nominatim.openstreetmap.org",
+        // Pixel da Meta: o fbq manda os eventos por fetch para facebook.com e
+        // baixa o fbevents.js de connect.facebook.net. Sem esses dois hosts o
+        // pixel carrega e nao reporta nada — falha silenciosa, so no console.
+        "https://www.facebook.com",
+        "https://connect.facebook.net",
         "wss:", "ws:",
       ],
       frameSrc: ["'self'"],
