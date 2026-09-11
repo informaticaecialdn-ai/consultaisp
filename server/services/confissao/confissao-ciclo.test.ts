@@ -76,7 +76,19 @@ function tabelaEmMemoria() {
       Object.assign(l, structuredClone(patch), { status: para });
       return copia(l);
     },
-    marcarSubstituidas: async () => 0,
+    // O UPDATE do storage: assinadas do cliente, menos a nova, no ambiente pedido
+    // (o teste do storage prende o SQL). Chamado sem ambiente, faz o que o SQL
+    // antigo fazia — varre todas —, que é o defeito que o teste abaixo pega.
+    marcarSubstituidas: async (p: number, customerId: number, novaId: number, ambiente?: string) => {
+      let n = 0;
+      for (const l of confissoes.values()) {
+        if (l.providerId === p && l.customerId === customerId && l.status === "assinada" && l.id !== novaId && (ambiente === undefined || l.ambiente === ambiente)) {
+          Object.assign(l, { status: "substituida", encerradaEm: AGORA });
+          n++;
+        }
+      }
+      return n;
+    },
     confissoesParaReconciliar: async (agora: Date, enviadasHaMaisDeMs: number | null) => [...confissoes.values()]
       .filter(l => l.status === "enviada" && ((l.reconciliarEm && l.reconciliarEm <= agora) || (enviadasHaMaisDeMs !== null && l.enviadaEm && l.enviadaEm <= new Date(agora.getTime() - enviadasHaMaisDeMs))))
       .map(copia),
@@ -190,6 +202,37 @@ describe("404 do ZapSign (token trocado para outra conta, ou documento expurgado
     expect(confissoes.get(77).status).toBe("enviada");
     expect(zap.excluirDocumento).not.toHaveBeenCalled();
     expect(eventos).toHaveLength(0);
+  });
+});
+
+/**
+ * Assinar uma confissão substitui a assinada anterior do cliente — mas só no
+ * MESMO ambiente. Sem o filtro, o teste de integração de um provedor (sandbox,
+ * sem validade jurídica) assinado rebaixava o título de PRODUÇÃO do mesmo
+ * cliente para `substituida`: o título some do selo e da prescrição.
+ */
+describe("assinar substitui só no mesmo ambiente", () => {
+  const titulo = () => ({ ...enviada({ id: 70, status: "assinada", zapsignDocToken: "doc-titulo", assinadaEm: new Date("2026-08-01T12:00:00Z") }) });
+  const detalheAssinado = (sandbox: boolean, token: string) => ({ token, status: "signed", signed_at: "2026-09-12T10:00:00Z", signed_file: "https://s3/assinado.pdf", original_file: "o", deleted: false, sandbox,
+    signers: [{ token: "s-1", status: "signed", sign_url: "u", signed_at: "2026-09-12T10:00:00Z", auth_mode: "x", external_id: "cliente" }] });
+  beforeEach(() => { zap.baixarArquivo.mockResolvedValue(Buffer.from("%PDF-1.4 assinado")); });
+
+  it("um teste de SANDBOX assinado não toca o título de produção do cliente", async () => {
+    confissoes.set(70, titulo());
+    confissoes.set(77, enviada({ ambiente: "sandbox" }));
+    zap.detalharDocumento.mockResolvedValue(detalheAssinado(true, "doc-da-conta-antiga"));
+    await rodarReconciliacao(AGORA);
+    expect(confissoes.get(77).status).toBe("assinada");
+    expect(confissoes.get(70).status, "o título de produção continua valendo").toBe("assinada");
+  });
+
+  it("no mesmo ambiente a nova assinatura substitui a anterior, como antes", async () => {
+    confissoes.set(70, titulo());
+    confissoes.set(78, enviada({ id: 78, zapsignDocToken: "doc-novo-producao" }));
+    zap.detalharDocumento.mockResolvedValue(detalheAssinado(false, "doc-novo-producao"));
+    await rodarReconciliacao(AGORA);
+    expect(confissoes.get(78).status).toBe("assinada");
+    expect(confissoes.get(70).status).toBe("substituida");
   });
 });
 

@@ -369,9 +369,14 @@ export class AssinaturaStorage {
     return linha;
   }
 
-  async marcarSubstituidas(providerId: number, customerId: number, novaId: number): Promise<number> {
+  /**
+   * A assinada nova substitui a anterior do cliente — no MESMO ambiente. Sem o
+   * filtro, assinar um teste de sandbox (sem validade jurídica) rebaixava o
+   * título de produção do mesmo cliente para `substituida`.
+   */
+  async marcarSubstituidas(providerId: number, customerId: number, novaId: number, ambiente: AmbienteDeAssinatura): Promise<number> {
     const linhas = await db.update(cobrancaConfissoes).set({ status: "substituida", encerradaEm: new Date(), updatedAt: new Date() })
-      .where(and(eq(cobrancaConfissoes.providerId, providerId), eq(cobrancaConfissoes.customerId, customerId), eq(cobrancaConfissoes.status, "assinada"), ne(cobrancaConfissoes.id, novaId)))
+      .where(and(eq(cobrancaConfissoes.providerId, providerId), eq(cobrancaConfissoes.customerId, customerId), eq(cobrancaConfissoes.status, "assinada"), ne(cobrancaConfissoes.id, novaId), eq(cobrancaConfissoes.ambiente, ambiente)))
       .returning({ id: cobrancaConfissoes.id });
     return linhas.length;
   }

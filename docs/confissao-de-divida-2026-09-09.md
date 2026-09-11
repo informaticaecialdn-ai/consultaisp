@@ -337,7 +337,8 @@ direto. Em `enviada`, **reconsulta primeiro**: `signed` → aplica a assinatura
 e devolve 409 "o cliente já assinou"; `deleted` → `cancelada` sem chamar
 `DELETE` de novo; `pending` → `DELETE /docs/{token}/` e `cancelada`. Uma
 confissão `assinada` **não se cancela** — para valor novo, emite-se outra (a
-anterior vira `substituida` quando a nova é assinada).
+anterior vira `substituida` quando a nova é assinada — **no mesmo ambiente**:
+assinar um teste de sandbox nunca rebaixa o título de produção do cliente).
 
 Reconsulta em **404** (o documento não existe mais no ZapSign — o token foi
 trocado para outra conta, ou o ZapSign expurgou): o cancelar **desta rota, do

@@ -179,6 +179,15 @@ describe("confissões", () => {
     expect(banco.consultas.some(c => c.sql.startsWith("insert"))).toBe(false);
     conferirTenant(banco.consultas[0]);
   });
+  it("substituir só alcança assinadas do MESMO ambiente: um teste de sandbox assinado nunca rebaixa o título de produção", async () => {
+    banco.responder = () => [];
+    await storage.marcarSubstituidas(PROVEDOR, 42, 78, "sandbox");
+    const update = banco.consultas[0];
+    expect(update.sql.startsWith('update "cobranca_confissoes"')).toBe(true);
+    expect(update.sql).toMatch(/"ambiente" = \$\d+/);
+    expect(update.params).toEqual(expect.arrayContaining(["substituida", PROVEDOR, 42, "assinada", 78, "sandbox"]));
+    conferirTenant(update);
+  });
   it("a quitação gira: ordena pelo carimbo da última verificação (nulos primeiro) e pelo id, no limite pedido; carimbar não mexe em updated_at", async () => {
     banco.responder = () => [];
     await storage.confissoesAssinadasParaQuitacao(2);

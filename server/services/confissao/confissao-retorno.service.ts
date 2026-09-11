@@ -72,7 +72,7 @@ async function aplicarAssinatura(providerId: number, confissao: CobrancaConfissa
   const assinadaEm = detalhe.signed_at ? new Date(detalhe.signed_at) : new Date();
   const linha = await storage.transicionarConfissao(providerId, confissao.id, "enviada", "assinada", { assinadaEm, zapsignSigners: signers, zapsignSandbox: detalhe.sandbox, erroUltimo: null, reconciliarEm: null });
   if (!linha) return { status: "enviada", mudou: false, motivo: "outro processo aplicou antes", confirmado: false };
-  await storage.marcarSubstituidas(providerId, confissao.customerId, confissao.id);
+  await storage.marcarSubstituidas(providerId, confissao.customerId, confissao.id, confissao.ambiente as AmbienteDeAssinatura);
   const sandbox = confissao.ambiente === "sandbox";
   const vivo = await registrarEventoDaConfissao(providerId, linha, "assinada", null, sandbox ? "Confissão de dívida assinada em AMBIENTE DE TESTES — sem validade jurídica" : `Confissão de dívida assinada eletronicamente — título executivo extrajudicial (CPC 784, III) de R$ ${Number(linha.valorTotal).toFixed(2).replace(".", ",")}`);
   if (!sandbox && vivo) await storage.atualizarCasoDeCobranca(providerId, confissao.casoId, { proximaAcao: "título assinado — acompanhar as parcelas confessadas", proximoContatoEm: new Date(Date.now() + 7 * 86_400_000) }, null).catch(err => logger.warn({ err, providerId, confissaoId: confissao.id }, "CONFISSAO follow-up de título assinado não gravado"));

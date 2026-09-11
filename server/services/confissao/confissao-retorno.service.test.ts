@@ -65,7 +65,8 @@ describe("aplicarRetorno", () => {
     expect(zap.baixarArquivo).toHaveBeenCalledWith("https://s3/x.pdf", 8 * 1024 * 1024);
     expect(storageMock.guardarPdf).toHaveBeenCalledWith(1, 77, "assinado", expect.any(Buffer));
     expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 77, "enviada", "assinada", expect.objectContaining({ assinadaEm: new Date("2026-09-12T10:00:00Z"), zapsignSandbox: false, erroUltimo: null }));
-    expect(storageMock.marcarSubstituidas).toHaveBeenCalledWith(1, 42, 77);
+    // Substitui só no ambiente DA LINHA assinada (sandbox nunca toca produção).
+    expect(storageMock.marcarSubstituidas).toHaveBeenCalledWith(1, 42, 77, "producao");
     expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledWith(1, expect.objectContaining({ tipo: "confissao", metadata: expect.objectContaining({ status: "assinada" }) }));
     expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(1, 9, expect.objectContaining({ proximaAcao: expect.stringContaining("título assinado") }), null);
     expect(r).toMatchObject({ status: "assinada", mudou: true, motivo: null, confirmado: true });
@@ -98,6 +99,7 @@ describe("aplicarRetorno", () => {
     await aplicarRetorno(1, 77, "webhook");
     expect(storageMock.transicionarConfissao).toHaveBeenCalled();
     expect(storageMock.atualizarCasoDeCobranca).not.toHaveBeenCalled();
+    expect(storageMock.marcarSubstituidas).toHaveBeenCalledWith(1, 42, 77, "sandbox");
   });
   it("deleted vira cancelada; reconsulta falhando marca reconciliar_em +10 min e propaga", async () => {
     zap.detalharDocumento.mockResolvedValueOnce(detalhe({ deleted: true }));
