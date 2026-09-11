@@ -40,7 +40,7 @@ Você é o desenvolvedor principal do **Consulta ISP** — um SaaS multi-tenant 
 | Express | 5 | Servidor HTTP |
 | TypeScript | 5.6 | Tipagem |
 | tsx | 4 | Execução TS em dev |
-| express-session + connect-pg-simple | — | Auth baseada em sessão (cookies httpOnly, 30 dias) |
+| express-session + connect-pg-simple | — | Auth baseada em sessão (cookie httpOnly): **48 h**; 30 dias com "manter conectado" na tela de login; superadmin sempre 48 h (`duracaoDaSessao` em server/auth.ts) |
 | Passport.js (passport-local) | 0.7 | Estratégia de autenticação |
 | WebSocket (ws) | 8 | Tempo real (chat de suporte) |
 | OpenAI SDK | 6 | Análise IA com streaming (gpt-4o-mini) |
@@ -806,10 +806,11 @@ POST/GET public/visitor-chat/*
 ## 10. LANDING PAGE (`client/src/pages/public/landingpage.tsx`)
 
 Desenho **"/consulta.isp"**, aprovado pelo dono em 10/09/2026 e portado do HTML
-standalone que ele gerou no Claude Design. É a ÚNICA tela do produto que não
-segue o `DESIGN_SYSTEM.md`: paleta monocromática (creme `#F5F3EE` + preto
+standalone que ele gerou no Claude Design. Junto com a porta de entrada da
+plataforma (abaixo), é uma das DUAS telas do produto que não
+seguem o `DESIGN_SYSTEM.md`: paleta monocromática (creme `#F5F3EE` + preto
 `#0E0D0B`), JetBrains Mono no lugar do IBM Plex Mono, sem a berinjela. Foi
-decisão dele, e vale só aqui — a landing só é servida no host da plataforma
+decisão dele, e vale só nessas duas — a landing só é servida no host da plataforma
 (`marca.contexto !== "tenant"`), então não pisa em marca de revendedor.
 
 **A folha é escopada em `.lp`** (`landingpage.css`, chunk próprio de ~30 kB). O
@@ -849,6 +850,28 @@ pelo wouter. "Privacidade LGPD" no footer aponta para `/lgpd`, que é pública.
 lê o fonte desta página e falha se aparecer "CSV" ou "planilha" — inclusive numa
 frase que NEGA a existência delas. É trava de palavra, de propósito: promessa de
 importação por planilha é o tipo de coisa que volta pelo texto de marketing.
+
+### A porta de entrada (`/login`) no host da plataforma
+
+Mesmo desenho, mesma exceção ao `DESIGN_SYSTEM.md`: `login-plataforma.tsx` porta
+o standalone de login que o dono aprovou em 10/09/2026 — página escura com a grade
+da landing, coluna de apresentação, cartão branco. Folha escopada em `.lg`
+(`login-plataforma.css`); dentro do cartão, uma ponte redeclara os tokens do app
+para o traje grafite/creme, e é assim que o `CadastroWizard` (shadcn) veste o
+desenho sem ser reescrito. A página fica sempre no claro, como a landing.
+
+- **Só no host da plataforma** (`marca.marcaId === null`, que inclui os
+  subdomínios dos provedores). Revendedor de white label continua na tela neutra
+  com a marca dele (`LoginDoRevendedor` em `login.tsx`). A lógica — entrar,
+  cadastro, confirmar e-mail, esqueci/redefinir — é uma só, em `login-fluxo.ts`.
+- **O que o standalone trazia e não veio:** "47 provedores ativos" (a base tinha
+  6 — o selo lê `GET /api/public/rede`, contagem real de provedores ativos com
+  cache de 5 min; sem resposta, só "Rede online"); "R$690 prejuízo médio evitado"
+  (nada mede — no lugar, `CUSTO_EM_CREDITOS.isp` por consulta positiva); o link
+  "Termos" (não há página) e os `href="#"`.
+- **"Manter conectado por 30 dias" é real:** desmarcado, a sessão dura as 48 h
+  de sempre; marcado, 30 dias — exceto superadmin, que fica em 48 h porque a
+  sessão dele enxerga todos os provedores e as credenciais de ERP.
 
 ---
 

@@ -48,7 +48,10 @@ describe("o símbolo \"/c\"", () => {
 describe("o wordmark", () => {
   it("usa os tokens da marca, e a tinta troca no tema escuro — o cinza não", () => {
     expect(marca).toContain('fontFamily: "var(--marca-fonte)"');
-    expect(marca).toContain('color: "var(--marca-tinta)"');
+    expect(marca).toContain('"var(--marca-tinta)"');
+    // Sobre fundo escuro FIXO (painel do login da plataforma) a tinta e o creme
+    // do ladrilho, nos dois temas.
+    expect(marca).toContain('sobreEscuro ? "var(--marca-ladrilho-tinta)" : "var(--marca-tinta)"');
     expect(marca).toContain('color: "var(--marca-destaque)"');
     const css = ler("client/src/index.css");
     expect(css).toMatch(/--marca-fonte:\s*"JetBrains Mono"/);
@@ -59,7 +62,7 @@ describe("o wordmark", () => {
 
   it("o leitor de tela ouve o nome do produto, não a pontuação do desenho", () => {
     expect(marca).toContain('<span className="sr-only">Consulta ISP</span>');
-    expect(marca).toMatch(/aria-hidden="true"[\s\S]{0,200}<span style=\{\{ color: "var\(--marca-destaque\)" \}\}>\/<\/span>consulta/);
+    expect(marca).toMatch(/aria-hidden="true"[\s\S]{0,400}<span style=\{\{ color: "var\(--marca-destaque\)" \}\}>\/<\/span>consulta/);
   });
 });
 

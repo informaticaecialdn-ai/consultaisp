@@ -69,7 +69,8 @@ interface AuthState {
   personificando: boolean;
   mustChangePassword: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ code?: string; email?: string } | void>;
+  /** `lembrar` = "manter conectado por 30 dias"; quem decide o prazo e o servidor. */
+  login: (email: string, password: string, lembrar?: boolean) => Promise<{ code?: string; email?: string } | void>;
   register: (data: { email: string; password: string; name: string; phone?: string; responsavelCpf: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => Promise<{ needsVerification: boolean; email: string }>;
   logout: () => Promise<void>;
   clearMustChangePassword: () => void;
@@ -108,11 +109,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth();
   }, [checkAuth]);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, lembrar?: boolean) => {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(lembrar === undefined ? { email, password } : { email, password, lembrar }),
       credentials: "include",
     });
     const data = await res.json();

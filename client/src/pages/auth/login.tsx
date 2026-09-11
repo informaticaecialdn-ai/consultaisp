@@ -1,19 +1,15 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "@/lib/auth";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { reenviarVerificacao, type ResultadoDeReenvio } from "@/lib/verificacao-email";
 import { CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { getSubdomain } from "@/lib/subdomain";
 import { useMarca } from "@/lib/marca";
 import Marca, { SimboloDaMarca } from "@/components/marca";
 import CadastroWizard from "@/pages/auth/cadastro-wizard";
-
-type PageState = "login" | "register" | "check-email" | "forgot" | "reset";
+import LoginDaPlataforma from "@/pages/auth/login-plataforma";
+import { useFluxoDeLogin, pedirLinkDeSenha, redefinirSenha, tokenDeRedefinicao } from "@/pages/auth/login-fluxo";
 
 function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   const [email, setEmail] = useState("");
@@ -25,16 +21,10 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    try {
-      const res = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.message); return; }
-      setSent(true);
-    } catch { setError("Erro de conexao"); } finally { setLoading(false); }
+    const resposta = await pedirLinkDeSenha(email.trim());
+    setLoading(false);
+    if (resposta.ok) setSent(true);
+    else setError(resposta.mensagem);
   };
 
   if (sent) {
@@ -73,24 +63,15 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get("reset") || "";
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirm) { setError("As senhas não conferem"); return; }
     setError("");
     setLoading(true);
-    try {
-      const res = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, newPassword: password }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.message); return; }
-      setDone(true);
-    } catch { setError("Erro de conexao"); } finally { setLoading(false); }
+    const resposta = await redefinirSenha(tokenDeRedefinicao(), password);
+    setLoading(false);
+    if (resposta.ok) setDone(true);
+    else setError(resposta.mensagem);
   };
 
   if (done) {
@@ -121,111 +102,32 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
   );
 }
 
+/**
+ * Qual porta de entrada este host veste.
+ *
+ * Marca da plataforma (o dominio dela e os subdominios dos provedores dela):
+ * o desenho "/consulta.isp", continuacao da landing. Marca de revendedor: a tela
+ * neutra abaixo, com o logo e as cores dele — o traje da plataforma na porta de
+ * um revendedor seria a marca de outra empresa na casa dele.
+ */
 export default function LoginPage() {
-  const { login, register } = useAuth();
+  const marca = useMarca();
+  return marca.marcaId === null ? <LoginDaPlataforma /> : <LoginDoRevendedor />;
+}
+
+function LoginDoRevendedor() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const marca = useMarca();
-  const currentSubdomain = getSubdomain();
-  /**
-   * Modo tenant = só login, sem o formulário público de cadastro.
-   *
-   * Era `!!getSubdomain()`. Num domínio próprio de revendedor isso dá false, e
-   * a porta de entrada dele passaria a oferecer "criar conta" na plataforma —
-   * qualquer visitante abriria um provedor novo a partir da marca dele. Quem
-   * responde agora é o contexto que o servidor resolveu pelo host.
-   */
-  const isSubdomainMode = marca.contexto === "tenant";
-
-  const { data: tenantInfo } = useQuery<{ id: number; name: string; subdomain: string }>({
-    queryKey: ["/api/tenant/resolve", currentSubdomain],
-    queryFn: async () => {
-      const res = await fetch(`/api/tenant/resolve?subdomain=${encodeURIComponent(currentSubdomain!)}`);
-      if (!res.ok) return null;
-      return res.json();
-    },
-    enabled: !!currentSubdomain,
+  const {
+    marca, isSubdomainMode, tenantInfo, pageState, irPara,
+    form, setForm, showPassword, setShowPassword, isLoading, handleSubmit,
+    pendingEmail, setPendingEmail, pedirEmailDoReenvio, resultadoReenvio, resendLoading,
+    irParaReenvio, handleResend,
+  } = useFluxoDeLogin({
+    aoFalharLogin: (mensagem) => toast({ title: "Não foi possível entrar", description: mensagem, variant: "destructive" }),
+    aoReenviar: (resultado) => { if (resultado.ok) toast({ title: "E-mail enviado", description: resultado.mensagem }); },
   });
-
-  const [pageState, setPageState] = useState<PageState>(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("reset")) return "reset";
-    if (isSubdomainMode) return "login";
-    return params.get("mode") === "register" ? "register" : "login";
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [resendLoading, setResendLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [pendingEmail, setPendingEmail] = useState("");
-  const [resultadoReenvio, setResultadoReenvio] = useState<ResultadoDeReenvio | null>(null);
-  /**
-   * A tela de "verifique seu e-mail" pode ser alcancada de tres lugares, e num
-   * deles o endereco ainda nao e sabido: o atalho "não recebi o e-mail" com o
-   * campo de login vazio. So nesse caso ela pede o endereco; vindo do cadastro
-   * ou de um login recusado por e-mail nao verificado, o endereco ja e certo e
-   * um campo editavel so convidaria a digitar errado.
-   */
-  const [pedirEmailDoReenvio, setPedirEmailDoReenvio] = useState(false);
-
-  const irParaReenvio = (email: string) => {
-    setPendingEmail(email);
-    setPedirEmailDoReenvio(!email);
-    setResultadoReenvio(null);
-    setPageState("check-email");
-  };
-
-  /**
-   * Só o par de login. Todo o estado do cadastro — CNPJ, busca na Receita,
-   * subdomínio sugerido, confirmações — mudou para `CadastroWizard`, que é
-   * quem precisa dele. Aqui sobravam nove campos e três efeitos que nenhuma
-   * tela deste arquivo lia mais.
-   */
-  const [form, setForm] = useState({ email: "", password: "" });
-
-  /**
-   * Só o login. O cadastro saiu deste formulário e virou `CadastroWizard`, que
-   * pede empresa, responsável e acesso em três etapas — ver o arquivo dele.
-   */
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    try {
-      await login(form.email, form.password);
-    } catch (err: any) {
-      if (err.code === "EMAIL_NOT_VERIFIED") {
-        irParaReenvio(err.email || form.email);
-        return;
-      }
-      toast({
-        title: "Não foi possível entrar",
-        description: err.message || "Confira o e-mail e a senha e tente de novo.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  /**
-   * O reenvio passa por `reenviarVerificacao`, que preserva o STATUS.
-   *
-   * Com `apiRequest` toda resposta ruim virava um `Error` sem status, e o 429
-   * do limitador — "seu pedido anterior saiu, espere" — era mostrado como
-   * "Nao foi possivel reenviar. Tente novamente", que e um convite a clicar de
-   * novo e empurrar a espera para mais longe.
-   */
-  const handleResend = async () => {
-    const alvo = pendingEmail.trim();
-    if (!alvo || resendLoading) return;
-    setResendLoading(true);
-    setResultadoReenvio(null);
-    const resultado = await reenviarVerificacao(alvo);
-    setResultadoReenvio(resultado);
-    setResendLoading(false);
-    if (resultado.ok) {
-      toast({ title: "E-mail enviado", description: resultado.mensagem });
-    }
-  };
+  const setPageState = irPara;
 
   const features = [
     "Base colaborativa de inadimplência entre provedores",

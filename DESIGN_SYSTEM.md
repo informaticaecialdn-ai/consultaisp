@@ -94,8 +94,10 @@ Onde a marca mora: `client/src/components/marca.tsx` (`WordmarkConsultaISP`,
 `SimboloConsultaISP`, `Marca`), barra lateral, login, verificação de e-mail,
 fatura, e-mails (`server/services/email-ui.ts`, wordmark em TEXTO — cliente de
 e-mail não carrega fonte da web), favicon e manifest (`client/public/marca/`),
-prévia de compartilhamento (`og-image.png`). A landing (`landingpage.css`) usa a
-mesma marca com o próprio CSS escopado em `.lp`.
+prévia de compartilhamento (`og-image-v2.png`). A landing (`landingpage.css`,
+escopo `.lp`) e a porta de entrada da plataforma (`login-plataforma.css`, escopo
+`.lg`) usam a mesma marca com CSS próprio — as duas únicas telas fora deste
+sistema, por desenho do dono.
 
 **Regras do kit:** nunca deformar; nunca trocar as cores; em espaço pequeno, o
 `/c` no lugar do wordmark; o `/c` e o wordmark juntos lado a lado, nunca — os

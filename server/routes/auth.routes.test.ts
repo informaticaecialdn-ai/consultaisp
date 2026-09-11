@@ -387,3 +387,64 @@ describe("POST /api/auth/login — revendedor", () => {
     expect(sessao.marcaId).toBe(4);
   });
 });
+
+/**
+ * "Manter conectado por 30 dias", da tela de login da plataforma (10/09/2026).
+ *
+ * A validade da sessao sai do login. O padrao segue 48h — quem nao marca nada
+ * fica como estava — e o superadmin nunca passa disso: a sessao dele enxerga
+ * todos os provedores e as credenciais de ERP.
+ */
+describe("POST /api/auth/login — manter conectado", () => {
+  const TRINTA_DIAS = 30 * 24 * 60 * 60 * 1000;
+  const QUARENTA_E_OITO_HORAS = 2 * 24 * 60 * 60 * 1000;
+
+  const entrar = (corpo: Record<string, unknown>) =>
+    fetch(`${base}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "dono@nslink.com.br", password: "senha-boa-123", ...corpo }),
+    });
+
+  beforeEach(() => {
+    sessao = { cookie: {} };
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "active" });
+  });
+
+  it("marcado, a sessao vale 30 dias", async () => {
+    const res = await entrar({ lembrar: true });
+    expect(res.status).toBe(200);
+    expect(sessao.cookie.maxAge).toBe(TRINTA_DIAS);
+  });
+
+  it("sem marcar, continua 48 horas — ninguem perde nem ganha nada", async () => {
+    const res = await entrar({});
+    expect(res.status).toBe(200);
+    expect(sessao.cookie.maxAge).toBe(QUARENTA_E_OITO_HORAS);
+  });
+
+  it("desmarcado explicitamente tambem e 48 horas", async () => {
+    await entrar({ lembrar: false });
+    expect(sessao.cookie.maxAge).toBe(QUARENTA_E_OITO_HORAS);
+  });
+
+  it("superadmin marca e continua com 48 horas", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE, role: "superadmin", providerId: null });
+    storageMock.getProvider.mockResolvedValue(null);
+
+    const res = await entrar({ lembrar: true });
+
+    expect(res.status).toBe(200);
+    expect(sessao.cookie.maxAge).toBe(QUARENTA_E_OITO_HORAS);
+  });
+
+  it("login recusado nao mexe na validade de sessao nenhuma", async () => {
+    marcaMock.hostPertenceAoProvider.mockResolvedValue(false);
+
+    const res = await entrar({ lembrar: true });
+
+    expect(res.status).toBe(401);
+    expect(sessao.cookie.maxAge).toBeUndefined();
+  });
+});

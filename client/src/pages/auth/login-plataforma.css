@@ -1,0 +1,620 @@
+/*
+ * Tela de login da PLATAFORMA — desenho "/consulta.isp" (standalone do dono,
+ * 10/09/2026). Portado com a mesma regra da landing: a folha inteira vive sob
+ * `.lg`, porque o desenho declara --bg, --surface e --ink, os mesmos nomes dos
+ * tokens do sistema. Solto em :root, pintaria o app inteiro.
+ *
+ * Gerado a partir do HTML do dono; o que foi acrescentado a mao esta no fim,
+ * depois da linha "ACRESCIMOS".
+ */
+.lg {
+    --bg: #F5F3EE;
+    --surface: #FFFFFF;
+    --line: rgba(14,13,11,0.10);
+    --line-strong: rgba(14,13,11,0.20);
+    --ink: #0E0D0B;
+    --ink-body: #45414A;
+    --mute: #77726A;
+    --mute-2: #9C978E;
+    --dark: #0E0D0B;
+    --dark-2: #17161A;
+    --dark-3: #1F1D22;
+    --dark-line: rgba(255,255,255,0.10);
+    --dark-line-strong: rgba(255,255,255,0.20);
+    --dark-ink: #F5F3EE;
+    --dark-body: #C7C2B7;
+    --dark-mute: #928E85;
+    --pos: #3E9268;
+    --warn: #D89A3A;
+    --neg: #E36B5E;
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  .lg, .lg * { box-sizing: border-box; }
+  .lg { margin: 0; padding: 0; }
+  .lg {
+    background: var(--dark);
+    font-family: var(--font-body);
+    color: var(--dark-ink);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .lg a { color: inherit; text-decoration: none; }
+  .lg button { font-family: inherit; cursor: pointer; }
+  @keyframes lg-pulso { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  /* ==================================================================
+     BRAND
+     ================================================================== */
+  .lg .brand {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    font-family: var(--font-mono);
+    line-height: 1;
+  }
+  .lg .brand-mark {
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.04em;
+    color: var(--dark-ink);
+  }
+  .lg .brand-mark .slash,
+.lg .brand-mark .ext { color: var(--dark-mute); }
+  .lg .brand-tag {
+    font-weight: 500;
+    font-size: 9.5px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--dark-mute);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .lg .brand-tag::before {
+    content: '';
+    width: 12px; height: 1px;
+    background: currentColor;
+    opacity: 0.6;
+  }
+
+  /* ==================================================================
+     PILL DE STATUS
+     ================================================================== */
+  .lg .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--dark-line-strong);
+    background: rgba(255,255,255,0.05);
+    border-radius: 100px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dark-ink);
+    margin: 32px 0 24px;
+  }
+  .lg .pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--pos);
+    animation: lg-pulso 2.4s ease-in-out infinite;
+  }
+
+  /* ==================================================================
+     PAGE LAYOUT
+     ================================================================== */
+  .lg .page {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    align-items: center;
+    gap: 60px;
+    padding: 60px 70px;
+    position: relative;
+    overflow: hidden;
+  }
+  .lg .page::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 56px 56px;
+    pointer-events: none;
+  }
+  .lg .page::after {
+    content: '';
+    position: absolute;
+    top: -20%;
+    right: -20%;
+    width: 60%;
+    height: 60%;
+    background: radial-gradient(circle, rgba(62,146,104,0.05) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  /* ==================================================================
+     COLUNA ESQUERDA — informações
+     ================================================================== */
+  .lg .side-info {
+    position: relative;
+    z-index: 2;
+    max-width: 540px;
+  }
+  .lg .side-info h1 {
+    font-family: var(--font-body);
+    font-weight: 300;
+    font-size: clamp(32px, 3.6vw, 48px);
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    color: var(--dark-ink);
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .lg .side-info h1 strong { font-weight: 700; }
+  .lg .side-info h1 em { font-style: normal; color: var(--dark-mute); font-weight: 500; }
+  .lg .side-info .lead {
+    font-size: 15.5px;
+    line-height: 1.65;
+    color: var(--dark-body);
+    max-width: 480px;
+    margin: 0 0 32px;
+  }
+  .lg .metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 32px;
+    max-width: 480px;
+  }
+  .lg .metric {
+    padding: 16px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--dark-line);
+    border-radius: 8px;
+  }
+  .lg .metric .val {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    color: var(--dark-ink);
+    margin-bottom: 6px;
+  }
+  .lg .metric.pos .val { color: var(--pos); }
+  .lg .metric.warn .val { color: var(--warn); }
+  .lg .metric .lbl {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dark-mute);
+    line-height: 1.45;
+  }
+  .lg .guarantees {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 480px;
+    padding-top: 24px;
+    border-top: 1px solid var(--dark-line);
+  }
+  .lg .guarantees .item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13.5px;
+    color: var(--dark-body);
+  }
+  .lg .guarantees .item .check {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--pos);
+    width: 14px;
+    flex-shrink: 0;
+  }
+
+  /* Rodapé absoluto */
+  .lg .page-footer {
+    position: absolute;
+    bottom: 24px;
+    left: 70px;
+    right: 70px;
+    z-index: 2;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dark-mute);
+  }
+  .lg .page-footer .footer-links {
+    display: flex;
+    gap: 24px;
+  }
+  .lg .page-footer a:hover { color: var(--dark-ink); }
+
+  /* ==================================================================
+     COLUNA DIREITA — card flutuante
+     ================================================================== */
+  .lg .side-form {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    justify-content: center;
+  }
+  .lg .login-card {
+    background: var(--surface);
+    border-radius: 14px;
+    padding: 40px 36px;
+    color: var(--ink);
+    box-shadow:
+      0 30px 80px -20px rgba(0,0,0,0.65),
+      0 10px 24px -10px rgba(0,0,0,0.4);
+    width: 100%;
+    max-width: 440px;
+    position: relative;
+  }
+  .lg .login-card::before {
+    /* Detalhe sutil: linha decorativa no topo */
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 40px;
+    right: 40px;
+    height: 2px;
+    background: var(--ink);
+    border-radius: 0 0 2px 2px;
+  }
+  .lg .card-head {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+  .lg .card-brand-mini {
+    width: 56px;
+    height: 56px;
+    background: var(--ink);
+    color: var(--dark-ink);
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.05em;
+    margin-bottom: 22px;
+  }
+  .lg .card-brand-mini .slash,
+.lg .card-brand-mini .ext { color: var(--mute); }
+  .lg .card-head h2 {
+    font-family: var(--font-body);
+    font-weight: 300;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .lg .card-head h2 strong { font-weight: 700; }
+  .lg .card-head p {
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--mute);
+    margin: 0;
+  }
+
+  .lg .form-da-marca { display: flex; flex-direction: column; gap: 16px; }
+  .lg .field { display: flex; flex-direction: column; gap: 6px; }
+  .lg .field-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mute);
+  }
+  .lg .field-label .link-forgot {
+    font-family: var(--font-body);
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: var(--ink-body);
+    transition: color .15s ease;
+  }
+  .lg .field-label .link-forgot:hover { color: var(--ink); }
+  .lg .field-input {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    padding: 0 14px;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .lg .field-input:focus-within {
+    border-color: var(--ink);
+    background: var(--surface);
+  }
+  .lg .field-input .prefix {
+    font-family: var(--font-mono);
+    color: var(--mute);
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .lg .field-input input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 13px 0;
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 14.5px;
+  }
+  .lg .field-input input::placeholder { color: var(--mute); }
+  .lg .field-input .toggle {
+    background: transparent;
+    border: none;
+    color: var(--mute);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 4px;
+    transition: color .15s ease;
+  }
+  .lg .field-input .toggle:hover { color: var(--ink); }
+
+  .lg .field-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--ink-body);
+    cursor: pointer;
+    user-select: none;
+    margin-top: 4px;
+  }
+  .lg .field-check input {
+    appearance: none;
+    width: 16px; height: 16px;
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    background: var(--bg);
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .lg .field-check input:checked {
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+  .lg .field-check input:checked::after {
+    content: '✓';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--dark-ink);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 11px;
+  }
+
+  .lg .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 50px;
+    padding: 0 24px;
+    border-radius: 6px;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 14.5px;
+    letter-spacing: 0.01em;
+    border: 1px solid transparent;
+    transition: all .15s ease;
+    width: 100%;
+    margin-top: 10px;
+  }
+  .lg .btn-primary {
+    background: var(--ink);
+    color: var(--dark-ink);
+    border-color: var(--ink);
+  }
+  .lg .btn-primary:hover {
+    background: var(--dark-3);
+    transform: translateY(-1px);
+  }
+  .lg .btn .arrow { font-family: var(--font-mono); font-weight: 400; }
+
+  .lg .status {
+    padding: 11px 13px;
+    background: rgba(216,154,58,0.12);
+    border: 1px solid rgba(216,154,58,0.35);
+    border-radius: 5px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #8B6018;
+    display: none;
+  }
+  .lg .status.error {
+    background: rgba(227,107,94,0.12);
+    border-color: rgba(227,107,94,0.4);
+    color: #A73A2E;
+  }
+  .lg .status.success {
+    background: rgba(62,146,104,0.12);
+    border-color: rgba(62,146,104,0.4);
+    color: #266E4A;
+  }
+  .lg .status.visible { display: block; }
+
+  .lg .signup-row {
+    text-align: center;
+    font-size: 13px;
+    color: var(--mute);
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .lg .signup-row a {
+    color: var(--ink);
+    font-weight: 600;
+    border-bottom: 1px solid var(--line-strong);
+    padding-bottom: 1px;
+    transition: border-color .15s ease;
+  }
+  .lg .signup-row a:hover { border-color: var(--ink); }
+
+  .lg .card-foot {
+    text-align: center;
+    margin-top: 18px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mute-2);
+  }
+
+  /* ==================================================================
+     RESPONSIVO
+     ================================================================== */
+  @media (max-width: 1024px) {
+    .lg .page {
+      grid-template-columns: 1fr;
+      gap: 40px;
+      padding: 44px 40px 100px;
+    }
+    .lg .page-footer { position: static; margin-top: 20px; padding: 20px 0; border-top: 1px solid var(--dark-line); }
+    .lg .side-form { justify-content: center; }
+    .lg .side-info { max-width: 100%; }
+    .lg .metrics,
+.lg .guarantees,
+.lg .side-info .lead { max-width: 100%; }
+  }
+  @media (max-width: 620px) {
+    .lg .page { padding: 32px 24px 80px; }
+    .lg .login-card { padding: 32px 26px; }
+    .lg .metrics { grid-template-columns: 1fr; }
+    .lg .side-info h1 { font-size: 30px; }
+  }
+
+  /* ==================================================================
+     ACRESCIMOS — o que o HTML solto nao precisava resolver
+     ================================================================== */
+
+  /*
+   * PONTE PARA O SISTEMA. O assistente de cadastro e os formularios de senha
+   * usam Button/Input do shadcn e os tokens canonicos do app (--text, --brand,
+   * --border...). Aqui dentro eles vestem o traje da marca: tinta grafite no
+   * lugar da berinjela, creme no lugar do cinza-violeta. E a pagina fica SEMPRE
+   * no claro — como a landing —, entao o valor claro de cada token e redeclarado
+   * mesmo quando o <html> esta em .dark.
+   *
+   * Propriedade customizada herda o valor COMPUTADO: redeclarar --surface aqui
+   * nao muda um --color-surface que o :root ja resolveu. Por isso cada nome que
+   * um componente la dentro le e redeclarado pelo proprio nome.
+   */
+  .lg .login-card {
+    --text: #0E0D0B;  --text-2: #2A2724;  --text-muted: #77726A;  --text-faint: #9C978E;
+    --text-on-brand: #F5F3EE;
+    --brand: #0E0D0B;  --action: #0E0D0B;  --action-hover: #1F1D22;
+    --brand-soft: #EBE7DE;  --brand-ink: #0E0D0B;
+    --surface-2: #FAF8F3;  --surface-3: #EBE7DE;  --surface-inset: #F5F3EE;
+    --border: rgba(14, 13, 11, 0.10);  --border-strong: rgba(14, 13, 11, 0.20);
+    --border-faint: rgba(14, 13, 11, 0.06);
+    --ok: #1F7A4C;  --ok-bg: #E6F3EC;  --ok-border: #B9DECB;
+    --danger: #B3261E;  --danger-bg: #FBE7E5;  --danger-border: #F0C4BF;
+    --past: #8C2F39;  --past-bg: #F9E8EA;  --past-border: #E4BCC1;
+    --gated: #A9741B;  --gated-bg: #FBF1DF;  --gated-border: #E8D2A3;
+    --color-brand: #0E0D0B;  --color-steel: #1F1D22;  --color-ink: #0E0D0B;
+    --color-muted: #77726A;  --color-surface: #FFFFFF;  --color-bg: #F5F3EE;
+    --color-success: #1F7A4C;  --color-success-bg: #E6F3EC;
+    --color-danger: #B3261E;  --color-danger-bg: #FBE7E5;
+    /* shadcn (HSL, sem hsl()) */
+    --background: 43 25% 95%;  --foreground: 40 13% 5%;
+    --card: 0 0% 100%;  --card-foreground: 40 13% 5%;
+    --primary: 40 13% 5%;  --primary-foreground: 43 25% 95%;
+    --secondary: 42 21% 89%;  --secondary-foreground: 40 13% 5%;
+    --muted: 42 21% 92%;  --muted-foreground: 37 6% 44%;
+    --accent: 42 21% 89%;  --accent-foreground: 40 13% 5%;
+    --input: 36 5% 80%;  --ring: 40 13% 5%;  --border-hsl: 40 7% 90%;
+    --focus-ring: 0 0 0 3px rgba(14, 13, 11, 0.18);
+  }
+
+  /* Foco de teclado visivel em tudo que e controle da pagina. */
+  .lg a:focus-visible,
+  .lg button:focus-visible,
+  .lg .field-input:focus-within,
+  .lg .field-check input:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  .lg .side-info a:focus-visible,
+  .lg .page-footer a:focus-visible { outline-color: var(--dark-ink); }
+
+  /* Botao desabilitado enquanto a requisicao anda — o original nao tinha estado. */
+  .lg .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+
+  /* Botao secundario (reenviar, voltar): mesmo corpo, sem preenchimento. */
+  .lg .btn-secondary {
+    background: transparent;
+    color: var(--ink);
+    border-color: var(--line-strong);
+  }
+  .lg .btn-secondary:hover { border-color: var(--ink); }
+
+  /* Link de texto dentro do cartao (voltar ao login, nao recebi o e-mail). */
+  .lg .link-texto {
+    background: none; border: none; padding: 0;
+    font-family: var(--font-body); font-size: 13px; color: var(--ink-body);
+    text-decoration: underline; text-underline-offset: 3px;
+    text-decoration-color: var(--line-strong);
+  }
+  .lg .link-texto:hover { color: var(--ink); text-decoration-color: var(--ink); }
+  .lg .linha-links { display: flex; justify-content: center; margin-top: 14px; }
+
+  /* Passos do "confirme seu e-mail". */
+  .lg .passos { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 10px; }
+  .lg .passos li { display: flex; gap: 10px; font-size: 13.5px; color: var(--ink-body); line-height: 1.45; }
+  .lg .passos .n {
+    flex: none; width: 20px; height: 20px; border-radius: 4px;
+    display: grid; place-items: center;
+    background: var(--ink); color: var(--dark-ink);
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  }
+  .lg .email-pendente {
+    font-family: var(--font-mono); font-size: 13px; color: var(--ink);
+    word-break: break-all; margin-top: 4px;
+  }
+
+  /* No celular o formulario chega primeiro: quem vem do cartao do evento pelo
+     telefone nao pode ter de rolar por metricas para achar o cadastro. */
+  @media (max-width: 620px) {
+    .lg .side-info .lead,
+    .lg .metrics,
+    .lg .guarantees { display: none; }
+    .lg .pill { margin: 20px 0 14px; }
+    .lg .side-info h1 { margin-bottom: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lg .pill .dot { animation: none; }
+    .lg .btn-primary:hover { transform: none; }
+  }

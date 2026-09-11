@@ -8,6 +8,24 @@ import { logger } from "./logger";
 
 const PgSession = ConnectPgSimple(session);
 
+/** Quanto dura uma sessao comum: 48 horas desde o login. */
+export const SESSAO_PADRAO_MS = 2 * 24 * 60 * 60 * 1000;
+/** "Manter conectado por 30 dias", marcado na tela de login. */
+export const SESSAO_LEMBRADA_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Por quanto tempo esta sessao vale, a partir do login.
+ *
+ * O padrao continua sendo 48 horas — quem nao marca nada nao perde nem ganha
+ * nada. Marcar "manter conectado" estende para 30 dias, EXCETO para o
+ * superadmin: a sessao dele enxerga todos os provedores e as credenciais de ERP
+ * decifradas, e esse alcance nao fica 30 dias num cookie esquecido num
+ * computador de balcao. A tela nao precisa saber disso; o servidor decide.
+ */
+export function duracaoDaSessao(role: string | null | undefined, lembrar: boolean | undefined): number {
+  return lembrar === true && role !== "superadmin" ? SESSAO_LEMBRADA_MS : SESSAO_PADRAO_MS;
+}
+
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required");
 }
@@ -24,7 +42,7 @@ export const sessionMiddleware = session({
   name: "cid",
   cookie: {
     secure: process.env.NODE_ENV === "production",
-    maxAge: 2 * 24 * 60 * 60 * 1000, // 48h
+    maxAge: SESSAO_PADRAO_MS,
     httpOnly: true,
     sameSite: "lax",
   },

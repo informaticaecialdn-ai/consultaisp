@@ -88,8 +88,16 @@ export function SimboloConsultaISP({ tamanho = 32, className }: { tamanho?: numb
  * O leitor de tela ouve "Consulta ISP", não "barra consulta ponto isp".
  */
 export function WordmarkConsultaISP({
-  tamanho = 20, tagline, className,
-}: { tamanho?: number; tagline?: string | null; className?: string }) {
+  tamanho = 20, tagline, className, sobreEscuro = false,
+}: {
+  tamanho?: number; tagline?: string | null; className?: string;
+  /**
+   * Sobre fundo escuro FIXO (o painel da tela de login, o bloco escuro da
+   * landing): a tinta vira creme nos dois temas. Sem isto a tinta segue o tema
+   * do app, e no tema claro o nome sairia grafite sobre grafite.
+   */
+  sobreEscuro?: boolean;
+}) {
   const corpoDaTagline = Math.max(9, Math.round(tamanho * 0.41));
   return (
     <span
@@ -101,7 +109,7 @@ export function WordmarkConsultaISP({
         aria-hidden="true"
         style={{
           fontSize: tamanho, fontWeight: 700, letterSpacing: "-0.04em",
-          color: "var(--marca-tinta)", whiteSpace: "nowrap",
+          color: sobreEscuro ? "var(--marca-ladrilho-tinta)" : "var(--marca-tinta)", whiteSpace: "nowrap",
         }}
       >
         <span style={{ color: "var(--marca-destaque)" }}>/</span>consulta<span style={{ color: "var(--marca-destaque)" }}>.isp</span>

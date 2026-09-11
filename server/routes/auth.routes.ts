@@ -8,10 +8,11 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { normalizarHost, extractSubdomainFromHost } from "../tenant";
 import { hostPertenceAoProvider, hostPertenceAMarca, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
-import { MENSAGEM_PROVEDOR_SUSPENSO, encerrarPersonificacao } from "../auth";
+import { MENSAGEM_PROVEDOR_SUSPENSO, encerrarPersonificacao, duracaoDaSessao } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import { cnpjCru } from "@shared/cnpj";
 import crypto from "crypto";
+import { z } from "zod";
 
 /**
  * Avisa o DONO DA CONTA que a senha dela mudou.
@@ -130,9 +131,18 @@ export function registerAuthRoutes(): Router {
   // uma sessao aberta vira maquina de despejar aviso na caixa do dono. O balde
   // e maior que o do reset porque aqui quem chama ja provou quem e.
 
+  /**
+   * O login com o "manter conectado por 30 dias" da tela.
+   *
+   * Estendido AQUI, e nao em shared/schema.ts: o campo so existe para esta rota,
+   * e o schema compartilhado continua descrevendo o par e-mail e senha. Ausente
+   * ou qualquer coisa que nao seja `true` vale "nao lembrar" — o padrao de 48h.
+   */
+  const loginComLembrarSchema = loginSchema.extend({ lembrar: z.boolean().optional() });
+
   router.post("/api/auth/login", loginLimiter, async (req, res) => {
     try {
-      const parsed = loginSchema.safeParse(req.body);
+      const parsed = loginComLembrarSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Dados invalidos" });
       }
@@ -267,6 +277,13 @@ export function registerAuthRoutes(): Router {
       req.session.marcaId = user.role === "revendedor"
         ? user.marcaId ?? null
         : provider?.marcaId ?? null;
+      // A validade sai do login, nao da configuracao global: 48h por padrao,
+      // 30 dias com "manter conectado" — e superadmin sempre 48h (ver
+      // duracaoDaSessao). Gravada antes do save para o cookie e o registro na
+      // tabela de sessao nascerem com o mesmo prazo.
+      if (req.session.cookie) {
+        req.session.cookie.maxAge = duracaoDaSessao(user.role, parsed.data.lembrar);
+      }
       await new Promise<void>((resolve, reject) => {
         req.session.save((err) => err ? reject(err) : resolve());
       });
