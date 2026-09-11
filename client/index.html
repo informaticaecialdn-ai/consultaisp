@@ -48,6 +48,38 @@
     <meta property="og:url" content="https://consultaisp.com.br/" />
     <meta property="og:locale" content="pt_BR" />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- Medicao. O pixel fica DENTRO da faixa da marca de proposito: em host
+         white label a faixa inteira e trocada (server/marca-html.ts), e o
+         pixel da plataforma nao vai junto. A guarda por hostname cobre o
+         revendedor sem marca propria, que herda o cabecalho da casa, e
+         mantem localhost e preview fora dos dados.
+
+         O CSP precisou abrir connect.facebook.net em script, e facebook.com
+         em img e connect (server/index.ts). Sem isso o snippet carrega e nao
+         reporta nada — o unico sinal seria no console do visitante.
+
+         SPA: o PageView abaixo conta a ENTRADA. Troca de rota nao recarrega
+         a pagina, entao cada passo do funil precisa ser disparado no codigo. -->
+    <script>
+      (function () {
+        if (!/(^|\.)consultaisp\.com\.br$/.test(location.hostname)) return;
+        !function (f, b, e, v, n, t, s) {
+          if (f.fbq) return;
+          n = f.fbq = function () {
+            n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
+          };
+          if (!f._fbq) f._fbq = n;
+          n.push = n; n.loaded = !0; n.version = "2.0"; n.queue = [];
+          t = b.createElement(e); t.async = !0; t.src = v;
+          s = b.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t, s);
+        }(window, document, "script", "https://connect.facebook.net/en_US/fbevents.js");
+        fbq("init", "1543850664096239");
+        fbq("track", "PageView");
+      })();
+    </script>
+    <noscript><img height="1" width="1" style="display: none" alt=""
+      src="https://www.facebook.com/tr?id=1543850664096239&amp;ev=PageView&amp;noscript=1" /></noscript>
+
     <!-- marca:fim -->
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
