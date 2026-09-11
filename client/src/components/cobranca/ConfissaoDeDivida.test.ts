@@ -38,7 +38,7 @@ describe("ConfissaoDeDivida (bloco do 360)", () => {
     expect(pagina).not.toContain("setConfissao(");
     expect(pagina).not.toContain("habilitação de confissão POR CLIENTE");
     expect(pagina).not.toContain("GATED: sem assinatura eletrônica");
-    expect(pagina).toContain("<SeloConfissao confissao={data?.confissaoViva}");
+    expect(pagina).toContain("<SeloConfissao confissao={data?.confissaoAssinada}");
   });
   it("a prescrição interrompida é dita no 360 e a linha do tempo descreve o evento confissao", () => {
     expect(pagina).toContain("interrompida pela confissão de");

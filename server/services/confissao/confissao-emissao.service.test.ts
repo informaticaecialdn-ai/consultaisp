@@ -158,9 +158,18 @@ describe("emitir a confissão", () => {
     expect(zapsign.atualizarSignatario).toHaveBeenCalledWith("s-9", expect.objectContaining({ auth_mode: "assinaturaTela-tokenWhatsapp", cpf: "12345678901", require_cpf: true }));
     expect(storageMock.criarConfissao).toHaveBeenCalledWith(1, expect.objectContaining({ modelo: "zapsign", modeloVersao: "tpl-1" }));
   });
-  it("provedor assina sem representante (nome e e-mail) cadastrado recusa antes de gravar", async () => {
+  it.each([null, ""])("segredo do webhook %j: recusa antes de criar o rascunho e o documento — um webhook sem cabeçalho nunca autenticaria o retorno", async (segredo) => {
+    baseMock.montarBase.mockResolvedValueOnce(base({ integracao: { ...base().integracao, webhookSecret: segredo } }));
+    await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "NAO_CONFIGURADA" });
+    expect(storageMock.criarConfissao).not.toHaveBeenCalled();
+    expect(zapsign.criarDocumentoPorPdf).not.toHaveBeenCalled();
+    expect(zapsign.registrarWebhookDoDocumento).not.toHaveBeenCalled();
+  });
+  it("provedor assina sem representante completo (nome, CPF e e-mail) recusa antes de gravar", async () => {
     baseMock.montarBase.mockResolvedValueOnce(base({ integracao: { ...base().integracao, provedorAssina: true, signatarioNome: null, signatarioEmail: null } }));
     await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "BLOQUEADA" });
+    baseMock.montarBase.mockResolvedValueOnce(base({ integracao: { ...base().integracao, provedorAssina: true, signatarioNome: "Ana Link", signatarioEmail: "ana@nslink.com", signatarioCpf: null } }));
+    await expect(emitirConfissao(1, 42, 7, corpo())).rejects.toMatchObject({ codigo: "BLOQUEADA", message: expect.stringContaining("nome, CPF e e-mail") });
     expect(storageMock.criarConfissao).not.toHaveBeenCalled();
   });
   it("falha ao registrar o webhook apaga o documento órfão, encerra o rascunho e libera a chave", async () => {

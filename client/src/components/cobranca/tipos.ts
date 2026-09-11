@@ -442,8 +442,8 @@ export interface Cliente360 {
   /** Os blocos calculados do Provedor.ai (selo, scores, prescrição, economia, resumo) — `montarFicha360`. */
   ficha?: Ficha360;
   fichaEntrada?: FichaEntrada;
-  /** A confissão de dívida assinada viva do cliente (spec §6.6) — a rota sempre preenche, nunca omite. */
-  confissaoViva: SeloDaConfissao | null;
+  /** A confissão de dívida ASSINADA do cliente (spec §6.6) — a rota sempre preenche, nunca omite. Não é a "viva" (rascunho|enviada). */
+  confissaoAssinada: SeloDaConfissao | null;
   /** O historico de pagamento confirmado pelo ERP (0036) — a remontagem ao vivo precisa dele. */
   historicoPagamentos?: HistoricoDePagamentos | null;
   chat?: ChatDoCaso | null;

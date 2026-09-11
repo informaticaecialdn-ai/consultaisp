@@ -165,6 +165,8 @@ export function clienteZapSign(config: { apiToken: string; ambiente: AmbienteDeA
     detalharDocumento: docToken => chamar("GET", `/docs/${encodeURIComponent(docToken)}/`, undefined, DocumentoSchema),
     excluirDocumento: docToken => chamar("DELETE", `/docs/${encodeURIComponent(docToken)}/`),
     registrarWebhookDoDocumento: async w => {
+      // Webhook sem o valor do cabeçalho nasceria desautenticado: todo retorno cairia no 401.
+      if (!w.cabecalho.valor) throw new ErroDeConfissao("NAO_CONFIGURADA", "O webhook do ZapSign não pode ser registrado sem o segredo do provedor", 409);
       const r = await chamar("POST", "/user/company/webhook/", { url: w.url, type: "", doc_token: w.docToken, headers: [{ name: w.cabecalho.nome, value: w.cabecalho.valor }] }, z.object({ id: z.union([z.string(), z.number()]) }));
       return { id: String(r.id) };
     },

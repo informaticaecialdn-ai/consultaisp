@@ -152,11 +152,24 @@ describe("bloqueios de cadastro e configuração", () => {
     storageMock.obterCliente.mockResolvedValueOnce(cliente({ cpfCnpj: "11222333000181", name: "Padaria Ltda" }));
     expect((await montarBase(1, 42, { hoje: HOJE, representante: { nome: "João", cpf: "98765432100" } })).dto.bloqueios).toEqual([]);
   });
-  it("provedor assina exige representante (nome e e-mail) cadastrado", async () => {
+  it("provedor assina exige representante com nome, CPF e e-mail — e a cláusula do CREDOR usa a mesma condição", async () => {
+    const REPRESENTANTE = "representante (nome, CPF e e-mail)";
     storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(integracao({ provedorAssina: true }));
-    expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContainEqual(expect.stringContaining("representante (nome e e-mail)"));
-    storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(integracao({ provedorAssina: true, signatarioNome: "Ana Link", signatarioEmail: "ana@nslink.com" }));
-    expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).not.toContainEqual(expect.stringContaining("representante (nome e e-mail)"));
+    expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContainEqual(expect.stringContaining(REPRESENTANTE));
+    // Sem CPF o documento não diria quem assinou pelo credor: bloqueia, e a cláusula não nomeia ninguém.
+    storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(integracao({ provedorAssina: true, signatarioNome: "Ana Link", signatarioEmail: "ana@nslink.com", signatarioCpf: null }));
+    const semCpf = await montarBase(1, 42, { hoje: HOJE });
+    expect(semCpf.dto.bloqueios).toContainEqual(expect.stringContaining(REPRESENTANTE));
+    expect(semCpf.entrada?.credor.representante).toBeNull();
+    // Sem e-mail o ZapSign não entrega o link: bloqueia — e a cláusula também não nomeia (antes nomeava).
+    storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(integracao({ provedorAssina: true, signatarioNome: "Ana Link", signatarioEmail: null, signatarioCpf: "11122233344" }));
+    const semEmail = await montarBase(1, 42, { hoje: HOJE });
+    expect(semEmail.dto.bloqueios).toContainEqual(expect.stringContaining(REPRESENTANTE));
+    expect(semEmail.entrada?.credor.representante).toBeNull();
+    storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(integracao({ provedorAssina: true, signatarioNome: "Ana Link", signatarioEmail: "ana@nslink.com", signatarioCpf: "11122233344" }));
+    const completo = await montarBase(1, 42, { hoje: HOJE });
+    expect(completo.dto.bloqueios).not.toContainEqual(expect.stringContaining(REPRESENTANTE));
+    expect(completo.entrada?.credor.representante).toEqual({ nome: "Ana Link", cpf: "11122233344" });
   });
   it("e-mail digitado inválido é bloqueio (não 400); nome de representante com menos de 3 letras conta como não informado", async () => {
     const b = await montarBase(1, 42, { hoje: HOJE, email: "maria@" });

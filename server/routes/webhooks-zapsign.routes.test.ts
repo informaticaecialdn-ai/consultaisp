@@ -58,6 +58,40 @@ describe("autenticação", () => {
     storageMock.webhookSecretDoProvedor.mockResolvedValueOnce({ webhookSecret: "", isEnabled: true, ambiente: "producao" });
     expect((await post(1, evento("doc_signed"), "")).status).toBe(401);
   });
+  it("401 de integração ligada vira warn '[zapsign] webhook recusado' com providerId e motivo — nunca o valor recebido nem o esperado — no máximo um por provedor a cada 10 min", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-12T12:00:00Z"));
+      const recusas = () => loggerMock.warn.mock.calls.filter(c => String(c[1]).startsWith("[zapsign] webhook recusado"));
+      expect((await post(1, evento("doc_signed"))).status).toBe(401);
+      expect(recusas()).toHaveLength(1);
+      expect(recusas()[0][0]).toEqual({ providerId: 1, motivo: "ausente" });
+      // Dentro dos 10 min o mesmo provedor não loga de novo, nem com outro motivo.
+      expect((await post(1, evento("doc_signed"), "valor-errado-123")).status).toBe(401);
+      expect(recusas()).toHaveLength(1);
+      // Outro provedor tem a trava dele.
+      expect((await post(2, evento("doc_signed"), "valor-errado-123")).status).toBe(401);
+      expect(recusas()).toHaveLength(2);
+      expect(recusas()[1][0]).toEqual({ providerId: 2, motivo: "divergente" });
+      vi.setSystemTime(new Date("2026-09-12T12:10:01Z"));
+      expect((await post(1, evento("doc_signed"), "valor-errado-123")).status).toBe(401);
+      expect(recusas()).toHaveLength(3);
+      expect(recusas()[2][0]).toEqual({ providerId: 1, motivo: "divergente" });
+      const gravado = JSON.stringify(loggerMock.warn.mock.calls);
+      expect(gravado).not.toContain("valor-errado-123");
+      expect(gravado).not.toContain("segredo-certo");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("provedor inexistente ou integração desligada: 401 sem warn — não é o ZapSign deixando de mandar o cabeçalho, e um id qualquer não entra no mapa", async () => {
+    storageMock.webhookSecretDoProvedor.mockResolvedValueOnce(undefined);
+    expect((await post(999, evento("doc_signed"), "x")).status).toBe(401);
+    storageMock.webhookSecretDoProvedor.mockResolvedValueOnce({ webhookSecret: "segredo-certo", isEnabled: false, ambiente: "producao" });
+    expect((await post(3, evento("doc_signed"), "x")).status).toBe(401);
+    expect((await post("abc", evento("doc_signed"), "x")).status).toBe(401);
+    expect(loggerMock.warn.mock.calls.filter(c => String(c[1]).startsWith("[zapsign] webhook recusado"))).toHaveLength(0);
+  });
   it("o corpo do webhook nunca vai ao log — só providerId, event_type e token", async () => {
     await post(1, evento("doc_signed"), "segredo-certo");
     const gravado = JSON.stringify([...loggerMock.info.mock.calls, ...loggerMock.warn.mock.calls]);

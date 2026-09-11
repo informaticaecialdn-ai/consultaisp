@@ -156,11 +156,17 @@ export async function emitirConfissao(providerId: number, customerId: number, us
       qualification: "Devedor",
       order_group: integracao.provedorAssina ? 2 : undefined,
     };
-    const signatarioProvedor: SignatarioParaCriar | null = integracao.provedorAssina && integracao.signatarioNome && integracao.signatarioEmail ? {
-      name: integracao.signatarioNome, email: integracao.signatarioEmail, auth_mode: "assinaturaTela-tokenEmail", cpf: integracao.signatarioCpf ?? undefined,
+    // Nome, CPF e e-mail — a mesma condição do bloqueio da base e da cláusula do CREDOR.
+    const signatarioProvedor: SignatarioParaCriar | null = integracao.provedorAssina && integracao.signatarioNome && integracao.signatarioEmail && integracao.signatarioCpf ? {
+      name: integracao.signatarioNome, email: integracao.signatarioEmail, auth_mode: "assinaturaTela-tokenEmail", cpf: integracao.signatarioCpf,
       send_automatic_email: producao, send_automatic_whatsapp: false, lock_name: true, external_id: "provedor", qualification: "Credor", order_group: 1,
     } : null;
-    if (integracao.provedorAssina && !signatarioProvedor) throw new ErroDeConfissao("BLOQUEADA", "O provedor assina, mas o representante (nome e e-mail) não está cadastrado — o superadmin completa na ficha do provedor", 422, { bloqueios: ["representante do provedor não cadastrado"] });
+    if (integracao.provedorAssina && !signatarioProvedor) throw new ErroDeConfissao("BLOQUEADA", "O provedor assina, mas o representante (nome, CPF e e-mail) não está cadastrado — o superadmin completa na ficha do provedor", 422, { bloqueios: ["representante do provedor não cadastrado"] });
+    // Sem o segredo o webhook nasceria sem o cabeçalho que o autentica: todo
+    // retorno bateria no 401 e a assinatura só chegaria pela reconciliação.
+    // Recusa aqui, antes do rascunho e do documento — nada a desfazer.
+    const segredoDoWebhook = integracao.webhookSecret;
+    if (!segredoDoWebhook) throw new ErroDeConfissao("NAO_CONFIGURADA", "A integração com o ZapSign está sem o segredo do webhook — o superadmin salva a integração de novo e ativa", 409);
 
     const rascunho = await storage.criarConfissao(providerId, {
       customerId, casoId: caso.id, negociacaoId: base.dto.negociacaoId, origem: base.dto.origem, ambiente,
@@ -230,7 +236,7 @@ export async function emitirConfissao(providerId: number, customerId: number, us
           papelPorToken.set(prov.token, "provedor");
         }
       }
-      const webhook = await zap.registrarWebhookDoDocumento({ url: urlDoWebhookDeAssinatura(providerId), docToken: doc.token, cabecalho: { nome: CABECALHO_DO_WEBHOOK, valor: integracao.webhookSecret ?? "" } });
+      const webhook = await zap.registrarWebhookDoDocumento({ url: urlDoWebhookDeAssinatura(providerId), docToken: doc.token, cabecalho: { nome: CABECALHO_DO_WEBHOOK, valor: segredoDoWebhook } });
       webhookId = webhook.id;
 
       const transicionada = await storage.transicionarConfissao(providerId, rascunho.id, "rascunho", "enviada", {

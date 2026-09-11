@@ -87,6 +87,13 @@ describe("conector do ZapSign", () => {
     expect(corpoDe(chamadas[3])).toEqual({ id: "4242" });
     expect(chamadas[4].init.body).toBeUndefined();
   });
+  it("não registra webhook sem o valor do cabeçalho: sem ele, todo retorno bateria no 401", async () => {
+    const { chamadas, fetchImpl } = fetchFalso([]);
+    const erro = await clienteZapSign({ apiToken: "t", ambiente: "producao", fetchImpl }).registrarWebhookDoDocumento({ url: "https://consultaisp.com.br/api/webhooks/zapsign/1", docToken: "doc-1", cabecalho: { nome: "X-Consulta-ISP-Assinatura", valor: "" } }).catch(e => e);
+    expect(erro).toBeInstanceOf(ErroDeConfissao);
+    expect(erro.codigo).toBe("NAO_CONFIGURADA");
+    expect(chamadas).toHaveLength(0);
+  });
   it.each([
     [401, "ZAPSIGN_CREDENCIAL", 422], [403, "ZAPSIGN_CREDENCIAL", 422], [402, "ZAPSIGN_CREDITOS", 422],
     [429, "ZAPSIGN_LIMITE", 429], [400, "ZAPSIGN_RECUSOU", 422], [404, "NAO_ENCONTRADA", 404], [500, "ZAPSIGN_INDISPONIVEL", 502], [503, "ZAPSIGN_INDISPONIVEL", 502],

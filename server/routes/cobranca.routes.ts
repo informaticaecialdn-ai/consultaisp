@@ -1700,7 +1700,8 @@ export function registerCobrancaRoutes(): Router {
         equipamentos: equipamentos.map(equipamentoParaApi),
         ficha,
         fichaEntrada,
-        confissaoViva: confissaoAssinada ? seloDaConfissao(confissaoAssinada) : null,
+        // A ASSINADA (o selo do título) — não "viva", que em shared/cobranca/confissao.ts é rascunho|enviada.
+        confissaoAssinada: confissaoAssinada ? seloDaConfissao(confissaoAssinada) : null,
         historicoPagamentos,
         chat: conversaDoChat ? { conversationId: conversaDoChat.conversationId, status: conversaDoChat.status } : null,
         rede,
@@ -2230,6 +2231,12 @@ export function registerCobrancaRoutes(): Router {
       // Acordo × confissão (spec §6.6): cancelar ou quebrar um acordo com
       // confissão ENVIADA cancela a confissão antes — DELETE no ZapSign
       // primeiro; se falhar, a negociação não muda e a tela diz por quê.
+      // Desvio deliberado da spec, que pede "na mesma transação": o DELETE é
+      // uma chamada de rede e não entra em transação de banco. A ordem honra a
+      // intenção (nenhum acordo desfeito com título vivo no ZapSign). Se o
+      // update da negociação falhar DEPOIS do DELETE, a confissão já está
+      // `cancelada` e a negociação não mudou: a próxima tentativa não acha
+      // confissão enviada e só aplica o status — o estado se corrige sozinho.
       if (status === "cancelada" || status === "quebrada") {
         const enviada = await storage.confissaoEnviadaDaNegociacao(providerId, id);
         if (enviada) {

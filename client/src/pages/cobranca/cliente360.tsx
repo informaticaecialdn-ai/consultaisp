@@ -408,7 +408,7 @@ function FichaDaCarteira() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-[23px] font-semibold leading-tight tracking-[var(--track-tight)] text-[var(--text)]" data-testid="nome-cliente">{cliente.nome}</h1>
                   <SeloOrigem origem={origemDoCabecalho} testId="selo-origem-360" />
-                  <SeloConfissao confissao={data?.confissaoViva} />
+                  <SeloConfissao confissao={data?.confissaoAssinada} />
                   <Pendente motivo="não há coluna de vulnerabilidade (Lei 14.181) — a régua não pausa sozinha por vulnerabilidade" ext="Vulnerável" />
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--text-muted)]">

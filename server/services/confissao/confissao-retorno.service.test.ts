@@ -32,7 +32,7 @@ const clienteZapSignMock = vi.hoisted(() => vi.fn(() => zap));
 vi.mock("../../assinatura/zapsign", () => ({ clienteZapSign: clienteZapSignMock }));
 vi.mock("../../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { aplicarRetorno, cancelarConfissao, expirarSeVencida, reenviarNotificacoes, registrarInformadoPeloWebhook, _reiniciarJanelasParaTestes } from "./confissao-retorno.service";
+import { aplicarRetorno, cancelarConfissao, expirarSeVencida, reenviarNotificacoes, registrarInformadoPeloWebhook, _reiniciarJanelasParaTestes, _tamanhoDaJanelaDeReenvioParaTestes } from "./confissao-retorno.service";
 import { ErroDeConfissao } from "../../assinatura/erro";
 
 function confissao(extra: Record<string, any> = {}) {
@@ -174,6 +174,22 @@ describe("informado pelo webhook, cancelar, reenviar, expirar", () => {
     await expect(reenviarNotificacoes(1, 78)).rejects.toMatchObject({ codigo: "ESTADO_INVALIDO" });
     storageMock.obterConfissao.mockResolvedValueOnce(confissao({ id: 79, status: "assinada" }));
     await expect(reenviarNotificacoes(1, 79)).rejects.toMatchObject({ codigo: "ESTADO_INVALIDO" });
+  });
+  it("a janela de reenvio não cresce para sempre: o reenvio seguinte poda as confissões cuja janela já passou", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-12T12:00:00Z"));
+      storageMock.obterConfissao.mockResolvedValueOnce(confissao({ id: 81 })).mockResolvedValueOnce(confissao({ id: 82 }));
+      await reenviarNotificacoes(1, 81);
+      await reenviarNotificacoes(1, 82);
+      expect(_tamanhoDaJanelaDeReenvioParaTestes()).toBe(2);
+      vi.setSystemTime(new Date("2026-09-12T12:30:00Z"));
+      storageMock.obterConfissao.mockResolvedValueOnce(confissao({ id: 83 }));
+      await reenviarNotificacoes(1, 83);
+      expect(_tamanhoDaJanelaDeReenvioParaTestes(), "81 e 82 saíram; fica só a 83").toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it("expirar: reconsulta primeiro; ainda pending depois da data limite → expirada com evento", async () => {
     expect(await expirarSeVencida(1, 77, "2026-09-24")).toBe(false);

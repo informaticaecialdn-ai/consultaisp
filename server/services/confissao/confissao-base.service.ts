@@ -149,8 +149,13 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
   }
   if (!integracao && bloqueios.length === 0) bloqueios.push("assinatura eletrônica não configurada — o superadmin cadastra o ZapSign do provedor");
   else if (integracao && !integracao.isEnabled) bloqueios.push("a integração com o ZapSign está salva mas não ativada — o superadmin precisa clicar em Ativar");
-  if (integracao?.provedorAssina && !(integracao.signatarioNome && integracao.signatarioEmail)) {
-    bloqueios.push("o provedor assina, mas o representante (nome e e-mail) não está cadastrado — o superadmin completa na ficha do provedor");
+  // E-mail para o ZapSign entregar o link; CPF para o documento dizer quem
+  // assinou pelo credor. Com um dos dois faltando, o signatário do credor
+  // assinaria um documento que não o identifica — a cláusula abaixo usa esta
+  // mesma condição.
+  const credorAssinaIdentificado = !!(integracao?.provedorAssina && integracao.signatarioNome && integracao.signatarioCpf && integracao.signatarioEmail);
+  if (integracao?.provedorAssina && !credorAssinaIdentificado) {
+    bloqueios.push("o provedor assina, mas o representante (nome, CPF e e-mail) não está cadastrado — o superadmin completa na ficha do provedor");
   }
 
   const [provedor, cliente, caso, politica] = await Promise.all([
@@ -267,7 +272,7 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
       razaoSocial: provedor.name,
       cnpj: provedor.cnpj,
       endereco: enderecoDoProvedor(provedor),
-      representante: integracao?.provedorAssina && integracao.signatarioNome && integracao.signatarioCpf ? { nome: integracao.signatarioNome, cpf: integracao.signatarioCpf } : null,
+      representante: credorAssinaIdentificado && integracao?.signatarioNome && integracao.signatarioCpf ? { nome: integracao.signatarioNome, cpf: integracao.signatarioCpf } : null,
     },
     devedor: { nome: cliente.name, documento, pessoaJuridica, representante: pessoaJuridica ? (opcoes.representante ?? null) : null, endereco: enderecoDoCliente(cliente), email, telefone },
     cadastroErp: cliente.erpCustomerId ?? null,

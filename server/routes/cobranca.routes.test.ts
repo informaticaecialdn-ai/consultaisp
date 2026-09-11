@@ -2365,7 +2365,9 @@ describe("acordo × confissão e os selos", () => {
     // interrupcao da prescricao, ainda e 01/09.
     storageMock.confissaoAssinadaVivaDoCliente.mockResolvedValueOnce({ id: 77, assinadaEm: new Date("2026-09-02T01:00:00Z"), valorTotal: "819.76", ambiente: "producao" });
     const ficha = await (await json("GET", `/api/cobranca/clientes/${clienteMaria.id}/360`)).json();
-    expect(ficha.confissaoViva).toEqual({ id: 77, assinadaEm: "2026-09-02T01:00:00.000Z", valorTotal: 819.76, ambiente: "producao" });
+    // `confissaoAssinada`, e nao `confissaoViva`: "viva" e rascunho|enviada (`confissaoViva()` em shared/cobranca/confissao.ts).
+    expect(ficha.confissaoAssinada).toEqual({ id: 77, assinadaEm: "2026-09-02T01:00:00.000Z", valorTotal: 819.76, ambiente: "producao" });
+    expect(ficha).not.toHaveProperty("confissaoViva");
     expect(ficha.fichaEntrada.confissaoAssinadaEm).toBe("2026-09-01");
     expect(ficha.ficha.prescricao.interrompida_em).toBe("2026-09-01");
   });

@@ -198,9 +198,18 @@ valor**:
 ### Bloqueios (a emissão não segue com nenhum destes)
 
 Cadastro e configuração: cliente não encontrado nesta carteira; sem
-integração ativa; provedor assina mas falta o representante; cliente sem
-CPF/CNPJ; cliente sem e-mail **e** sem telefone; devedor PJ sem representante
-informado; sem caso de cobrança aberto ("abra o caso antes").
+integração ativa; provedor assina mas falta o representante (nome, CPF **e**
+e-mail — sem o CPF o documento não diz quem assinou pelo credor); cliente sem
+CPF/CNPJ; cliente sem e-mail **e** sem telefone; e-mail do cliente inválido
+(o digitado no diálogo); devedor PJ sem representante informado (nome com ao
+menos 3 letras e CPF); sem caso de cobrança aberto ("abra o caso antes").
+
+O diálogo relê a base a cada escolha, e o que é **digitado** (e-mail,
+telefone, representante) só depois de uma pausa de 600 ms — cada leitura é uma
+ida ao vivo ao ERP. Enquanto a leitura nova não volta, a prévia anterior fica
+na tela com o aviso "Atualizando a prévia com o que foi escolhido…" e o botão
+de emitir fica travado: emitir com a base anterior mandaria o hash de outra
+leitura.
 
 Leitura do ERP: ERP não respondeu (sem leitura ao vivo); soma das faturas
 vencidas diferente do saldo que o ERP informa; nada a formalizar (acordo sem
@@ -505,6 +514,16 @@ apontando para `{ASSINATURA_WEBHOOK_URL}/{providerId}`, com o cabeçalho
 `X-Consulta-ISP-Assinatura`. Se a emissão terminou em erro antes de registrar
 o webhook, o documento já foi apagado do ZapSign (o código não deixa
 documento órfão sem webhook).
+
+**Retorno em 401 no log = o ZapSign não está mandando o cabeçalho; rodar o
+teste ponta a ponta em sandbox antes de ligar produção.** O cabeçalho vai
+junto com o registro do webhook de cada documento, e isso ainda não foi
+conferido contra a API real. Cada 401 de uma integração **ligada** gera um
+warn `[zapsign] webhook recusado` com o `providerId` e o motivo (`ausente` ou
+`divergente` — nunca o valor), no máximo um por provedor a cada 10 minutos:
+`grep "\[zapsign\] webhook recusado"` no log da API. Enquanto isso acontece,
+a assinatura só chega pela reconciliação (até 6 h) e recusa/expiração
+informadas não chegam.
 
 **Quando o token para de abrir (`apiTokenIlegivel: true`):** o token é cifrado
 com AES-256-GCM usando uma chave derivada do `SESSION_SECRET` (mesmo

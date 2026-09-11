@@ -29,6 +29,7 @@ export const MOTIVO_CANCELADA_SEM_DOCUMENTO = "documento não encontrado no ZapS
 /** Janela de reenvio por confissão (memória do processo: a API é uma só; o worker não reenvia). */
 const ultimoReenvio = new Map<number, number>();
 export function _reiniciarJanelasParaTestes(): void { ultimoReenvio.clear(); }
+export function _tamanhoDaJanelaDeReenvioParaTestes(): number { return ultimoReenvio.size; }
 
 function papeisDe(confissao: CobrancaConfissao): Map<string, "cliente" | "provedor"> {
   const mapa = new Map<string, "cliente" | "provedor">();
@@ -184,7 +185,12 @@ export async function reenviarNotificacoes(providerId: number, confissaoId: numb
   }
   const { zap } = await zapDaLinha(providerId, confissao);
   const r = await zap.reenviarNotificacoes(confissao.zapsignDocToken);
-  ultimoReenvio.set(confissaoId, Date.now());
+  // A cada reenvio, varre as janelas que já passaram — sem isso o mapa só
+  // cresce (uma confissão reenviada uma vez nunca mais sairia dele), como era o
+  // `ultimaReconsulta` do webhook antes da poda.
+  const agora = Date.now();
+  for (const [id, quando] of ultimoReenvio) if (agora - quando >= JANELA_DE_REENVIO_MS) ultimoReenvio.delete(id);
+  ultimoReenvio.set(confissaoId, agora);
   return r;
 }
 
