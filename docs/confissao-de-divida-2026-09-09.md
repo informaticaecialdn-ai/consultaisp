@@ -452,12 +452,13 @@ banco nem ao log.
 
 **Retenção** (`server/services/lgpd-confissoes.ts`):
 
-- Uma confissão `assinada` **em produção** é título executivo: fica guardada
-  até **5 anos** depois do último vencimento das parcelas ou da quitação (CC
-  art. 206, §5º, I — prazo prescricional de cobrança de dívida líquida em
-  instrumento particular). Pedido de exclusão do titular **não** a anonimiza
-  dentro desse prazo (LGPD art. 16, I) — a resposta ao titular lista a
-  confissão preservada e a base legal (`BASE_LEGAL_DA_PRESERVACAO`).
+- Uma confissão **em produção** cujo status prova a assinatura — `assinada`,
+  e as que só nascem dela, `quitada` e `substituida` — é título executivo:
+  fica guardada até **5 anos** depois do último vencimento das parcelas ou da
+  quitação (CC art. 206, §5º, I — prazo prescricional de cobrança de dívida
+  líquida em instrumento particular). Pedido de exclusão do titular **não** a
+  anonimiza dentro desse prazo (LGPD art. 16, I) — a resposta ao titular lista
+  a confissão preservada e a base legal (`BASE_LEGAL_DA_PRESERVACAO`).
 - Tudo o que **não** é título — `rascunho`, `cancelada`, `expirada`, e
   **qualquer linha de sandbox** (mesmo `assinada`, porque não tem validade
   jurídica) — perde o PDF e os dados pessoais **90 dias** depois da última
@@ -472,11 +473,18 @@ banco nem ao log.
 **Direitos do titular** (`server/services/lgpd-titular.service.ts`, processado
 de hora em hora): o relatório de **acesso** e o de **portabilidade** passam a
 incluir `confissoesDeDivida` (id, provedor, status, valor, ambiente, datas). O
-processamento de **exclusão** não anonimiza nenhuma confissão na hora — quem
-limpa o que não é título são os 90 dias da retenção automática acima,
-independente de haver pedido —; a resposta ao titular só informa
-`confissoesPreservadas` (assinada + produção) junto com a base legal de cada
-uma.
+processamento de **exclusão** anonimiza **na hora** toda confissão daquele CPF
+que não é título — `rascunho`, `cancelada`, `expirada` e qualquer linha de
+sandbox, em qualquer provedor (o mesmo escopo que o pedido aplica às consultas
+ISP/SPC) —, com a mesma `anonimizarConfissao` da retenção
+(`anonimizarConfissoesDoTitular`, `server/services/lgpd-confissoes.ts`). Ficam
+o título e a `enviada` em produção: esta é documento vivo — o devedor ainda
+pode assinar, e apagar a linha no meio deixaria um título sem dados; se ela
+expirar ou for cancelada, a retenção de 90 dias a limpa, e se for assinada
+vira título. A resposta (`executionResult`) traz `confissoesAnonimizadas` (a
+contagem), `confissoesPreservadas` com `baseLegalDasConfissoes`, e
+`confissoesEmAndamento` com o motivo. Uma anonimização que falha devolve o
+pedido à fila da próxima hora, em vez de responder ao titular que apagou.
 
 ---
 

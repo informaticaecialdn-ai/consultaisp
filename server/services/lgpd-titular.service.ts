@@ -15,7 +15,7 @@ import { titularRequests, ispConsultations, spcConsultations } from "@shared/sch
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { logger } from "../logger";
 import { sendCompletionEmail, sendSlaAlertEmail } from "./lgpd-email.service";
-import { confissoesDoTitularParaRelatorio, BASE_LEGAL_DA_PRESERVACAO } from "./lgpd-confissoes";
+import { anonimizarConfissoesDoTitular, confissoesDoTitularParaRelatorio, BASE_LEGAL_DA_PRESERVACAO, MOTIVO_DA_CONFISSAO_EM_ANDAMENTO } from "./lgpd-confissoes";
 
 const PROCESS_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const AUTO_PROCESSABLE_TYPES = ["acesso", "exclusao", "portabilidade"];
@@ -77,7 +77,7 @@ async function processAcesso(cpf: string): Promise<Record<string, any>> {
  * Process "exclusao" — anonymize all records for the CPF.
  * Follows the same pattern as lgpd-retention.ts.
  */
-async function processExclusao(cpf: string, protocolo: string): Promise<Record<string, any>> {
+export async function processExclusao(cpf: string, protocolo: string): Promise<Record<string, any>> {
   const ispResult = await db.update(ispConsultations)
     .set({
       cpfCnpj: "ANONIMIZADO",
@@ -95,14 +95,20 @@ async function processExclusao(cpf: string, protocolo: string): Promise<Record<s
     .where(sql`${spcConsultations.cpfCnpj} = ${cpf} AND ${spcConsultations.cpfCnpj} != 'ANONIMIZADO'`)
     .returning({ id: spcConsultations.id });
 
+  // Confissões: o que não é título sai agora; o título fica, com a base legal.
+  const confissoes = await anonimizarConfissoesDoTitular(cpf);
+
   return {
     action: "exclusao",
     cpfAnonymized: cpf,
     ispRecordsAnonymized: ispResult.length,
     spcRecordsAnonymized: spcResult.length,
     processedAt: new Date().toISOString(),
-    confissoesPreservadas: (await confissoesDoTitularParaRelatorio(cpf)).preservadas,
+    confissoesAnonimizadas: confissoes.anonimizadas,
+    confissoesPreservadas: confissoes.preservadas,
     baseLegalDasConfissoes: BASE_LEGAL_DA_PRESERVACAO,
+    confissoesEmAndamento: confissoes.emAndamento,
+    motivoDasConfissoesEmAndamento: MOTIVO_DA_CONFISSAO_EM_ANDAMENTO,
   };
 }
 
