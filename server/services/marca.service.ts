@@ -76,7 +76,7 @@ export const MARCA_PLATAFORMA: MarcaResolvida = {
   nomeProduto: "Consulta ISP",
   assinatura: "Rede colaborativa de crédito",
   logoUrl: null,
-  faviconUrl: "/marca/favicon.svg",
+  faviconUrl: "/marca/favicon-v2.svg",
   cores: null,
   suporteEmail: null,
   suporteWhatsapp: null,

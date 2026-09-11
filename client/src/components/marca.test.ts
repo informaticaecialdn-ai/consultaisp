@@ -15,7 +15,7 @@ const RAIZ = resolve(__dirname, "../../..");
 const ler = (rel: string) => readFileSync(join(RAIZ, rel), "utf8").replace(/\r\n/g, "\n");
 
 const marca = ler("client/src/components/marca.tsx");
-const favicon = ler("client/public/marca/favicon.svg");
+const favicon = ler("client/public/marca/favicon-v2.svg");
 const indexHtml = ler("client/index.html");
 const manifest = JSON.parse(ler("client/public/site.webmanifest"));
 
@@ -31,6 +31,11 @@ describe("o símbolo \"/c\"", () => {
    * (e em <img>) o navegador não carrega recurso externo, e o "/c" cairia na
    * monoespaçada do sistema — por isso o favicon é contorno puro.
    */
+  /** O nome antigo segue servindo a arte nova — para atalho e cache que ainda apontem para ele. */
+  it("o favicon.svg de nome antigo é o mesmo arquivo do versionado", () => {
+    expect(ler("client/public/marca/favicon.svg")).toBe(favicon);
+  });
+
   it("o favicon não depende de fonte: sem <text> e sem @import", () => {
     expect(favicon).not.toMatch(/<text/i);
     expect(favicon).not.toMatch(/@import/i);

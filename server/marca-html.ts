@@ -210,7 +210,7 @@ function blocoDeCabecalho(marca: MarcaResolvida): string {
   const descricao = escaparHtml(
     marca.assinatura || "Analise de credito para provedores de internet"
   );
-  const favicon = caminhoInterno(marca.faviconUrl) ?? "/marca/favicon.svg";
+  const favicon = caminhoInterno(marca.faviconUrl) ?? "/marca/favicon-v2.svg";
   const logo = caminhoInterno(marca.logoUrl);
   const site = urlSegura(marca.site);
 
