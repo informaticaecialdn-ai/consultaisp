@@ -82,8 +82,8 @@ export function SimboloConsultaISP({ tamanho = 32, className }: { tamanho?: numb
  * O wordmark /consulta.isp, com a tagline opcional embaixo.
  *
  * `tamanho` é o corpo do nome em px. A tagline tem piso de 9 px: a proporção
- * do kit (20% do nome) é de peça impressa, e a 17 px de nome daria 3 px de
- * letra — ilegível, e na barra lateral ela diz em que painel você está.
+ * do kit (20% do nome) é de peça impressa, e a 20 px de nome daria 4 px de
+ * letra — ilegível.
  *
  * O leitor de tela ouve "Consulta ISP", não "barra consulta ponto isp".
  */

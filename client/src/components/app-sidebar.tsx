@@ -93,24 +93,21 @@ const ITEM_INATIVO =
 type Icone = React.ElementType;
 
 /**
- * O glifo da plataforma: arco de score com ponteiro, o artefato que um bureau
- * entrega. Ecoa o medidor da propria tela de consulta.
+ * Cabecalho da PLATAFORMA: so o wordmark /consulta.isp.
  *
- * Fundo `--surface-2` e nao branco puro: a sidebar ja e branca, e um quadrado
- * branco sumiria nela. A hairline fecha a forma.
- */
-/**
- * Cabecalho da PLATAFORMA: o wordmark /consulta.isp, com o subtitulo do painel
- * no lugar da tagline do kit ("— ANALISE DE CREDITO", "— SISTEMA ADMIN").
+ * Teve o subtitulo do painel no traje da tagline ("— ANALISE DE CREDITO",
+ * "— SISTEMA ADMIN") por um dia; saiu a pedido do dono (10/09/2026: "sem o
+ * analise de credito em baixo... fica mais limpo"). O painel continua
+ * identificavel pelo rodape — o nome do provedor, ou "Super Admin".
  *
- * O subtitulo continua dizendo em que painel voce esta; so ganha o traje da
- * marca. Sem ladrilho ao lado: o kit usa o wordmark sozinho no nav e reserva o
- * "/c" para espaco pequeno — os dois juntos repetiriam "/c" duas vezes.
+ * Sem ladrilho ao lado: o kit usa o wordmark sozinho no nav e reserva o "/c"
+ * para espaco pequeno — os dois juntos repetiriam "/c" duas vezes. Sem a
+ * tagline, o nome sobe de 18 para 20px e ocupa a altura que ela deixou.
  */
-function CabecalhoDaPlataforma({ subtitulo }: { subtitulo: string }) {
+function CabecalhoDaPlataforma() {
   return (
     <div className="flex items-center cursor-pointer min-w-0">
-      <WordmarkConsultaISP tamanho={18} tagline={subtitulo} />
+      <WordmarkConsultaISP tamanho={20} />
     </div>
   );
 }
@@ -658,7 +655,7 @@ export function AppSidebar() {
           >
             {/* Marca da plataforma, sempre: o painel do superadmin nao pertence
                 a nenhum revendedor, e exibir a marca de um seria mentira. */}
-            <CabecalhoDaPlataforma subtitulo="Sistema Admin" />
+            <CabecalhoDaPlataforma />
           </button>
         }
         rodape={
@@ -775,7 +772,7 @@ export function AppSidebar() {
               wordmark da plataforma — e a marca-mae mudando de roupa nao
               mexe na do revendedor. */}
           {marca.marcaId === null ? (
-            <CabecalhoDaPlataforma subtitulo="Análise de Crédito" />
+            <CabecalhoDaPlataforma />
           ) : (
             <CabecalhoSidebar
               simbolo={<SimboloDaMarca tamanho={34} />}
