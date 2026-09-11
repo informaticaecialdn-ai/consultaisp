@@ -47,19 +47,37 @@ export function resolverMunicipio(entrada: string): Municipio | null {
   return null;
 }
 
+/**
+ * O endereço do zip do município a partir do HTML do índice da UF.
+ *
+ * O href do índice JÁ VEM CODIFICADO: "Marilândia do Sul" é
+ * `4114906_MARIL%c3%82NDIA_DO_SUL.zip`. Era passado por `encodeURI`, que
+ * codifica o `%` de novo — `%25c3%2582` — e o IBGE respondia 404: toda cidade
+ * com "Â" no nome (o IBGE tira os outros acentos, mas mantém esse) ficava sem
+ * cobertura geo, com um warn e nada mais (worker de produção, 10/09/2026).
+ *
+ * Um href se resolve como o navegador resolve: relativo ao diretório, pelo
+ * parser de URL. Escape que já existe fica como está; caractere cru (se o
+ * índice um dia vier sem codificar) é codificado uma vez.
+ */
+export function urlDoZipNoIndice(dir: string, html: string, ibge: string): string | null {
+  const nomes = Array.from(html.matchAll(/href="([^"]+\.zip)"/g)).map(x => x[1]);
+  const alvo = nomes.find(n => n.startsWith(`${ibge}_`));
+  if (!alvo) return null;
+  return new URL(alvo, `${dir}/`).href;
+}
+
 /** Localiza o zip do município no índice do diretório da UF. */
 async function acharUrlDoZip(m: Municipio): Promise<string> {
   const dir = `${BASE_IBGE}/${m.ibge.slice(0, 2)}_${m.uf}`;
   const r = await fetch(`${dir}/`, { signal: AbortSignal.timeout(60_000) });
   if (!r.ok) throw new Error(`Índice do IBGE respondeu HTTP ${r.status} em ${dir}`);
 
-  const html = await r.text();
-  const nomes = Array.from(html.matchAll(/href="([^"]+\.zip)"/g)).map(x => x[1]);
-  const alvo = nomes.find(n => n.startsWith(`${m.ibge}_`));
-  if (!alvo) {
+  const url = urlDoZipNoIndice(dir, await r.text(), m.ibge);
+  if (!url) {
     throw new Error(`Nenhum arquivo começando com ${m.ibge}_ no índice de ${m.uf}`);
   }
-  return `${dir}/${encodeURI(alvo)}`;
+  return url;
 }
 
 /**
