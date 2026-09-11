@@ -24,6 +24,7 @@ export interface ResultadoDoRetorno { status: StatusDeConfissao; mudou: boolean;
 
 export const RECONSULTA_APOS_FALHA_MS = 10 * 60_000;
 export const JANELA_DE_REENVIO_MS = 30 * 60_000;
+export const MOTIVO_CANCELADA_SEM_DOCUMENTO = "documento não encontrado no ZapSign — token trocado ou documento excluído; cancelada sem consulta ao ZapSign";
 
 /** Janela de reenvio por confissão (memória do processo: a API é uma só; o worker não reenvia). */
 const ultimoReenvio = new Map<number, number>();
@@ -129,7 +130,13 @@ export async function cancelarConfissao(providerId: number, confissaoId: number,
     return linha;
   }
   if (confissao.status !== "enviada") throw new ErroDeConfissao("ESTADO_INVALIDO", `Uma confissão ${confissao.status} não se cancela`, 409);
-  const retorno = await aplicarRetorno(providerId, confissaoId, "cancelar");
+  let retorno: ResultadoDoRetorno;
+  try {
+    retorno = await aplicarRetorno(providerId, confissaoId, "cancelar");
+  } catch (e) {
+    if (e instanceof ErroDeConfissao && e.codigo === "NAO_ENCONTRADA") return cancelarSemDocumentoNoZapSign(providerId, confissao, userId);
+    throw e;
+  }
   if (retorno.status === "assinada") throw new ErroDeConfissao("JA_ASSINADA", "O cliente já assinou — não se cancela", 409);
   if (retorno.status === "cancelada") return retorno.linha ?? (await storage.obterConfissao(providerId, confissaoId))!;
   if (!retorno.confirmado) throw new ErroDeConfissao("ESTADO_INVALIDO", "Não foi possível confirmar o estado do documento no ZapSign — tente de novo em instantes", 409);
@@ -139,6 +146,30 @@ export async function cancelarConfissao(providerId: number, confissaoId: number,
   const linha = await storage.transicionarConfissao(providerId, confissaoId, "enviada", "cancelada", { encerradaEm: new Date(), erroUltimo: null, reconciliarEm: null });
   if (!linha) throw new ErroDeConfissao("ESTADO_INVALIDO", "A confissão mudou de estado durante o cancelamento", 409);
   await registrarEventoDaConfissao(providerId, linha, "cancelada", userId, "Confissão de dívida cancelada antes da assinatura (documento apagado no ZapSign)");
+  return linha;
+}
+
+/**
+ * A reconsulta deu 404: o ZapSign não conhece mais o documento — o superadmin
+ * trocou o token para OUTRA conta, ou o ZapSign expurgou. Sem esta saída a
+ * linha ficava `enviada` para sempre (a reconciliação tenta sem fim, o expirar
+ * e o cancelar passam pela reconsulta) e segurava a vaga de "uma confissão viva
+ * por cliente": esse cliente nunca mais teria outra sem update no banco.
+ *
+ * Só o ADMIN chega aqui, pelo cancelar — é a decisão humana de abrir mão do
+ * documento. O DELETE ainda é tentado (se a conta for a certa, apaga) e o 404
+ * dele é tolerado; qualquer outra falha deixa tudo como está.
+ */
+async function cancelarSemDocumentoNoZapSign(providerId: number, confissao: CobrancaConfissao, userId: number): Promise<CobrancaConfissao> {
+  const { zap } = await zapDaLinha(providerId, confissao);
+  await zap.excluirDocumento(confissao.zapsignDocToken!).catch(e => {
+    if (!(e instanceof ErroDeConfissao && e.codigo === "NAO_ENCONTRADA")) throw e;
+  });
+  if (confissao.webhookZapsignId) await zap.excluirWebhook(confissao.webhookZapsignId).catch(() => undefined);
+  const linha = await storage.transicionarConfissao(providerId, confissao.id, "enviada", "cancelada", { encerradaEm: new Date(), erroUltimo: MOTIVO_CANCELADA_SEM_DOCUMENTO, reconciliarEm: null });
+  if (!linha) throw new ErroDeConfissao("ESTADO_INVALIDO", "A confissão mudou de estado durante o cancelamento", 409);
+  logger.warn({ providerId, confissaoId: confissao.id, userId }, "CONFISSAO cancelada pelo admin sem o documento no ZapSign (404)");
+  await registrarEventoDaConfissao(providerId, linha, "cancelada", userId, "Confissão de dívida cancelada pelo administrador: o documento não foi encontrado no ZapSign (token trocado ou documento excluído)");
   return linha;
 }
 
@@ -157,7 +188,15 @@ export async function reenviarNotificacoes(providerId: number, confissaoId: numb
   return r;
 }
 
-/** Worker: passada a data limite sem assinatura (reconsultada agora), marca expirada. */
+/**
+ * Worker: passada a data limite sem assinatura (reconsultada agora), marca expirada.
+ *
+ * Um 404 na reconsulta NÃO expira nem cancela nada aqui — propaga, e a linha
+ * segue `enviada`. Não "complete" isto com a saída que o cancelar tem: depois
+ * de uma troca de token, o 404 não prova que o cliente não assinou na conta
+ * antiga, e só um humano pode decidir abrir mão desse título (o admin, pelo
+ * cancelar — `cancelarSemDocumentoNoZapSign`).
+ */
 export async function expirarSeVencida(providerId: number, confissaoId: number, hoje: string): Promise<boolean> {
   const retorno = await aplicarRetorno(providerId, confissaoId, "worker");
   if (retorno.status !== "enviada" || !retorno.confirmado) return false;

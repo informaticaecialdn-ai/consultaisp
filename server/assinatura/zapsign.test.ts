@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HOSTS_DO_ZAPSIGN, clienteZapSign } from "./zapsign";
 import { ErroDeConfissao } from "./erro";
 
@@ -112,5 +112,50 @@ describe("conector do ZapSign", () => {
     expect((await c.baixarArquivo("https://s3/x.pdf", 11)).length).toBe(11);
     const erro = await c.baixarArquivo("https://s3/x.pdf", 10).catch(e => e);
     expect(erro.codigo).toBe("ARQUIVO_GRANDE");
+  });
+});
+
+/**
+ * O download do PDF assinado roda no WORKER, dentro da reconciliação: sem
+ * prazo, um link S3 parado prende a passada pelos ~300 s do undici, e a trava
+ * `emAndamento` derruba cada tique de 10 min enquanto isso. O prazo (60 s — PDF
+ * é maior que JSON) cobre cabeçalho E corpo, e nenhum dos dois depende de o
+ * `fetch` honrar o sinal: aqui o dublê ignora o abort de propósito.
+ */
+describe("prazo do download do arquivo assinado", () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const acompanhar = (p: Promise<unknown>) => {
+    const estado: { valor: unknown } = { valor: "pendente" };
+    p.then(() => { estado.valor = "resolveu"; }, e => { estado.valor = e; });
+    return estado;
+  };
+
+  it("fetch que nunca responde rejeita com indisponibilidade depois de 60 s, e não antes", async () => {
+    vi.useFakeTimers();
+    let sinal: AbortSignal | undefined;
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => { sinal = init?.signal ?? undefined; return new Promise<Response>(() => {}); }) as unknown as typeof fetch;
+    const estado = acompanhar(clienteZapSign({ apiToken: "t", ambiente: "producao", fetchImpl }).baixarArquivo("https://s3/x.pdf", 1024));
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(estado.valor).toBe("pendente");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(estado.valor).toBeInstanceOf(ErroDeConfissao);
+    expect(estado.valor).toMatchObject({ codigo: "ZAPSIGN_INDISPONIVEL", http: 502 });
+    expect(sinal?.aborted, "a requisição é cancelada, não só abandonada").toBe(true);
+  });
+
+  it("corpo que trava depois do cabeçalho também rejeita no prazo", async () => {
+    vi.useFakeTimers();
+    const corpoParado = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new Uint8Array([0x25, 0x50, 0x44, 0x46])); } });
+    const fetchImpl = (async () => new Response(corpoParado, { status: 200 })) as unknown as typeof fetch;
+    const estado = acompanhar(clienteZapSign({ apiToken: "t", ambiente: "producao", fetchImpl }).baixarArquivo("https://s3/x.pdf", 1024));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(estado.valor).toMatchObject({ codigo: "ZAPSIGN_INDISPONIVEL", http: 502 });
+  });
+
+  it("download que termina a tempo não deixa o prazo armado", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = (async () => new Response(new Uint8Array(4), { status: 200 })) as unknown as typeof fetch;
+    expect((await clienteZapSign({ apiToken: "t", ambiente: "producao", fetchImpl }).baixarArquivo("https://s3/x.pdf", 1024)).length).toBe(4);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

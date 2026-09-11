@@ -86,6 +86,9 @@ CREATE TABLE IF NOT EXISTS cobranca_confissoes (
   aprovada_por_user_id integer REFERENCES users(id),
   chave_idempotencia uuid,
   erro_ultimo text,
+  -- Cursor da varredura de quitacao do worker (nao e updated_at: esse e
+  -- "ultima alteracao" para a tela e para a retencao de 90 dias).
+  quitacao_verificada_em timestamp,
   created_at timestamp DEFAULT now(),
   updated_at timestamp DEFAULT now()
 );

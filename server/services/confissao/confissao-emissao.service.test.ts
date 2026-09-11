@@ -38,7 +38,8 @@ const zapsign = vi.hoisted(() => ({
 }));
 vi.mock("../../assinatura/zapsign", () => ({ clienteZapSign: () => zapsign }));
 vi.mock("../../assinatura/pdf", () => ({ gerarPdfDaConfissao: vi.fn(async () => Buffer.from("%PDF-1.4 x")) }));
-vi.mock("../../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+const loggerMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock("../../logger", () => ({ logger: loggerMock }));
 
 import { CABECALHO_DO_WEBHOOK, emitirConfissao, urlDoWebhookDeAssinatura } from "./confissao-emissao.service";
 import { ErroDeConfissao } from "../../assinatura/erro";
@@ -169,6 +170,22 @@ describe("emitir a confissão", () => {
     expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 77, "rascunho", "cancelada", expect.objectContaining({ erroUltimo: expect.stringContaining("HTTP 503"), chaveIdempotencia: null }));
     expect(storageMock.transicionarConfissao).not.toHaveBeenCalledWith(1, 77, "rascunho", "enviada", expect.anything());
     expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["o evento no caso", () => storageMock.registrarEventoDeCobranca.mockRejectedValueOnce(new Error("conexão com o banco caiu"))],
+    ["o follow-up do caso", () => storageMock.atualizarCasoDeCobranca.mockRejectedValueOnce(new Error("conexão com o banco caiu"))],
+  ])("%s falhando DEPOIS de `enviada` não apaga o documento já enviado: a emissão aconteceu e responde sucesso, com warn no log", async (_efeito, falhar) => {
+    falhar();
+    const r = await emitirConfissao(1, 42, 7, corpo());
+    expect(r.status).toBe("enviada");
+    expect(zapsign.excluirDocumento).not.toHaveBeenCalled();
+    expect(zapsign.excluirWebhook).not.toHaveBeenCalled();
+    expect(storageMock.transicionarConfissao).not.toHaveBeenCalledWith(1, 77, "rascunho", "cancelada", expect.anything());
+    const aviso = loggerMock.warn.mock.calls.find(c => c[0]?.confissaoId === 77);
+    expect(aviso, "warn com a confissão").toBeDefined();
+    expect(aviso![0]).toMatchObject({ providerId: 1, confissaoId: 77, casoId: 9 });
+    // Sem dado pessoal no log: nem nome nem documento do devedor.
+    expect(JSON.stringify(aviso)).not.toMatch(/Maria|12345678901/);
   });
   it("confissão viva existente recusa antes de gravar", async () => {
     storageMock.confissaoVivaDoCliente.mockResolvedValueOnce({ id: 60, status: "enviada" });

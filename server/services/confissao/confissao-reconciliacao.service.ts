@@ -2,8 +2,8 @@
  * Reconciliação das confissões (spec §6.3, último parágrafo; §6.6 "quitada").
  * Só o WORKER a roda (server/worker.ts). Uma passada a cada 10 min cobre
  * `reconciliar_em` vencido; a cada 6 h a passada é completa (toda `enviada`
- * há mais de 1 h). A mesma `aplicarRetorno` do webhook — transição atômica,
- * então webhook e worker não duplicam evento.
+ * há mais de 1 h, e a quitação das assinadas). A mesma `aplicarRetorno` do
+ * webhook — transição atômica, então webhook e worker não duplicam evento.
  */
 import { storage } from "../../storage";
 import { logger } from "../../logger";
@@ -15,6 +15,8 @@ import type { CobrancaConfissao } from "@shared/schema";
 export const PASSADA_CURTA_MS = 10 * 60_000;
 export const PASSADA_COMPLETA_MS = 6 * 60 * 60_000;
 export const ENVIADA_HA_MAIS_DE_MS = 60 * 60_000;
+/** Assinadas conferidas por passada completa; a janela gira pelo `quitacao_verificada_em`. */
+export const LIMITE_DA_QUITACAO = 500;
 export const MARCA_AGUARDANDO_PROVEDOR = "aguardando a assinatura do provedor";
 
 export interface ResumoDaReconciliacao { reconsultadas: number; falhas: number; expiradas: number; avisosDeProvedor: number; quitadas: number }
@@ -65,7 +67,7 @@ async function quitarSeCabe(c: CobrancaConfissao): Promise<boolean> {
   return !!linha;
 }
 
-export async function rodarReconciliacao(agora: Date = new Date()): Promise<ResumoDaReconciliacao> {
+export async function rodarReconciliacao(agora: Date = new Date(), opcoes: { limiteDaQuitacao?: number } = {}): Promise<ResumoDaReconciliacao> {
   const resumo: ResumoDaReconciliacao = { reconsultadas: 0, falhas: 0, expiradas: 0, avisosDeProvedor: 0, quitadas: 0 };
   const completa = agora.getTime() - ultimaCompleta >= PASSADA_COMPLETA_MS;
   if (completa) ultimaCompleta = agora.getTime();
@@ -92,12 +94,20 @@ export async function rodarReconciliacao(agora: Date = new Date()): Promise<Resu
       logger.warn({ providerId: c.providerId, confissaoId: c.id, err: e }, "CONFISSAO reconciliação: expirar falhou");
     }
   }
-  for (const c of await storage.confissoesAssinadasParaQuitacao()) {
-    try {
-      if (await quitarSeCabe(c)) resumo.quitadas++;
-    } catch (e) {
-      resumo.falhas++;
-      logger.warn({ providerId: c.providerId, confissaoId: c.id, err: e }, "CONFISSAO reconciliação: quitação falhou");
+  // Quitação muda no máximo uma vez por dia (o pagamento chega pela varredura
+  // do ERP): só a passada completa confere, e não a de 10 em 10 minutos — que
+  // eram ~500 idas ao banco por passada. Cada linha conferida é carimbada,
+  // inclusive a que falhou, para a janela andar em vez de prender nas mesmas.
+  if (completa) {
+    for (const c of await storage.confissoesAssinadasParaQuitacao(opcoes.limiteDaQuitacao ?? LIMITE_DA_QUITACAO)) {
+      try {
+        if (await quitarSeCabe(c)) resumo.quitadas++;
+      } catch (e) {
+        resumo.falhas++;
+        logger.warn({ providerId: c.providerId, confissaoId: c.id, err: e }, "CONFISSAO reconciliação: quitação falhou");
+      }
+      await storage.marcarQuitacaoVerificada(c.providerId, c.id, agora)
+        .catch(err => logger.warn({ providerId: c.providerId, confissaoId: c.id, err }, "CONFISSAO reconciliação: carimbo da quitação não gravado"));
     }
   }
   logger.info(resumo, "CONFISSAO reconciliação concluída");

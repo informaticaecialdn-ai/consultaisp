@@ -179,6 +179,23 @@ describe("confissões", () => {
     expect(banco.consultas.some(c => c.sql.startsWith("insert"))).toBe(false);
     conferirTenant(banco.consultas[0]);
   });
+  it("a quitação gira: ordena pelo carimbo da última verificação (nulos primeiro) e pelo id, no limite pedido; carimbar não mexe em updated_at", async () => {
+    banco.responder = () => [];
+    await storage.confissoesAssinadasParaQuitacao(2);
+    const selecao = banco.consultas[0];
+    expect(selecao.sql).toMatch(/"status" = \$\d+/);
+    expect(selecao.sql).toMatch(/order by "cobranca_confissoes"\."quitacao_verificada_em" asc nulls first, "cobranca_confissoes"\."id" asc limit \$\d+$/);
+    expect(selecao.params).toEqual(["assinada", 2]);
+    banco.consultas.length = 0;
+    const quando = new Date("2026-09-12T12:00:00Z");
+    await storage.marcarQuitacaoVerificada(PROVEDOR, 77, quando);
+    const carimbo = banco.consultas[0];
+    expect(carimbo.sql).toMatch(/^update "cobranca_confissoes" set "quitacao_verificada_em" = \$1 where/);
+    // updated_at é "última alteração" para a tela, e a retenção de 90 dias (sandbox) conta a partir dele.
+    expect(carimbo.sql).not.toContain('"updated_at"');
+    expect(carimbo.params).toContain(77);
+    conferirTenant(carimbo);
+  });
   it("worker e LGPD: reconciliar por prazo, expirar pela data limite, retenção só do que não é título, anonimizar apaga PDFs", async () => {
     banco.responder = () => [];
     await storage.confissoesParaReconciliar(new Date("2026-09-10T12:00:00Z"), 60 * 60 * 1000);

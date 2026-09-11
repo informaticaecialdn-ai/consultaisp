@@ -426,11 +426,23 @@ export class AssinaturaStorage {
       .limit(500);
   }
 
+  /**
+   * A janela GIRA: primeiro as nunca conferidas, depois a conferida há mais
+   * tempo. Ordenar por `assinada_em` prendia a varredura nas mais antigas — um
+   * título que nunca quita (pagamento parcial, abandonado) ficava na frente para
+   * sempre, e com `maximo` deles a assinada nova nunca mais era avaliada.
+   */
   async confissoesAssinadasParaQuitacao(maximo = 500): Promise<CobrancaConfissao[]> {
     return db.select().from(cobrancaConfissoes)
       .where(eq(cobrancaConfissoes.status, "assinada"))
-      .orderBy(asc(cobrancaConfissoes.assinadaEm), asc(cobrancaConfissoes.id))
+      .orderBy(sql`${cobrancaConfissoes.quitacaoVerificadaEm} asc nulls first`, asc(cobrancaConfissoes.id))
       .limit(maximo);
+  }
+
+  /** Carimba a conferência de quitação SEM tocar em `updated_at` — que é "última alteração" para a tela, e de onde a retenção de 90 dias conta. */
+  async marcarQuitacaoVerificada(providerId: number, id: number, quando: Date): Promise<void> {
+    await db.update(cobrancaConfissoes).set({ quitacaoVerificadaEm: quando })
+      .where(and(eq(cobrancaConfissoes.id, id), eq(cobrancaConfissoes.providerId, providerId)));
   }
 
   async confissoesParaExpirar(hoje: string): Promise<CobrancaConfissao[]> {

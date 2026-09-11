@@ -404,6 +404,7 @@ export interface IStorage {
   apagarPdfs(...args: Parameters<AssinaturaStorage["apagarPdfs"]>): ReturnType<AssinaturaStorage["apagarPdfs"]>;
   confissoesParaReconciliar(...args: Parameters<AssinaturaStorage["confissoesParaReconciliar"]>): ReturnType<AssinaturaStorage["confissoesParaReconciliar"]>;
   confissoesAssinadasParaQuitacao(...args: Parameters<AssinaturaStorage["confissoesAssinadasParaQuitacao"]>): ReturnType<AssinaturaStorage["confissoesAssinadasParaQuitacao"]>;
+  marcarQuitacaoVerificada(...args: Parameters<AssinaturaStorage["marcarQuitacaoVerificada"]>): ReturnType<AssinaturaStorage["marcarQuitacaoVerificada"]>;
   confissoesParaExpirar(...args: Parameters<AssinaturaStorage["confissoesParaExpirar"]>): ReturnType<AssinaturaStorage["confissoesParaExpirar"]>;
   confissoesParaRetencao(...args: Parameters<AssinaturaStorage["confissoesParaRetencao"]>): ReturnType<AssinaturaStorage["confissoesParaRetencao"]>;
   anonimizarConfissao(...args: Parameters<AssinaturaStorage["anonimizarConfissao"]>): ReturnType<AssinaturaStorage["anonimizarConfissao"]>;
@@ -768,6 +769,7 @@ class DatabaseStorage implements IStorage {
   apagarPdfs = (...args: Parameters<AssinaturaStorage["apagarPdfs"]>) => this._assinatura.apagarPdfs(...args);
   confissoesParaReconciliar = (...args: Parameters<AssinaturaStorage["confissoesParaReconciliar"]>) => this._assinatura.confissoesParaReconciliar(...args);
   confissoesAssinadasParaQuitacao = (...args: Parameters<AssinaturaStorage["confissoesAssinadasParaQuitacao"]>) => this._assinatura.confissoesAssinadasParaQuitacao(...args);
+  marcarQuitacaoVerificada = (...args: Parameters<AssinaturaStorage["marcarQuitacaoVerificada"]>) => this._assinatura.marcarQuitacaoVerificada(...args);
   confissoesParaExpirar = (...args: Parameters<AssinaturaStorage["confissoesParaExpirar"]>) => this._assinatura.confissoesParaExpirar(...args);
   confissoesParaRetencao = (...args: Parameters<AssinaturaStorage["confissoesParaRetencao"]>) => this._assinatura.confissoesParaRetencao(...args);
   anonimizarConfissao = (...args: Parameters<AssinaturaStorage["anonimizarConfissao"]>) => this._assinatura.anonimizarConfissao(...args);

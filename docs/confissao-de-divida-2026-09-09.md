@@ -233,7 +233,10 @@ depois de tudo dar certo. A falha em qualquer chamada ao ZapSign **encerra o
 rascunho como `cancelada`**, grava o motivo em `erro_ultimo` e **libera a
 chave de idempotência** — a próxima tentativa não precisa cancelar nada, e um
 documento criado sem webhook registrado é apagado no ZapSign para não ficar
-órfão.
+órfão. A passagem para `enviada` é o ponto sem volta: o evento no caso e o
+follow-up vêm depois dela, e se um deles falhar a emissão continua valendo (o
+cliente pode já ter o link) — a falha vira um aviso no log, nunca o documento
+apagado.
 
 ### O que o sandbox não faz
 
@@ -305,9 +308,13 @@ Roda **só no worker** (`server/worker.ts`), a cada **10 minutos**
    sem falha registrada — cobre um webhook que nunca chegou.
 2. **Expiração**: em toda passada (a cada 10 min), reconsulta e marca
    `expirada` quem passou de `dataLimiteAssinatura` sem assinar.
-3. **Quitação**: em toda passada, verifica as `assinada`: origem `acordo` com
-   a negociação `cumprida`, ou origem `saldo_integral` com todas as faturas
-   do Anexo I `paid`/`baixada_no_erp` — nesses casos vira `quitada`.
+3. **Quitação**: só na passada **completa** (a cada 6 h), verifica até 500
+   `assinada`: origem `acordo` com a negociação `cumprida`, ou origem
+   `saldo_integral` com todas as faturas do Anexo I `paid`/`baixada_no_erp` —
+   nesses casos vira `quitada`. A janela gira: cada linha conferida é
+   carimbada em `quitacao_verificada_em`, e a passada seguinte começa pelas
+   nunca conferidas e pelas conferidas há mais tempo — um título que nunca
+   quita (pagamento parcial, abandonado) não prende a fila.
 4. Quando `provedor_assina` está ligado e o cliente já assinou mas o
    representante do provedor não, registra um evento "falta a assinatura do
    provedor" e um follow-up para o admin (no máximo uma vez por confissão).
@@ -320,6 +327,16 @@ e devolve 409 "o cliente já assinou"; `deleted` → `cancelada` sem chamar
 `DELETE` de novo; `pending` → `DELETE /docs/{token}/` e `cancelada`. Uma
 confissão `assinada` **não se cancela** — para valor novo, emite-se outra (a
 anterior vira `substituida` quando a nova é assinada).
+
+Reconsulta em **404** (o documento não existe mais no ZapSign — o token foi
+trocado para outra conta, ou o ZapSign expurgou): o cancelar é a saída. A
+confissão vai para `cancelada` localmente, com `erro_ultimo` explicando, o
+`DELETE` ainda é tentado (o 404 dele é tolerado; qualquer outra falha deixa
+tudo como está) e o evento vai para o caso — a vaga de "uma confissão viva por
+cliente" fica livre. **Nenhum caminho automático faz isso:** a reconciliação e
+a expiração só registram a falha e tentam de novo, porque depois de uma troca
+de token o 404 não prova que o cliente não assinou na conta antiga, e abrir
+mão do título é decisão de quem cancela.
 
 ### Reenviar
 
@@ -389,6 +406,9 @@ A confissão em si — sempre com `provider_id`, `customer_id` e `caso_id`
   tabela).
 - `criada_por_user_id`, `aprovada_por_user_id`, `chave_idempotencia` (uuid),
   `erro_ultimo`.
+- `quitacao_verificada_em` — o cursor da varredura de quitação do worker
+  (quando a assinada foi conferida pela última vez). Não é `updated_at`: esse
+  continua sendo "última alteração", e é dele que a retenção de 90 dias conta.
 
 Índices: `(provider_id, customer_id)`, `(provider_id, status)`,
 `(status, reconciliar_em)`, único parcial em `zapsign_doc_token` (quando não

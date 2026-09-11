@@ -6,10 +6,11 @@
  * chave de idempotência devolve o que já existe; grava o RASCUNHO com a foto
  * completa e o PDF original; e só então, fora de qualquer transação, fala com
  * o ZapSign — criar documento, registrar o webhook DAQUELE documento com o
- * cabeçalho secreto. Sucesso = `enviada` + evento + follow-up. Falha em
- * qualquer chamada encerra o rascunho como `cancelada`, grava `erro_ultimo` e
- * libera a chave de idempotência; documento criado sem webhook é apagado para
- * não ficar órfão.
+ * cabeçalho secreto. Sucesso = a transição `rascunho → enviada`, o ponto de
+ * commit; evento e follow-up vêm depois dela e, se falharem, só logam. Falha
+ * ANTES do commit, em qualquer chamada, encerra o rascunho como `cancelada`,
+ * grava `erro_ultimo` e libera a chave de idempotência; documento criado sem
+ * webhook é apagado para não ficar órfão.
  */
 import { storage } from "../../storage";
 import { logger } from "../../logger";
@@ -178,6 +179,7 @@ export async function emitirConfissao(providerId: number, customerId: number, us
 
     let docToken: string | null = null;
     let webhookId: string | null = null;
+    let enviada: CobrancaConfissao;
     try {
       const papelPorToken = new Map<string, "cliente" | "provedor">();
       let doc;
@@ -231,7 +233,7 @@ export async function emitirConfissao(providerId: number, customerId: number, us
       const webhook = await zap.registrarWebhookDoDocumento({ url: urlDoWebhookDeAssinatura(providerId), docToken: doc.token, cabecalho: { nome: CABECALHO_DO_WEBHOOK, valor: integracao.webhookSecret ?? "" } });
       webhookId = webhook.id;
 
-      const enviada = await storage.transicionarConfissao(providerId, rascunho.id, "rascunho", "enviada", {
+      const transicionada = await storage.transicionarConfissao(providerId, rascunho.id, "rascunho", "enviada", {
         zapsignDocToken: doc.token,
         webhookZapsignId: webhook.id,
         zapsignSigners: signatariosGravaveis(doc.signers, papelPorToken),
@@ -239,11 +241,8 @@ export async function emitirConfissao(providerId: number, customerId: number, us
         enviadaEm: agora,
         erroUltimo: null,
       });
-      if (!enviada) throw new ErroDeConfissao("ESTADO_INVALIDO", "A confissão deixou de ser rascunho durante a emissão", 409);
-
-      await registrarEventoDaConfissao(providerId, enviada, "enviada", userId, `Confissão de dívida enviada para assinatura eletrônica (R$ ${base.dto.valorTotal.toFixed(2).replace(".", ",")}) — ${ambiente === "sandbox" ? "TESTE, sem validade jurídica" : "ZapSign, produção"}`, { contatoAlterado: base.contatoAlterado, prescricaoRenunciada: corpo.confirmoPrescricao === true });
-      await storage.atualizarCasoDeCobranca(providerId, caso.id, { proximaAcao: "aguardar assinatura da confissão de dívida", proximoContatoEm: maisDias(agora, LEMBRETE_A_CADA_DIAS) }, userId);
-      return enviada;
+      if (!transicionada) throw new ErroDeConfissao("ESTADO_INVALIDO", "A confissão deixou de ser rascunho durante a emissão", 409);
+      enviada = transicionada;
     } catch (e) {
       const mensagem = e instanceof Error ? e.message : String(e);
       logger.warn({ providerId, confissaoId: rascunho.id, docToken, erro: mensagem }, "CONFISSAO emissão falhou depois do rascunho");
@@ -254,6 +253,20 @@ export async function emitirConfissao(providerId: number, customerId: number, us
       await encerrarRascunhoFalho(providerId, rascunho.id, mensagem);
       throw e;
     }
+
+    // `rascunho → enviada` é o ponto de commit: daqui em diante a emissão
+    // ACONTECEU — o cliente pode já ter o link no WhatsApp ou no e-mail. Nada
+    // abaixo pode cair no catch que apaga o documento: um evento ou um
+    // follow-up que falhe vira warn, e a resposta segue com a confissão enviada.
+    const naoGravado = (efeito: string) => (err: unknown) => logger.warn(
+      { providerId, confissaoId: enviada.id, casoId: caso.id, erro: err instanceof Error ? err.message : String(err) },
+      `CONFISSAO enviada, mas ${efeito} não foi gravado`,
+    );
+    await registrarEventoDaConfissao(providerId, enviada, "enviada", userId, `Confissão de dívida enviada para assinatura eletrônica (R$ ${base.dto.valorTotal.toFixed(2).replace(".", ",")}) — ${ambiente === "sandbox" ? "TESTE, sem validade jurídica" : "ZapSign, produção"}`, { contatoAlterado: base.contatoAlterado, prescricaoRenunciada: corpo.confirmoPrescricao === true })
+      .catch(naoGravado("o evento no caso"));
+    await storage.atualizarCasoDeCobranca(providerId, caso.id, { proximaAcao: "aguardar assinatura da confissão de dívida", proximoContatoEm: maisDias(agora, LEMBRETE_A_CADA_DIAS) }, userId)
+      .catch(naoGravado("o follow-up do caso"));
+    return enviada;
   });
   if (resultado === null) throw new ErroDeConfissao("EM_ANDAMENTO", "Já há uma emissão em andamento para este cliente — aguarde", 409);
   return resultado;

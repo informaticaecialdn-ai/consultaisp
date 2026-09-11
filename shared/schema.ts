@@ -1722,6 +1722,13 @@ export const cobrancaConfissoes = pgTable("cobranca_confissoes", {
   aprovadaPorUserId: integer("aprovada_por_user_id").references(() => users.id),
   chaveIdempotencia: uuid("chave_idempotencia"),
   erroUltimo: text("erro_ultimo"),
+  /**
+   * Cursor da varredura de quitação do worker: quando esta assinada foi
+   * conferida pela última vez. A seleção ordena por ele (nulos primeiro), então
+   * a janela gira — sem ele, assinadas que nunca quitam ficavam na frente para
+   * sempre. Não é `updated_at`: esse é "última alteração" para a tela e a retenção.
+   */
+  quitacaoVerificadaEm: timestamp("quitacao_verificada_em"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

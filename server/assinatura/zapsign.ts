@@ -16,6 +16,15 @@ export const HOSTS_DO_ZAPSIGN: Record<AmbienteDeAssinatura, string> = {
   producao: "https://api.zapsign.com.br/api/v1",
 };
 
+/**
+ * Prazo do download do PDF assinado, cabeçalho E corpo. Maior que o das
+ * chamadas JSON (20 s cortaria um arquivo legítimo em rede ruim), mas finito:
+ * o download roda no WORKER, e sem prazo um link S3 parado prende a passada
+ * de reconciliação pelos ~300 s do undici — e a trava `emAndamento` derruba
+ * cada tique de 10 min enquanto isso.
+ */
+export const PRAZO_DO_DOWNLOAD_MS = 60_000;
+
 export interface SignatarioParaCriar {
   name: string;
   email?: string;
@@ -166,18 +175,36 @@ export function clienteZapSign(config: { apiToken: string; ambiente: AmbienteDeA
     },
     testarToken: async () => { await chamar("GET", "/docs/?page=1", undefined, z.unknown()); },
     baixarArquivo: async (url, maxBytes) => {
-      let resposta: Response;
+      const controlador = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      // O prazo CORRE CONTRA o download inteiro em vez de só confiar no sinal:
+      // um corpo que para depois do cabeçalho não depende de o `fetch` ligar o
+      // abort ao stream. O sinal ainda vai junto, para a conexão ser fechada.
+      const prazo = new Promise<never>((_resolver, rejeitar) => {
+        timer = setTimeout(() => {
+          controlador.abort();
+          rejeitar(new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", `O download do arquivo do ZapSign passou de ${PRAZO_DO_DOWNLOAD_MS / 1000} s`, 502));
+        }, PRAZO_DO_DOWNLOAD_MS);
+      });
+      const baixar = async (): Promise<Buffer> => {
+        let resposta: Response;
+        try {
+          resposta = await fetchImpl(url, { signal: controlador.signal });
+        } catch {
+          throw new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", "Não foi possível baixar o arquivo do ZapSign", 502);
+        }
+        if (!resposta.ok) throw erroPorStatus(resposta.status, null);
+        const declarado = Number(resposta.headers.get("content-length") ?? 0);
+        if (declarado > maxBytes) throw new ErroDeConfissao("ARQUIVO_GRANDE", `O arquivo assinado passa de ${Math.round(maxBytes / 1024 / 1024)} MB`, 422);
+        const bytes = Buffer.from(await resposta.arrayBuffer());
+        if (bytes.length > maxBytes) throw new ErroDeConfissao("ARQUIVO_GRANDE", `O arquivo assinado passa de ${Math.round(maxBytes / 1024 / 1024)} MB`, 422);
+        return bytes;
+      };
       try {
-        resposta = await fetchImpl(url);
-      } catch {
-        throw new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", "Não foi possível baixar o arquivo do ZapSign", 502);
+        return await Promise.race([baixar(), prazo]);
+      } finally {
+        clearTimeout(timer);
       }
-      if (!resposta.ok) throw erroPorStatus(resposta.status, null);
-      const declarado = Number(resposta.headers.get("content-length") ?? 0);
-      if (declarado > maxBytes) throw new ErroDeConfissao("ARQUIVO_GRANDE", `O arquivo assinado passa de ${Math.round(maxBytes / 1024 / 1024)} MB`, 422);
-      const bytes = Buffer.from(await resposta.arrayBuffer());
-      if (bytes.length > maxBytes) throw new ErroDeConfissao("ARQUIVO_GRANDE", `O arquivo assinado passa de ${Math.round(maxBytes / 1024 / 1024)} MB`, 422);
-      return bytes;
     },
   };
 }
