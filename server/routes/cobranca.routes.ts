@@ -2241,8 +2241,15 @@ export function registerCobrancaRoutes(): Router {
         const enviada = await storage.confissaoEnviadaDaNegociacao(providerId, id);
         if (enviada) {
           try {
+            // SEM `permitirSemDocumentoNoZapSign`, de propósito: esta rota não
+            // pede papel (qualquer operador rompe acordo), e cancelar uma
+            // confissão que sumiu do ZapSign é abrir mão de um título que pode ter
+            // sido assinado na conta antiga — decisão do admin, pela rota dela.
             await cancelarConfissao(providerId, enviada.id, userId);
           } catch (e) {
+            if (e instanceof ErroDeConfissao && e.codigo === "NAO_ENCONTRADA") {
+              return res.status(409).json({ message: "A confissão desta negociação não foi encontrada no ZapSign. Um administrador precisa cancelá-la no Cliente 360 antes de romper o acordo.", code: e.codigo });
+            }
             if (e instanceof ErroDeConfissao) return res.status(e.http).json({ message: `A confissão de dívida ligada a este acordo não pôde ser cancelada: ${e.message}`, code: e.codigo });
             throw e;
           }

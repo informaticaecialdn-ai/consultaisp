@@ -120,7 +120,19 @@ export async function registrarInformadoPeloWebhook(providerId: number, confissa
   }
 }
 
-export async function cancelarConfissao(providerId: number, confissaoId: number, userId: number): Promise<CobrancaConfissao> {
+export interface OpcoesDoCancelamento {
+  /**
+   * Com a reconsulta em 404, cancela LOCALMENTE (`cancelarSemDocumentoNoZapSign`)
+   * em vez de propagar o erro. Depois de uma troca de token, o 404 não prova que
+   * o cliente não assinou na conta antiga: abrir mão desse título é decisão
+   * explícita do admin, e SÓ a rota de cancelar a confissão
+   * (`POST /api/cobranca/confissoes/:id/cancelar`, admin) passa isto. Romper o
+   * acordo — que qualquer operador faz — nunca passa, e recebe o erro.
+   */
+  permitirSemDocumentoNoZapSign?: boolean;
+}
+
+export async function cancelarConfissao(providerId: number, confissaoId: number, userId: number, opcoes: OpcoesDoCancelamento = {}): Promise<CobrancaConfissao> {
   const confissao = await storage.obterConfissao(providerId, confissaoId);
   if (!confissao) throw new ErroDeConfissao("NAO_ENCONTRADA", "Confissão não encontrada", 404);
   if (confissao.status === "assinada") throw new ErroDeConfissao("JA_ASSINADA", "O cliente já assinou — uma confissão assinada não se cancela; emita outra se o valor mudou", 409);
@@ -135,7 +147,7 @@ export async function cancelarConfissao(providerId: number, confissaoId: number,
   try {
     retorno = await aplicarRetorno(providerId, confissaoId, "cancelar");
   } catch (e) {
-    if (e instanceof ErroDeConfissao && e.codigo === "NAO_ENCONTRADA") return cancelarSemDocumentoNoZapSign(providerId, confissao, userId);
+    if (opcoes.permitirSemDocumentoNoZapSign && e instanceof ErroDeConfissao && e.codigo === "NAO_ENCONTRADA") return cancelarSemDocumentoNoZapSign(providerId, confissao, userId);
     throw e;
   }
   if (retorno.status === "assinada") throw new ErroDeConfissao("JA_ASSINADA", "O cliente já assinou — não se cancela", 409);
@@ -157,9 +169,11 @@ export async function cancelarConfissao(providerId: number, confissaoId: number,
  * e o cancelar passam pela reconsulta) e segurava a vaga de "uma confissão viva
  * por cliente": esse cliente nunca mais teria outra sem update no banco.
  *
- * Só o ADMIN chega aqui, pelo cancelar — é a decisão humana de abrir mão do
- * documento. O DELETE ainda é tentado (se a conta for a certa, apaga) e o 404
- * dele é tolerado; qualquer outra falha deixa tudo como está.
+ * Só chega aqui quem passa `permitirSemDocumentoNoZapSign` — e só a rota de
+ * cancelar a confissão passa, atrás de `exigirAdminDoProvedor`: é a decisão
+ * humana e explícita do admin de abrir mão do documento. O DELETE ainda é
+ * tentado (se a conta for a certa, apaga) e o 404 dele é tolerado; qualquer
+ * outra falha deixa tudo como está.
  */
 async function cancelarSemDocumentoNoZapSign(providerId: number, confissao: CobrancaConfissao, userId: number): Promise<CobrancaConfissao> {
   const { zap } = await zapDaLinha(providerId, confissao);

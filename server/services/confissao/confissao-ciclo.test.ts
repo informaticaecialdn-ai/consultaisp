@@ -137,12 +137,15 @@ beforeEach(() => {
 });
 
 describe("404 do ZapSign (token trocado para outra conta, ou documento expurgado)", () => {
+  /** O que SÓ a rota de cancelar do admin passa (confissao.routes.ts). */
+  const DECISAO_DO_ADMIN = { permitirSemDocumentoNoZapSign: true } as const;
+
   it("o admin cancela: a confissão vai para cancelada localmente, o erro explica, o evento é gravado — e a vaga do cliente fica livre para uma nova", async () => {
     confissoes.set(77, enviada());
     zap.detalharDocumento.mockRejectedValue(erro404());
     zap.excluirDocumento.mockRejectedValue(erro404());
 
-    const cancelada = await cancelarConfissao(PROVEDOR, 77, 7);
+    const cancelada = await cancelarConfissao(PROVEDOR, 77, 7, DECISAO_DO_ADMIN);
     expect(cancelada.status).toBe("cancelada");
     expect(cancelada.erroUltimo).toBe("documento não encontrado no ZapSign — token trocado ou documento excluído; cancelada sem consulta ao ZapSign");
     expect(cancelada.encerradaEm).toBeInstanceOf(Date);
@@ -161,9 +164,20 @@ describe("404 do ZapSign (token trocado para outra conta, ou documento expurgado
     confissoes.set(77, enviada());
     zap.detalharDocumento.mockRejectedValue(erro404());
     zap.excluirDocumento.mockRejectedValue(new ErroDeConfissao("ZAPSIGN_INDISPONIVEL", "O ZapSign não respondeu (HTTP 503)", 502));
-    await expect(cancelarConfissao(PROVEDOR, 77, 7)).rejects.toMatchObject({ codigo: "ZAPSIGN_INDISPONIVEL" });
+    await expect(cancelarConfissao(PROVEDOR, 77, 7, DECISAO_DO_ADMIN)).rejects.toMatchObject({ codigo: "ZAPSIGN_INDISPONIVEL" });
     expect(confissoes.get(77).status).toBe("enviada");
     expect(eventos).toHaveLength(0);
+  });
+
+  it("sem a decisão explícita (todo chamador que não é o cancelar do admin — o romper do acordo, por exemplo), o 404 propaga e NADA muda", async () => {
+    confissoes.set(77, enviada());
+    zap.detalharDocumento.mockRejectedValue(erro404());
+    await expect(cancelarConfissao(PROVEDOR, 77, 8)).rejects.toMatchObject({ codigo: "NAO_ENCONTRADA" });
+    expect(confissoes.get(77).status).toBe("enviada");
+    expect(zap.excluirDocumento).not.toHaveBeenCalled();
+    expect(eventos).toHaveLength(0);
+    // A vaga continua ocupada: uma nova emissão para o cliente é recusada.
+    await expect(emitirConfissao(PROVEDOR, CLIENTE, 7, corpoDaEmissao())).rejects.toMatchObject({ codigo: "CONFISSAO_VIVA" });
   });
 
   it("a reconciliação automática nunca conclui nada de um 404: nem reconsultando nem expirando, a linha continua enviada", async () => {

@@ -2353,6 +2353,21 @@ describe("acordo × confissão e os selos", () => {
     expect((await r.json()).message).toContain("confissão de dívida ligada a este acordo");
     expect(storageMock.atualizarStatusDaNegociacao).not.toHaveBeenCalled();
   });
+  it("romper o acordo com a confissão sumida do ZapSign (404): 409 dizendo o que fazer, e nem a negociação nem a confissão mudam", async () => {
+    // Qualquer operador rompe acordo (a rota não pede papel). Abrir mão de um
+    // título que pode ter sido assinado na conta antiga é decisão SÓ do admin,
+    // pela rota de cancelar a confissão — esta rota nunca pede essa saída.
+    sessao = OPERADOR;
+    storageMock.obterNegociacao.mockResolvedValue({ id: 3, casoId: 9, status: "aceita" });
+    storageMock.confissaoEnviadaDaNegociacao.mockResolvedValueOnce({ id: 77, status: "enviada" });
+    const { ErroDeConfissao } = await import("../assinatura/erro");
+    retornoMock.cancelarConfissao.mockRejectedValueOnce(new ErroDeConfissao("NAO_ENCONTRADA", "O documento não existe no ZapSign", 404));
+    const r = await json("PATCH", "/api/cobranca/negociacoes/3", { status: "quebrada" });
+    expect(r.status).toBe(409);
+    expect((await r.json()).message).toBe("A confissão desta negociação não foi encontrada no ZapSign. Um administrador precisa cancelá-la no Cliente 360 antes de romper o acordo.");
+    expect(retornoMock.cancelarConfissao.mock.calls).toEqual([[42, 77, 8]]);
+    expect(storageMock.atualizarStatusDaNegociacao).not.toHaveBeenCalled();
+  });
   it("a lista da carteira e o 360 carregam o selo da confissão assinada viva", async () => {
     sessao = ADMIN;
     storageMock.listarCasosDeCobranca.mockResolvedValueOnce({ linhas: [linhaCaso()], total: 1 });

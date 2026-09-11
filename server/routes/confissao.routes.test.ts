@@ -140,7 +140,8 @@ describe("base e emissão", () => {
 describe("cancelar, reenviar, PDF, estado, modelo", () => {
   it("cancelar e reenviar passam pelo serviço com o tenant; erro de domínio preserva o HTTP", async () => {
     expect((await json("POST", "/api/cobranca/confissoes/77/cancelar")).status).toBe(200);
-    expect(servicos.cancelarConfissao).toHaveBeenCalledWith(42, 77, 7);
+    // Esta é a ÚNICA rota que autoriza cancelar sem o documento no ZapSign (404): é a decisão explícita do admin.
+    expect(servicos.cancelarConfissao).toHaveBeenCalledWith(42, 77, 7, { permitirSemDocumentoNoZapSign: true });
     servicos.cancelarConfissao.mockRejectedValueOnce(new ErroDeConfissao("JA_ASSINADA", "já assinou", 409));
     expect((await json("POST", "/api/cobranca/confissoes/77/cancelar")).status).toBe(409);
     expect(await (await json("POST", "/api/cobranca/confissoes/77/reenviar")).json()).toEqual({ enviados: 1, falhas: 0 });

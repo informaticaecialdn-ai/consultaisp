@@ -186,7 +186,9 @@ export function registerConfissaoRoutes(): Router {
     if (!id) return res.status(400).json({ message: "Confissao invalida" });
     const providerId = providerDaSessao(req);
     try {
-      const c = await cancelarConfissao(providerId, id, usuarioDaSessao(req));
+      // A única rota que autoriza cancelar sem o documento no ZapSign (404 —
+      // token trocado ou expurgo): é o admin decidindo abrir mão do título.
+      const c = await cancelarConfissao(providerId, id, usuarioDaSessao(req), { permitirSemDocumentoNoZapSign: true });
       res.json(confissaoParaApi(c, await nomesDaEquipe(providerId)));
     } catch (e) {
       responderErro(res, e);

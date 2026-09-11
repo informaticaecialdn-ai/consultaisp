@@ -340,14 +340,19 @@ confissão `assinada` **não se cancela** — para valor novo, emite-se outra (a
 anterior vira `substituida` quando a nova é assinada).
 
 Reconsulta em **404** (o documento não existe mais no ZapSign — o token foi
-trocado para outra conta, ou o ZapSign expurgou): o cancelar é a saída. A
-confissão vai para `cancelada` localmente, com `erro_ultimo` explicando, o
-`DELETE` ainda é tentado (o 404 dele é tolerado; qualquer outra falha deixa
-tudo como está) e o evento vai para o caso — a vaga de "uma confissão viva por
-cliente" fica livre. **Nenhum caminho automático faz isso:** a reconciliação e
-a expiração só registram a falha e tentam de novo, porque depois de uma troca
-de token o 404 não prova que o cliente não assinou na conta antiga, e abrir
-mão do título é decisão de quem cancela.
+trocado para outra conta, ou o ZapSign expurgou): o cancelar **desta rota, do
+admin**, é a saída. A confissão vai para `cancelada` localmente, com
+`erro_ultimo` explicando, o `DELETE` ainda é tentado (o 404 dele é tolerado;
+qualquer outra falha deixa tudo como está) e o evento vai para o caso — a vaga
+de "uma confissão viva por cliente" fica livre. **Nenhum outro caminho faz
+isso:** a reconciliação e a expiração só registram a falha e tentam de novo, e
+romper o acordo (`PATCH /api/cobranca/negociacoes/:id`, que qualquer operador
+faz) responde 409 — "A confissão desta negociação não foi encontrada no
+ZapSign. Um administrador precisa cancelá-la no Cliente 360 antes de romper o
+acordo." — sem mexer na negociação nem na confissão. Depois de uma troca de
+token o 404 não prova que o cliente não assinou na conta antiga, e abrir mão
+do título é decisão explícita do admin (a opção `permitirSemDocumentoNoZapSign`
+de `cancelarConfissao`, que só a rota do admin passa).
 
 ### Reenviar
 
