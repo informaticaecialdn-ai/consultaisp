@@ -82,6 +82,36 @@ describe("a porta certa para cada host", () => {
   });
 });
 
+/**
+ * Provedor entra SÓ pelo endereço dele (dono, 11/09/2026): na raiz o servidor
+ * recusa o login de provedor, então nada na raiz pode levá-lo a este formulário.
+ */
+describe("provedor entra só pelo endereço dele", () => {
+  const codigo = semComentarios(tela);
+
+  it("o cadastro não oferece \"Entrar\" — indica o endereço do provedor", () => {
+    expect(codigo).not.toMatch(/href="\/login"/);
+    expect(codigo).not.toContain('trocarPara("login")');
+    expect(codigo).toMatch(
+      /data-testid="text-entrada-do-provedor">\s*Já tem conta\? Entre pelo endereço do seu provedor:\{" "\}\s*<span className="endereco">\{ENDERECO_DO_PROVEDOR\}<\/span>/,
+    );
+  });
+
+  it("o endereço sai do domínio da plataforma, não de texto solto", () => {
+    expect(codigo).toContain('import { MAIN_DOMAIN } from "@/lib/subdomain";');
+    expect(codigo).toContain("const ENDERECO_DO_PROVEDOR = `seuprovedor.${MAIN_DOMAIN}`;");
+  });
+
+  it("login recusado na raiz mostra o caminho; no endereço do provedor, não", () => {
+    expect(codigo).toMatch(/\{erroDoLogin && !isSubdomainMode && \(\s*<p className="dica-endereco" data-testid="text-dica-endereco">/);
+  });
+
+  it("a folha estiliza o endereço em mono", () => {
+    expect(css).toMatch(/\.lg \.endereco \{[^}]*font-family: var\(--font-mono\)/);
+    expect(css).toMatch(/\.lg \.dica-endereco \{/);
+  });
+});
+
 describe("a folha do desenho não vaza para o app", () => {
   it("todo seletor vive sob .lg e nada é declarado no :root", () => {
     const limpo = css.replace(/\/\*[\s\S]*?\*\//g, "");

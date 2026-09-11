@@ -30,9 +30,20 @@ import CadastroWizard from "@/pages/auth/cadastro-wizard";
 import {
   useFluxoDeLogin, pedirLinkDeSenha, redefinirSenha, tokenDeRedefinicao,
 } from "@/pages/auth/login-fluxo";
+import { MAIN_DOMAIN } from "@/lib/subdomain";
 import "./login-plataforma.css";
 
 const WHATSAPP_SUPORTE = "https://wa.me/5543991191100";
+
+/**
+ * Provedor entra SÓ pelo endereço dele (dono, 11/09/2026). Na raiz o servidor
+ * recusa o login de provedor (`hostPertenceAoProvider`) com "Email ou senha
+ * incorretos" — dizer mais revelaria que a conta existe. Por isso, na raiz,
+ * nenhum link leva o provedor a este formulário (a landing não tem "Login", e o
+ * cadastro não tem "Entrar"), e quem cai nele por um favorito antigo lê o
+ * caminho certo quando o login é recusado.
+ */
+const ENDERECO_DO_PROVEDOR = `seuprovedor.${MAIN_DOMAIN}`;
 
 /** "6 provedores ativos" / "1 provedor ativo". */
 function textoDoSelo(provedoresAtivos: number | undefined): string {
@@ -318,6 +329,12 @@ export default function LoginDaPlataforma() {
                   </label>
 
                   {erroDoLogin && <div className="status visible error" role="alert">{erroDoLogin}</div>}
+                  {erroDoLogin && !isSubdomainMode && (
+                    <p className="dica-endereco" data-testid="text-dica-endereco">
+                      Provedor entra pelo endereço próprio:{" "}
+                      <span className="endereco">{ENDERECO_DO_PROVEDOR}</span>
+                    </p>
+                  )}
 
                   <button type="submit" className="btn btn-primary" disabled={isLoading} data-testid="button-submit-login">
                     {isLoading ? "Entrando..." : <>Entrar na plataforma <span className="arrow" aria-hidden="true">→</span></>}
@@ -355,9 +372,9 @@ export default function LoginDaPlataforma() {
                     : "Consultas na sua base, sempre grátis."}
                 </CabecalhoDoCartao>
                 <CadastroWizard aoPrecisarVerificar={(email) => irParaReenvio(email)} />
-                <div className="signup-row">
-                  Já tem conta?{" "}
-                  <a href="/login" onClick={trocarPara("login")} data-testid="button-toggle-register">Entrar</a>
+                <div className="signup-row" data-testid="text-entrada-do-provedor">
+                  Já tem conta? Entre pelo endereço do seu provedor:{" "}
+                  <span className="endereco">{ENDERECO_DO_PROVEDOR}</span>
                 </div>
               </>
             )}

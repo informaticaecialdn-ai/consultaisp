@@ -1,4 +1,4 @@
-const MAIN_DOMAIN = "consultaisp.com.br";
+export const MAIN_DOMAIN = "consultaisp.com.br";
 
 export function getSubdomain(): string | null {
   const hostname = window.location.hostname;

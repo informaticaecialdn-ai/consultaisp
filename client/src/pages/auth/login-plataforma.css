@@ -482,6 +482,21 @@
   }
   .lg .signup-row a:hover { border-color: var(--ink); }
 
+  /* O endereço do provedor (ENDERECO_DO_PROVEDOR): no cadastro, no lugar do
+     "Entrar", e embaixo de um login recusado na raiz. Quebra só se não couber. */
+  .lg .endereco {
+    font-family: var(--font-mono);
+    color: var(--ink);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .lg .dica-endereco {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--mute);
+  }
+
   .lg .card-foot {
     text-align: center;
     margin-top: 18px;

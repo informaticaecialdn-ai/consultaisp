@@ -353,13 +353,6 @@
   .lp .nav-links a { transition: color .15s ease; }
   .lp .nav-links a:hover { color: var(--ink); }
   .lp .nav-right { display: flex; align-items: center; gap: 12px; }
-  .lp .nav-login {
-    font-size: 13.5px;
-    font-weight: 500;
-    color: var(--ink-body);
-    padding: 8px 4px;
-  }
-  .lp .nav-login:hover { color: var(--ink); }
 
   @media (max-width: 860px) {
     .lp .nav-links { display: none; }
@@ -1676,15 +1669,6 @@
     flex-wrap: wrap;
     gap: 12px;
     justify-content: center;
-    margin-bottom: 24px;
-  }
-  .lp .final-cta-login {
-    font-size: 13.5px;
-    color: var(--dark-body);
-  }
-  .lp .final-cta-login a {
-    color: var(--dark-ink);
-    text-decoration: underline;
   }
 
   /* ==================================================================

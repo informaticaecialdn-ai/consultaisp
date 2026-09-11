@@ -857,9 +857,19 @@ pilares → bloco escuro da rede (topologia, anonimato, LGPD) → antes e depois
   plataforma faz, e não uma trava que não existe.
 
 ### CTA
-Tudo que converte vai para `/login?mode=register`; "Login" e "Fazer login" para
-`/login`. Os `href` são reais (abrir em nova aba funciona) e o clique navega
-pelo wouter. "Privacidade LGPD" no footer aponta para `/lgpd`, que é pública.
+Tudo que converte vai para `/login?mode=register`. Os `href` são reais (abrir em
+nova aba funciona) e o clique navega pelo wouter. "Privacidade LGPD" no footer
+aponta para `/lgpd`, que é pública.
+
+**A landing NÃO tem botão de login** (dono, 11/09/2026: *"cada provedor loga
+exclusivamente no seu subdomínio... a opção de login na landing só traz
+confusão"*). Na raiz o servidor recusa o login de provedor
+(`hostPertenceAoProvider` em `server/routes/auth.routes.ts`) com "Email ou senha
+incorretos" — sem dizer mais, para não revelar que a conta existe —, então o
+"Login" do topo e o "Já tem conta? Fazer login" do bloco final mandavam o
+provedor errar sem ter errado. Saíram os dois, e o `landingpage.test.ts` falha
+se voltarem. O `/login` da raiz continua existindo: é por onde o superadmin
+entra, digitando o endereço.
 
 **A landing não vende importação manual.** `server/sem-importacao-manual.test.ts`
 lê o fonte desta página e falha se aparecer "CSV" ou "planilha" — inclusive numa
@@ -887,6 +897,12 @@ desenho sem ser reescrito. A página fica sempre no claro, como a landing.
 - **"Manter conectado por 30 dias" é real:** desmarcado, a sessão dura as 48 h
   de sempre; marcado, 30 dias — exceto superadmin, que fica em 48 h porque a
   sessão dele enxerga todos os provedores e as credenciais de ERP.
+- **Na raiz, nada leva o provedor ao formulário de login** (mesma regra da
+  landing): o cartão de cadastro diz "Já tem conta? Entre pelo endereço do seu
+  provedor: seuprovedor.consultaisp.com.br" em vez de um "Entrar", e um login
+  recusado na raiz mostra o mesmo endereço embaixo do erro — é o caminho de quem
+  cai ali por favorito antigo. O domínio sai de `MAIN_DOMAIN`
+  (`client/src/lib/subdomain.ts`), não de texto solto.
 
 ---
 

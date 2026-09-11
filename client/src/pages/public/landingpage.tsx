@@ -24,8 +24,15 @@ import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { usePrecosPublicos, planoPorChave, precoCurto, type PrecoDePlano } from "@/hooks/use-precos";
 import "./landingpage.css";
 
+/**
+ * A landing só leva ao CADASTRO — não existe botão de login aqui (dono,
+ * 11/09/2026). Cada provedor entra exclusivamente pelo endereço dele
+ * (seuprovedor.consultaisp.com.br): na raiz o servidor recusa o login de
+ * provedor (`hostPertenceAoProvider`, server/routes/auth.routes.ts) com
+ * "Email ou senha incorretos", sem dizer mais para não revelar que a conta
+ * existe. Um "Login" nesta página levava o provedor a errar sem ter errado.
+ */
 const CADASTRO = "/login?mode=register";
-const LOGIN = "/login";
 const WHATSAPP = "https://wa.me/5543991191100";
 
 /** Um giro do banner do hero. O original usava 7s e reiniciava a cada clique. */
@@ -213,7 +220,6 @@ export default function LandingPage() {
               <a href="#faq">FAQ</a>
             </div>
             <div className="nav-right">
-              <a href={LOGIN} className="nav-login" onClick={irPara(LOGIN)}>Login</a>
               <a href={CADASTRO} className="btn btn-primary" onClick={irPara(CADASTRO)}>Começar grátis</a>
             </div>
           </div>
@@ -906,7 +912,6 @@ export default function LandingPage() {
               <a href={CADASTRO} className="btn btn-primary on-dark btn-lg" style={{ background: "#F5F3EE", color: "#0E0D0B" }} onClick={irPara(CADASTRO)}>Criar conta grátis <span className="arrow">→</span></a>
               <a href={WHATSAPP} target="_blank" rel="noopener" className="btn btn-secondary on-dark btn-lg">Tirar dúvida no WhatsApp</a>
             </div>
-            <p className="final-cta-login">Já tem conta? <a href={LOGIN} onClick={irPara(LOGIN)}>Fazer login</a></p>
           </div>
         </section>
 
