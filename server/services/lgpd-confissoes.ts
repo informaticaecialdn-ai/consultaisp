@@ -19,7 +19,7 @@ import type { ConfissaoDoTitular } from "../storage/assinatura.storage";
 
 export const RETENCAO_SEM_TITULO_DIAS = 90;
 export const BASE_LEGAL_DA_PRESERVACAO = "Confissão de dívida assinada em produção é título executivo extrajudicial e é conservada para o exercício regular de direitos em processo (LGPD art. 16, I; art. 7, VI) pelo prazo prescricional de cinco anos (CC art. 206, §5º, I) contado do último vencimento ou da quitação; não é anonimizada por pedido do titular dentro desse prazo.";
-export const MOTIVO_DA_CONFISSAO_EM_ANDAMENTO = "Confissão de dívida aguardando assinatura em produção: é documento vivo na conta ZapSign do provedor, e apagá-la no meio deixaria sem dados um título que o devedor ainda pode assinar. Se o prazo vencer ou ela for cancelada, perde os dados pessoais 90 dias depois; se for assinada, passa a ser título e segue a base legal das preservadas.";
+export const MOTIVO_DA_CONFISSAO_EM_ANDAMENTO = "Confissão de dívida aguardando assinatura: o documento está vivo na conta ZapSign do provedor e ainda pode ser assinado — apagá-la no meio deixaria a linha sem dados e a assinatura que viesse depois traria de volta o PDF assinado, com os dados pessoais. Se o prazo vencer ou ela for cancelada, perde os dados pessoais 90 dias depois; se for assinada em produção, passa a ser título e segue a base legal das preservadas.";
 
 /**
  * Status que só existem DEPOIS da assinatura do devedor: `quitada` e
@@ -29,8 +29,13 @@ export const MOTIVO_DA_CONFISSAO_EM_ANDAMENTO = "Confissão de dívida aguardand
 const STATUS_QUE_PROVAM_A_ASSINATURA = new Set(["assinada", "quitada", "substituida"]);
 /** Título = produção (sandbox não tem validade jurídica) com a assinatura provada pelo status. */
 export const ehTitulo = (c: { status: string; ambiente: string }) => c.ambiente === "producao" && STATUS_QUE_PROVAM_A_ASSINATURA.has(c.status);
-/** `enviada` em produção: o devedor ainda pode assinar — não é título, mas também não é descarte. */
-const emAndamento = (c: { status: string; ambiente: string }) => c.ambiente === "producao" && c.status === "enviada";
+/**
+ * `enviada`, em QUALQUER ambiente: o devedor ainda pode assinar — não é título,
+ * mas também não é descarte. A de sandbox também: o documento e o webhook
+ * seguem vivos no ZapSign, e uma assinatura depois da anonimização baixaria de
+ * novo o PDF assinado, com os dados pessoais, para a linha "apagada".
+ */
+const emAndamento = (c: { status: string; ambiente: string }) => c.status === "enviada";
 
 export async function apagarConfissoesSemTitulo(agora: Date = new Date()): Promise<number> {
   const limite = new Date(agora.getTime() - RETENCAO_SEM_TITULO_DIAS * 86_400_000);
@@ -63,8 +68,8 @@ export async function confissoesDoTitularParaRelatorio(cpf: string): Promise<{ c
 /**
  * Pedido de EXCLUSÃO do titular: tudo daquele CPF que não é título perde PDFs
  * e dados pessoais agora — em qualquer provedor, o mesmo escopo que o pedido
- * aplica às consultas ISP e SPC. Fica o título (com a base legal) e a enviada
- * em produção (documento vivo; ver MOTIVO_DA_CONFISSAO_EM_ANDAMENTO). Antes só
+ * aplica às consultas ISP e SPC. Fica o título (com a base legal) e toda
+ * enviada, de qualquer ambiente (documento vivo; ver MOTIVO_DA_CONFISSAO_EM_ANDAMENTO). Antes só
  * se reportava a preservada: rascunho, cancelada e sandbox guardavam nome, CPF,
  * contato, Anexo I e os PDFs até a varredura de 90 dias, apesar do pedido.
  *

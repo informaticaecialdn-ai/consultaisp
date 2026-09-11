@@ -489,14 +489,16 @@ banco nem ao log.
 de hora em hora): o relatório de **acesso** e o de **portabilidade** passam a
 incluir `confissoesDeDivida` (id, provedor, status, valor, ambiente, datas). O
 processamento de **exclusão** anonimiza **na hora** toda confissão daquele CPF
-que não é título — `rascunho`, `cancelada`, `expirada` e qualquer linha de
-sandbox, em qualquer provedor (o mesmo escopo que o pedido aplica às consultas
-ISP/SPC) —, com a mesma `anonimizarConfissao` da retenção
-(`anonimizarConfissoesDoTitular`, `server/services/lgpd-confissoes.ts`). Ficam
-o título e a `enviada` em produção: esta é documento vivo — o devedor ainda
-pode assinar, e apagar a linha no meio deixaria um título sem dados; se ela
-expirar ou for cancelada, a retenção de 90 dias a limpa, e se for assinada
-vira título. A resposta (`executionResult`) traz `confissoesAnonimizadas` (a
+que não é título — `rascunho`, `cancelada`, `expirada` e as linhas de sandbox
+que não estão aguardando assinatura, em qualquer provedor (o mesmo escopo que o
+pedido aplica às consultas ISP/SPC) —, com a mesma `anonimizarConfissao` da
+retenção (`anonimizarConfissoesDoTitular`, `server/services/lgpd-confissoes.ts`).
+Ficam o título e toda `enviada`, **de qualquer ambiente**: é documento vivo — o
+documento e o webhook seguem no ZapSign, o devedor ainda pode assinar, e apagar
+a linha no meio a deixaria sem dados enquanto a assinatura que viesse depois
+traria de volta o PDF assinado, com os dados pessoais; se ela expirar ou for
+cancelada, a retenção de 90 dias a limpa, e se for assinada em produção vira
+título. A resposta (`executionResult`) traz `confissoesAnonimizadas` (a
 contagem), `confissoesPreservadas` com `baseLegalDasConfissoes`, e
 `confissoesEmAndamento` com o motivo. Uma anonimização que falha devolve o
 pedido à fila da próxima hora, em vez de responder ao titular que apagou.

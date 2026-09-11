@@ -68,16 +68,18 @@ describe("pedido de exclusão do titular", () => {
     expect(r.emAndamento).toEqual([]);
   });
 
-  it("título é produção com status que PROVA a assinatura — assinada, quitada ou substituída; a enviada em produção é documento vivo e fica fora", async () => {
+  it("título é produção com status que PROVA a assinatura — assinada, quitada ou substituída; a enviada, em QUALQUER ambiente, é documento vivo e fica fora", async () => {
     storageMock.confissoesDoTitular.mockResolvedValueOnce([
       linha(20, "quitada", "producao"), linha(21, "substituida", "producao"), linha(22, "enviada", "producao"),
       linha(23, "rascunho", "producao"), linha(24, "expirada", "producao"), linha(25, "enviada", "sandbox"), linha(26, "quitada", "sandbox"),
     ]);
     const r = await anonimizarConfissoesDoTitular("12345678901");
-    expect(storageMock.anonimizarConfissao.mock.calls.map(c => (c as unknown[])[1])).toEqual([23, 24, 25, 26]);
-    expect(r.anonimizadas).toBe(4);
+    // A enviada de sandbox também: o documento e o webhook seguem vivos no ZapSign,
+    // e uma assinatura depois reimportaria o PDF assinado, com os dados pessoais.
+    expect(storageMock.anonimizarConfissao.mock.calls.map(c => (c as unknown[])[1])).toEqual([23, 24, 26]);
+    expect(r.anonimizadas).toBe(3);
     expect(r.preservadas.map(c => c.id)).toEqual([20, 21]);
-    expect(r.emAndamento.map(c => c.id)).toEqual([22]);
+    expect(r.emAndamento.map(c => c.id)).toEqual([22, 25]);
   });
 
   it("uma anonimização que falha derruba o pedido — ele volta na próxima hora — em vez de dizer ao titular que apagou", async () => {
