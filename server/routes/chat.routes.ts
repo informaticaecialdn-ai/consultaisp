@@ -129,7 +129,15 @@ export function registerChatRoutes(): Router {
   router.post("/api/public/visitor-chat/start", limiteMensagemVisitante, async (req, res) => {
     try {
       const { name, email, phone } = req.body;
-      if (!name || !email) return res.status(400).json({ message: "Nome e email sao obrigatorios" });
+      // Revisao de seguranca 4 (item 4 do pedido): so `phone` checava `typeof`
+      // antes desta linha. `{"name": 12345}` passa por `!name` (numero e
+      // truthy), e `(12345).length` e `undefined` — `undefined > 200` e
+      // `false`, entao o teto de tamanho abaixo nunca disparava e o numero
+      // cru chegava em `storage.createVisitorChat`. Mesma guarda nos tres
+      // campos agora: sem ser string, recusa aqui, antes de qualquer `.length`.
+      if (typeof name !== "string" || typeof email !== "string" || !name || !email) {
+        return res.status(400).json({ message: "Nome e email sao obrigatorios" });
+      }
       if (name.length > TAMANHO_MAXIMO_NOME_VISITANTE) {
         return res.status(400).json({ message: `Nome muito longo (maximo ${TAMANHO_MAXIMO_NOME_VISITANTE} caracteres)` });
       }

@@ -55,6 +55,18 @@
  * Não é o que este módulo faz hoje — quem usa esta função deve saber que a
  * garantia é "não resolvia para privado no INSTANTE da validação", não "nunca
  * vai resolver para privado".
+ *
+ * REVISÃO DE SEGURANÇA 4 (última rodada antes da demonstração pública):
+ * medidas quatro faixas passando que não deveriam — `::/96` (IPv4-compatível,
+ * ex.: `::7f00:1` = 127.0.0.1), `ff00::/8` (multicast IPv6, faltava para
+ * espelhar o 224.0.0.0/4 do lado IPv4), `240.0.0.0/4` (reservado/"classe E")
+ * e `255.255.255.255` (broadcast — caso particular de 240/4). As quatro estão
+ * fechadas em `ipv4EhPrivado`/`ipv6EhPrivado`. Duas outras medidas na mesma
+ * rodada ficam CONHECIDAS E ABERTAS, de propósito (fora do escopo pedido):
+ * 6to4 (`2002::/16`, encapsula um IPv4 arbitrário no próprio endereço — o
+ * IPv4 embutido não é validado hoje) e Teredo (`2001:0::/32`, mesma ideia,
+ * ofuscada por XOR). Quem endurecer essas duas depois pode seguir o mesmo
+ * molde do `::/96`/mapeado: desembrulhar e delegar para `ipv4EhPrivado`.
  */
 import dns from "node:dns";
 import { ehEnderecoPrivado } from "@shared/chat-console";
@@ -123,10 +135,13 @@ function octetoIpv4Valido(texto: string): number | null {
 /**
  * IPv4 privado/não-roteável — as mesmas faixas de `ehEnderecoPrivado`
  * (10/8, 127/8, 0/8, 192.168/16, 172.16/12, 169.254/16, 100.64/10, o CGNAT),
- * MAIS as duas faixas que a revisão mediu como passando hoje (item 7):
- * 198.18.0.0/15 (bancada de benchmark da RFC 2544 — nunca é destino de
- * produção de ninguém) e 224.0.0.0/4 (multicast — não é webhook de
- * provedor nenhum). Forma inválida recusa — nunca aceita por omissão.
+ * MAIS as duas faixas que a revisão mediu como passando (item 7): 198.18.0.0/15
+ * (bancada de benchmark da RFC 2544 — nunca é destino de produção de
+ * ninguém) e 224.0.0.0/4 (multicast — não é webhook de provedor nenhum),
+ * MAIS 240.0.0.0/4 (revisão de segurança 4: reservado/"classe E", nunca
+ * roteado) — faixa que também cobre 255.255.255.255, o broadcast limitado,
+ * como caso particular (255 >= 240). Forma inválida recusa — nunca aceita
+ * por omissão.
  */
 function ipv4EhPrivado(endereco: string): boolean {
   const partes = endereco.split(".");
@@ -141,6 +156,7 @@ function ipv4EhPrivado(endereco: string): boolean {
   if (a === 100 && b >= 64 && b <= 127) return true;
   if (a === 198 && (b === 18 || b === 19)) return true; // RFC 2544 — bancada de benchmark
   if (a >= 224 && a <= 239) return true; // multicast (224.0.0.0/4)
+  if (a >= 240) return true; // 240.0.0.0/4 reservado ("classe E") + 255.255.255.255 (broadcast)
   return false;
 }
 
@@ -199,7 +215,25 @@ function gruposIpv6(enderecoOriginal: string): number[] | null {
  * `::1` (loopback), `::` (indeterminado), `fc00::/7` (unique-local),
  * `fe80::/10` (link-local), `64:ff9b::/96` (prefixo NAT64, RFC 6052) e
  * `::ffff:a.b.c.d` (mapeado — desembrulha os últimos 32 bits e testa como
- * IPv4). Fora dessas faixas é unicast global e PASSA — é exatamente o que
+ * IPv4), MAIS duas faixas da revisão de segurança 4:
+ * - `ff00::/8` — multicast IPv6. Sem isto a checagem ficava ASSIMÉTRICA: o
+ *   lado IPv4 já recusa multicast (224.0.0.0/4, acima) e o lado IPv6 deixava
+ *   passar.
+ * - `::/96` — IPv4-compatível (RFC 4291, forma antiga e obsoleta, MAS ainda
+ *   parseável): primeiros 96 bits zero, últimos 32 bits são um IPv4 embutido
+ *   sem o `ffff` do mapeamento moderno. `::7f00:1` (= 127.0.0.1) e
+ *   `::127.0.0.1` passavam batido antes: não caíam em "::" (nem todos os 8
+ *   grupos são zero) nem em "::1" (o grupo 6 não é zero), e o teste de
+ *   mapeado exige `grupos[5] === 0xffff`, que aqui é `0`. Generaliza "::" e
+ *   "::1" como casos particulares (0.0.0.0 e 0.0.0.1 embutidos, ambos no
+ *   0.0.0.0/8 que `ipv4EhPrivado` já recusa) — mantidos como testes
+ *   explícitos abaixo só por clareza/compatibilidade com quem já lia este
+ *   código.
+ *
+ * 6to4 (`2002::/16`) e Teredo (`2001:0::/32`) continuam FORA desta lista —
+ * medidos como passando, não fechados nesta rodada (fora do escopo pedido).
+ *
+ * Fora dessas faixas é unicast global e PASSA — é exatamente o que
  * `ehEnderecoPrivado` fazia errado ao tratar qualquer ":" como suspeito.
  */
 function ipv6EhPrivado(endereco: string): boolean {
@@ -211,6 +245,18 @@ function ipv6EhPrivado(endereco: string): boolean {
 
   if ((grupos[0] & 0xfe00) === 0xfc00) return true; // fc00::/7
   if ((grupos[0] & 0xffc0) === 0xfe80) return true; // fe80::/10
+  if ((grupos[0] & 0xff00) === 0xff00) return true; // ff00::/8 — multicast
+
+  // ::/96 — IPv4-compatível (RFC 4291, obsoleta): primeiros 96 bits zero.
+  // Desembrulha os últimos 32 bits e testa como IPv4 (mesmo tratamento do
+  // mapeado, abaixo, só que sem exigir o "ffff" no grupo 5).
+  if (grupos.slice(0, 6).every((g) => g === 0)) {
+    const a = (grupos[6] >> 8) & 0xff;
+    const b = grupos[6] & 0xff;
+    const c = (grupos[7] >> 8) & 0xff;
+    const d = grupos[7] & 0xff;
+    return ipv4EhPrivado(`${a}.${b}.${c}.${d}`);
+  }
 
   // 64:ff9b::/96 — NAT64 (RFC 6052): 96 bits fixos, os últimos 32 são o IPv4 embutido.
   if (grupos[0] === 0x0064 && grupos[1] === 0xff9b && grupos[2] === 0 && grupos[3] === 0 && grupos[4] === 0 && grupos[5] === 0) {

@@ -10,9 +10,25 @@
  *
  * Deploy na VPS:
  *   cd /var/www/consulta-isp && git pull && npm run build
+ *
+ *   # Dry run ANTES de qualquer delete (revisão de segurança 4): executa o
+ *   # MESMO require que o pm2 faz para avaliar este arquivo, sem derrubar
+ *   # nada. Se este arquivo ganhar um novo erro fatal no futuro (hoje só
+ *   # DATABASE_URL ausente/vazio) e o `.env` de produção não satisfizer,
+ *   # é aqui que isso aparece — ANTES do `pm2 delete` ter apagado o
+ *   # processo que estava rodando.
+ *   node -e "require('./ecosystem.config.cjs')" && echo BOOT-CONFIG-OK
+ *
  *   pm2 delete consulta-isp 2>/dev/null
  *   pm2 start ecosystem.config.cjs
  *   pm2 save
+ *
+ * `pm2 save` não é opcional: nem `pm2 restart` nem `pm2 resurrect` releem
+ * este arquivo. `resurrect` (o que roda no boot da VPS, via `pm2 startup`)
+ * restaura a lista de processos e o ENV de que ela lembra do último `save` —
+ * não reexecuta este `.cjs`. Sem `pm2 save` depois do `pm2 start` acima, um
+ * reboot da VPS volta com o ambiente ANTIGO (ou nenhum), não com o
+ * `DEMO_MODE: "false"` fixado logo abaixo.
  */
 
 // O par de PRODUCAO le o .env DELE. Sem o path explicito, `dotenv.config()`

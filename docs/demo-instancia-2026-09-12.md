@@ -17,13 +17,39 @@ separada (design doc §1, §3.1).
 
 ## 0. Antes de começar — decisões e segredos que só o dono tem
 
+**Medido nesta VPS em 12/09/2026, antes de escrever este roteiro** — para não
+tratar como pendente o que já está resolvido, nem escrever cautela de espaço
+que os números não sustentam:
+
+- `demo.consultaisp.com.br` **já resolve** para o IP desta VPS. O item 2 da
+  tabela abaixo é uma reconfirmação de praxe no Passo 6, não uma decisão em
+  aberto.
+- Disco: 366 GB livres de 387 (6% em uso). Memória: 32 GB no total, 30
+  disponíveis. Um segundo par de processos pm2 (o risco #3 do design doc,
+  §8 — "custo de um segundo par de processos na mesma VPS") custa uma fração
+  disso; não há aperto de espaço nem de memória que justifique cautela extra
+  em nenhum passo abaixo.
+- Os dois processos de produção estavam no ar há 15 h, zero restarts.
+- `/var/www/consulta-isp/.env` (produção) existe, tem 1745 bytes e **contém**
+  `DATABASE_URL` — o erro fatal de `ecosystem.config.cjs` (revisão de
+  segurança 4) não pode disparar aí hoje; o dry run do Passo 7 é uma
+  confirmação, não um provável fracasso. Esse mesmo `.env` **não** contém
+  `DEMO_MODE` — irrelevante para produção, que fixa `"false"` sozinha
+  (`ecosystem.config.cjs`).
+- **Ainda não existem** o banco `consultaispdemo` nem o checkout em
+  `/var/www/consulta-isp-demo` — os Passos 1 e 2 abaixo continuam
+  necessários, do zero. (E são dois diretórios DIFERENTES: nunca há um
+  `.env` e um `.env.demo` lado a lado no mesmo checkout na VPS real — só em
+  `script/ecosystem-config.test.ts`, que testa a propriedade do arquivo, não
+  o layout de disco.)
+
 Reúna isto antes de abrir o terminal da VPS. Nenhum comando abaixo funciona
 sem estes itens:
 
 | # | O quê | Decisão de quem |
 |---|---|---|
 | 1 | Uma senha forte para o role `consultaispdemo` do Postgres | gerar na hora (`openssl rand -hex 20`), não precisa guardar em lugar nenhum além do `.env.demo` |
-| 2 | Apontar `demo.consultaisp.com.br` (registro A) para o IP desta VPS | **DECISÃO/AÇÃO DO DONO** — DNS de `consultaisp.com.br`. Sem isso o Passo 6 (certbot) falha na validação |
+| 2 | Confirmar que `demo.consultaisp.com.br` (registro A) aponta para o IP desta VPS | **JÁ FEITO** — medido hoje, o DNS já resolve (ver acima). O Passo 6 só reconfirma com `dig` antes de chamar o certbot |
 | 3 | Um e-mail para o certbot avisar de expiração de certificado (opcional — sem ele o certificado sai mesmo assim, sem aviso por e-mail) | dono, se quiser |
 | 4 | Gerar `SESSION_SECRET` e (opcional) `PARTNER_CODE_SECRET` próprios da demo | comando dado no Passo 3 — não reaproveitar os de produção |
 | 5 | Decidir se cria um login de superadmin próprio da demo (`SUPERADMIN_EMAIL`/`SUPERADMIN_PASSWORD`) | recomendado, mas opcional — sem ele a única porta de entrada é o sandbox de 24h de cada visitante |
@@ -150,7 +176,9 @@ mesmos nomes de arquivo que a produção usa; só o diretório do checkout muda.
 ## 6. nginx — site próprio, sem indexação
 
 Primeiro confirme o DNS (item 2 da seção 0): `dig +short demo.consultaisp.com.br`
-deve devolver o IP desta VPS antes de seguir para o certificado.
+deve devolver o IP desta VPS antes de seguir para o certificado. Medido em
+12/09/2026 já resolvendo — este passo é a reconfirmação de praxe, não uma
+aposta em algo pendente.
 
 Crie `/etc/nginx/sites-available/demo-consultaisp`:
 
@@ -210,11 +238,32 @@ espelhe o bloco `/ws` de `script/dominio-whitelabel.sh:170-177`.
 
 ## 7. pm2 — o par da demo
 
+O daemon pm2 desta VPS é COMPARTILHADO entre produção e demo — é o risco que
+o próprio cabeçalho de `ecosystem.config.cjs` descreve (um `.env` que não
+carrega pelo caminho certo pode fazer um par herdar o ambiente que o daemon
+já tem em memória do outro). Antes de tocar em pm2 nesta sessão, um dry run
+contra o config de PRODUÇÃO confirma que ele ainda sobe, sem reiniciar nada:
+
+```bash
+cd /var/www/consulta-isp && node -e "require('./ecosystem.config.cjs')" && echo BOOT-CONFIG-OK
+```
+
+Isto deve imprimir `BOOT-CONFIG-OK` sem drama: o `.env` de produção já tem
+`DATABASE_URL` (medido em 12/09/2026, seção 0 — 1745 bytes), então é uma
+CONFIRMAÇÃO, não um provável fracasso. Se isto um dia FALHAR, pare aqui —
+significa que o `ecosystem.config.cjs` de produção não sobe mais, e nenhum
+passo abaixo (que só mexe no par da demo) resolve isso.
+
 ```bash
 cd /var/www/consulta-isp-demo
 pm2 start ecosystem.demo.config.cjs
 pm2 save
 ```
+
+`pm2 save` aqui também não é opcional, pelo mesmo motivo do Passo 10: nem
+`pm2 restart` nem `pm2 resurrect` releem `ecosystem.demo.config.cjs` — sem
+salvar, um reboot desta VPS chama `pm2 resurrect`, que restaura o ambiente do
+ÚLTIMO save, não o `DEMO_MODE: "true"` que este arquivo acabou de fixar.
 
 Confira os dois processos — **os dois, não só o HTTP.** O worker é quem faz
 mais coisa sozinho no primeiro boot (ERP sync, retenção e titular LGPD, régua
@@ -358,14 +407,21 @@ git pull origin feat/localizacao
 npm install
 npm run build
 
+# Dry run ANTES do delete (revisão de segurança 4, mesmo motivo do Passo 7):
+# avalia ecosystem.demo.config.cjs num processo Node limpo — o MESMO require
+# que o pm2 faz — sem derrubar o par que está no ar. Se o `.env.demo` estiver
+# quebrado (DATABASE_URL sumiu, DEMO_MODE virou "false" por engano), é aqui
+# que aparece, ANTES de qualquer coisa ser deletada.
+node -e "require('./ecosystem.demo.config.cjs')" && echo BOOT-CONFIG-OK
+
 pm2 delete consulta-isp-demo consulta-isp-demo-worker
 pm2 start ecosystem.demo.config.cjs
 pm2 save
 ```
 
 **Por que `pm2 delete` + `pm2 start`, nunca `pm2 restart`:** o pm2 congela o
-`.env` no momento do `start` — é o próprio cabeçalho de `ecosystem.config.cjs:11-15`
-que documenta este padrão para produção, e o comentário de
+`.env` no momento do `start` — é o próprio cabeçalho de `ecosystem.config.cjs`
+("Deploy na VPS") que documenta este padrão para produção, e o comentário de
 `ASAAS_WEBHOOK_TOKEN` em `.env.example:52-53` repete a mesma regra
 explicitamente. `pm2 restart` reaproveita o ambiente antigo; se você mudou
 qualquer linha do `.env.demo` (rotacionou `SESSION_SECRET`, adicionou
@@ -373,6 +429,15 @@ qualquer linha do `.env.demo` (rotacionou `SESSION_SECRET`, adicionou
 continua rodando com o ambiente de antes, em silêncio. (O design doc §6
 original dizia "pm2 restart do par da demo" — corrigido aqui para o padrão
 que o próprio repositório já usa e documenta em dois lugares.)
+
+**`pm2 save` também não é opcional, por um motivo diferente de `restart`:**
+nem `pm2 restart` NEM `pm2 resurrect` releem `ecosystem.demo.config.cjs`.
+`resurrect` é o que roda quando esta VPS reinicia (via `pm2 startup`) — ele
+restaura a lista de processos e o ambiente de que se LEMBRA do último
+`pm2 save`, não reexecuta o `.cjs`. Se você rodar o `pm2 start` acima e
+esquecer o `pm2 save`, um reboot desta VPS não traz de volta o `DEMO_MODE`
+que este arquivo acabou de fixar — traz o que quer que estivesse salvo antes
+(inclusive nada, se nunca houve um `save` anterior para este par).
 
 Migrações novas (arquivos `.sql` adicionados a `migrations/` desde o último
 deploy) aplicam sozinhas no boot do passo acima, do mesmo jeito que no Passo
@@ -407,7 +472,7 @@ processo, outro domínio. O banco `consultaispdemo` e o checkout
 | Build (nomes de saída) | `script/build.ts:139,154` |
 | Ecosystem de produção (o que este par espelha) | `ecosystem.config.cjs` |
 | Padrão real de nginx para subdomínio nesta VPS | `script/dominio-whitelabel.sh:152-178` |
-| Padrão real de deploy (delete+start, não restart) | `ecosystem.config.cjs:11-15`, `.env.example:52-53` |
+| Padrão real de deploy (delete+start, não restart) | cabeçalho ("Deploy na VPS") de `ecosystem.config.cjs`, `.env.example:52-53` |
 | Limitador de `/demo` | `server/routes/demo.routes.ts:33` (2 / 10 min / IP) |
 | Sessão do visitante (5 campos) | `server/routes/demo.routes.ts`, no molde de `server/routes/auth.routes.ts:262-268` |
 | Design da instância | `docs/superpowers/specs/2026-09-11-demo-sandbox-design.md` §3.1, §6 |

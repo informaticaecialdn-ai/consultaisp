@@ -148,4 +148,80 @@ describe("ecosystem.demo.config.cjs — .env.demo ancorado no arquivo, nao no cw
     expect(r.codigo).not.toBe(0);
     expect(r.saida).toMatch(/DATABASE_URL/);
   });
+
+  /**
+   * Revisão de segurança 4 (item 1 do pedido) — o defeito real que motivou
+   * esta bateria: um `.env.demo` com banco configurado mas SEM `DEMO_MODE`
+   * correto sobe uma SEGUNDA PRODUÇÃO contra um banco de mentira (`GET /demo`
+   * em 404, `iniciarCadeiaDoMapa()` baixando o censo do IBGE num processo de
+   * 512M). O runbook já carregava uma checagem MANUAL para esse sintoma —
+   * sinal de que era conhecido e deixado para alguém notar depois. Estes
+   * testes prendem o comportamento por baixo: o processo nem sobe.
+   */
+  describe("DEMO_MODE — fixado \"true\" por padrao, FATAL se o valor final nao for exatamente essa string", () => {
+    it("sem DEMO_MODE declarado no .env.demo, o default \"true\" vale nos dois processos", () => {
+      const { pastaTemp, configCopiado } = prepararCopiaEmTemp();
+      pastasParaLimpar.push(pastaTemp);
+      fs.writeFileSync(path.join(pastaTemp, ".env.demo"), "DATABASE_URL=postgresql://demo\n");
+
+      const r = requerDeOutroDiretorio(configCopiado, os.tmpdir());
+
+      expect(r.codigo).toBe(0);
+      const linhas = r.saida.trim().split("\n");
+      const envsDosDoisProcessos = JSON.parse(linhas[linhas.length - 1]);
+      expect(envsDosDoisProcessos).toHaveLength(2);
+      for (const env of envsDosDoisProcessos) {
+        expect(env.DEMO_MODE).toBe("true");
+      }
+    });
+
+    it("DEMO_MODE=true explicito no .env.demo sobrevive (mesmo valor do default, aceito)", () => {
+      const { pastaTemp, configCopiado } = prepararCopiaEmTemp();
+      pastasParaLimpar.push(pastaTemp);
+      fs.writeFileSync(path.join(pastaTemp, ".env.demo"), "DATABASE_URL=postgresql://demo\nDEMO_MODE=true\n");
+
+      const r = requerDeOutroDiretorio(configCopiado, os.tmpdir());
+
+      expect(r.codigo).toBe(0);
+      const linhas = r.saida.trim().split("\n");
+      const envsDosDoisProcessos = JSON.parse(linhas[linhas.length - 1]);
+      for (const env of envsDosDoisProcessos) {
+        expect(env.DEMO_MODE).toBe("true");
+      }
+    });
+
+    it("DEMO_MODE=false no .env.demo e ERRO FATAL — nao sobe como producao disfarcada", () => {
+      const { pastaTemp, configCopiado } = prepararCopiaEmTemp();
+      pastasParaLimpar.push(pastaTemp);
+      fs.writeFileSync(path.join(pastaTemp, ".env.demo"), "DATABASE_URL=postgresql://demo\nDEMO_MODE=false\n");
+
+      const r = requerDeOutroDiretorio(configCopiado, os.tmpdir());
+
+      expect(r.codigo).not.toBe(0);
+      expect(r.saida).toMatch(/DEMO_MODE/);
+      expect(r.saida).toMatch(/"true"/);
+    });
+
+    it("DEMO_MODE=1 (nao a string exata \"true\") tambem e ERRO FATAL", () => {
+      const { pastaTemp, configCopiado } = prepararCopiaEmTemp();
+      pastasParaLimpar.push(pastaTemp);
+      fs.writeFileSync(path.join(pastaTemp, ".env.demo"), "DATABASE_URL=postgresql://demo\nDEMO_MODE=1\n");
+
+      const r = requerDeOutroDiretorio(configCopiado, os.tmpdir());
+
+      expect(r.codigo).not.toBe(0);
+      expect(r.saida).toMatch(/DEMO_MODE/);
+    });
+
+    it("DEMO_MODE vazio (declarado sem valor) tambem e ERRO FATAL, nao vira \"true\" por omissao", () => {
+      const { pastaTemp, configCopiado } = prepararCopiaEmTemp();
+      pastasParaLimpar.push(pastaTemp);
+      fs.writeFileSync(path.join(pastaTemp, ".env.demo"), "DATABASE_URL=postgresql://demo\nDEMO_MODE=\n");
+
+      const r = requerDeOutroDiretorio(configCopiado, os.tmpdir());
+
+      expect(r.codigo).not.toBe(0);
+      expect(r.saida).toMatch(/DEMO_MODE/);
+    });
+  });
 });

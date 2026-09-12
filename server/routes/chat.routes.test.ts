@@ -238,3 +238,36 @@ describe("POST /api/public/visitor-chat/start — teto de tamanho", () => {
     expect(storageMock.createVisitorChat).toHaveBeenCalledWith("Visitante", "visitante@example.com", null);
   });
 });
+
+/**
+ * `POST /api/public/visitor-chat/start` — revisão de segurança 4 (item 4 do
+ * pedido): só `phone` checava `typeof` antes desta rodada. `{"name": 12345}`
+ * passa por `!name` (número é truthy) e `(12345).length` é `undefined` —
+ * `undefined > 200` é `false`, então o teto de tamanho nunca disparava e o
+ * valor cru chegava em `storage.createVisitorChat`. Mesma guarda agora nos
+ * três campos.
+ */
+describe("POST /api/public/visitor-chat/start — tipo dos campos", () => {
+  it("recusa nome que nao e string, sem gravar nada", async () => {
+    const res = await iniciar({ name: 12345 });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/obrigatorios/i);
+    expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
+  });
+
+  it("recusa email que nao e string, sem gravar nada", async () => {
+    const res = await iniciar({ email: 12345 });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/obrigatorios/i);
+    expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
+  });
+
+  it("recusa nome como objeto (teria .length undefined, passando pelo teto em silencio)", async () => {
+    const res = await iniciar({ name: { qualquer: "coisa" } });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
+  });
+});

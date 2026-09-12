@@ -136,8 +136,14 @@ describe("ecosystem.config.cjs — .env ancorado no arquivo, nao no cwd de quem 
   /**
    * A prova de que este arquivo (produção) e o da demo NÃO se confundem:
    * cada um lê o PRÓPRIO .env, mesmo os dois presentes ao mesmo tempo lado a
-   * lado — que é exatamente a situação real na VPS, que hospeda os dois
-   * pares no mesmo checkout.
+   * lado. Isso NÃO é a situação real na VPS — correção (revisão de segurança
+   * 4): `docs/demo-instancia-2026-09-12.md` especifica um checkout SEPARADO
+   * para a demo (`/var/www/consulta-isp-demo`, clonado de
+   * `/var/www/consulta-isp` e depois independente), então `.env` e
+   * `.env.demo` nunca ficam lado a lado no disco de verdade. O teste continua
+   * valendo pelo mesmo motivo que sempre valeu — provar que o path do `.env`
+   * é uma propriedade do ARQUIVO, não do ambiente em que ele roda —, só que
+   * como um caso mais rigoroso que a realidade, não um espelho dela.
    */
   it("com .env E .env.demo lado a lado, este arquivo le SO o .env — nunca o da demo", () => {
     const { pastaTemp, configCopiado } = prepararCopiaEmTemp();

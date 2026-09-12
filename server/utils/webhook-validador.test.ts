@@ -191,7 +191,19 @@ describe("enderecoIpEhPrivado", () => {
     expect(enderecoIpEhPrivado("198.20.0.1")).toBe(false); // fora do /15
     expect(enderecoIpEhPrivado("224.0.0.1")).toBe(true);
     expect(enderecoIpEhPrivado("239.255.255.255")).toBe(true);
-    expect(enderecoIpEhPrivado("240.0.0.1")).toBe(false); // fora do /4 multicast
+  });
+
+  /**
+   * Revisao de seguranca 4: 240.0.0.0/4 (reservado/"classe E") e o broadcast
+   * limitado 255.255.255.255, que e caso particular do mesmo /4 (255 >= 240).
+   * Antes desta rodada `240.0.0.1` passava (so 224-239 eram recusados).
+   */
+  it("IPv4 — revisao de seguranca 4: 240.0.0.0/4 reservado e o broadcast 255.255.255.255", () => {
+    expect(enderecoIpEhPrivado("240.0.0.0")).toBe(true);
+    expect(enderecoIpEhPrivado("240.0.0.1")).toBe(true);
+    expect(enderecoIpEhPrivado("254.255.255.255")).toBe(true);
+    expect(enderecoIpEhPrivado("255.255.255.255")).toBe(true);
+    expect(enderecoIpEhPrivado("239.255.255.255")).toBe(true); // continua batendo no multicast, nao no 240/4
   });
 
   it("IPv4 — endereco publico comum passa", () => {
@@ -224,10 +236,42 @@ describe("enderecoIpEhPrivado", () => {
     expect(enderecoIpEhPrivado("::ffff:8.8.8.8")).toBe(false); // mapeia para publico
   });
 
+  // `::ffff:0:0/96` (mapeado) medido passando na revisao 4 para enderecos que
+  // embutem um IPv4 do buraco 240/4 — nao por faltar tratamento de IPv6, mas
+  // porque `ipv4EhPrivado` (por quem o mapeado sempre delegou) ainda nao
+  // recusava 240+. Fechado como efeito colateral direto do fix de `240/4`.
+  it("IPv6 mapeado que embute um IPv4 de 240.0.0.0/4 tambem e privado (efeito do fix de 240/4)", () => {
+    expect(enderecoIpEhPrivado("::ffff:255.255.255.255")).toBe(true); // mapeia para o broadcast
+    expect(enderecoIpEhPrivado("::ffff:240.0.0.1")).toBe(true); // mapeia para reservado/"classe E"
+  });
+
   it("IPv6 unicast global PASSA — o ponto central do defeito 1", () => {
     expect(enderecoIpEhPrivado("2606:4700:4700::1111")).toBe(false); // Cloudflare
     expect(enderecoIpEhPrivado("2001:4860:4860::8888")).toBe(false); // Google
     expect(enderecoIpEhPrivado("2606:4700::6810:84e5")).toBe(false); // forma comprimida real, medida ao vivo
+  });
+
+  /**
+   * Revisao de seguranca 4 (item 3 do pedido): duas faixas de IPv6 que a
+   * revisao mediu passando hoje. `ff00::/8` fechava a assimetria com o
+   * multicast IPv4 (224/4, ja recusado acima); `::/96` e a forma
+   * IPv4-compativel obsoleta (RFC 4291) que nem "::" nem "::1" sozinhos
+   * pegavam, porque exige testar os ULTIMOS 32 bits como endereco embutido,
+   * nao um valor fixo.
+   */
+  it("IPv6 — multicast (ff00::/8) e privado, simetrico ao 224.0.0.0/4 do IPv4", () => {
+    expect(enderecoIpEhPrivado("ff00::1")).toBe(true);
+    expect(enderecoIpEhPrivado("ff02::1")).toBe(true); // multicast link-local (todos os nos)
+    expect(enderecoIpEhPrivado("ffff::1")).toBe(true);
+    expect(enderecoIpEhPrivado("fdff::1")).toBe(true); // fc00::/7 (unique-local), nao ff00::/8 — continua privado por outra faixa
+  });
+
+  it("IPv6 — ::/96 (IPv4-compativel, obsoleta) desembrulha e testa como IPv4", () => {
+    expect(enderecoIpEhPrivado("::7f00:1")).toBe(true); // = 127.0.0.1 embutido, forma hex pura
+    expect(enderecoIpEhPrivado("::127.0.0.1")).toBe(true); // mesma coisa, forma com cauda decimal
+    expect(enderecoIpEhPrivado("::192.168.1.1")).toBe(true); // embute um privado classe C
+    expect(enderecoIpEhPrivado("::203.0.113.10")).toBe(false); // embute um publico de verdade — tem que passar
+    expect(enderecoIpEhPrivado("::0.0.0.0")).toBe(true); // "::" por outro nome (0.0.0.0 embutido)
   });
 
   it("forma invalida recusa — nunca aceita por omissao", () => {
