@@ -475,6 +475,16 @@ describe("send", () => {
       "Sua senha foi alterada — Consulta ISP",
     ]);
   });
+
+  it("em modo demo nenhum e-mail sai", async () => {
+    process.env.DEMO_MODE = "true";
+    try {
+      await email.sendVerificationEmail("alguem@exemplo.com", "Alguem", "tok", MARCA_PLATAFORMA, URL);
+      expect(resendFalso.chamadas).toHaveLength(0);
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

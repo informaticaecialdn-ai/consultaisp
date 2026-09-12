@@ -25,6 +25,7 @@
  * dados, para o provedor conferir sem abrir o painel. Nada de exclamacao.
  */
 import { Resend } from "resend";
+import { emModoDemo } from "../demo/modo-demo";
 import { cnpjMascarado } from "@shared/cnpj";
 import { MARCA_PLATAFORMA, resolverMarcaPorId, urlDaMarca, type MarcaResolvida } from "./marca.service";
 import {
@@ -121,6 +122,11 @@ async function comLimite<T>(promessa: Promise<T>, ms: number): Promise<T> {
 }
 
 async function send(to: string, subject: string, html: string, marca: MarcaResolvida): Promise<void> {
+  if (emModoDemo()) {
+    // A demo nao escreve para ninguem. O retorno silencioso mantem o fluxo da
+    // tela igual ao de producao (o chamador nao trata "email nao enviado").
+    return;
+  }
   if (!resend) {
     console.warn(`[email] RESEND_API_KEY nao configurada. Email para ${mascarar(to)} nao enviado.`);
     return;
