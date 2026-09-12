@@ -14,9 +14,17 @@
  * de 500, nunca `storage.createCustomer` por linha — são ~5 mil linhas por
  * sandbox (clientes + faturas + equipamentos + casos de cobrança), e uma
  * chamada por registro transformaria a porta da demonstração em tela de
- * espera. Os DOIS ÚNICOS pontos que passam pela camada de storage são o
- * provedor e o usuário administrador — um INSERT simples cada, sem custo de
- * lote — via `storage.createProvider`/`storage.createUser`.
+ * espera.
+ *
+ * O provedor e o usuário administrador NÃO passam por
+ * `storage.createProvider`/`storage.createUser` (rodada de correção,
+ * 11/09/2026): nenhuma das duas aceita um executor de transação — conferido
+ * em `server/storage/providers.storage.ts:161-164` e
+ * `server/storage/users.storage.ts:92-98`, ambas chamam `db.insert` direto,
+ * sem parâmetro de executor — e a atomicidade da criação inteira (provedor +
+ * usuário + carteira, tudo ou nada) pesa mais do que passar pela camada de
+ * storage aqui. As duas inserções abaixo espelham exatamente o que aquelas
+ * funções fazem, `emailCanonico` incluído.
  */
 import crypto from "crypto";
 import { eq } from "drizzle-orm";
@@ -30,14 +38,30 @@ import {
   cobrancaEventos,
   cobrancaNegociacoes,
   cobrancaParcelas,
+  cobrancaConfissoes,
+  cobrancaConfissoesPdf,
+  cobrancaPolitica,
   antiFraudAlerts,
+  antiFraudRules,
   proactiveAlerts,
-  ispConsultations,
-  spcConsultations,
+  assinaturaIntegracoes,
+  bigdataConsultations,
+  bigdataIntegrations,
+  chatAutonomiaConfig,
+  chatAutonomiaEstado,
+  chatAutonomiaFila,
+  chatBullqConversas,
+  chatBullqIntegracoes,
+  comissaoLancamentos,
+  equipmentRecoveryCases,
+  equipmentRecoveryEvents,
+  marcaEventos,
+  providerDocuments,
   users,
 } from "@shared/schema";
 import type { InsertCustomer, InsertInvoice, InsertEquipment, InsertCobrancaCaso } from "@shared/schema";
 import { storage } from "../storage";
+import { emailCanonico } from "../storage/users.storage";
 import { hashPassword } from "../password";
 import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
 import { PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase } from "./mundo-base";
@@ -163,7 +187,11 @@ function digitoVerificadorCnpj(digitos: number[], pesos: number[]): number {
  * aleatórios (nunca "40" + índice, a raiz que `mundo-base.ts` usa para os 5
  * provedores fixos) + 2 dígitos verificadores calculados pelo algoritmo
  * oficial, para nunca colidir com o mundo base e sempre passar por
- * `validarCNPJ` caso algum código um dia confira.
+ * `validarCNPJ` caso algum código um dia confira. Colisão entre dois
+ * sandboxes é astronomicamente improvável (12 dígitos aleatórios), mas não
+ * impossível — `criarSandbox()` tenta de novo com um CNPJ e subdomínio novos
+ * se a violação de unicidade acontecer, em vez de estourar a exceção crua na
+ * porta de entrada da demo.
  */
 function cnpjDoSandbox(): string {
   const base = Array.from({ length: 12 }, () => crypto.randomInt(0, 10));
@@ -483,42 +511,74 @@ function casosDoKanban(
   return casos;
 }
 
+/** Código de erro do Postgres para violação de unicidade (`unique_violation`). */
+const CODIGO_UNIQUE_VIOLATION = "23505";
+
+/** Um punhado de tentativas — CNPJ (12 dígitos aleatórios) e subdomínio (16 hex) colidirem é raríssimo; mais que isso é outra coisa quebrada. */
+const TENTATIVAS_DE_CRIACAO = 5;
+
 /**
  * Cria o sandbox do visitante: semeia o mundo base (idempotente), gera uma
  * carteira própria de 1.500 clientes e devolve as credenciais/identidade
  * para a rota (Tarefa 6) abrir a sessão.
+ *
+ * Tenta de novo (CNPJ e subdomínio novos) se a criação esbarrar numa
+ * violação de unicidade — ver `cnpjDoSandbox()`. Qualquer outro erro sobe
+ * na hora, sem retentativa.
  */
 export async function criarSandbox(): Promise<{ providerId: number; userId: number; subdomain: string; expiraEm: Date }> {
   await semearMundoBase();
-
   const agora = new Date();
+
+  for (let tentativa = 1; tentativa <= TENTATIVAS_DE_CRIACAO; tentativa++) {
+    try {
+      return await tentarCriarSandbox(agora);
+    } catch (err) {
+      const codigo = (err as { code?: string } | null | undefined)?.code;
+      if (codigo !== CODIGO_UNIQUE_VIOLATION || tentativa === TENTATIVAS_DE_CRIACAO) throw err;
+    }
+  }
+  // Inalcançável: o laço acima sempre retorna ou lança na última tentativa.
+  throw new Error("criarSandbox: numero de tentativas esgotado");
+}
+
+/**
+ * Uma tentativa de criação, inteira, numa ÚNICA transação — provedor,
+ * usuário administrador e carteira (clientes, faturas, equipamentos, casos
+ * de cobrança). Falhar em qualquer ponto não deixa par provedor+usuário
+ * órfão: a transação inteira desfaz.
+ */
+async function tentarCriarSandbox(agora: Date): Promise<{ providerId: number; userId: number; subdomain: string; expiraEm: Date }> {
   const subdomain = subdominioDoSandbox();
+  const senhaHash = await hashPassword(crypto.randomBytes(24).toString("hex"));
 
-  const provider = await storage.createProvider({
-    name: "Provedor Demonstração",
-    cnpj: cnpjDoSandbox(),
-    subdomain,
-    plan: "enterprise",
-    status: "active",
-    verificationStatus: "approved",
-    ispCredits: SALDO_INICIAL,
-    spcCredits: SALDO_INICIAL,
-  });
+  return db.transaction(async (tx) => {
+    // Espelha storage.createProvider (server/storage/providers.storage.ts:161-164).
+    const [provider] = await tx.insert(providers).values({
+      name: "Provedor Demonstração",
+      cnpj: cnpjDoSandbox(),
+      subdomain,
+      plan: "enterprise",
+      status: "active",
+      verificationStatus: "approved",
+      ispCredits: SALDO_INICIAL,
+      spcCredits: SALDO_INICIAL,
+    }).returning();
 
-  const senhaAleatoria = crypto.randomBytes(24).toString("hex");
-  const user = await storage.createUser({
-    email: `${subdomain}@demo.consultaisp.com.br`,
-    password: await hashPassword(senhaAleatoria),
-    name: "Administrador da Demonstração",
-    role: "admin",
-    providerId: provider.id,
-    emailVerified: true,
-  });
+    // Espelha storage.createUser (server/storage/users.storage.ts:92-98),
+    // email canonicalizado incluído.
+    const [user] = await tx.insert(users).values({
+      email: emailCanonico(`${subdomain}@demo.consultaisp.com.br`),
+      password: senhaHash,
+      name: "Administrador da Demonstração",
+      role: "admin",
+      providerId: provider.id,
+      emailVerified: true,
+    }).returning();
 
-  const entradas = planoDeIndicesDoSandbox();
-  const indicePorCursor = new Map(entradas.map((e, i) => [e.cursor, i]));
+    const entradas = planoDeIndicesDoSandbox();
+    const indicePorCursor = new Map(entradas.map((e, i) => [e.cursor, i]));
 
-  await db.transaction(async (tx) => {
     const linhasClientes = entradas.map((e) => linhaDoCliente(provider.id, e, agora));
     const idsClientes = await inserirClientesEmBlocos(tx, linhasClientes);
 
@@ -544,14 +604,14 @@ export async function criarSandbox(): Promise<{ providerId: number; userId: numb
 
     const casos = casosDoKanban(provider.id, entradas, idsClientes, indicePorCursor, agora);
     await tx.insert(cobrancaCasos).values(casos);
-  });
 
-  return {
-    providerId: provider.id,
-    userId: user.id,
-    subdomain,
-    expiraEm: new Date(agora.getTime() + VIDA_DO_SANDBOX_MS),
-  };
+    return {
+      providerId: provider.id,
+      userId: user.id,
+      subdomain,
+      expiraEm: new Date(agora.getTime() + VIDA_DO_SANDBOX_MS),
+    };
+  });
 }
 
 /**
@@ -577,14 +637,34 @@ export async function sandboxesExpirados(agora: Date = new Date()): Promise<numb
 /**
  * Apaga um sandbox e tudo que ele (ou o visitante, ao vivo) gravou.
  *
- * NÃO usa `storage.deleteProvider`: aquele caminho não conhece
- * `cobranca_casos` nem os alertas que uma consulta real do visitante pode
- * gerar (ver abaixo) — chamá-lo aqui quebraria com violação de FK no
- * primeiro sandbox que o visitante realmente usasse. Em vez disso, apaga
- * exatamente as tabelas que este módulo (ou o produto, através dele) pode
- * ter escrito, numa ordem segura para chave estrangeira, dentro de UMA
- * transação — ou apaga tudo, ou não apaga nada, nunca um sandbox pela
- * metade.
+ * REUSA `storage.deleteProvider` (rodada de correção, 11/09/2026) pela
+ * cobertura de base — assim a demonstração herda qualquer manutenção futura
+ * daquela função — mais o DELTA que só o sandbox precisa: 23 tabelas com FK
+ * para `providers` que `deleteProvider` não conhece, ou conhece só por um
+ * dos dois lados (`server/storage/providers.storage.ts:190-226` foi lido
+ * inteiro antes de escrever isto; ela NÃO aceita executor de transação —
+ * chama `db`/`db.select`/`db.delete` direto, sem parâmetro — por isso roda
+ * fora da transação do delta, por conta própria).
+ *
+ * O universo de "tabelas com FK para providers" é conferido CONTRA O SCHEMA
+ * pelo teste (`sandbox.service.test.ts`, "a limpeza cobre toda tabela com FK
+ * para providers"), que deriva a lista via `getTableConfig` em vez de uma
+ * enumeração solta — se uma tabela nova ganhar essa FK no futuro e ninguém
+ * atualizar a lista abaixo, é o teste que acende vermelho, não um sandbox
+ * zumbi em produção.
+ *
+ * Ordem do delta: filhas antes de pais (calculada por ordenação topológica
+ * do grafo de FKs antes de escrever — ver o relatório da tarefa). Delta
+ * inteiro roda ANTES de `storage.deleteProvider`, porque várias dessas
+ * tabelas referenciam `customers`/`equipment`, que só `deleteProvider`
+ * apaga.
+ *
+ * `acessos_suporte` fica de fora de propósito: é a trilha de auditoria de
+ * acesso de suporte, e `deleteProvider` RECUSA apagar o provedor (sem
+ * apagar a trilha) quando ela tem linha — `ProvedorComTrilhaDeSuporteError`,
+ * decisão de LGPD que vale para QUALQUER provedor, sandbox incluído. Se um
+ * sandbox um dia acumular uma dessas linhas, `apagarSandbox` deve mesmo
+ * recusar, e a limpeza da Tarefa 7 já loga e segue para o próximo.
  *
  * Recusa apagar um provedor que não pareça um sandbox: `apagarSandbox` é
  * chamado pela limpeza automática (Tarefa 7) a partir de ids que ELA leu de
@@ -598,34 +678,41 @@ export async function apagarSandbox(providerId: number): Promise<void> {
   }
 
   await db.transaction(async (tx) => {
-    // Cobrança: o quadro que este arquivo semeia, mais o que o visitante cria
-    // ao vivo clicando no kanban (evento, negociação, parcela) — nesta ordem
-    // porque parcela referencia negociação, e as duas referenciam caso.
-    await tx.delete(cobrancaParcelas).where(eq(cobrancaParcelas.providerId, providerId));
-    await tx.delete(cobrancaNegociacoes).where(eq(cobrancaNegociacoes.providerId, providerId));
-    await tx.delete(cobrancaEventos).where(eq(cobrancaEventos.providerId, providerId));
-    await tx.delete(cobrancaCasos).where(eq(cobrancaCasos.providerId, providerId));
-
-    // Uma consulta real ao CPF "devendo_na_rede" (Passo 3.4/`cpfsDeExemplo`)
-    // é EXATAMENTE o tipo de cliente ativo+inadimplente que a regra
-    // `ativo_inadimplente` (server/services/antifraude-rules.ts) usa para
-    // avisar o dono na rede — gravando `anti_fraud_alerts`/`proactive_alerts`
-    // com `consultingProviderId` = ESTE sandbox, nunca `providerId` (o
-    // sandbox nunca tem `erp_integrations` própria, então nunca é alcançado
-    // pela varredura da rede e nunca vira "dono" de um alerta).
+    // Folhas do grafo (nada mais no delta referencia estas) — ordem entre
+    // elas não importa, só precisam vir antes das tabelas que as usam.
     await tx.delete(antiFraudAlerts).where(eq(antiFraudAlerts.consultingProviderId, providerId));
+    await tx.delete(providerDocuments).where(eq(providerDocuments.uploadedById, providerId));
+    await tx.delete(proactiveAlerts).where(eq(proactiveAlerts.providerId, providerId));
     await tx.delete(proactiveAlerts).where(eq(proactiveAlerts.consultingProviderId, providerId));
+    await tx.delete(marcaEventos).where(eq(marcaEventos.providerId, providerId));
+    await tx.delete(comissaoLancamentos).where(eq(comissaoLancamentos.providerId, providerId));
+    await tx.delete(cobrancaPolitica).where(eq(cobrancaPolitica.providerId, providerId));
+    await tx.delete(chatBullqIntegracoes).where(eq(chatBullqIntegracoes.providerId, providerId));
+    await tx.delete(chatAutonomiaConfig).where(eq(chatAutonomiaConfig.providerId, providerId));
+    await tx.delete(bigdataIntegrations).where(eq(bigdataIntegrations.providerId, providerId));
+    await tx.delete(bigdataConsultations).where(eq(bigdataConsultations.providerId, providerId));
+    await tx.delete(assinaturaIntegracoes).where(eq(assinaturaIntegracoes.providerId, providerId));
+    await tx.delete(antiFraudRules).where(eq(antiFraudRules.providerId, providerId));
 
-    // Consultas de verdade que o visitante rodou.
-    await tx.delete(ispConsultations).where(eq(ispConsultations.providerId, providerId));
-    await tx.delete(spcConsultations).where(eq(spcConsultations.providerId, providerId));
-
-    // A carteira própria do sandbox.
-    await tx.delete(invoices).where(eq(invoices.providerId, providerId));
-    await tx.delete(equipment).where(eq(equipment.providerId, providerId));
-    await tx.delete(customers).where(eq(customers.providerId, providerId));
-
-    await tx.delete(users).where(eq(users.providerId, providerId));
-    await tx.delete(providers).where(eq(providers.id, providerId));
+    // Cadeia da cobrança e do chat/recuperação — filhas antes de pais.
+    await tx.delete(cobrancaEventos).where(eq(cobrancaEventos.providerId, providerId));
+    await tx.delete(chatAutonomiaFila).where(eq(chatAutonomiaFila.providerId, providerId));
+    await tx.delete(chatAutonomiaEstado).where(eq(chatAutonomiaEstado.providerId, providerId));
+    await tx.delete(chatBullqConversas).where(eq(chatBullqConversas.providerId, providerId));
+    await tx.delete(equipmentRecoveryEvents).where(eq(equipmentRecoveryEvents.providerId, providerId));
+    await tx.delete(equipmentRecoveryCases).where(eq(equipmentRecoveryCases.providerId, providerId));
+    await tx.delete(cobrancaParcelas).where(eq(cobrancaParcelas.providerId, providerId));
+    await tx.delete(cobrancaConfissoesPdf).where(eq(cobrancaConfissoesPdf.providerId, providerId));
+    await tx.delete(cobrancaConfissoes).where(eq(cobrancaConfissoes.providerId, providerId));
+    await tx.delete(cobrancaNegociacoes).where(eq(cobrancaNegociacoes.providerId, providerId));
+    await tx.delete(cobrancaCasos).where(eq(cobrancaCasos.providerId, providerId));
   });
+
+  // Cobertura de base: as ~16 tabelas que `storage.deleteProvider` já
+  // mantém (invoices, contracts, antiFraudAlerts[providerId], equipment,
+  // customers, isp/spcConsultations, erpSyncLogs, erpIntegrations,
+  // planChanges, providerInvoices, creditOrders,
+  // providerDocuments[providerId], providerPartners, supportThreads+
+  // Messages, users, providers) — e o guard de `acessosSuporte`.
+  await storage.deleteProvider(providerId);
 }

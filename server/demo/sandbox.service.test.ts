@@ -35,8 +35,10 @@ vi.mock("../db", () => ({
   pool: {},
 }));
 
-import { getTableColumns, getTableName } from "drizzle-orm";
+import { getTableColumns, getTableName, is } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import * as schema from "@shared/schema";
 import {
   providers,
   users,
@@ -52,6 +54,37 @@ import {
   proactiveAlerts,
   ispConsultations,
   spcConsultations,
+  // As tabelas abaixo não são escritas por `criarSandbox`, mas
+  // `storage.deleteProvider` (reusada por `apagarSandbox`, rodada de
+  // correção 11/09/2026) lê/escreve nelas, e o teste de completude semeia
+  // TODA tabela com FK para `providers` — o banco de mentira precisa do
+  // mapa de colunas de cada uma delas para não estourar "Tabela sem mapa".
+  contracts,
+  providerInvoices,
+  creditOrders,
+  planChanges,
+  providerPartners,
+  erpSyncLogs,
+  supportThreads,
+  supportMessages,
+  acessosSuporte,
+  cobrancaConfissoes,
+  cobrancaConfissoesPdf,
+  cobrancaPolitica,
+  antiFraudRules,
+  assinaturaIntegracoes,
+  bigdataConsultations,
+  bigdataIntegrations,
+  chatAutonomiaConfig,
+  chatAutonomiaEstado,
+  chatAutonomiaFila,
+  chatBullqConversas,
+  chatBullqIntegracoes,
+  comissaoLancamentos,
+  equipmentRecoveryCases,
+  equipmentRecoveryEvents,
+  marcaEventos,
+  providerDocuments,
 } from "@shared/schema";
 import {
   criarSandbox,
@@ -83,6 +116,32 @@ const TABELAS = [
   proactiveAlerts,
   ispConsultations,
   spcConsultations,
+  contracts,
+  providerInvoices,
+  creditOrders,
+  planChanges,
+  providerPartners,
+  erpSyncLogs,
+  supportThreads,
+  supportMessages,
+  acessosSuporte,
+  cobrancaConfissoes,
+  cobrancaConfissoesPdf,
+  cobrancaPolitica,
+  antiFraudRules,
+  assinaturaIntegracoes,
+  bigdataConsultations,
+  bigdataIntegrations,
+  chatAutonomiaConfig,
+  chatAutonomiaEstado,
+  chatAutonomiaFila,
+  chatBullqConversas,
+  chatBullqIntegracoes,
+  comissaoLancamentos,
+  equipmentRecoveryCases,
+  equipmentRecoveryEvents,
+  marcaEventos,
+  providerDocuments,
 ];
 /** tabela (nome real do banco) -> (coluna do banco -> chave camelCase que o Drizzle usa em JS). */
 const chavePorColuna = new Map(
@@ -176,7 +235,31 @@ function processarInsert(sqlTexto: string, params: unknown[]): { tabela: string;
   return { tabela, linhasCriadas };
 }
 
-/** `select <cols> from "t" [where "t"."col" = $1 [and ...]]` — só igualdade, é tudo que este arquivo e sandbox.service.ts emitem. */
+/**
+ * Avalia um trecho de WHERE contra uma linha — três formas, que juntas
+ * cobrem tudo que este par de arquivos e `storage.deleteProvider` emitem:
+ * `"t"."col" = $N` (igualdade), `"t"."col" in ($N, $M, ...)` (usada pelo
+ * `inArray` de `deleteProvider` para apagar `support_messages` pelos ids de
+ * thread), e o literal `false` (o que o Drizzle gera para um `inArray` com
+ * lista VAZIA — nenhuma linha bate). Todas as condições encontradas são
+ * combinadas em E, que é tudo que os dois arquivos precisam.
+ */
+function avaliarCondicoes(whereTexto: string, mapa: Map<string, string>, params: unknown[], linha: Record<string, unknown>): boolean {
+  if (whereTexto.trim() === "false") return false;
+  const igualdades = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g));
+  for (const c of igualdades) {
+    if (linha[mapa.get(c[1])!] !== params[Number(c[2]) - 1]) return false;
+  }
+  const listas = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" in \(([^)]*)\)/g));
+  for (const c of listas) {
+    const indices = c[2].split(", ").map((ref) => Number(ref.replace("$", "")) - 1);
+    const permitidos = indices.map((i) => params[i]);
+    if (!permitidos.includes(linha[mapa.get(c[1])!])) return false;
+  }
+  return true;
+}
+
+/** `select <cols> from "t" [where ...]` — igualdade, `in` ou `false`, ver `avaliarCondicoes`. */
 function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
   const m = sqlTexto.match(/^select (.+) from "(\w+)"(?: where (.+))?$/s);
   if (!m) throw new Error(`SELECT nao reconhecido pelo banco de mentira: ${sqlTexto}`);
@@ -184,17 +267,34 @@ function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
   let linhas = banco.linhas.get(tabela) ?? [];
   if (whereTexto) {
     const mapa = chavePorColuna.get(tabela)!;
-    const condicoes = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g));
-    linhas = linhas.filter((linha) => condicoes.every((c) => linha[mapa.get(c[1])!] === params[Number(c[2]) - 1]));
+    linhas = linhas.filter((linha) => avaliarCondicoes(whereTexto, mapa, params, linha));
   }
   return projetar(tabela, linhas, textoDeColunas);
 }
 
 /**
- * `delete from "t" [where "t"."col" = $1 [and ...]]` — `apagarSandbox` é o
- * único código deste par de arquivos que apaga (mundo-base.ts nunca
- * precisou). Remove do banco de mentira toda linha que bater com TODAS as
- * condições — mesmo parser de igualdade que `processarSelect` já usa.
+ * `select count(*)::int from "t" [where ...]` — o guard de LGPD de
+ * `storage.deleteProvider` (`server/storage/providers.storage.ts:191-194`),
+ * que conta `acessos_suporte` antes de decidir se apaga. Formato conferido
+ * por sonda isolada contra o drizzle-orm real antes de escrever isto: SEM
+ * alias (`sql<number>` é só o tipo do TypeScript, não aparece no SQL).
+ */
+function processarCount(sqlTexto: string, params: unknown[]): unknown[][] {
+  const m = sqlTexto.match(/^select count\(\*\)::int from "(\w+)"(?: where (.+))?$/s);
+  if (!m) throw new Error(`COUNT nao reconhecido pelo banco de mentira: ${sqlTexto}`);
+  const [, tabela, whereTexto] = m;
+  const mapa = chavePorColuna.get(tabela);
+  if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+  const linhas = (banco.linhas.get(tabela) ?? []).filter((linha) => !whereTexto || avaliarCondicoes(whereTexto, mapa, params, linha));
+  return [[String(linhas.length)]];
+}
+
+/**
+ * `delete from "t" [where ...]` — `apagarSandbox` e `storage.deleteProvider`
+ * (reusada por ela, rodada de correção 11/09/2026) são os únicos códigos
+ * deste par de arquivos que apagam (mundo-base.ts nunca precisou). Remove do
+ * banco de mentira toda linha que bater com as condições — mesmo avaliador
+ * que `processarSelect` usa, igualdade/`in`/`false` incluídos.
  */
 function processarDelete(sqlTexto: string, params: unknown[]): void {
   const m = sqlTexto.match(/^delete from "(\w+)"(?: where (.+))?$/s);
@@ -207,8 +307,7 @@ function processarDelete(sqlTexto: string, params: unknown[]): void {
   }
   const mapa = chavePorColuna.get(tabela);
   if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
-  const condicoes = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g));
-  const restantes = linhasAtuais.filter((linha) => !condicoes.every((c) => linha[mapa.get(c[1])!] === params[Number(c[2]) - 1]));
+  const restantes = linhasAtuais.filter((linha) => !avaliarCondicoes(whereTexto, mapa, params, linha));
   banco.linhas.set(tabela, restantes);
 }
 
@@ -218,6 +317,9 @@ beforeAll(() => {
       const retorno = sqlTexto.match(/ returning (.+)$/s);
       const { tabela, linhasCriadas } = processarInsert(sqlTexto, params);
       return { rows: retorno ? projetar(tabela, linhasCriadas, retorno[1]) : [] };
+    }
+    if (sqlTexto.startsWith("select count(*)::int from")) {
+      return { rows: processarCount(sqlTexto, params) };
     }
     if (sqlTexto.startsWith("select")) {
       return { rows: processarSelect(sqlTexto, params) };
@@ -413,8 +515,10 @@ describe("sandbox do visitante", () => {
           providerId, providerName: p.nome, erpSource: FONTE_ERP_DEMO, ok: r.ok,
           customers: r.customers.map((c) => ({
             ...c,
-            status: c.contractStatus ?? (c as any).status,
-            registrationDate: c.contractStartDate ?? (c as any).registrationDate,
+            // Mesmo operador de normalizeCustomer (server/services/realtime-query.service.ts:352,357):
+            // `||`, não `??` — por igual a produção, não só "equivalente na prática".
+            status: c.contractStatus || (c as any).status,
+            registrationDate: c.contractStartDate || (c as any).registrationDate,
           })),
         };
       }),
@@ -429,5 +533,133 @@ describe("sandbox do visitante", () => {
     });
 
     expect(resultado?.detected, JSON.stringify(erpResults)).toBe(true);
+  });
+});
+
+/**
+ * A limpeza do sandbox, cobrindo TODA tabela com FK para `providers` — não
+ * as que alguém lembrou de listar. Achado real da rodada de correção
+ * (11/09/2026): `apagarSandbox` cobria ~15 das 38 tabelas do schema com FK
+ * para `providers`; qualquer linha numa das outras 23 fazia o
+ * `DELETE FROM providers` final estourar violação de chave estrangeira —
+ * dentro de uma transação, então a limpeza inteira revertia, e a Tarefa 7
+ * (que captura por sandbox e segue para o próximo) nunca tentava de novo:
+ * zumbi permanente.
+ *
+ * A lista de tabelas-alvo é DERIVADA DO SCHEMA (`getTableConfig`), nunca
+ * digitada à mão: uma enumeração escrita a mão envelhece na primeira tabela
+ * que outra feature criar amanhã; esta, não — ganha a FK, o teste passa a
+ * semeá-la, e se `apagarSandbox` não souber limpá-la, ACENDE VERMELHO aqui.
+ */
+describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado do schema)", () => {
+  /**
+   * Única exclusão, e DECLARADA com o motivo — nunca uma omissão silenciosa.
+   * `acessos_suporte` é a trilha de auditoria de acesso de suporte;
+   * `storage.deleteProvider` RECUSA apagar o provedor (sem tocar a trilha)
+   * quando ela tem linha — `ProvedorComTrilhaDeSuporteError`
+   * (`server/storage/providers.storage.ts:73-84`), decisão de LGPD que vale
+   * para QUALQUER provedor, sandbox incluído. Semear uma linha aqui e exigir
+   * "sucesso e resíduo zero" contradiria essa decisão de propósito — o
+   * comportamento CORRETO, se um sandbox algum dia acumular uma linha destas,
+   * é `apagarSandbox` recusar (e a limpeza da Tarefa 7 já loga e segue para
+   * o próximo), não apagar por baixo do pano.
+   */
+  const EXCLUIDAS_COM_MOTIVO: Record<string, string> = {
+    acessos_suporte:
+      "storage.deleteProvider recusa apagar o provedor (ProvedorComTrilhaDeSuporteError) quando esta tabela tem linha — trilha de LGPD, vale para qualquer provedor. Não é resíduo, é desenho.",
+  };
+
+  interface AlvoDeFk {
+    tabela: PgTable;
+    nomeTabela: string;
+    chaveCamelCase: string;
+  }
+
+  /** Toda tabela exportada de `@shared/schema` com uma FK (de qualquer coluna) apontando para `providers.id`. */
+  function tabelasComFkParaProviders(): AlvoDeFk[] {
+    const alvos: AlvoDeFk[] = [];
+    for (const valor of Object.values(schema)) {
+      if (!valor || typeof valor !== "object" || !is(valor as object, PgTable)) continue;
+      const tabela = valor as PgTable;
+      const cfg = getTableConfig(tabela);
+      const colunasDaTabela = getTableColumns(tabela);
+      for (const fk of cfg.foreignKeys ?? []) {
+        const ref = fk.reference();
+        if (getTableName(ref.foreignTable) !== "providers") continue;
+        for (const colunaRef of ref.columns) {
+          const entrada = Object.entries(colunasDaTabela).find(([, c]) => c === colunaRef);
+          if (!entrada) throw new Error(`Nao encontrei a chave JS da coluna FK em ${cfg.name}`);
+          alvos.push({ tabela, nomeTabela: cfg.name, chaveCamelCase: entrada[0] });
+        }
+      }
+    }
+    return alvos;
+  }
+
+  /**
+   * Uma linha mínima e válida para QUALQUER tabela: a coluna-alvo recebe
+   * `providerId`; toda outra coluna NOT NULL sem default recebe um valor
+   * genérico pelo `dataType` do drizzle (conferido por sonda isolada:
+   * "number"/"string"/"boolean"/"json"/"date" cobrem as colunas deste
+   * schema). O banco de mentira não confere integridade referencial nem
+   * unicidade, então um `1`/`"x"` cru em outra FK (customerId, userId...)
+   * não quebra a inserção — só a coluna sob teste importa.
+   */
+  function linhaGenericaParaTeste(tabela: PgTable, chaveAlvo: string, providerId: number): Record<string, unknown> {
+    const colunas = getTableColumns(tabela);
+    const linha: Record<string, unknown> = {};
+    for (const [chave, colunaUntyped] of Object.entries(colunas)) {
+      const coluna = colunaUntyped as { notNull: boolean; hasDefault: boolean; dataType: string };
+      if (chave === chaveAlvo) {
+        linha[chave] = providerId;
+        continue;
+      }
+      if (!coluna.notNull || coluna.hasDefault) continue; // deixa o default (ou null) cuidar
+      switch (coluna.dataType) {
+        case "number": linha[chave] = 1; break;
+        case "boolean": linha[chave] = false; break;
+        case "json": linha[chave] = {}; break;
+        case "date": linha[chave] = new Date("2026-01-01T00:00:00.000Z"); break;
+        default: linha[chave] = "x"; // string — inclui DATE-como-texto (ver customers.contractStartDate)
+      }
+    }
+    return linha;
+  }
+
+  it("as tabelas excluidas da varredura tem motivo declarado — nao omissao silenciosa", () => {
+    expect(Object.keys(EXCLUIDAS_COM_MOTIVO)).toEqual(["acessos_suporte"]);
+    expect(EXCLUIDAS_COM_MOTIVO.acessos_suporte.length).toBeGreaterThan(20);
+  });
+
+  it("apagarSandbox limpa toda tabela com FK para providers — lista derivada do schema, nunca digitada a mao", async () => {
+    const alvos = tabelasComFkParaProviders().filter((a) => !(a.nomeTabela in EXCLUIDAS_COM_MOTIVO));
+    // Sonda de sanidade do PROPRIO teste: se o schema mudar de forma e o
+    // reflexo parar de achar FKs, é melhor um teste vermelho aqui do que um
+    // teste verde que não testa mais nada.
+    expect(alvos.length, "nenhuma FK para providers encontrada — o reflexo sobre o schema quebrou").toBeGreaterThan(30);
+
+    const s = await criarSandbox();
+
+    for (const alvo of alvos) {
+      const linha = linhaGenericaParaTeste(alvo.tabela, alvo.chaveCamelCase, s.providerId);
+      await banco.db.insert(alvo.tabela).values(linha);
+    }
+
+    // A semeadura funcionou? (Distingue "meu teste nao semeou" de "apagarSandbox nao limpou".)
+    const naoSemeadas: string[] = [];
+    for (const alvo of alvos) {
+      const linhas = (banco.linhas.get(alvo.nomeTabela) ?? []).filter((l) => l[alvo.chaveCamelCase] === s.providerId);
+      if (linhas.length === 0) naoSemeadas.push(`${alvo.nomeTabela}.${alvo.chaveCamelCase}`);
+    }
+    expect(naoSemeadas, `semeadura do teste falhou em: ${naoSemeadas.join(", ")}`).toEqual([]);
+
+    await apagarSandbox(s.providerId);
+
+    const residuos: string[] = [];
+    for (const alvo of alvos) {
+      const linhas = (banco.linhas.get(alvo.nomeTabela) ?? []).filter((l) => l[alvo.chaveCamelCase] === s.providerId);
+      if (linhas.length > 0) residuos.push(`${alvo.nomeTabela}.${alvo.chaveCamelCase} (${linhas.length} linha[s])`);
+    }
+    expect(residuos, `apagarSandbox nao limpou: ${residuos.join(", ")}`).toEqual([]);
   });
 });
