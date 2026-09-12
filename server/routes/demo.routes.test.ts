@@ -44,16 +44,24 @@ const sandboxMock = vi.hoisted(() => ({
   // feliz de criacao. O teste do teto (abaixo) troca para um valor >= ele.
   contarSandboxesVivos: vi.fn(async () => 0),
   TETO_DE_SANDBOXES_VIVOS: 150,
+  // Constante de verdade (nao ha comportamento a espionar) — precisa existir
+  // no mock porque este arquivo substitui o MODULO inteiro.
+  PREFIXO_SANDBOX: "sandbox-",
 }));
 vi.mock("../demo/sandbox.service", () => sandboxMock);
 
 const storageMock = vi.hoisted(() => ({
-  // Por padrao, o sandbox "ainda existe" — a maioria dos testes quer o
-  // caminho feliz de reaproveitamento; quem quer o contrario usa
-  // `mockResolvedValueOnce(undefined)`.
-  getProvider: vi.fn(async () => ({ id: 42, subdomain: "sandbox-abc123" })),
+  // Por padrao, o sandbox "ainda existe" e esta ATIVO — a maioria dos testes
+  // quer o caminho feliz de reaproveitamento (incluindo `requireProvider`,
+  // real e nao mockado neste arquivo, que consulta `storage.getProvider` via
+  // `provedorSuspenso` e trata a ausencia de `status: "active"` como
+  // suspenso). Quem quer o contrario usa `mockResolvedValueOnce`.
+  getProvider: vi.fn(async () => ({ id: 42, subdomain: "sandbox-abc123", status: "active" })),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
+
+const exemplosMock = vi.hoisted(() => ({ cpfsDeExemplo: vi.fn() }));
+vi.mock("../demo/exemplos.service", () => exemplosMock);
 
 import { registerDemoRoutes } from "./demo.routes";
 
@@ -216,6 +224,32 @@ describe("GET /demo em DEMO_MODE", () => {
     expect(storageMock.getProvider).not.toHaveBeenCalled();
   });
 
+  /**
+   * Item 5 do plano de 2026-09-11: o 500 tambem respondia JSON cru. Mesma
+   * pagina do 429 (`server/routes/demo-porta-html.ts`), com o texto seguro de
+   * `getSafeErrorMessage` (nunca "boom" cru, o detalhe interno) e um jeito
+   * claro de seguir em frente.
+   */
+  it("500 vira pagina HTML no visual da landing, com o texto de getSafeErrorMessage e o que fazer a seguir", async () => {
+    // `getSafeErrorMessage` (server/utils/safe-error.ts) e quem decide se a
+    // mensagem crua aparece ou vira "Erro interno do servidor" — so troca
+    // pelo texto generico quando NODE_ENV=production, o que este teste (como
+    // o resto da suite) nao roda sob. O que esta correcao muda e SO a
+    // EMBALAGEM (HTML em vez de JSON); a mensagem em si continua sendo
+    // decidida por aquela funcao, ja coberta em outro lugar.
+    sandboxMock.criarSandbox.mockRejectedValueOnce(new Error("boom"));
+
+    const res = await pedirDemo();
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    const corpo = await res.text();
+    expect(corpo).toMatch(/<!doctype html>/i);
+    expect(corpo).toMatch(/boom/); // o texto que getSafeErrorMessage devolveu, incorporado na pagina
+    expect(corpo).toMatch(/Tente novamente/);
+    expect(corpo).toMatch(/href="\/"/);
+  });
+
   it("500 quando a verificacao de existencia falha — nao tenta criar outro por cima", async () => {
     sessao = { save: (cb: (e?: unknown) => void) => cb(), userId: 7, providerId: 42 };
     storageMock.getProvider.mockRejectedValueOnce(new Error("banco fora do ar"));
@@ -283,7 +317,37 @@ describe("GET /demo — limite", () => {
 
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toMatch(/^\d+$/);
-    expect((await res.json()).message).toMatch(/Tente novamente em \d+ minuto/);
+    // Item 5 do plano de 2026-09-11: a resposta virou pagina HTML, nao mais
+    // JSON cru — mas o quanto esperar continua na tela, so que em prosa.
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    const corpo = await res.text();
+    expect(corpo).toMatch(/<html/i);
+    expect(corpo).toMatch(/\d+ minuto/);
+  });
+
+  /**
+   * Item 5 do plano de 2026-09-11: ate aqui o 429 respondia
+   * `{"message":"Muitas tentativas..."}` cru — um estranho que clica duas
+   * vezes rapido demais via um blob de JSON no lugar de qualquer coisa que
+   * pareca um site. A pagina segue a linguagem visual da landing (a MESMA
+   * excecao ao DESIGN_SYSTEM.md que ela e a porta de entrada da plataforma
+   * ja sao).
+   */
+  it("o 429 vira pagina HTML no visual da landing, nunca JSON cru", async () => {
+    for (let i = 0; i < 2; i++) {
+      sessao = { save: (cb: (e?: unknown) => void) => cb() };
+      await pedirDemo();
+    }
+    sessao = { save: (cb: (e?: unknown) => void) => cb() };
+
+    const res = await pedirDemo();
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    const corpo = await res.text();
+    expect(corpo).toMatch(/<!doctype html>/i);
+    expect(corpo).toMatch(/consulta<span[^>]*>\.isp/); // o wordmark /consulta.isp
+    expect(corpo).toMatch(/href="\/"/); // diz o que fazer a seguir: volta pra home
   });
 });
 
@@ -397,5 +461,90 @@ describe("GET /demo — criacao serializada dentro do processo", () => {
         expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
       }));
     }
+  });
+});
+
+/**
+ * Os três CPFs de exemplo (item 1 do plano de 2026-09-11) — a tela de
+ * Consulta ISP sugere um clique por história. A rota é gated pelos MESMOS
+ * dois sinais que `FaixaDemonstracao` exige para mostrar o aviso de
+ * demonstração: `emModoDemo()` E o subdomínio do PRÓPRIO provedor da sessão
+ * começando por `sandbox-`.
+ *
+ * `requireAuth`/`requireProvider` são os REAIS deste arquivo (não mockados —
+ * ver o cabeçalho do arquivo): a sessão de cada teste precisa provar host
+ * (`hostLogin`) e ter um provedor "ativo" (`storage.getProvider` mockado
+ * acima com `status: "active"`, o que `requireProvider` exige via
+ * `provedorSuspenso`).
+ */
+describe("GET /api/demo/exemplos-cpf", () => {
+  const EXEMPLOS_DE_TESTE = [
+    { situacao: "limpo" as const, cpf: "99900000019", rotulo: "CPF limpo", descricao: "..." },
+    { situacao: "devendo_na_rede" as const, cpf: "99911111150", rotulo: "Devendo na rede", descricao: "..." },
+    { situacao: "migrador_serial" as const, cpf: "99922222291", rotulo: "Migrador serial", descricao: "..." },
+  ];
+
+  function sessaoDeSandboxLogado() {
+    sessao = {
+      save: (cb: (e?: unknown) => void) => cb(),
+      userId: 7, providerId: 42, role: "admin",
+      hostLogin: HOST_DA_DEMO, subdomain: "sandbox-abc123",
+    };
+  }
+
+  const pedirExemplos = () => fetch(`${base}/api/demo/exemplos-cpf`, { headers: {} });
+
+  it("fora de DEMO_MODE, 404 mesmo com sessao de sandbox valida", async () => {
+    delete process.env.DEMO_MODE;
+    sessaoDeSandboxLogado();
+
+    const res = await pedirExemplos();
+
+    expect(res.status).toBe(404);
+    expect(exemplosMock.cpfsDeExemplo).not.toHaveBeenCalled();
+  });
+
+  it("sem sessao (nunca passou por /demo), 401 — a rota exige login, como o resto do painel", async () => {
+    sessao = { save: (cb: (e?: unknown) => void) => cb() };
+
+    const res = await pedirExemplos();
+
+    expect(res.status).toBe(401);
+    expect(exemplosMock.cpfsDeExemplo).not.toHaveBeenCalled();
+  });
+
+  it("provedor de verdade (subdominio fora do prefixo sandbox-) recebe 404, nao um array vazio", async () => {
+    sessao = {
+      save: (cb: (e?: unknown) => void) => cb(),
+      userId: 7, providerId: 99, role: "admin",
+      hostLogin: HOST_DA_DEMO, subdomain: "nslink",
+    };
+    storageMock.getProvider.mockResolvedValueOnce({ id: 99, subdomain: "nslink", status: "active" });
+
+    const res = await pedirExemplos();
+
+    expect(res.status).toBe(404);
+    expect(exemplosMock.cpfsDeExemplo).not.toHaveBeenCalled();
+  });
+
+  it("sandbox autenticado recebe os tres exemplos da PROPRIA carteira", async () => {
+    sessaoDeSandboxLogado();
+    exemplosMock.cpfsDeExemplo.mockResolvedValueOnce(EXEMPLOS_DE_TESTE);
+
+    const res = await pedirExemplos();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ exemplos: EXEMPLOS_DE_TESTE });
+    // O PROPRIO providerId da sessao, nunca um id que o visitante possa pedir.
+    expect(exemplosMock.cpfsDeExemplo).toHaveBeenCalledWith(42);
+  });
+
+  it("carteira sem os candidatos esperados (cpfsDeExemplo lanca) vira 500 com mensagem segura, nunca uma tela quebrada", async () => {
+    sessaoDeSandboxLogado();
+    exemplosMock.cpfsDeExemplo.mockRejectedValueOnce(new Error("cpfsDeExemplo: sandbox 42 sem a carteira esperada"));
+
+    const res = await pedirExemplos();
+
+    expect(res.status).toBe(500);
   });
 });

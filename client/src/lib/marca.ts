@@ -38,6 +38,17 @@ export type MarcaCliente = {
    * em fundo branco.
    */
   paletaClara: { brand: string; ink: string; soft: string } | null;
+  /**
+   * true só no host da demonstração pública (`emModoDemo()` no servidor).
+   *
+   * Existe porque esse host resolve `contexto: "tenant"` — é um subdomínio de
+   * `MAIN_DOMAIN` sem marca própria, do jeito exato que um provedor real sem
+   * white label resolveria — e sem este sinal a MAIS, `LoginDaPlataforma`
+   * mostrava o formulário de login para um visitante cujo sandbox expirou: ele
+   * nunca tem como preencher (a senha é aleatória, gerada por `criarSandbox`,
+   * e nunca chega até ele). Ver `server/services/marca.service.ts`.
+   */
+  demoMode: boolean;
 };
 
 /**
@@ -56,6 +67,7 @@ const PADRAO: MarcaCliente = {
   responsavelRazaoSocial: null,
   responsavelCnpj: null,
   paletaClara: null,
+  demoMode: false,
 };
 
 declare global {
@@ -83,6 +95,7 @@ export function marcaAtual(): MarcaCliente {
     responsavelRazaoSocial: injetada?.responsavelRazaoSocial ?? PADRAO.responsavelRazaoSocial,
     responsavelCnpj: injetada?.responsavelCnpj ?? PADRAO.responsavelCnpj,
     paletaClara: injetada?.paletaClara ?? PADRAO.paletaClara,
+    demoMode: injetada?.demoMode === true,
   };
   return memoria;
 }

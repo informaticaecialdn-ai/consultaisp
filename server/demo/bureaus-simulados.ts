@@ -32,9 +32,34 @@
  * conta não compra — ver os comentários "SEIS SAIRAM" em bigdata.service.ts),
  * a simulação também sai vazia: mostrar aqui o que a produção nunca mostra
  * enganaria o visitante sobre o que o produto de fato entrega hoje.
+ *
+ * IDENTIDADE COERENTE COM O MUNDO FICTÍCIO (rodada de correção, demonstração
+ * pública, item 4 do plano de 2026-09-11): até aqui, nome/endereço/telefone
+ * vinham SEMPRE de um hash do próprio documento (`pessoaSimulada`), sem olhar
+ * para `server/demo/pessoas-ficticias.ts` — a mesma fonte que
+ * `server/demo/mundo-base.ts` e `server/demo/sandbox.service.ts` usam para
+ * povoar `customers`. Um CPF que É cliente de algum provedor da demonstração
+ * (a Consulta ISP lê `customers` e mostra a identidade de lá) virava OUTRA
+ * pessoa nos relatórios SPC/Cadastral — medido: `99950400007` saía "Rosana
+ * Cardoso Andrade" na Consulta ISP e "Carlos Costa Souza" no SPC. Um
+ * visitante que abre as duas telas via o produto se contradizer sobre quem é
+ * o titular do MESMO documento.
+ *
+ * A correção resolve identidade (nome, telefone, endereço, e-mail) a partir
+ * de `pessoaFicticia` sempre que o documento é RECONHECIDAMENTE um CPF que o
+ * próprio gerador fictício produziria — nunca por suposição: `cpfFicticio`
+ * roda de novo sobre o núcleo extraído do documento e só quando o resultado
+ * bate exatamente com a entrada é que o índice é aceito (ver
+ * `indiceDoMundoFicticio`). Um documento que não pertence ao mundo (o
+ * visitante digitou um CPF qualquer) continua determinístico do jeito de
+ * sempre, por hash do próprio documento — não há "verdade" nenhuma para
+ * resolver aí. O que `pessoaFicticia` não rastreia (mãe, pai, gênero,
+ * nascimento, idade) continua vindo do hash independente: não há outra tela
+ * do produto que os compare.
  */
 import type { SpcResult } from "../services/spc/spc-parser";
 import type { ResultadoConsulta } from "../services/bigdata.service";
+import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
 
 // ── Hash determinístico ──────────────────────────────────────────────────────
 
@@ -190,6 +215,57 @@ function pessoaSimulada(base: number, hojeMs: number): PessoaSimulada {
     uf: "PR",
     cep: `${cidade.cepPrefixo}-${String(intEntre(base, 17, 0, 999)).padStart(3, "0")}`,
     email: `${semAcento(prenome)}.${semAcento(sobrenome1)}@example.com`,
+  };
+}
+
+/**
+ * O núcleo de 6 dígitos que `cpfFicticio` teria usado para gerar este
+ * documento, ou `null` quando o documento NÃO pertence ao mundo fictício
+ * (visitante digitou um CPF qualquer, ou é um CNPJ).
+ *
+ * A prova é por RODADA, não por formato: reconstrói `cpfFicticio(nucleo)` a
+ * partir dos 6 dígitos centrais e compara com a entrada. Reimplementar aqui o
+ * dígito verificador (ou confiar só no prefixo "999") aceitaria documentos
+ * que o gerador nunca produziu — uma coincidência de prefixo com dígitos
+ * aleatórios passaria batido, e resolveria identidade errada para o CPF de um
+ * visitante que só por acaso começa com "999".
+ */
+function indiceDoMundoFicticio(doc: string): number | null {
+  if (doc.length !== 11 || !doc.startsWith("999")) return null;
+  const nucleo = Number(doc.slice(3, 9));
+  if (!Number.isInteger(nucleo)) return null;
+  return cpfFicticio(nucleo) === doc ? nucleo : null;
+}
+
+/** "(43) 91234-5678" -> { ddd: "43", numero: "91234-5678" } — o mesmo formato que `PessoaSimulada` já usa nos dois campos separados. */
+function separarTelefone(telefone: string): { ddd: string; numero: string } {
+  const m = telefone.match(/^\((\d{2})\)\s*(.+)$/);
+  return m ? { ddd: m[1], numero: m[2] } : { ddd: DDD_DA_REGIAO, numero: telefone };
+}
+
+/**
+ * Sobrescreve nome, telefone, endereço e e-mail pela identidade do MUNDO
+ * FICTÍCIO (`server/demo/pessoas-ficticias.ts`) — o que faz a Consulta ISP e
+ * os bureaus simulados concordarem sobre quem é o titular do MESMO
+ * documento. Mãe, pai, gênero, nascimento e idade `pessoaFicticia` não
+ * rastreia: continuam vindo do hash independente de `pessoa` (nenhuma outra
+ * tela do produto os exibe lado a lado para comparar).
+ */
+function comIdentidadeDoMundo(pessoa: PessoaSimulada, indiceMundo: number): PessoaSimulada {
+  const doMundo = pessoaFicticia(indiceMundo);
+  const tel = separarTelefone(doMundo.telefone);
+  return {
+    ...pessoa,
+    nomeCompleto: doMundo.nome,
+    telefoneDdd: tel.ddd,
+    telefoneNumero: tel.numero,
+    logradouro: doMundo.logradouro,
+    numero: doMundo.numero,
+    bairro: doMundo.bairro,
+    cidade: doMundo.cidade,
+    uf: doMundo.uf,
+    cep: doMundo.cep,
+    email: doMundo.email,
   };
 }
 
@@ -357,7 +433,9 @@ export function spcSimulado(documento: string): SpcResult {
   const identidadeBase = hashBase(doc);
   const spcBase = hashBase(`${doc}:spc`);
   const hojeMs = hojeUtcMs();
-  const pessoa = pessoaSimulada(identidadeBase, hojeMs);
+  const indiceMundo = indiceDoMundoFicticio(doc);
+  const pessoaPorHash = pessoaSimulada(identidadeBase, hojeMs);
+  const pessoa = indiceMundo !== null ? comIdentidadeDoMundo(pessoaPorHash, indiceMundo) : pessoaPorHash;
 
   const situacao = situacaoDe(spcBase);
   const restrictions = restricoesFicticiasSpc(spcBase, situacao, hojeMs);
@@ -473,7 +551,9 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
   const identidadeBase = hashBase(doc);
   const bdcBase = hashBase(`${doc}:bdc`);
   const hojeMs = hojeUtcMs();
-  const pessoa = pessoaSimulada(identidadeBase, hojeMs);
+  const indiceMundo = indiceDoMundoFicticio(doc);
+  const pessoaPorHash = pessoaSimulada(identidadeBase, hojeMs);
+  const pessoa = indiceMundo !== null ? comIdentidadeDoMundo(pessoaPorHash, indiceMundo) : pessoaPorHash;
   const faixaRenda = escolher(FAIXAS_RENDA, bdcBase, 46);
 
   const situacao = situacaoDe(bdcBase);

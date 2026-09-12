@@ -240,7 +240,7 @@ export interface IStorage {
   getErpIntegracoesResumo(providerId: number): Promise<ResumoErp[]>;
   getErpIntegracoesParaAdmin(providerId: number): Promise<IntegracaoAdminErp[]>;
   pausarPorFalhas(providerId: number, erpSource: string): Promise<void>;
-  getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string }>>;
+  getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string; providerSubdomain: string | null }>>;
   upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration>;
   incrementErpIntegrationCounters(providerId: number, erpSource: string, upserted: number, errors: number): Promise<void>;
   registrarResultadoSync(providerId: number, erpSource: string, r: {

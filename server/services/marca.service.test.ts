@@ -390,3 +390,45 @@ describe("urlDeEntrada", () => {
     }
   });
 });
+
+/**
+ * Item 6 do plano de 2026-09-11: o host da demonstração pública
+ * (`demo.consultaisp.com.br`) é um subdomínio de `MAIN_DOMAIN` sem marca
+ * própria registrada — resolve exatamente como o subdomínio de um provedor
+ * qualquer sem white label (`contexto: "tenant"`, `marcaId: null`). Sem um
+ * sinal A MAIS, `App.tsx` mostra o LOGIN da plataforma para um visitante cujo
+ * sandbox expirou — um formulário que ele nunca tem como preencher (a senha é
+ * aleatória, gerada por `criarSandbox`, e nunca chega até ele).
+ */
+describe("demoMode em MarcaResolvida (item 6)", () => {
+  const original = process.env.DEMO_MODE;
+  afterEach(() => {
+    if (original === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = original;
+  });
+
+  it("em modo demo, QUALQUER host resolve com demoMode:true — inclusive um subdominio sem marca (o caso do host da demonstracao)", async () => {
+    process.env.DEMO_MODE = "true";
+    const marca = await resolverMarcaPorHost("demo.consultaisp.com.br");
+    expect(marca.contexto).toBe("tenant"); // continua tenant: nada nisso muda
+    expect(marca.marcaId).toBeNull();
+    expect(marca.demoMode).toBe(true);
+  });
+
+  it("fora do modo demo (producao), demoMode nunca e true", async () => {
+    delete process.env.DEMO_MODE;
+    const marca = await resolverMarcaPorHost("nslink.consultaisp.com.br");
+    expect(marca.demoMode).toBe(false);
+  });
+
+  it("demoMode e lido fresco a cada chamada — nao fica preso ao TTL do cache por host", async () => {
+    delete process.env.DEMO_MODE;
+    const antes = await resolverMarcaPorHost("nslink.consultaisp.com.br");
+    expect(antes.demoMode).toBe(false);
+
+    process.env.DEMO_MODE = "true";
+    // MESMO host, dentro da janela de cache de 5 min — se demoMode estivesse
+    // gravado DENTRO da entrada cacheada, este segundo valor ainda seria false.
+    const depois = await resolverMarcaPorHost("nslink.consultaisp.com.br");
+    expect(depois.demoMode).toBe(true);
+  });
+});

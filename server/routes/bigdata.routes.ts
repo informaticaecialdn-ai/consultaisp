@@ -250,6 +250,43 @@ export function registerBigdataRoutes(): Router {
         return res.status(400).json({ consultaId, message: "CPF inválido: dígitos verificadores incorretos" });
       }
 
+      /**
+       * CNPJ na demonstração pública: mensagem clara, não erro de configuração.
+       *
+       * A tela oferece "CPF ou CNPJ" e, em modo demo, `GET /api/bigdata-integration`
+       * responde `configurado: true` (a exceção logo abaixo existe para o CPF
+       * simulado alcançar a tela) — testar o próprio CNPJ é o primeiro instinto
+       * de quem experimenta o produto, e sem este desvio a consulta caía direto
+       * no "sem-credencial" abaixo: um 400 "Consulta cadastral não configurada"
+       * ao lado de uma tela que acabou de dizer que está configurada.
+       *
+       * A escolha aqui é MENSAGEM, não SIMULAÇÃO: `consultarCnpj` nunca foi
+       * ensinado a desviar para um resultado fictício (`consultarCpf` tem
+       * `cadastralSimulado` para isso — `server/demo/bureaus-simulados.ts` —,
+       * mas não existe o equivalente para pessoa jurídica), e este produto não
+       * tem nenhum mundo fictício de EMPRESAS: `pessoas-ficticias.ts` só gera
+       * pessoas físicas, e os únicos CNPJs do mundo fictício são os dos cinco
+       * provedores da rede (`cnpjFicticio` em `server/demo/mundo-base.ts`) —
+       * não haveria "cliente pessoa jurídica" nenhum para inventar um resultado
+       * plausível. Construir esse mundo do zero (razão social, sócios, CNAE,
+       * situação na Receita) para um produto cujos clientes de ISP são sempre
+       * pessoas físicas não paga o custo de manutenção. Uma mensagem honesta
+       * ("isto não está nesta demonstração") é mais barata e não arrisca uma
+       * simulação de empresa inconsistente.
+       */
+      if (ehCnpj && emModoDemo()) {
+        logger.info(
+          { ...contexto, motivo: "cnpj-fora-do-escopo-da-demonstracao" },
+          "[Cadastral] CNPJ fora do escopo da demonstração pública — nada cobrado",
+        );
+        return res.status(400).json({
+          consultaId,
+          foraDaDemonstracao: true,
+          message: "Esta demonstração simula a consulta cadastral de CPF (pessoa física). "
+            + "CNPJ faz parte do produto real, mas não está incluído nesta demonstração pública.",
+        });
+      }
+
       const integ = await storage.getBigdataIntegration(providerId);
       /**
        * Na instância de demonstração não há credencial BigDataCorp nenhuma —

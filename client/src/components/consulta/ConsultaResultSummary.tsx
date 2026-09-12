@@ -88,7 +88,16 @@ export default function ConsultaResultSummary({
 
   const dt = consultation?.createdAt ? new Date(consultation.createdAt) : new Date();
   const dataHora = dt.toLocaleDateString("pt-BR") + " " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  const provKind = result.source === "cache" ? "cache" : result.source === "no_erp" ? "sem-rede" : "real";
+  /**
+   * Item 6 do plano de 2026-09-11: na demonstração pública o dado É lido ao
+   * vivo do conector "demo" (tecnicamente "real" pelo critério de sempre),
+   * mas ao lado de uma carteira inteira fictícia isso lê como mentira — o
+   * SPC e a Cadastral já mostram "SIMULADO" para o mesmo CPF. `result.simulado`
+   * (só `true` quando `emModoDemo()`) tem prioridade sobre cache/sem-rede:
+   * um visitante da demonstração não se beneficia de saber que a resposta
+   * veio do cache — o que importa para ele é que o mundo inteiro é fictício.
+   */
+  const provKind = result.simulado ? "simulado" : result.source === "cache" ? "cache" : result.source === "no_erp" ? "sem-rede" : "real";
   const custoLabel = result.creditsCost > 0
     ? `custo ${result.creditsCost} crédito${result.creditsCost > 1 ? "s" : ""}`
     : "sem custo";

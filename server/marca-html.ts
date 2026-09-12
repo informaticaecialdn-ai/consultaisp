@@ -201,6 +201,15 @@ function blocoDeScript(marca: MarcaResolvida): string {
     paletaClara: marca.cores && [marca.cores.claro.brand, marca.cores.claro.ink, marca.cores.claro.soft].every(c => HEX.test(c))
       ? { brand: marca.cores.claro.brand, ink: marca.cores.claro.ink, soft: marca.cores.claro.soft }
       : null,
+    /**
+     * Item 6 do plano de 2026-09-11: o único sinal, ainda ANTES do primeiro
+     * render, de que este host é a demonstração pública — para
+     * `LoginDaPlataforma` oferecer "ver nova demonstração" em vez de um
+     * formulário de login que um sandbox expirado não tem como preencher.
+     * `false` (nunca `undefined`) para nunca depender de um build antigo do
+     * client tratar ausência como `true` por engano.
+     */
+    demoMode: marca.demoMode === true,
   };
   return `<script>window.__MARCA__=${paraScript(paraOCliente)};</script>`;
 }

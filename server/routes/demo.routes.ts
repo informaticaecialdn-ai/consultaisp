@@ -1,11 +1,14 @@
 import { Router } from "express";
 import pLimit from "p-limit";
-import { contarSandboxesVivos, criarSandbox, TETO_DE_SANDBOXES_VIVOS } from "../demo/sandbox.service";
+import { contarSandboxesVivos, criarSandbox, PREFIXO_SANDBOX, TETO_DE_SANDBOXES_VIVOS } from "../demo/sandbox.service";
 import { emModoDemo } from "../demo/modo-demo";
+import { cpfsDeExemplo } from "../demo/exemplos.service";
 import { normalizarHost } from "../tenant";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
+import { paginaDeErroDaPorta } from "./demo-porta-html";
 
 /**
  * A demonstração pública roda como UM processo só (`exec_mode: "fork"` em
@@ -25,6 +28,43 @@ const filaDeCriacaoDoSandbox = pLimit(1);
 
 /** Sinaliza "no teto" para fora de `filaDeCriacaoDoSandbox` sem confundir com qualquer outra falha (500 genérico). */
 class TetoDeSandboxesAtingidoError extends Error {}
+
+/**
+ * `/demo` é a PORTA: quem chega aqui é sempre uma pessoa clicando num link,
+ * nunca um cliente de API — as duas respostas que podiam falhar sem virar o
+ * redirecionamento de sempre (o limite de tentativas e uma falha ao criar o
+ * sandbox) respondiam `{"message":"..."}` cru (item 5 do plano de
+ * 2026-09-11). Um estranho que clica duas vezes rápido demais via um blob de
+ * JSON no lugar de qualquer coisa que pareça um site.
+ *
+ * Este middleware intercepta só o `res.json` DESTA requisição (o `res` é por
+ * requisição — nada vaza para outra rota nem para outro pedido) e, quando o
+ * corpo é o 429 que `createRateLimiter` (middleware genérico, usado por
+ * dezenas de outras rotas — nunca mexido) emite, troca por uma página HTML no
+ * visual da landing. Qualquer outro `res.json` desta requisição (o 404 de
+ * fora do modo demo, o 503 de teto atingido) passa direto, sem mudança —
+ * só o 429 e, mais abaixo no handler, o 500 do catch-all viram página.
+ */
+function paginaNoLimiteDaPorta(_req: import("express").Request, res: import("express").Response, next: import("express").NextFunction): void {
+  const jsonOriginal = res.json.bind(res);
+  res.json = ((body: unknown) => {
+    if (res.statusCode === 429) {
+      const retryAfterHeader = res.getHeader("Retry-After");
+      const segundos = Number(retryAfterHeader);
+      const minutos = Number.isFinite(segundos) && segundos > 0 ? Math.ceil(segundos / 60) : null;
+      res.type("html");
+      return res.send(paginaDeErroDaPorta({
+        titulo: "Muita gente testando ao mesmo tempo",
+        mensagem: "Este link libera poucas tentativas a cada poucos minutos, para a demonstração não travar para ninguém.",
+        proximoPasso: minutos
+          ? `Espere cerca de ${minutos} minuto${minutos === 1 ? "" : "s"} e clique de novo em "Ver demonstração".`
+          : "Espere alguns minutos e clique de novo em \"Ver demonstração\".",
+      }));
+    }
+    return jsonOriginal(body as never);
+  }) as typeof res.json;
+  next();
+}
 
 /**
  * A PORTA da demonstracao publica: um clique em "Ver demonstracao" cai aqui e
@@ -52,7 +92,7 @@ export function registerDemoRoutes(): Router {
   // maquinaria demais para o ganho (decisao do revisor, rodada de correcao).
   const limiteDemo = createRateLimiter({ windowMs: 600_000, maxRequests: 2 });
 
-  router.get("/demo", limiteDemo, async (req, res) => {
+  router.get("/demo", paginaNoLimiteDaPorta, limiteDemo, async (req, res) => {
     if (!emModoDemo()) {
       return res.status(404).json({ message: "Nao encontrado" });
     }
@@ -134,6 +174,49 @@ export function registerDemoRoutes(): Router {
       });
 
       return res.redirect("/");
+    } catch (error) {
+      // A mesma troca do 429 acima: quem chega em "/demo" é sempre uma pessoa
+      // clicando num link, e uma falha ao montar o sandbox merece uma página,
+      // não um blob de JSON. `getSafeErrorMessage` continua sendo quem decide
+      // o texto seguro — só a embalagem muda.
+      return res.status(500).type("html").send(paginaDeErroDaPorta({
+        titulo: "Não foi possível abrir sua demonstração agora",
+        mensagem: getSafeErrorMessage(error),
+        proximoPasso: "Tente novamente em instantes. Se persistir, fale com a gente pelo site.",
+      }));
+    }
+  });
+
+  /**
+   * Os três CPFs de exemplo (item 1 do plano de 2026-09-11): a tela de
+   * Consulta ISP mostra um chip por situação (limpo / devendo na rede /
+   * migrador serial), cada um levando direto à história que a demonstração
+   * promete — sem isto o visitante digita um CPF que inventou, recebe "nada
+   * consta" e conclui que o produto não faz nada.
+   *
+   * Gated pelos MESMOS dois sinais que `FaixaDemonstracao`
+   * (client/src/components/FaixaDemonstracao.tsx) exige para mostrar o aviso
+   * de demonstração: `emModoDemo()` E o subdomínio do PRÓPRIO provedor da
+   * sessão começando por `PREFIXO_SANDBOX`. Um provedor de verdade nunca tem
+   * exemplo nenhum para sugerir — 404, não um array vazio, para o client não
+   * ter que decidir entre "sem exemplos" e "não é uma demonstração".
+   *
+   * `cpfsDeExemplo` já lê SÓ a carteira do `providerId` da própria sessão
+   * (`storage.getCustomersByProvider`) — não existe parâmetro de sandbox
+   * alheio para um visitante pedir.
+   */
+  router.get("/api/demo/exemplos-cpf", requireAuth, requireProvider, async (req, res) => {
+    if (!emModoDemo()) {
+      return res.status(404).json({ message: "Nao encontrado" });
+    }
+    const subdomain = (req.session.subdomain ?? "").toLowerCase();
+    if (!subdomain.startsWith(PREFIXO_SANDBOX)) {
+      return res.status(404).json({ message: "Nao encontrado" });
+    }
+
+    try {
+      const exemplos = await cpfsDeExemplo(req.session.providerId!);
+      return res.json({ exemplos });
     } catch (error) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

@@ -189,6 +189,25 @@ function paraEmail(txt: string): string {
 }
 
 /**
+ * Sufixo numérico do e-mail — nunca o índice cru.
+ *
+ * A versão anterior colava `i` direto (`maria.silva510347@gmail.com`): o
+ * índice de uma pessoa nasce de milhares de sandboxes e cinco provedores do
+ * mundo base, então na prática é sempre um número grande, e um número grande
+ * colado no e-mail lê como saída de gerador — ninguém escolhe "510347" para
+ * si. Gente de verdade ou não cola número nenhum, ou cola um par de dígitos,
+ * ou cola um ano de nascimento plausível; a distribuição abaixo escolhe entre
+ * essas três formas, determinística por índice.
+ */
+function sufixoDeEmail(indice: number): string {
+  const h = misturar(indice, 14);
+  const forma = h % 5;
+  if (forma === 0) return ""; // 1 em 5: sem numero nenhum
+  if (forma === 1) return String(1965 + (h % 40)); // 1 em 5: "ano de nascimento", 1965-2004
+  return String(10 + (h % 90)); // 3 em 5: dois digitos, 10-99 — o caso mais comum
+}
+
+/**
  * Os 6 dígitos "livres" da base do CPF (depois do prefixo fixo "999").
  *
  * Módulo **999.999**, não 1.000.000. "999999999" geraria um CPF com os 11
@@ -277,7 +296,7 @@ export function pessoaFicticia(indice: number): PessoaFicticia {
   return {
     nome: `${prenome} ${sobrenome1} ${sobrenome2}`,
     cpf: cpfFicticio(i),
-    email: `${paraEmail(prenome)}.${paraEmail(sobrenome1)}${i}@${dominio}`,
+    email: `${paraEmail(prenome)}.${paraEmail(sobrenome1)}${sufixoDeEmail(i)}@${dominio}`,
     telefone: `(${DDD_DA_REGIAO}) 9${linhaTelefone.slice(0, 4)}-${linhaTelefone.slice(4)}`,
     cidade: cidade.nome,
     uf: cidade.uf,

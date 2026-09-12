@@ -282,160 +282,185 @@ export default function LoginDaPlataforma() {
         <section className="side-form">
           <div className="login-card">
 
-            {pageState === "login" && (
-              <>
-                <CabecalhoDoCartao titulo="Bem-vindo" destaque="de volta.">
-                  Entre com seu e-mail e senha para acessar<br />o painel do seu provedor.
+            {marca.demoMode ? (
+              /**
+               * Item 6 do plano de 2026-09-11: este host resolve `contexto:
+               * "tenant"` (é um subdomínio sem marca própria, como qualquer
+               * provedor sem white label) — mas é o host DA DEMONSTRAÇÃO
+               * PÚBLICA, e um visitante sem sessão aqui é sempre alguém cujo
+               * sandbox de 24h já expirou. Um formulário de e-mail/senha é
+               * uma porta que ele nunca tem como abrir: a senha é aleatória,
+               * gerada por `criarSandbox`, e nunca chegou até ele. A saída é
+               * a mesma que trouxe ele da primeira vez — uma demonstração
+               * nova, um clique.
+               */
+              <div data-testid="demo-expirada-card">
+                <CabecalhoDoCartao titulo="Sua demonstração" destaque="expirou.">
+                  Cada demonstração pública dura 24 horas, e a sua já não existe mais.
+                  Comece uma nova em segundos — sem cadastro, sem senha.
                 </CabecalhoDoCartao>
-                {isSubdomainMode && tenantInfo?.name && (
-                  <p className="email-pendente" style={{ textAlign: "center", margin: "-12px 0 20px" }} data-testid="text-provider-name">
-                    {tenantInfo.name.split(" ").slice(0, 2).join(" ")}
-                  </p>
+                <a href="/demo" className="btn btn-primary" data-testid="button-nova-demonstracao">
+                  Ver nova demonstração <span className="arrow" aria-hidden="true">→</span>
+                </a>
+              </div>
+            ) : (
+              <>
+                {pageState === "login" && (
+                  <>
+                    <CabecalhoDoCartao titulo="Bem-vindo" destaque="de volta.">
+                      Entre com seu e-mail e senha para acessar<br />o painel do seu provedor.
+                    </CabecalhoDoCartao>
+                    {isSubdomainMode && tenantInfo?.name && (
+                      <p className="email-pendente" style={{ textAlign: "center", margin: "-12px 0 20px" }} data-testid="text-provider-name">
+                        {tenantInfo.name.split(" ").slice(0, 2).join(" ")}
+                      </p>
+                    )}
+
+                    <form className="form-da-marca" onSubmit={handleSubmit}>
+                      <Campo
+                        id="login-email" rotulo="E-mail" prefixo="@" data-testid="input-email"
+                        type="email" placeholder="voce@seuprovedor.com.br" autoComplete="username" required
+                        value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      />
+                      <Campo
+                        id="login-senha" rotulo="Senha" prefixo="*" data-testid="input-password"
+                        type={showPassword ? "text" : "password"} placeholder="••••••••••"
+                        autoComplete="current-password" required
+                        value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+                        acessorio={
+                          <button type="button" className="link-forgot" onClick={() => irPara("forgot")}>
+                            Esqueci a senha
+                          </button>
+                        }
+                        dentro={
+                          <button
+                            type="button" className="toggle" data-testid="button-toggle-password"
+                            aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? "Ocultar" : "Ver"}
+                          </button>
+                        }
+                      />
+
+                      <label className="field-check">
+                        <input
+                          type="checkbox" checked={lembrar} data-testid="checkbox-manter-conectado"
+                          onChange={(e) => setLembrar(e.target.checked)}
+                        />
+                        <span>Manter conectado por 30 dias</span>
+                      </label>
+
+                      {erroDoLogin && <div className="status visible error" role="alert">{erroDoLogin}</div>}
+                      {erroDoLogin && !isSubdomainMode && (
+                        <p className="dica-endereco" data-testid="text-dica-endereco">
+                          Provedor entra pelo endereço próprio:{" "}
+                          <span className="endereco">{ENDERECO_DO_PROVEDOR}</span>
+                        </p>
+                      )}
+
+                      <button type="submit" className="btn btn-primary" disabled={isLoading} data-testid="button-submit-login">
+                        {isLoading ? "Entrando..." : <>Entrar na plataforma <span className="arrow" aria-hidden="true">→</span></>}
+                      </button>
+                    </form>
+
+                    {/* O reenvio fica visível ANTES de um login recusado: quem nunca recebeu
+                        o primeiro e-mail não tem por que adivinhar que precisa errar a senha
+                        para achar o botão. */}
+                    <div className="linha-links">
+                      <button
+                        type="button" className="link-texto" data-testid="button-nao-recebi-confirmacao"
+                        onClick={() => irParaReenvio(form.email.trim())}
+                      >
+                        Não recebi o e-mail de confirmação
+                      </button>
+                    </div>
+
+                    {!isSubdomainMode && (
+                      <div className="signup-row">
+                        Provedor novo?{" "}
+                        <a href="/login?mode=register" onClick={trocarPara("register")} data-testid="button-toggle-register">
+                          {convite}
+                        </a>
+                      </div>
+                    )}
+                  </>
                 )}
 
-                <form className="form-da-marca" onSubmit={handleSubmit}>
-                  <Campo
-                    id="login-email" rotulo="E-mail" prefixo="@" data-testid="input-email"
-                    type="email" placeholder="voce@seuprovedor.com.br" autoComplete="username" required
-                    value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  />
-                  <Campo
-                    id="login-senha" rotulo="Senha" prefixo="*" data-testid="input-password"
-                    type={showPassword ? "text" : "password"} placeholder="••••••••••"
-                    autoComplete="current-password" required
-                    value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    acessorio={
-                      <button type="button" className="link-forgot" onClick={() => irPara("forgot")}>
-                        Esqueci a senha
-                      </button>
-                    }
-                    dentro={
-                      <button
-                        type="button" className="toggle" data-testid="button-toggle-password"
-                        aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? "Ocultar" : "Ver"}
-                      </button>
-                    }
-                  />
-
-                  <label className="field-check">
-                    <input
-                      type="checkbox" checked={lembrar} data-testid="checkbox-manter-conectado"
-                      onChange={(e) => setLembrar(e.target.checked)}
-                    />
-                    <span>Manter conectado por 30 dias</span>
-                  </label>
-
-                  {erroDoLogin && <div className="status visible error" role="alert">{erroDoLogin}</div>}
-                  {erroDoLogin && !isSubdomainMode && (
-                    <p className="dica-endereco" data-testid="text-dica-endereco">
-                      Provedor entra pelo endereço próprio:{" "}
+                {pageState === "register" && (
+                  <>
+                    <CabecalhoDoCartao titulo="Crie sua" destaque="conta grátis.">
+                      {typeof creditosDeBoasVindas === "number" && creditosDeBoasVindas > 0
+                        ? `${creditosDeBoasVindas} créditos para testar a rede. Consultas na sua base, sempre grátis.`
+                        : "Consultas na sua base, sempre grátis."}
+                    </CabecalhoDoCartao>
+                    <CadastroWizard aoPrecisarVerificar={(email) => irParaReenvio(email)} />
+                    <div className="signup-row" data-testid="text-entrada-do-provedor">
+                      Já tem conta? Entre pelo endereço do seu provedor:{" "}
                       <span className="endereco">{ENDERECO_DO_PROVEDOR}</span>
-                    </p>
-                  )}
+                    </div>
+                  </>
+                )}
 
-                  <button type="submit" className="btn btn-primary" disabled={isLoading} data-testid="button-submit-login">
-                    {isLoading ? "Entrando..." : <>Entrar na plataforma <span className="arrow" aria-hidden="true">→</span></>}
-                  </button>
-                </form>
+                {pageState === "check-email" && (
+                  <div data-testid="check-email-card">
+                    <CabecalhoDoCartao titulo="Confirme" destaque="seu e-mail.">
+                      {pedirEmailDoReenvio
+                        ? "Informe o e-mail do cadastro e enviamos outro link de confirmação."
+                        : "Enviamos um link de confirmação para"}
+                    </CabecalhoDoCartao>
+                    {!pedirEmailDoReenvio && (
+                      <p className="email-pendente" style={{ textAlign: "center", margin: "-16px 0 20px" }} data-testid="text-pending-email">
+                        {pendingEmail}
+                      </p>
+                    )}
 
-                {/* O reenvio fica visível ANTES de um login recusado: quem nunca recebeu
-                    o primeiro e-mail não tem por que adivinhar que precisa errar a senha
-                    para achar o botão. */}
-                <div className="linha-links">
-                  <button
-                    type="button" className="link-texto" data-testid="button-nao-recebi-confirmacao"
-                    onClick={() => irParaReenvio(form.email.trim())}
-                  >
-                    Não recebi o e-mail de confirmação
-                  </button>
-                </div>
+                    <ol className="passos">
+                      {[
+                        `Abra o e-mail e procure a mensagem do ${marca.nomeProduto}.`,
+                        "Clique em \"Confirmar e-mail\".",
+                        "Você entra no sistema automaticamente.",
+                      ].map((passo, i) => (
+                        <li key={passo}><span className="n">{i + 1}</span><span>{passo}</span></li>
+                      ))}
+                    </ol>
 
-                {!isSubdomainMode && (
-                  <div className="signup-row">
-                    Provedor novo?{" "}
-                    <a href="/login?mode=register" onClick={trocarPara("register")} data-testid="button-toggle-register">
-                      {convite}
-                    </a>
+                    <div className="form-da-marca">
+                      {pedirEmailDoReenvio && (
+                        <Campo
+                          id="reenvio-email" rotulo="E-mail do cadastro" prefixo="@" data-testid="input-reenvio-email"
+                          type="email" placeholder="voce@seuprovedor.com.br" autoComplete="username"
+                          value={pendingEmail} onChange={(e) => setPendingEmail(e.target.value)}
+                        />
+                      )}
+                      <button
+                        type="button" className="btn btn-secondary" data-testid="button-resend-email"
+                        onClick={handleResend} disabled={resendLoading || !pendingEmail.trim()}
+                      >
+                        {resendLoading ? "Enviando..." : "Reenviar e-mail de confirmação"}
+                      </button>
+                      {resultadoReenvio && (
+                        <div
+                          role="status" data-testid="text-resultado-reenvio"
+                          className={`status visible ${resultadoReenvio.ok ? "success" : "error"}`}
+                        >
+                          {resultadoReenvio.mensagem}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="linha-links">
+                      <button type="button" className="link-texto" onClick={() => irPara("login")} data-testid="button-back-to-login">
+                        Voltar ao login
+                      </button>
+                    </div>
                   </div>
                 )}
+
+                {pageState === "forgot" && <EsqueciASenha aoVoltar={() => irPara("login")} />}
+                {pageState === "reset" && <NovaSenha aoVoltar={() => irPara("login")} />}
               </>
             )}
-
-            {pageState === "register" && (
-              <>
-                <CabecalhoDoCartao titulo="Crie sua" destaque="conta grátis.">
-                  {typeof creditosDeBoasVindas === "number" && creditosDeBoasVindas > 0
-                    ? `${creditosDeBoasVindas} créditos para testar a rede. Consultas na sua base, sempre grátis.`
-                    : "Consultas na sua base, sempre grátis."}
-                </CabecalhoDoCartao>
-                <CadastroWizard aoPrecisarVerificar={(email) => irParaReenvio(email)} />
-                <div className="signup-row" data-testid="text-entrada-do-provedor">
-                  Já tem conta? Entre pelo endereço do seu provedor:{" "}
-                  <span className="endereco">{ENDERECO_DO_PROVEDOR}</span>
-                </div>
-              </>
-            )}
-
-            {pageState === "check-email" && (
-              <div data-testid="check-email-card">
-                <CabecalhoDoCartao titulo="Confirme" destaque="seu e-mail.">
-                  {pedirEmailDoReenvio
-                    ? "Informe o e-mail do cadastro e enviamos outro link de confirmação."
-                    : "Enviamos um link de confirmação para"}
-                </CabecalhoDoCartao>
-                {!pedirEmailDoReenvio && (
-                  <p className="email-pendente" style={{ textAlign: "center", margin: "-16px 0 20px" }} data-testid="text-pending-email">
-                    {pendingEmail}
-                  </p>
-                )}
-
-                <ol className="passos">
-                  {[
-                    `Abra o e-mail e procure a mensagem do ${marca.nomeProduto}.`,
-                    "Clique em \"Confirmar e-mail\".",
-                    "Você entra no sistema automaticamente.",
-                  ].map((passo, i) => (
-                    <li key={passo}><span className="n">{i + 1}</span><span>{passo}</span></li>
-                  ))}
-                </ol>
-
-                <div className="form-da-marca">
-                  {pedirEmailDoReenvio && (
-                    <Campo
-                      id="reenvio-email" rotulo="E-mail do cadastro" prefixo="@" data-testid="input-reenvio-email"
-                      type="email" placeholder="voce@seuprovedor.com.br" autoComplete="username"
-                      value={pendingEmail} onChange={(e) => setPendingEmail(e.target.value)}
-                    />
-                  )}
-                  <button
-                    type="button" className="btn btn-secondary" data-testid="button-resend-email"
-                    onClick={handleResend} disabled={resendLoading || !pendingEmail.trim()}
-                  >
-                    {resendLoading ? "Enviando..." : "Reenviar e-mail de confirmação"}
-                  </button>
-                  {resultadoReenvio && (
-                    <div
-                      role="status" data-testid="text-resultado-reenvio"
-                      className={`status visible ${resultadoReenvio.ok ? "success" : "error"}`}
-                    >
-                      {resultadoReenvio.mensagem}
-                    </div>
-                  )}
-                </div>
-
-                <div className="linha-links">
-                  <button type="button" className="link-texto" onClick={() => irPara("login")} data-testid="button-back-to-login">
-                    Voltar ao login
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {pageState === "forgot" && <EsqueciASenha aoVoltar={() => irPara("login")} />}
-            {pageState === "reset" && <NovaSenha aoVoltar={() => irPara("login")} />}
 
             <div className="card-foot">Conexão criptografada · TLS 1.3</div>
           </div>

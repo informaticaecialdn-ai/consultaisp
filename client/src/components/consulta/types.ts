@@ -125,6 +125,8 @@ export interface ConsultaResult {
     matches: { cpfMasked: string; overdueRange: string; maxDaysOverdue: number; status: string }[];
   } | null;
   erpSummary?: { total: number; responded: number; failed: number; timedOut: number };
+  /** true só na instância de demonstração pública (`emModoDemo()` no servidor) — a tela mostra o selo "SIMULADO" em vez de "REAL" (ver `ProvTag` em `report-ui.tsx`). */
+  simulado?: boolean;
 }
 
 export interface CepData {

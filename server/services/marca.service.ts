@@ -23,6 +23,7 @@ import { storage } from "../storage";
 import { MAIN_DOMAIN, extractSubdomainFromHost, buildSubdomainUrl } from "../tenant";
 import { normalizarHost } from "../storage/marcas.storage";
 import { paletaClara, paletaEscura, corValida, type Paleta } from "../utils/marca-cores";
+import { emModoDemo } from "../demo/modo-demo";
 import type { Marca } from "@shared/schema";
 
 export type MarcaResolvida = {
@@ -56,6 +57,20 @@ export type MarcaResolvida = {
   responsavelCnpj: string | null;
   emailRemetente: string | null;
   emailNomeExibicao: string | null;
+  /**
+   * `emModoDemo()` — a ÚNICA razão de este campo existir é o item 6 do plano
+   * de 2026-09-11: o host da demonstração pública resolve `contexto: "tenant"`
+   * (é um subdomínio de `MAIN_DOMAIN` sem marca própria, como um provedor
+   * qualquer sem white label), e sem sessão `App.tsx` mostrava o LOGIN da
+   * plataforma — um formulário que um visitante cujo sandbox expirou nunca
+   * consegue preencher (a senha é aleatória, gerada por `criarSandbox`, e
+   * nunca chega a ele). Opcional (`?`) de propósito: é preenchido só no
+   * PONTO DE SAÍDA (`resolverMarcaPorHost`, abaixo) — os caminhos internos
+   * (`MARCA_PLATAFORMA`, `montar()`) não precisam saber disto, e o campo
+   * nunca fica "desatualizado" dentro do cache por host porque é somado
+   * DEPOIS de ler ou gravar o cache, nunca guardado dentro dele.
+   */
+  demoMode?: boolean;
 };
 
 /**
@@ -130,10 +145,19 @@ export function esquecerMarcas(): void {
 
 export async function resolverMarcaPorHost(hostBruto: string | undefined): Promise<MarcaResolvida> {
   const host = normalizarHost(hostBruto);
-  if (!host || host.length > 253 || !HOSTNAME.test(host)) return MARCA_PLATAFORMA;
+  /**
+   * Lido uma vez, fresco, e somado no FIM de cada `return` — nunca guardado
+   * dentro do cache por host (`cache`, abaixo). `emModoDemo()` já é barato
+   * (uma leitura de env var), e a instância de demonstração é sempre a MESMA
+   * para todo host que ela responde — mas gravar o valor dentro da entrada de
+   * cache tornaria uma mudança de `DEMO_MODE` em runtime (nunca acontece em
+   * produção, mas acontece em teste) presa ao TTL de 5 minutos do host.
+   */
+  const demoMode = emModoDemo();
+  if (!host || host.length > 253 || !HOSTNAME.test(host)) return { ...MARCA_PLATAFORMA, demoMode };
 
   const emCache = cache.get(host);
-  if (emCache && emCache.expira > Date.now()) return emCache.valor;
+  if (emCache && emCache.expira > Date.now()) return { ...emCache.valor, demoMode };
 
   // Nunca lanca. Esta funcao roda no caminho que serve o HTML: uma excecao aqui
   // e pagina em branco, e nenhuma personalizacao vale isso. Marca com dado
@@ -152,7 +176,7 @@ export async function resolverMarcaPorHost(hostBruto: string | undefined): Promi
     if (maisAntiga !== undefined) cache.delete(maisAntiga);
   }
   cache.set(host, { valor: resolvida, expira: Date.now() + TTL_MS });
-  return resolvida;
+  return { ...resolvida, demoMode };
 }
 
 async function resolver(host: string): Promise<MarcaResolvida> {

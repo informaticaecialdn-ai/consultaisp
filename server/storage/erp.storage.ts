@@ -172,7 +172,16 @@ export class ErpStorage {
     });
   }
 
-  async getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string }>> {
+  /**
+   * `providerSubdomain` entra no retorno (rodada de correção, demonstração
+   * pública, item 2 do plano de 2026-09-11): é o único jeito barato de quem
+   * chama (a consulta ao vivo, `server/routes/consultas.routes.ts`) distinguir
+   * um sandbox de demonstração (`sandbox-*`, ver `PREFIXO_SANDBOX` em
+   * `server/demo/sandbox.service.ts`) de um provedor real ou de um dos cinco
+   * provedores do MUNDO BASE (`rede-1`..`rede-5`) sem uma segunda consulta —
+   * a linha já vem do JOIN com `providers` que este método já fazia.
+   */
+  async getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string; providerSubdomain: string | null }>> {
     const rows = await db
       .select()
       .from(erpIntegrations)
@@ -186,7 +195,7 @@ export class ErpStorage {
       )
       .orderBy(erpIntegrations.providerId, erpIntegrations.erpSource);
 
-    const saida: Array<ErpIntegration & { providerName: string }> = [];
+    const saida: Array<ErpIntegration & { providerName: string; providerSubdomain: string | null }> = [];
     for (const r of rows) {
       const d = decryptIntegrationSafe(r.erp_integrations);
       if (!d.ok) {
@@ -196,7 +205,7 @@ export class ErpStorage {
         );
         continue;
       }
-      saida.push({ ...d.value, providerName: r.providers.name });
+      saida.push({ ...d.value, providerName: r.providers.name, providerSubdomain: r.providers.subdomain });
     }
     return saida;
   }

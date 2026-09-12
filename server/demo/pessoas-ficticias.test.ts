@@ -75,6 +75,36 @@ describe("pessoas ficticias", () => {
     expect(nomes.size).toBeGreaterThan(1);
   });
 
+  /**
+   * Item 6 do plano de 2026-09-11: o e-mail colava o INDICE CRU
+   * ("maria.silva510347@gmail.com") — um numero desse tamanho so aparece por
+   * geracao automatica, nunca por escolha de uma pessoa de verdade. O indice
+   * real de uso vai na casa das centenas de milhares (5 provedores do mundo
+   * base x 1.500 clientes + ate 150 sandboxes x 1.500), entao o caso comum
+   * SEMPRE caia nesse padrao — nao era uma excecao rara.
+   */
+  it("o e-mail nunca carrega o indice cru — nem para indices grandes, o caso comum de uso", () => {
+    const indicesRepresentativos = [510347, 504000, 999998, 123456, 875321];
+    for (const i of indicesRepresentativos) {
+      const email = pessoaFicticia(i).email;
+      expect(email, `indice ${i}: ${email}`).not.toContain(String(i));
+    }
+  });
+
+  it("o sufixo do e-mail, quando existe, e curto (2 digitos ou um ano plausivel) — nunca mais que 4 digitos", () => {
+    for (let i = 0; i < 200; i++) {
+      const email = pessoaFicticia(i).email;
+      const usuario = email.split("@")[0];
+      const digitos = usuario.match(/\d+$/)?.[0] ?? "";
+      expect(digitos.length, `i=${i}: ${email}`).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("o e-mail continua deterministico pelo indice — mesmo indice, mesmo e-mail sempre", () => {
+    expect(pessoaFicticia(510347).email).toBe(pessoaFicticia(510347).email);
+    expect(pessoaFicticia(999998).email).toBe(pessoaFicticia(999998).email);
+  });
+
   describe("invariante cruzado com o mundo base (fix round 2)", () => {
     // server/demo/mundo-base.ts so exporta PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS,
     // cnpjFicticio e semearMundoBase — BASE_UNICO, PASSO_UNICO e

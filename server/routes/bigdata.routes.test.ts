@@ -227,11 +227,15 @@ describe("todo caminho de saida devolve o identificador", () => {
       expect(gravado.result.simulado).toBe(true);
     });
 
-    it("CNPJ continua exigindo credencial de verdade — consultarCnpj nunca aprendeu a simular", async () => {
+    it("CNPJ recebe uma mensagem clara de fora-do-escopo, nunca 'não configurada' — consultarCnpj nunca aprendeu a simular", async () => {
       const r = await consultar({ cpfCnpj: CNPJ });
       expect(r.status).toBe(400);
-      expect(r.body.naoConfigurado).toBe(true);
+      expect(r.body.foraDaDemonstracao).toBe(true);
+      expect(r.body.naoConfigurado).toBeUndefined();
+      expect(r.body.message).toMatch(/CNPJ/);
+      expect(r.body.consultaId).toMatch(FORMATO_DO_IDENTIFICADOR);
       expect(empresaMock.consultarCnpj).not.toHaveBeenCalled();
+      expect(storageMock.debitarBigdataCredito).not.toHaveBeenCalled();
     });
   });
 

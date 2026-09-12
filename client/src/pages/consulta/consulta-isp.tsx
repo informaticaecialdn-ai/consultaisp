@@ -15,6 +15,7 @@ import { Kicker } from "@/components/consulta/report-ui";
 import LoadingCard from "@/components/consulta/LoadingCard";
 
 import ConsultaSearchBar from "@/components/consulta/ConsultaSearchBar";
+import ChipsDeExemplo from "@/components/consulta/ChipsDeExemplo";
 import ConsultaResultSummary from "@/components/consulta/ConsultaResultSummary";
 import ConsultaHistoryTab from "@/components/consulta/ConsultaHistoryTab";
 import TimelineTab from "@/components/consulta/TimelineTab";
@@ -242,6 +243,8 @@ export default function ConsultaISPPage() {
         {/* ── ABA: NOVA CONSULTA ── */}
         {activeTab === "nova" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <ChipsDeExemplo onEscolher={(cpf) => handleSearch({ cpfCnpj: cpf })} />
+
             <ConsultaSearchBar
               heading="Quem você deseja consultar?"
               description="Informe um CPF ou CNPJ. Para pesquisar um imóvel, use o CEP e o número."

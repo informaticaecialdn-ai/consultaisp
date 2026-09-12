@@ -29,6 +29,7 @@ import { logger } from "../logger";
 import { gerarIdentificadorDeConsulta } from "../services/identificador-consulta";
 import { isSpcConfigured, consultarSpc, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
 import { emModoDemo } from "../demo/modo-demo";
+import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { notifyOwnerProviders } from "../services/proactive-alert.service";
 import { faixaIdadeOcorrencia, faixaValorEquipamento } from "../services/equipment-recovery-rules";
@@ -175,7 +176,29 @@ export function registerConsultasRoutes(): Router {
       //
       // LGPD: nada e gravado. Buscado ao vivo, mascarado, devolvido; o parceiro
       // sai como codigo pareado, nunca pelo nome.
-      const erpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
+      const todasAsIntegracoes = await storage.getAllEnabledErpIntegrationsWithCredentials();
+      // Revisão de segurança da demonstração pública (item 2 do plano de
+      // 2026-09-11): CADA sandbox nasce com a própria integração "demo"
+      // habilitada (`server/demo/sandbox.service.ts`), e sem este filtro a
+      // consulta ao vivo varria a integração de TODOS os sandboxes vivos ao
+      // mesmo tempo — até 150 — em vez de só os cinco provedores do mundo
+      // base. Consultar um dos 150 CPFs compartilhados (exatamente o que a
+      // demonstração convida a fazer) voltava um "Provedor Parceiro · em dia"
+      // extra por sandbox alheio.
+      //
+      // Uma integração só fica de fora quando o PRÓPRIO subdomínio do
+      // provedor dela começa por `PREFIXO_SANDBOX` e não é o provedor que
+      // está consultando agora — nunca por causa da fonte (`erpSource`), que
+      // aqui seria redundante: só um provedor `sandbox-*` chega a ter uma
+      // integração de fonte "demo" (`criarSandbox` é o único caminho que a
+      // grava), e os cinco provedores do mundo base (`rede-1`..`rede-5`, que
+      // também usam a fonte "demo") não têm esse prefixo — continuam
+      // visíveis para todo mundo, como sempre. Fora da demonstração
+      // (`providerSubdomain` nunca começando por `sandbox-`) este filtro não
+      // remove nada: uma consulta real fica exatamente como era.
+      const erpIntegrations = todasAsIntegracoes.filter(intg =>
+        intg.providerId === providerId || !(intg.providerSubdomain ?? "").startsWith(PREFIXO_SANDBOX),
+      );
       const allowedProviderIds = new Set([providerId, ...erpIntegrations.map(intg => intg.providerId)]);
 
       if (erpIntegrations.length > 0) {
@@ -187,7 +210,17 @@ export function registerConsultasRoutes(): Router {
         // mesorregiao de quem consultou, entao quem nao tinha regiao nunca
         // gravava nem lia — e a resposta bruta dos ERPs e a mesma seja quem for
         // o consulente, agora que todos varrem os mesmos ERPs.
-        const cachedRegional = consultationCache.getRawResult(cleaned, CHAVE_DA_REDE, searchType);
+        //
+        // Em modo demo isso deixa de valer: o conjunto de ERPs de CADA sandbox
+        // é diferente (o próprio + os cinco da base, nunca os outros
+        // sandboxes — filtro acima), então a resposta bruta TAMBÉM passa a
+        // depender de quem pergunta. Uma chave por provedor evita que o
+        // primeiro sandbox a consultar um CPF compartilhado "contamine" o
+        // cache que outro sandbox leria em seguida (ou, pior, sirva um cache
+        // que nunca perguntou pelo PRÓPRIO ERP do segundo sandbox). Fora da
+        // demonstração `emModoDemo()` é sempre falso e a chave nunca muda.
+        const chaveRegional = emModoDemo() ? `${CHAVE_DA_REDE}:sandbox:${providerId}` : CHAVE_DA_REDE;
+        const cachedRegional = consultationCache.getRawResult(cleaned, chaveRegional, searchType);
 
         if (cachedRegional) {
           // O filtro fica: o conjunto permitido e "todo ERP ativo AGORA". Uma
@@ -216,8 +249,10 @@ export function registerConsultasRoutes(): Router {
           );
           erpResults = await queryRegionalErps(erpIntegrations as any, cleaned, searchType, { consultaId });
 
-          // Guarda o bruto para o proximo consulente, seja de onde for.
-          consultationCache.setRawResult(cleaned, CHAVE_DA_REDE, searchType, erpResults);
+          // Guarda o bruto para o proximo consulente, seja de onde for —
+          // "de onde for" que, em modo demo, e so quem tem a MESMA chave
+          // (ver o comentario de `chaveRegional` acima).
+          consultationCache.setRawResult(cleaned, chaveRegional, searchType, erpResults);
         }
 
         // Um sinal patrimonial so entra na rede depois de prova, notificacao,
@@ -706,6 +741,18 @@ export function registerConsultasRoutes(): Router {
           addressParts,
           autoAddressCrossRef,
           source: "erp_direct",
+          /**
+           * Item 6 do plano de 2026-09-11: o relatorio da Consulta ISP e o
+           * UNICO dos tres (SPC e Cadastral ja levam `simulado`, ver
+           * `server/demo/bureaus-simulados.ts`) que nao dizia de onde veio o
+           * dado — `ProvTag` (`client/src/components/consulta/report-ui.tsx`)
+           * so sabe render "REAL" (ao vivo), "CACHE" ou "SEM REDE", nunca
+           * "SIMULADO". Tecnicamente o dado E ao vivo (o conector "demo" fala
+           * de verdade com a base seedada) — mas ao lado de uma carteira
+           * inteira ficticia isso le como mentira. `emModoDemo()` mesma leitura
+           * que toda a demonstracao usa; fora dela e sempre `false`.
+           */
+          simulado: emModoDemo(),
           // De quando e o dado que o operador esta lendo. A consulta e sempre ao
           // vivo, entao a resposta e sempre "agora" — mas o campo fica, porque e
           // o que deixa isso explicito na tela em vez de subentendido.

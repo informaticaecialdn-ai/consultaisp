@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { spcSimulado, cadastralSimulado } from "./bureaus-simulados";
 import { consultarSpc } from "../services/spc/spc.service";
 import { consultarCpf, type Credencial } from "../services/bigdata.service";
+import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
 
 describe("bureaus simulados", () => {
   it("o mesmo documento devolve sempre o mesmo resultado", () => {
@@ -144,6 +145,65 @@ describe("bureaus simulados", () => {
       const resultado = await consultarCpf(1, cred, "99912345607");
       expect(resultado.simulado).toBe(true);
       expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Item 4 do plano de 2026-09-11: antes desta correção, nome/endereço/telefone
+   * vinham SEMPRE de um hash do documento, independente de
+   * `server/demo/pessoas-ficticias.ts` — a mesma fonte que
+   * `server/demo/mundo-base.ts`/`sandbox.service.ts` usam para os clientes que
+   * a Consulta ISP mostra. Medido: `99950400007` saía "Rosana Cardoso Andrade,
+   * Apucarana" na Consulta ISP e "Carlos Costa Souza, Cambé" no SPC — duas
+   * pessoas para o MESMO documento, em duas telas do mesmo produto.
+   */
+  describe("identidade coerente com o mundo ficticio (item 4)", () => {
+    it("um CPF do mundo ficticio devolve, nos dois bureaus, a MESMA identidade que pessoaFicticia usaria para o mesmo indice", () => {
+      const indice = 12345; // um indice qualquer — nao precisa ser um dos reservados
+      const cpf = cpfFicticio(indice);
+      const doMundo = pessoaFicticia(indice);
+
+      const spc = spcSimulado(cpf);
+      const cadastral = cadastralSimulado(cpf);
+
+      expect(spc.cadastralData.nome).toBe(doMundo.nome);
+      expect(spc.cadastralData.cidade).toBe(doMundo.cidade);
+      expect(cadastral.identidade.nome).toBe(doMundo.nome);
+      expect(cadastral.enderecos[0]).toMatchObject({
+        logradouro: doMundo.logradouro,
+        numero: doMundo.numero,
+        bairro: doMundo.bairro,
+        cidade: doMundo.cidade,
+        uf: doMundo.uf,
+        cep: doMundo.cep,
+      });
+      expect(cadastral.telefones[0].ddd).toBe("43");
+      expect(cadastral.telefones[0].numero).toBe(doMundo.telefone.replace(/^\(\d{2}\)\s*/, "").replace("-", ""));
+    });
+
+    it("o CPF exato medido na revisao (99950400007) para de contradizer entre os bureaus", () => {
+      const cpf = "99950400007";
+      const doMundo = pessoaFicticia(504000); // INDICE_MIGRADOR_DE_EXEMPLO, server/demo/mundo-base.ts
+      expect(spcSimulado(cpf).cadastralData.nome).toBe(doMundo.nome);
+      expect(cadastralSimulado(cpf).identidade.nome).toBe(doMundo.nome);
+    });
+
+    it("um documento FORA do mundo ficticio continua determinístico por hash — nada quebra sem pessoaFicticia para consultar", () => {
+      const cpf = "12345678900"; // nunca produzido por cpfFicticio (nao tem o nucleo "999" valido)
+      expect(spcSimulado(cpf)).toEqual(spcSimulado(cpf));
+      expect(cadastralSimulado(cpf)).toEqual(cadastralSimulado(cpf));
+    });
+
+    it("mae, pai, genero, nascimento e idade continuam vindo do hash — pessoaFicticia nao os rastreia", () => {
+      const indice = 777;
+      const cpf = cpfFicticio(indice);
+      const cadastral = cadastralSimulado(cpf);
+      // Nao ha "esperado" para comparar (pessoaFicticia nao tem estes campos);
+      // o teste so prova que eles continuam presentes e nao viram undefined.
+      expect(cadastral.identidade.nomeMae).toBeTruthy();
+      expect(cadastral.identidade.nomePai).toBeTruthy();
+      expect(["M", "F"]).toContain(cadastral.identidade.genero);
+      expect(cadastral.identidade.nascimento).toBeTruthy();
     });
   });
 });

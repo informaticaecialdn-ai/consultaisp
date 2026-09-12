@@ -213,3 +213,33 @@ describe("cascata: a paleta precisa GANHAR do CSS do build", () => {
     expect(html).toContain("__MARCA__");
   });
 });
+
+/**
+ * Item 6 do plano de 2026-09-11: o host da demonstração pública resolve como
+ * um subdomínio SEM marca própria (`marcaId: null`, `cores: null`) — a mesma
+ * forma que um provedor real sem white label. `demoMode` é o único campo que
+ * distingue os dois casos, e precisa sobreviver à injeção mesmo sem nenhum
+ * outro dado de marca para mostrar.
+ */
+describe("demoMode chega a window.__MARCA__ (item 6)", () => {
+  it("host da demonstracao (subdominio sem marca propria, demoMode:true) leva demoMode:true ao cliente", () => {
+    const marcaDoHostDaDemo: MarcaResolvida = {
+      ...PLATAFORMA, origem: "subdominio", contexto: "tenant", marcaId: null, demoMode: true,
+    };
+    const html = injetarMarca(TEMPLATE, marcaDoHostDaDemo);
+    expect(lerMarcaInjetada(html).demoMode).toBe(true);
+  });
+
+  it("sem demoMode (producao) o campo chega false, nunca ausente/undefined", () => {
+    const marcaDeProducao: MarcaResolvida = {
+      ...PLATAFORMA, origem: "subdominio", contexto: "tenant", marcaId: null,
+    };
+    const html = injetarMarca(TEMPLATE, marcaDeProducao);
+    expect(lerMarcaInjetada(html).demoMode).toBe(false);
+  });
+
+  it("marca de revendedor com demoMode:true tambem leva o sinal — nao e exclusivo de marcaId nulo", () => {
+    const html = injetarMarca(TEMPLATE, marcaDe({ demoMode: true }));
+    expect(lerMarcaInjetada(html).demoMode).toBe(true);
+  });
+});
