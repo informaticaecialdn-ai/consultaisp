@@ -195,13 +195,25 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   // vivos (item 3), deixava a demonstração presa em 503 pra sempre — com um
   // aviso que aponta pra causa errada. Loga ALTO (`error`, não `warn`) e com
   // mensagem própria: é a única pista de que alguém precisa reiniciar o worker.
-  let emModoDemo: () => boolean = () => false;
+  // `emModoDemo?.() === true` (aqui e nas outras duas chamadas abaixo), nao
+  // `emModoDemo()` cru: a rodada seguinte apontou que as tres chamadas ficam
+  // FORA de qualquer try/catch. O default acima cobre o import falhando,
+  // mas nao cobre o export um dia sendo renomeado — a desestruturacao
+  // silenciosamente SOBRESCREVE o default com `undefined` (o import em si
+  // teria sucesso, so o nome que mudou), e a proxima chamada seria um
+  // `TypeError: emModoDemo is not a function` sem `catch` nenhum por perto.
+  // Como isto roda dentro da IIFE assíncrona sem `await` externo, o erro
+  // vira uma rejeicao sem dono e derruba o processo (Node >= 15) — pulando o
+  // laco da autonomia do chat, os handlers de SIGTERM/SIGINT e a cadeia do
+  // mapa mais abaixo, tudo de uma vez. `?.() === true` custa nada e nunca
+  // lanca: `undefined` vira "nao e demo", o mesmo lado seguro do default.
+  let emModoDemo: (() => boolean) | undefined = () => false;
   try {
     ({ emModoDemo } = await import("./demo/modo-demo"));
   } catch (err) {
     logger.warn({ err }, "[Worker] Deteccao de modo demo falhou — seguindo como producao");
   }
-  if (emModoDemo()) {
+  if (emModoDemo?.() === true) {
     try {
       const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");
       iniciarLimpezaDaDemo();
@@ -266,7 +278,7 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "[Worker] Shutdown signal received");
     await pararPrimeirosContatos();
-    if (emModoDemo()) {
+    if (emModoDemo?.() === true) {
       const { pararLimpezaDaDemo } = await import("./demo/limpeza.service");
       await pararLimpezaDaDemo();
     }
@@ -345,7 +357,7 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
    * nada a contribuir na demo — só baixaria censo real do IBGE por cidade
    * (Londrina, Ibiporã, Cambé, Apucarana) numa VPS que já roda produção.
    */
-  if (!emModoDemo()) {
+  if (emModoDemo?.() !== true) {
     iniciarCadeiaDoMapa().catch(err =>
       logger.warn({ err }, "[Worker] Cadeia do mapa falhou ao iniciar"));
   }

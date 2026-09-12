@@ -27,9 +27,9 @@ describe("o worker so liga (e so desliga) a limpeza da demo em modo demonstracao
    * demonstração presa em 503 para sempre com um aviso apontando pra causa
    * errada.
    */
-  it("iniciarLimpezaDaDemo roda dentro de if (emModoDemo()), num try/catch PROPRIO — nao solta, e nao se confunde com falha de deteccao", () => {
+  it("iniciarLimpezaDaDemo roda dentro de if (emModoDemo?.() === true), num try/catch PROPRIO — nao solta, e nao se confunde com falha de deteccao", () => {
     expect(fonte).toContain(
-      'if (emModoDemo()) {\n    try {\n      const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");\n      iniciarLimpezaDaDemo();',
+      'if (emModoDemo?.() === true) {\n    try {\n      const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");\n      iniciarLimpezaDaDemo();',
     );
     expect(fonte).toMatch(/} catch \(err\) \{\s*\n\s*logger\.error\(\s*\n\s*\{ err \},\s*\n\s*"\[Worker\] Limpeza de sandboxes da demo falhou ao iniciar/);
   });
@@ -46,14 +46,27 @@ describe("o worker so liga (e so desliga) a limpeza da demo em modo demonstracao
    */
   it("a deteccao de emModoDemo() esta dentro de um try/catch ESTREITO — so a deteccao, nao o start da limpeza", () => {
     expect(fonte).toContain(
-      'let emModoDemo: () => boolean = () => false;\n  try {\n    ({ emModoDemo } = await import("./demo/modo-demo"));\n  } catch (err) {',
+      'let emModoDemo: (() => boolean) | undefined = () => false;\n  try {\n    ({ emModoDemo } = await import("./demo/modo-demo"));\n  } catch (err) {',
     );
     expect(fonte).toMatch(/} catch \(err\) \{\s*\n\s*logger\.warn\(\{ err \}, "\[Worker\] Deteccao de modo demo falhou/);
   });
 
+  /**
+   * Rodada seguinte (item 7 menor): a cadeia do mapa (a terceira chamada a
+   * `emModoDemo`, fora do escopo da limpeza da demo mas no mesmo arquivo)
+   * tambem usa encadeamento opcional — a desestruturacao acima SOBRESCREVE
+   * o default seguro se o export um dia for renomeado (o import teria
+   * sucesso, so o nome mudaria), e uma chamada crua fora de try/catch
+   * derrubaria o processo (TypeError sem dono) em vez de so tratar como
+   * "nao e demo".
+   */
+  it("a cadeia do mapa tambem confere emModoDemo com encadeamento opcional, nunca uma chamada crua", () => {
+    expect(fonte).toContain("if (emModoDemo?.() !== true) {");
+  });
+
   it("pararLimpezaDaDemo e chamada (e esperada) no shutdown, dentro do mesmo guard", () => {
     expect(fonte).toContain(
-      'if (emModoDemo()) {\n      const { pararLimpezaDaDemo } = await import("./demo/limpeza.service");\n      await pararLimpezaDaDemo();',
+      'if (emModoDemo?.() === true) {\n      const { pararLimpezaDaDemo } = await import("./demo/limpeza.service");\n      await pararLimpezaDaDemo();',
     );
   });
 

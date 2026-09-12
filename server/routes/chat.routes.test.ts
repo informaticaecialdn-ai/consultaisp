@@ -185,3 +185,56 @@ describe("POST /api/public/visitor-chat/start — limite de taxa", () => {
     expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * `POST /api/public/visitor-chat/start` — item 7 (menor) da rodada seguinte:
+ * `name`/`email`/`phone` nao tinham NENHUM teto de tamanho, so a checagem de
+ * presenca — string arbitraria ate os 10 MB do parser JSON global, gravada
+ * numa tabela sem varredura de limpeza. Mesmo estilo do teto de `/messages`
+ * acima: so tamanho, sem mexer na validacao de formato (que continua so
+ * checando presenca).
+ */
+describe("POST /api/public/visitor-chat/start — teto de tamanho", () => {
+  it("recusa nome acima do teto, sem gravar nada", async () => {
+    const res = await iniciar({ name: "x".repeat(201) });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/nome.*longo/i);
+    expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
+  });
+
+  it("aceita nome com exatamente 200 caracteres", async () => {
+    const res = await iniciar({ name: "x".repeat(200) });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("recusa email acima do teto, sem gravar nada", async () => {
+    const res = await iniciar({ email: `${"x".repeat(250)}@example.com` });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/email.*longo/i);
+    expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
+  });
+
+  it("recusa telefone acima do teto, sem gravar nada", async () => {
+    const res = await iniciar({ phone: "1".repeat(41) });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/telefone.*longo/i);
+    expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
+  });
+
+  it("aceita telefone com exatamente 40 caracteres", async () => {
+    const res = await iniciar({ phone: "1".repeat(40) });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("sem telefone (campo ausente), continua funcionando normalmente", async () => {
+    const res = await iniciar();
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createVisitorChat).toHaveBeenCalledWith("Visitante", "visitante@example.com", null);
+  });
+});

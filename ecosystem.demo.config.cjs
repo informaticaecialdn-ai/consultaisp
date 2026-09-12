@@ -59,6 +59,17 @@ if (resultadoDoEnv.error) {
   );
 }
 const env = resultadoDoEnv.parsed;
+// Revisao seguinte (item 4, mesmo defeito do par de producao): um
+// ".env.demo" de ZERO BYTES nao produz erro do dotenv — `.parsed` vem `{}`,
+// vazio mas "bem-sucedido", e o bloco acima nao pega isso. DATABASE_URL e a
+// primeira variavel OBRIGATORIA de `.env.demo.example`; sem ela o arquivo
+// esta vazio ou corrompido, e subir mesmo assim e o mesmo silencio perigoso.
+if (!env || !env.DATABASE_URL) {
+  throw new Error(
+    `ecosystem.demo.config.cjs: ${ENV_DEMO_PATH} existe mas nao tem DATABASE_URL (arquivo vazio ou corrompido?) — ` +
+    `a demo nao pode subir sem banco configurado.`,
+  );
+}
 
 module.exports = {
   apps: [

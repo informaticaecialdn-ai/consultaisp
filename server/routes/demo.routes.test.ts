@@ -63,7 +63,7 @@ vi.mock("../storage", () => ({ storage: storageMock }));
 const exemplosMock = vi.hoisted(() => ({ cpfsDeExemplo: vi.fn() }));
 vi.mock("../demo/exemplos.service", () => exemplosMock);
 
-import { registerDemoRoutes } from "./demo.routes";
+import { registerDemoRoutes, filaDeCriacaoDoSandbox } from "./demo.routes";
 
 const HOST_DA_DEMO = "demo.consultaisp.com.br";
 const DEMO_MODE_ORIGINAL = process.env.DEMO_MODE;
@@ -461,6 +461,72 @@ describe("GET /demo — criacao serializada dentro do processo", () => {
         expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
       }));
     }
+  });
+});
+
+/**
+ * Item 5 da rodada seguinte: a fila é FIFO e ilimitada, e cada criação leva
+ * ~2s — com o nginx da demo em `proxy_read_timeout 60s`, o visitante lá pelo
+ * 30º lugar da fila levaria um 504 OPACO da nginx (nunca a mensagem desta
+ * rota) ENQUANTO o servidor terminava de montar o sandbox dele mesmo assim,
+ * ao fundo, queimando uma vaga do teto de 150 por 24h com alguém que nunca
+ * viu a demonstração.
+ *
+ * A fila (`filaDeCriacaoDoSandbox`) é um SINGLETON no módulo — vive por todo
+ * o arquivo, não é recriada a cada teste como o router é (`subirServidor`).
+ * Por isso cada teste que a enche precisa DRENÁ-LA por completo antes de
+ * terminar (`finally`), senão o próximo teste do arquivo herdaria tarefas
+ * presas.
+ */
+describe("GET /demo — fila de criação tem profundidade máxima", () => {
+  it("com a fila funda (> 10 pendentes), recusa com 503 NA HORA — nunca entra na fila nem chama o servico", async () => {
+    const liberar: Array<() => void> = [];
+    const tarefaTravada = () => new Promise<void>((resolve) => { liberar.push(resolve); });
+    // Concorrencia 1: a primeira tarefa fica ATIVA (roda), o resto fica
+    // PENDENTE. 20 tarefas dao pendingCount=19 — bem alem do teto de 10,
+    // com folga contra qualquer erro de um-a-mais/um-a-menos.
+    for (let i = 0; i < 20; i++) {
+      void filaDeCriacaoDoSandbox(tarefaTravada);
+    }
+
+    try {
+      expect(filaDeCriacaoDoSandbox.pendingCount).toBeGreaterThan(10);
+
+      sessao = { save: (cb: (e?: unknown) => void) => cb() };
+      const res = await pedirDemo();
+
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ message: "A demonstração está muito concorrida agora. Tente novamente em alguns minutos." });
+      // A prova central: a requisicao nem CHEGOU a entrar na fila — nao
+      // conferiu o teto de vivos nem tentou criar nada.
+      expect(sandboxMock.contarSandboxesVivos).not.toHaveBeenCalled();
+      expect(sandboxMock.criarSandbox).not.toHaveBeenCalled();
+    } finally {
+      // Libera as 20 tarefas travadas e espera a fila esvaziar de verdade,
+      // para o PROXIMO teste do arquivo (fila e singleton do modulo) comecar
+      // do zero.
+      //
+      // Concorrencia 1: so UMA tarefa esta "ativa" (invocada) de cada vez —
+      // `tarefaTravada` das outras 19 so roda quando a ativa termina e
+      // `resumeNext()` promove a proxima. Ou seja, `liberar` ganha um item
+      // NOVO a cada rodada (nao os 20 de uma vez): um `forEach` unico so
+      // libera a primeira e trava nas outras 19. Por isso o dreno e um
+      // LACO — libera o que ja tem, cede um tick pra proxima ser promovida
+      // e empurrar o proprio resolve, repete ate a fila zerar.
+      while (filaDeCriacaoDoSandbox.pendingCount > 0 || filaDeCriacaoDoSandbox.activeCount > 0) {
+        while (liberar.length > 0) liberar.shift()!();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+  });
+
+  it("com a fila rasa (nenhuma tarefa presa), o pedido segue normalmente e cria o sandbox", async () => {
+    expect(filaDeCriacaoDoSandbox.pendingCount).toBe(0);
+
+    const res = await pedirDemo();
+
+    expect(res.status).toBe(302);
+    expect(sandboxMock.criarSandbox).toHaveBeenCalledTimes(1);
   });
 });
 

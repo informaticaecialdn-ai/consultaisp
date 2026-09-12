@@ -19,9 +19,9 @@ import { describe, expect, it } from "vitest";
 const fonte = readFileSync(new URL("./worker.ts", import.meta.url), "utf8");
 
 describe("o worker so liga a cadeia do mapa fora do modo demonstracao", () => {
-  it("iniciarCadeiaDoMapa roda dentro de if (!emModoDemo()), nao solta", () => {
+  it("iniciarCadeiaDoMapa roda dentro de if (emModoDemo?.() !== true), nao solta", () => {
     expect(fonte).toContain(
-      'if (!emModoDemo()) {\n    iniciarCadeiaDoMapa().catch(err =>\n      logger.warn({ err }, "[Worker] Cadeia do mapa falhou ao iniciar"));\n  }',
+      'if (emModoDemo?.() !== true) {\n    iniciarCadeiaDoMapa().catch(err =>\n      logger.warn({ err }, "[Worker] Cadeia do mapa falhou ao iniciar"));\n  }',
     );
   });
 

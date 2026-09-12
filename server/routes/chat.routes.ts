@@ -114,11 +114,31 @@ export function registerChatRoutes(): Router {
    */
   const limiteMensagemVisitante = createRateLimiter({ windowMs: 60_000, maxRequests: 20 });
   const TAMANHO_MAXIMO_MENSAGEM_VISITANTE = 4_000;
+  /**
+   * Tetos de tamanho para `/start` (item 7 menor da rodada seguinte): `name`,
+   * `email` e `phone` nao tinham NENHUM teto — string arbitraria ate o limite
+   * global de 10 MB do parser JSON, gravada numa tabela (`visitor_chats`) sem
+   * coluna varchar nem varredura de limpeza que a alcance. O que falta aqui e
+   * TAMANHO, nao formato — a validacao de e-mail continua tao simples quanto
+   * era (`!email`, presenca), no mesmo espirito do teto de `/messages` acima.
+   */
+  const TAMANHO_MAXIMO_NOME_VISITANTE = 200;
+  const TAMANHO_MAXIMO_EMAIL_VISITANTE = 254; // limite pratico de um endereco de e-mail inteiro (RFC 5321 §4.5.3.1.3)
+  const TAMANHO_MAXIMO_TELEFONE_VISITANTE = 40;
 
   router.post("/api/public/visitor-chat/start", limiteMensagemVisitante, async (req, res) => {
     try {
       const { name, email, phone } = req.body;
       if (!name || !email) return res.status(400).json({ message: "Nome e email sao obrigatorios" });
+      if (name.length > TAMANHO_MAXIMO_NOME_VISITANTE) {
+        return res.status(400).json({ message: `Nome muito longo (maximo ${TAMANHO_MAXIMO_NOME_VISITANTE} caracteres)` });
+      }
+      if (email.length > TAMANHO_MAXIMO_EMAIL_VISITANTE) {
+        return res.status(400).json({ message: `Email muito longo (maximo ${TAMANHO_MAXIMO_EMAIL_VISITANTE} caracteres)` });
+      }
+      if (typeof phone === "string" && phone.length > TAMANHO_MAXIMO_TELEFONE_VISITANTE) {
+        return res.status(400).json({ message: `Telefone muito longo (maximo ${TAMANHO_MAXIMO_TELEFONE_VISITANTE} caracteres)` });
+      }
       const chat = await storage.createVisitorChat(name, email, phone || null);
       return res.status(201).json({ token: chat.token, chatId: chat.id });
     } catch (error: any) {

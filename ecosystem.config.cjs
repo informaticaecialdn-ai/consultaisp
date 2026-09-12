@@ -41,6 +41,19 @@ if (resultadoDoEnv.error) {
   );
 }
 const env = resultadoDoEnv.parsed;
+// Revisao seguinte (item 4): um ".env" de ZERO BYTES (copia que parou pela
+// metade, um ">" no lugar de um ">>") nao produz erro NENHUM do dotenv —
+// `.parsed` vem `{}`, vazio mas "bem-sucedido" do ponto de vista dele, e o
+// bloco acima nao pega isso. O processo subiria em silencio sem NENHUMA
+// variavel de verdade, e so estouraria (se estourasse) na primeira tentativa
+// de falar com o banco. DATABASE_URL e a prova mais direta de que o arquivo
+// tem conteudo real: sem ela, nao ha producao para subir.
+if (!env || !env.DATABASE_URL) {
+  throw new Error(
+    `ecosystem.config.cjs: ${ENV_PATH} existe mas nao tem DATABASE_URL (arquivo vazio ou corrompido?) — ` +
+    `a producao nao pode subir sem banco configurado.`,
+  );
+}
 
 module.exports = {
   apps: [
@@ -52,7 +65,20 @@ module.exports = {
       // pm2 manda SIGKILL 1600ms depois do SIGTERM por padrao — curto demais
       // para qualquer encerramento ordenado.
       kill_timeout: 35000,
-      env: { ...env, NODE_ENV: "production" },
+      // `DEMO_MODE: "false"` primeiro, "...env" por cima (revisao seguinte,
+      // item 3): `.env.example` nao lista DEMO_MODE, entao um `.env` de
+      // producao tipico tambem nao a declara — e para QUALQUER chave que
+      // `app.env` nao define, o pm2 cai para o ambiente do DAEMON (o processo
+      // que rodou o primeiro `pm2 start` na maquina), nao para "ausente". Se
+      // aquele ambiente um dia tiver DEMO_MODE=true (por exemplo, alguem
+      // testando a demo no mesmo shell antes de subir producao), producao
+      // herdaria isso em silencio — cadastro fechado, bureaus simulados, a
+      // faixa de "dados ficticios" na tela de provedor pagante. O default
+      // aqui fecha esse buraco sem depender de o `.env` nunca mencionar a
+      // chave; se o `.env` mencionar (nunca deveria, em producao), `...env`
+      // sobrescreve o default, porque `emModoDemo()` so aceita a string exata
+      // "true" e essa precisao e o que vale preservar.
+      env: { DEMO_MODE: "false", ...env, NODE_ENV: "production" },
       error_file: "/root/.pm2/logs/consulta-isp-error.log",
       out_file: "/root/.pm2/logs/consulta-isp-out.log",
       merge_logs: true,
@@ -84,7 +110,11 @@ module.exports = {
       restart_delay: 10000,
       min_uptime: "60s",
       max_restarts: 5,
-      env: { ...env, NODE_ENV: "production" },
+      // Mesmo default explicito do app acima (item 3) — os dois processos
+      // deste par precisam concordar sobre DEMO_MODE tanto quanto sobre
+      // NODE_ENV; herdar do daemon por caminhos diferentes e como os dois
+      // discordariam sem ninguem perceber.
+      env: { DEMO_MODE: "false", ...env, NODE_ENV: "production" },
       error_file: "/root/.pm2/logs/consulta-isp-worker-error.log",
       out_file: "/root/.pm2/logs/consulta-isp-worker-out.log",
       merge_logs: true,

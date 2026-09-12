@@ -130,7 +130,29 @@ describe("enviarWebhookDoAlerta", () => {
     );
   });
 
-  it("recusa uma linha GRAVADA ANTES da validacao existir (endpoint de metadados de nuvem, https:// mas interno)", async () => {
+  /**
+   * Item 6 da rodada seguinte: o log tem que dizer QUAL causa bateu (nao mais
+   * uma frase que lista tres possibilidades pra toda recusa), mais o
+   * HOSTNAME — e so o hostname, nunca o caminho (`/x?token=segredo`), que e
+   * onde um webhook costuma guardar credencial.
+   */
+  it("o log carrega a causa maquina-legivel e SO o hostname — nunca a URL inteira nem o caminho", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    // http:// (protocolo invalido) e o motivo de verdade aqui — o endereco
+    // TAMBEM e interno, mas o protocolo e checado primeiro.
+    await enviarWebhookDoAlerta({ id: 7, proactiveAlertWebhookUrl: "http://127.0.0.1:8080/caminho-secreto?token=abc123" }, {});
+
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 7, causa: "protocolo_invalido", host: "127.0.0.1" }),
+      expect.any(String),
+    );
+    const [campos] = loggerMock.error.mock.calls[0];
+    expect(JSON.stringify(campos)).not.toMatch(/caminho-secreto|token|abc123/);
+  });
+
+  it("recusa uma linha GRAVADA ANTES da validacao existir (endpoint de metadados de nuvem, https:// mas interno) — causa e host batem", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -138,6 +160,10 @@ describe("enviarWebhookDoAlerta", () => {
 
     expect(enviou).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 12, causa: "endereco_privado", host: "169.254.169.254" }),
+      expect.any(String),
+    );
   });
 
   it("endereco externo legitimo: chama fetch e devolve true quando a resposta e ok", async () => {

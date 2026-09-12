@@ -23,8 +23,33 @@ import { paginaDeErroDaPorta } from "./demo-porta-html";
  * linhas, dezenas de queries) num processo de 512 MB. `p-limit(1)` faz a
  * checagem e a criação de CADA requisição rodarem em SÉRIE — a próxima só
  * começa a conferir o teto depois que a anterior já commitou (ou falhou).
+ *
+ * Exportada (rodada seguinte) só para o teste conseguir encher a fila
+ * diretamente — sem passar pelo limitador de taxa da rota — e prometer o
+ * item 5 abaixo sem esperar de verdade ~20s (10 tarefas de ~2s cada) a cada
+ * `it()`.
  */
-const filaDeCriacaoDoSandbox = pLimit(1);
+export const filaDeCriacaoDoSandbox = pLimit(1);
+
+/**
+ * Item 5 da rodada seguinte: a fila acima é FIFO e ILIMITADA, e cada criação
+ * leva ~2s (a carteira inteira: provedor, usuário, ~5 mil linhas). Com o
+ * nginx da demo em `proxy_read_timeout 60s`, por volta do 30º visitante
+ * enfileirado estoura esse teto — recebe um 504 OPACO da nginx (nunca a
+ * mensagem desta rota) enquanto o servidor termina de montar o sandbox dele
+ * de qualquer jeito, ao FUNDO, queimando uma das `TETO_DE_SANDBOXES_VIVOS`
+ * vagas por 24h com alguém que nunca chegou a ver a demonstração.
+ *
+ * Recusar CEDO — antes mesmo de entrar na fila — mantém a pior espera real
+ * (`PROFUNDIDADE_MAXIMA_DA_FILA` × ~2s ≈ 20s) bem dentro do timeout do
+ * proxy. `p-limit` v7 expõe `pendingCount` (quantas tarefas esperam, sem
+ * contar a que já está rodando) — é exatamente o que precisamos aqui, sem
+ * inventar contador próprio.
+ */
+const PROFUNDIDADE_MAXIMA_DA_FILA = 10;
+
+/** A mesma frase para as DUAS recusas de "demonstração concorrida" (fila funda e teto de vivos) — nunca duas mensagens para o mesmo motivo. */
+const MENSAGEM_DEMO_CONCORRIDA = "A demonstração está muito concorrida agora. Tente novamente em alguns minutos.";
 
 /** Sinaliza "no teto" para fora de `filaDeCriacaoDoSandbox` sem confundir com qualquer outra falha (500 genérico). */
 class TetoDeSandboxesAtingidoError extends Error {}
@@ -116,6 +141,14 @@ export function registerDemoRoutes(): Router {
         // Sessao orfa: cai para criar um sandbox novo abaixo, do zero.
       }
 
+      // Item 5 da rodada seguinte: recusa CEDO, antes de entrar na fila, se
+      // ela já estiver funda demais — nunca deixa o pedido esperar perto do
+      // timeout do proxy só para descobrir "demonstração concorrida" no
+      // fim. Ver a justificativa completa em `PROFUNDIDADE_MAXIMA_DA_FILA`.
+      if (filaDeCriacaoDoSandbox.pendingCount > PROFUNDIDADE_MAXIMA_DA_FILA) {
+        return res.status(503).json({ message: MENSAGEM_DEMO_CONCORRIDA });
+      }
+
       // Teto de sandboxes VIVOS ao mesmo tempo — ver a justificativa de
       // `TETO_DE_SANDBOXES_VIVOS` em sandbox.service.ts. Depois da checagem de
       // reaproveitamento acima: um visitante que VOLTA nunca é barrado por um
@@ -136,9 +169,7 @@ export function registerDemoRoutes(): Router {
         });
       } catch (error) {
         if (error instanceof TetoDeSandboxesAtingidoError) {
-          return res.status(503).json({
-            message: "A demonstração está muito concorrida agora. Tente novamente em alguns minutos.",
-          });
+          return res.status(503).json({ message: MENSAGEM_DEMO_CONCORRIDA });
         }
         throw error;
       }

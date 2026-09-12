@@ -222,7 +222,23 @@ export function textoDoAlerta(
  * fora. Loga ALTO (`logger.error`, com o `providerId`) porque é a ÚNICA pista
  * de que aquele provedor precisa reabrir a aba Anti-Fraude e salvar o
  * endereço de novo para o canal voltar a funcionar.
+ *
+ * O log carrega a `causa` MÁQUINA-LEGÍVEL que `validarWebhookExterno` agora
+ * devolve (revisão seguinte, item 6) — antes a mensagem enumerava "endereco
+ * interno, http:// ou nao resolve" para TODA recusa, sem dizer qual das três
+ * era a de verdade (e, com o defeito 1 em jogo, a causa real muitas vezes nem
+ * estava na lista). Junto vai só o HOSTNAME (`hostnameParaLog`), nunca a URL
+ * inteira: o caminho de um webhook costuma carregar o segredo (um token na
+ * query string, por exemplo), e o log não é o lugar para isso.
  */
+function hostnameParaLog(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
 export async function enviarWebhookDoAlerta(
   ownerProvider: { id: number; proactiveAlertWebhookUrl?: string | null },
   payload: Record<string, unknown>,
@@ -233,8 +249,8 @@ export async function enviarWebhookDoAlerta(
   const veredito = await validarWebhookExterno(webhookUrl);
   if (!veredito.ok) {
     logger.error(
-      { providerId: ownerProvider.id, motivo: veredito.motivo },
-      "Alerta de fuga: webhook recusado na hora do disparo (endereco interno, http:// ou nao resolve) — o provedor precisa reabrir a aba Anti-Fraude e salvar o endereco de novo",
+      { providerId: ownerProvider.id, causa: veredito.causa, host: hostnameParaLog(webhookUrl) },
+      "Alerta de fuga: webhook recusado na hora do disparo — o provedor precisa reabrir a aba Anti-Fraude e salvar o endereco de novo",
     );
     return false;
   }
