@@ -216,15 +216,28 @@ pm2 start ecosystem.demo.config.cjs
 pm2 save
 ```
 
-Confira os dois processos:
+Confira os dois processos — **os dois, não só o HTTP.** O worker é quem faz
+mais coisa sozinho no primeiro boot (ERP sync, retenção e titular LGPD, régua
+diária, reconciliação de confissão, chat) e é o único que teria acusado, antes
+da correção deste roteiro, um download de censo do IBGE em silêncio:
 
 ```bash
 pm2 list | grep consulta-isp-demo
 pm2 logs consulta-isp-demo --lines 30 --nostream
+pm2 logs consulta-isp-demo-worker --lines 40 --nostream
 ```
 
-Espera-se ver `[migrate] Applying migration: ...` (Passo 4) seguido de
-`Environment validated` e o servidor escutando em `5001`.
+No log de `consulta-isp-demo`, espera-se ver `[migrate] Applying migration:
+...` (Passo 4) seguido de `Environment validated` e o servidor escutando em
+`5001`. No log de `consulta-isp-demo-worker`, espera-se `[Worker] ERP sync
+scheduler started`, `[Worker] LGPD retention scheduler started`, `[Worker]
+Régua de cobrança scheduler started` e, por já estar em `DEMO_MODE`,
+`[Worker] Limpeza de sandboxes da demo scheduler started`. **Não deve
+aparecer** nenhuma linha de `Cobertura geo` (`server/worker.ts`,
+`iniciarCadeiaDoMapa`) — essa cadeia baixa base de endereço real do IBGE por
+cidade e fica desligada em `DEMO_MODE` (corrigido nesta rodada; ver a nota na
+seção 7 do design doc). Se aparecer, o worker está sem `DEMO_MODE=true` no
+`.env.demo` — confira o Passo 3 antes de continuar.
 
 ---
 
@@ -237,8 +250,47 @@ trabalho deste passo é uma chamada de função já pronta). Em vez disso:
 
 ```bash
 cd /var/www/consulta-isp-demo
-npx tsx -e "import('./server/demo/mundo-base').then(m => m.semearMundoBase()).then(r => console.log('mundo base semeado:', r))"
+npx tsx -e "import('dotenv').then(d => d.config({ path: '.env.demo', override: true })).then(() => import('./server/demo/mundo-base')).then(m => m.semearMundoBase()).then(r => console.log('mundo base semeado:', r))"
 ```
+
+**Por que o comando carrega `.env.demo` explicitamente, com `override: true`,
+antes de importar qualquer coisa — e por que isso não é excesso de zelo:**
+`server/demo/mundo-base.ts` importa `db` de `server/db.ts`, que lê
+`process.env.DATABASE_URL` direto, sem fallback nenhum. Os únicos dois pontos
+do projeto que carregam `.env` sozinhos são os entrypoints reais
+(`server/index.ts:1` e `server/worker.ts:15`, ambos `import "dotenv/config"`)
+— um `npx tsx -e` não passa por nenhum dos dois, e mesmo que passasse,
+`dotenv/config` sem argumento procura `.env`, que **não existe** neste
+checkout (só `.env.demo`, do Passo 3). Sem carregar nada, `DATABASE_URL` fica
+do jeito que a sessão de terminal já a deixou.
+
+**O risco concreto, medido antes de escrever este comando:** se o terminal
+que vai rodar isto ainda carregar um `DATABASE_URL` de uma tarefa de produção
+anterior (exportado numa sessão de trabalho, por exemplo), o comando ingênuo
+`import('dotenv').then(d => d.config({ path: '.env.demo' }))` **não resolve
+isso** — o `dotenv.config()` só define uma variável que ainda não existe;
+achando `DATABASE_URL` já presente (a de produção), ele a mantém, calado, e
+`semearMundoBase()` escreveria os 7.500 clientes fictícios no banco de
+PRODUÇÃO. Reproduzi os dois lados exatamente antes de fechar este roteiro:
+com `override: true`, `DATABASE_URL` efetivo vira o de `.env.demo` mesmo
+havendo um valor de produção pré-exportado no shell (confirmado pela mensagem
+de erro de conexão citar o host do `.env.demo`); sem `override`, o mesmo
+comando confirma tentativa de conexão no host de produção. **`override: true`
+não é opcional aqui — é a única linha entre este comando e escrever no banco
+errado.**
+
+**Por que `.then()` em cadeia, e não `await` no topo do arquivo (mais óbvio
+à primeira vista):** `tsx -e` transforma o texto do `-e` em CJS por baixo dos
+panos, e `await` de topo de arquivo não existe em CJS — o comando falha na
+hora com "Top-level await is currently not supported with the cjs output
+format". A cadeia de `.then()` (config → SÓ DEPOIS importar `mundo-base` → SÓ
+DEPOIS chamar `semearMundoBase()`) garante a mesma coisa que um `await`
+garantiria — que `DATABASE_URL` já está correto antes de `server/db.ts` ser
+avaliado — sem depender de um recurso de linguagem que este comando não pode
+usar. **Não troque a cadeia por duas chamadas `import(...)` soltas**: rodar
+o `import('./server/demo/mundo-base')` fora da cadeia (em paralelo com o
+`config()`, em vez de depois dele) reabre exatamente o mesmo risco, porque
+`server/db.ts` pode ser avaliado antes do `config()` terminar.
 
 **Por que este passo é opcional, mas recomendado mesmo assim:**
 `criarSandbox()` (`server/demo/sandbox.service.ts:544`) já chama

@@ -304,9 +304,16 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
    * minutos; com um `await` aqui em cima, o worker passaria esses minutos sem
    * `SIGTERM` registrado, e um restart do pm2 no meio da carga cairia no
    * encerramento bruto — sem o dreno do sync que o `shutdown` faz logo acima.
+   *
+   * Fora em `emModoDemo()`: os clientes fictícios já nascem com coordenada na
+   * semeadura (server/demo/pessoas-ficticias.ts), então esta cadeia não tem
+   * nada a contribuir na demo — só baixaria censo real do IBGE por cidade
+   * (Londrina, Ibiporã, Cambé, Apucarana) numa VPS que já roda produção.
    */
-  iniciarCadeiaDoMapa().catch(err =>
-    logger.warn({ err }, "[Worker] Cadeia do mapa falhou ao iniciar"));
+  if (!emModoDemo()) {
+    iniciarCadeiaDoMapa().catch(err =>
+      logger.warn({ err }, "[Worker] Cadeia do mapa falhou ao iniciar"));
+  }
 
   logger.info("[Worker] Ready — background jobs running");
 })();

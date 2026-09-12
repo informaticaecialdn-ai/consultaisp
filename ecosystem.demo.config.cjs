@@ -9,12 +9,22 @@
  *   2. Nomes de processo com sufixo "-demo", para nunca colidir com o par de
  *      produção no mesmo `pm2 list`/`pm2 save`.
  *   3. Arquivos de log com o mesmo sufixo.
- *   4. Teto de memória do worker em 512M, não 4G — o worker da demo só roda a
- *      limpeza de sandbox (server/demo/limpeza.service.ts) e a régua diária de
- *      cobrança; ele nunca carrega o índice de geocodificação do CNEFE, que é
- *      o que obriga o worker de produção a ter 4G (ver o comentário sobre isso
- *      em ecosystem.config.cjs). É a mitigação do risco #3 do design doc
- *      ("custo de um segundo par de processos na mesma VPS").
+ *   4. Teto de memória do worker em 512M, não 4G — o worker da demo roda os
+ *      MESMOS agendadores que produção (sync de ERP, retenção e titular LGPD,
+ *      régua diária, reconciliação de confissão, chat), mais a limpeza de
+ *      sandbox (server/demo/limpeza.service.ts), que só existe aqui. Nenhum
+ *      deles pesa: o sync de ERP não escreve nada (o único ERP configurado na
+ *      demo é a fonte "demo", que `ehFonteDeDemonstracao` já pula no caminho
+ *      de escrita — server/services/erp-sync.service.ts:905), e os que
+ *      dependem de credencial paga (chat, confissão) ficam inertes sem ela.
+ *      O que de fato NÃO roda — e é o que sustenta o teto menor — é a cadeia
+ *      do mapa (`iniciarCadeiaDoMapa`, server/worker.ts), desligada em
+ *      `emModoDemo()`: ela é quem baixa e carrega o índice de geocodificação
+ *      do CNEFE, o que obriga o worker de produção a ter 4G (ver o comentário
+ *      em ecosystem.config.cjs). Sem essa cadeia, o worker da demo nunca
+ *      carrega um dataset grande na memória — só agendadores leves. É a
+ *      mitigação do risco #3 do design doc ("custo de um segundo par de
+ *      processos na mesma VPS").
  *
  * O resto — exec_mode, kill_timeout, o padrão de env, os nomes dos arquivos de
  * script — é IDÊNTICO ao de produção. Mesmo binário, mesmo comportamento de
@@ -51,9 +61,13 @@ module.exports = {
       name: "consulta-isp-demo-worker",
       script: "dist/worker.cjs",
       exec_mode: "fork",
-      // 512M, nao 4G: o worker da demo so roda a limpeza de sandbox e a regua
-      // diaria de cobranca. Ele nao carrega o indice de geocodificacao do
-      // CNEFE, que e o que obriga o worker de producao a ter 4G.
+      // 512M, nao 4G: o worker da demo roda os MESMOS agendadores que
+      // producao (sync de ERP — que aqui nao escreve nada, so encontra a
+      // fonte "demo" — retencao/titular LGPD, regua, confissao, chat), mais a
+      // limpeza de sandbox, que so existe aqui. O que fica de fora — e o que
+      // sustenta o teto menor — e iniciarCadeiaDoMapa() (server/worker.ts):
+      // ela baixa o indice do CNEFE e obriga producao a 4G, e fica desligada
+      // em emModoDemo().
       max_memory_restart: "512M",
       // O worker drena trabalho em voo por ate 30s antes de fechar o pool
       // (server/worker.ts) — mesmo motivo do kill_timeout de producao.
