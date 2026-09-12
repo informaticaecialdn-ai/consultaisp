@@ -45,14 +45,35 @@ describe("a landing só leva ao cadastro", () => {
 });
 
 describe("porta da demonstração", () => {
-  it("leva ao demo, nos dois blocos de CTA", () => {
-    const ocorrencias = landing.match(/https:\/\/demo\.consultaisp\.com\.br\/demo/g) ?? [];
-    expect(ocorrencias.length).toBeGreaterThanOrEqual(2);
-    expect(landing).toContain("Ver demonstração");
+  /**
+   * A URL vive numa constante só (mesma convenção de CADASTRO/WHATSAPP, linhas
+   * 35-37): se `/demo` virar outra coisa, as duas cópias andam juntas.
+   */
+  it("a URL do demo é uma constante, não duas cópias soltas", () => {
+    expect(landing).toMatch(/const DEMO = "https:\/\/demo\.consultaisp\.com\.br\/demo";/);
+    const usos = landing.match(/href=\{DEMO\}/g) ?? [];
+    expect(usos.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("abre em outra aba, sem entregar a sessao da landing", () => {
-    expect(landing).toMatch(/demo\.consultaisp\.com\.br\/demo"[^>]*target="_blank"[^>]*rel="noopener"/s);
+  /**
+   * Ancorado no CONTÊINER de cada bloco — não basta o par href/target/rel
+   * existir em algum lugar da página: precisa estar DENTRO de "hero-ctas" e
+   * dentro de "final-cta-buttons", um teste por bloco. Uma versão sem essa
+   * âncora passaria mesmo com os dois botões colados no mesmo bloco (a
+   * contagem bateria e o primeiro `toMatch` acharia uma ocorrência qualquer);
+   * o `(?:(?!<\/div>)[\s\S])*?` proíbe a busca de atravessar o fechamento do
+   * próprio contêiner antes de achar o link do demo.
+   */
+  it("no herói, junto do cadastro — abre em outra aba, sem entregar a sessão da landing", () => {
+    expect(landing).toMatch(
+      /<div className="hero-ctas">(?:(?!<\/div>)[\s\S])*?<a href=\{DEMO\}[^>]*target="_blank"[^>]*rel="noopener"[^>]*>Ver demonstração<\/a>/
+    );
+  });
+
+  it("no CTA final — abre em outra aba, sem entregar a sessão da landing", () => {
+    expect(landing).toMatch(
+      /<div className="final-cta-buttons">(?:(?!<\/div>)[\s\S])*?<a href=\{DEMO\}[^>]*target="_blank"[^>]*rel="noopener"[^>]*>Ver demonstração<\/a>/
+    );
   });
 
   it("o cadastro continua sendo a acao principal", () => {
