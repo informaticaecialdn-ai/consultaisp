@@ -169,13 +169,25 @@ function arestasDoProvedor(indiceProvedor: number): number[] {
   return arestas;
 }
 
-/** Os CPFs que se repetem entre vizinhos — as 4 arestas da linha, achatadas (4 × 150 = 600). */
-export const CPFS_COMPARTILHADOS: string[] = Array.from(
+/**
+ * Os índices de pessoa fictícia por trás de cada `CPFS_COMPARTILHADOS[k]`, na
+ * MESMA ordem (mesmo `k`, mesma pessoa) — as 4 arestas da linha, achatadas
+ * (4 × 150 = 600).
+ *
+ * Exportado (rodada de correção, 12/09/2026) porque um CPF compartilhado não é
+ * só um documento repetido: é a MESMA PESSOA em dois provedores, e quem
+ * reaproveita `CPFS_COMPARTILHADOS[k]` como documento de um cliente precisa
+ * também da IDENTIDADE que aquele documento implica — `pessoaFicticia(este
+ * índice)`, nunca `pessoaFicticia` de outro índice qualquer. Ver o bug que
+ * isto corrige em `server/demo/sandbox.service.ts` (`linhaDoCliente`).
+ */
+export const INDICES_COMPARTILHADOS: number[] = Array.from(
   { length: PROVEDORES_DA_DEMO.length - 1 },
   (_, aresta) => indicesDaAresta(aresta),
-)
-  .flat()
-  .map(cpfFicticio);
+).flat();
+
+/** Os CPFs que se repetem entre vizinhos — mesma ordem/índice de `INDICES_COMPARTILHADOS`. */
+export const CPFS_COMPARTILHADOS: string[] = INDICES_COMPARTILHADOS.map(cpfFicticio);
 
 type Categoria = "inadimplente" | "cancelado" | "em_dia";
 

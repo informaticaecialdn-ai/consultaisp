@@ -67,7 +67,7 @@ import { storage } from "../storage";
 import { emailCanonico } from "../storage/users.storage";
 import { hashPassword } from "../password";
 import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
-import { PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase, linhaDaIntegracao } from "./mundo-base";
+import { PROVEDORES_DA_DEMO, INDICES_COMPARTILHADOS, semearMundoBase, linhaDaIntegracao } from "./mundo-base";
 import { STATUS_DE_CASO, type StatusDeCaso } from "@shared/cobranca/estados";
 import type { EtapaId } from "@shared/cobranca/regua";
 import { severidadeDoAlerta } from "@shared/antifraude-avaliacao";
@@ -293,19 +293,35 @@ interface EntradaSandbox {
   categoria: CategoriaSandbox;
   /** Posição dentro da própria categoria (0-based) — cicla idade, valor e equipamento. */
   posicaoNaCategoria: number;
-  /** Presente só nos 150 clientes que reaproveitam CPF da rede — sobrescreve `cpfFicticio(indice)`. */
-  cpfOverride?: string;
+  /**
+   * Presente só nos 150 clientes que reaproveitam a IDENTIDADE de um CPF da
+   * rede — `INDICES_COMPARTILHADOS[k]`, o índice de pessoa fictícia que
+   * `mundo-base.ts` usou para gerar `CPFS_COMPARTILHADOS[k]`. Um CPF
+   * compartilhado é a MESMA PESSOA em dois provedores: `linhaDoCliente` usa
+   * este índice (nunca o índice local do sandbox) para `pessoaFicticia`,
+   * então nome/telefone/endereço E documento vêm todos do MESMO lugar — nunca
+   * só o documento sobrescrito por cima de uma pessoa diferente (rodada de
+   * correção, 12/09/2026: era exatamente isso que fazia o SPC e o cadastral,
+   * que decodificam identidade a partir do CPF, mostrarem alguém diferente do
+   * relatório da Consulta ISP para o mesmo documento). Mensalidade, plano,
+   * tempo de casa e equipamento continuam vindo do índice LOCAL — são a
+   * história desta CONTA neste provedor, não a identidade da pessoa.
+   */
+  personaIndexOverride?: number;
 }
 
 /**
- * Monta os 1.500 clientes do sandbox: 1.350 usam `pessoaFicticia`/`cpfFicticio`
- * em índices exclusivos deste sandbox; os outros 150 reaproveitam
- * `CPFS_COMPARTILHADOS[0..149]` como CPF (nome/endereço/coordenada continuam
- * vindo do índice exclusivo normalmente — só `cpfCnpj` é sobrescrito). Estes
- * 150 nascem "em dia" NESTE sandbox de propósito: a história que a
- * demonstração conta é "limpo aqui, mas devendo na rede" — contrastar com um
- * cliente que já nasce inadimplente no próprio sandbox não ensinaria nada
- * sobre a rede.
+ * Monta os 1.500 clientes do sandbox: 1.350 usam a identidade
+ * (`pessoaFicticia`/`cpfFicticio`) do índice exclusivo deste sandbox; os
+ * outros 150 reaproveitam a IDENTIDADE INTEIRA de
+ * `INDICES_COMPARTILHADOS[0..149]` — nome, telefone, endereço e o CPF que ela
+ * implica, não só o CPF sozinho sobrescrevendo uma pessoa gerada do índice
+ * local (era o defeito desta rodada: SPC e cadastral decodificam identidade a
+ * partir do próprio documento, então mostravam OUTRA pessoa para o mesmo CPF
+ * que a Consulta ISP acabava de exibir). Estes 150 nascem "em dia" NESTE
+ * sandbox de propósito: a história que a demonstração conta é "limpo aqui,
+ * mas devendo na rede" — contrastar com um cliente que já nasce inadimplente
+ * no próprio sandbox não ensinaria nada sobre a rede.
  */
 function planoDeIndicesDoSandbox(): EntradaSandbox[] {
   const entradas: EntradaSandbox[] = [];
@@ -326,7 +342,7 @@ function planoDeIndicesDoSandbox(): EntradaSandbox[] {
       cursor: CLIENTES_EXCLUSIVOS_POR_SANDBOX + k, // 1.350..1.499
       categoria: "em_dia",
       posicaoNaCategoria: k,
-      cpfOverride: CPFS_COMPARTILHADOS[k],
+      personaIndexOverride: INDICES_COMPARTILHADOS[k],
     });
   }
 
@@ -397,8 +413,16 @@ function equipamentoDaEntrada(entrada: EntradaSandbox): DescritorDeEquipamento |
 
 function linhaDoCliente(providerId: number, entrada: EntradaSandbox, agora: Date): InsertCustomer {
   const indice = indiceDaEntrada(providerId, entrada);
-  const pessoa = pessoaFicticia(indice);
-  const cpf = entrada.cpfOverride ?? cpfFicticio(indice);
+  // A IDENTIDADE (nome, telefone, endereço, e-mail, CPF) vem de UM índice só —
+  // o compartilhado quando presente, senão o local. `cpf` deriva de `pessoa`,
+  // nunca é recalculado à parte: as duas rodadas anteriores desse bug
+  // nasceram exatamente de `pessoa` e `cpf` virem de fontes diferentes que
+  // silenciosamente saíam de sincronia. Mensalidade, plano, tempo de casa e
+  // equipamento (abaixo) continuam por `indice` — são a conta deste sandbox
+  // com a pessoa, não a pessoa em si.
+  const indicePessoa = entrada.personaIndexOverride ?? indice;
+  const pessoa = pessoaFicticia(indicePessoa);
+  const cpf = pessoa.cpf;
   const equip = equipamentoDaEntrada(entrada);
   const cortadoEm = cortadoEmDaEntrada(entrada, agora);
   const contractStartDate = paraDataSemHora(subtrairMeses(cortadoEm ?? agora, tenureMeses(indice)));

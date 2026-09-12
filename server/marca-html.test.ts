@@ -10,6 +10,8 @@
  *   3. cor invalida derruba o bloco de cor INTEIRO, em vez de aplicar metade.
  */
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { injetarMarca, escaparHtml, paraScript } from "./marca-html";
 import { paletaClara, paletaEscura } from "./utils/marca-cores";
 import type { MarcaResolvida } from "./services/marca.service";
@@ -241,5 +243,62 @@ describe("demoMode chega a window.__MARCA__ (item 6)", () => {
   it("marca de revendedor com demoMode:true tambem leva o sinal — nao e exclusivo de marcaId nulo", () => {
     const html = injetarMarca(TEMPLATE, marcaDe({ demoMode: true }));
     expect(lerMarcaInjetada(html).demoMode).toBe(true);
+  });
+});
+
+/**
+ * Revisão final de segurança antes da demonstração pública (item 4): o
+ * `<script>` do Meta Pixel em client/index.html já tem guarda de hostname
+ * (client/src/pixel-demo-guard.test.ts prova isso), mas essa guarda é JS —
+ * não roda quando é o `<noscript>` quem renderiza. E o `<noscript>` também
+ * escapava da troca de marcaId: um host sem marca própria (o caso do host da
+ * demonstração) preserva a faixa original byte a byte, pixel incluso. Estes
+ * testes rodam contra o `client/index.html` DE VERDADE (a mesma técnica de
+ * `pixel-demo-guard.test.ts`, não um TEMPLATE sintético) passado pelo
+ * `injetarMarca` real, para provar que a saída SERVIDA — não só o código-fonte
+ * do snippet — perde o `<noscript>` no host da demonstração e o mantém em
+ * todo outro lugar.
+ */
+describe("Meta Pixel: o <noscript> some da saida no host da demonstracao (revisao final de seguranca, item 4)", () => {
+  const HTML_REAL = fs.readFileSync(path.join(__dirname, "..", "client", "index.html"), "utf8");
+
+  it("some quando demoMode e verdadeiro (subdominio sem marca propria — o caso real da demo)", () => {
+    const marcaDoHostDaDemo: MarcaResolvida = {
+      ...PLATAFORMA, origem: "subdominio", contexto: "tenant", marcaId: null, demoMode: true,
+    };
+    const html = injetarMarca(HTML_REAL, marcaDoHostDaDemo);
+    expect(html).not.toContain("<noscript>");
+    expect(html).not.toContain("facebook.com/tr");
+  });
+
+  it("continua presente em producao — mesmo subdominio sem marca propria, sem demoMode", () => {
+    const marcaDeProducao: MarcaResolvida = {
+      ...PLATAFORMA, origem: "subdominio", contexto: "tenant", marcaId: null,
+    };
+    const html = injetarMarca(HTML_REAL, marcaDeProducao);
+    expect(html).toContain('src="https://www.facebook.com/tr?id=1543850664096239');
+  });
+
+  it("continua ausente para revendedor com marca propria — nunca esteve na saida, com ou sem demoMode", () => {
+    expect(injetarMarca(HTML_REAL, marcaDe())).not.toContain("facebook.com/tr");
+    expect(injetarMarca(HTML_REAL, marcaDe({ demoMode: true }))).not.toContain("facebook.com/tr");
+  });
+
+  it("so o noscript some — o <script> do pixel continua no HTML, a guarda de hostname dele decide em runtime", () => {
+    const marcaDoHostDaDemo: MarcaResolvida = {
+      ...PLATAFORMA, origem: "subdominio", contexto: "tenant", marcaId: null, demoMode: true,
+    };
+    const html = injetarMarca(HTML_REAL, marcaDoHostDaDemo);
+    expect(html).toContain("fbevents.js");
+  });
+
+  it("a plataforma raiz (sem transformacao nenhuma) nunca perde o noscript, mesmo com demoMode", () => {
+    // marca.origem/contexto === "plataforma" retorna o html intacto ANTES de
+    // qualquer outra logica (ver o topo de injetarMarca) — este teste prende
+    // essa prioridade: mesmo que demoMode viesse true aqui (nao deveria, mas
+    // o codigo nao pode depender de isso nunca acontecer), o caminho da
+    // plataforma nem chega a olhar demoMode.
+    const html = injetarMarca(HTML_REAL, { ...PLATAFORMA, demoMode: true });
+    expect(html).toContain("facebook.com/tr");
   });
 });

@@ -40,6 +40,7 @@ import {
 import { criarSandbox } from "./sandbox.service";
 import { semearMundoBase, PROVEDORES_DA_DEMO } from "./mundo-base";
 import { cpfsDeExemplo } from "./exemplos.service";
+import { spcSimulado, cadastralSimulado } from "./bureaus-simulados";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
 import { getConnector } from "../erp/registry";
@@ -196,7 +197,15 @@ describe("os tres CPFs de exemplo entregam a historia prometida (item 1, verific
 
     const comDivida = resultados.filter((r) => r.achou && r.cliente!.totalOverdueAmount > 0);
     expect(comDivida, `deveria estar limpo em toda a rede: ${JSON.stringify(resultados)}`).toHaveLength(0);
-  });
+    // Timeout explicito e generoso (nao o default de 5s do vitest): este teste
+    // e o PRIMEIRO do arquivo a rodar, entao paga sozinho o custo de semear o
+    // mundo base inteiro (7.502 clientes) MAIS um sandbox (1.500) com cache
+    // frio — medido em ~2,4s isolado, margem de ~2x sobre o default, que ja
+    // se mostrou insuficiente numa rodada da suite inteira sob carga (passou
+    // 5x seguidas e depois deu timeout). Sem isto, o teste que prova a
+    // historia de venda mais importante da demonstracao vira bode expiatorio
+    // de maquina lenta, nao de regressao real.
+  }, 30_000);
 
   it("DEVENDO NA REDE: em dia no proprio sandbox, mas inadimplente em pelo menos DOIS provedores parceiros", async () => {
     const mundoBase = await semearMundoBase();
@@ -219,6 +228,48 @@ describe("os tres CPFs de exemplo entregam a historia prometida (item 1, verific
       parceirosComDivida.length,
       `esperava >=2 provedores parceiros com divida: ${JSON.stringify(resultados)}`,
     ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("IDENTIDADE COMPARTILHADA: um CPF que a rede compartilha e a MESMA pessoa no relatorio ISP, no SPC e no cadastral", async () => {
+    // Regressao do defeito medido na verificacao final da demonstracao: dos
+    // 150 CPFs que o sandbox reaproveita da rede (CPFS_COMPARTILHADOS), a
+    // IDENTIDADE (nome, telefone, endereco) vinha do INDICE LOCAL do sandbox,
+    // e so o documento vinha do indice compartilhado — server/demo/sandbox.service.ts
+    // chamava `pessoaFicticia(indiceLocal)` e sobrescrevia so `cpfCnpj`. Os
+    // bureaus simulados (server/demo/bureaus-simulados.ts) decodificam
+    // identidade a partir do proprio CPF, entao mostravam OUTRA pessoa para o
+    // mesmo documento que a Consulta ISP acabara de exibir. Medido: 150 de
+    // 150 CPFs compartilhados divergiam (o chip "Devendo na rede" incluido).
+    const mundoBase = await semearMundoBase();
+    const sandbox = await criarSandbox();
+    const exemplos = await cpfsDeExemplo(sandbox.providerId);
+    const devendoNaRede = exemplos.find((e) => e.situacao === "devendo_na_rede")!;
+    expect(devendoNaRede, JSON.stringify(exemplos)).toBeTruthy();
+
+    // Superficie 1: o relatorio da Consulta ISP, pelo MESMO conector "demo"
+    // que POST /api/isp-consultations usa em producao (ver o topo do arquivo).
+    const noProprioSandbox = await consultarNoProvedor(sandbox.providerId, devendoNaRede.cpf);
+    expect(noProprioSandbox.achou, "deveria ser cliente do proprio sandbox").toBe(true);
+    const nomeNoRelatorioIsp = noProprioSandbox.cliente!.name as string;
+
+    // Superficies 2 e 3: os bureaus simulados de verdade (nao mockados) —
+    // mesmas funcoes que server/services/spc.service.ts e bigdata.service.ts
+    // chamam no lugar da rede quando emModoDemo().
+    const spc = spcSimulado(devendoNaRede.cpf);
+    const cadastral = cadastralSimulado(devendoNaRede.cpf);
+
+    expect(spc.cadastralData.nome, "SPC deveria mostrar a MESMA pessoa que a Consulta ISP").toBe(nomeNoRelatorioIsp);
+    expect(
+      cadastral.identidade.nome,
+      "cadastral (BigDataCorp) deveria mostrar a MESMA pessoa que a Consulta ISP",
+    ).toBe(nomeNoRelatorioIsp);
+
+    // E a identidade certa, nao so consistente entre si: o mesmo nome que o
+    // provedor DONO deste CPF na rede (o mundo base) ja conhece.
+    const naRede = await Promise.all(mundoBase.provedores.map((id) => consultarNoProvedor(id, devendoNaRede.cpf)));
+    const dono = naRede.find((r) => r.achou && r.cliente!.totalOverdueAmount > 0);
+    expect(dono, `esperava um dono na rede com divida: ${JSON.stringify(naRede)}`).toBeTruthy();
+    expect(dono!.cliente!.name, "o provedor dono na rede deveria conhecer a MESMA pessoa").toBe(nomeNoRelatorioIsp);
   });
 
   it("MIGRADOR SERIAL: detectado por detectMigrator, pelo caminho real (conector + deteccao)", async () => {

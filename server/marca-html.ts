@@ -30,6 +30,12 @@
  * O logo NAO aparece aqui: SVG de terceiro nunca e embutido na pagina. Ele e
  * servido por URL e carregado em <img>, onde o navegador desliga script — ver
  * server/routes/marca.routes.ts.
+ *
+ * DEMO: quando `marca.demoMode`, o `<noscript>` do Meta Pixel (dentro da
+ * faixa, mas preservado byte a byte no ramo sem marca própria — ver
+ * `removerNoscriptDoPixel`) e retirado da saída. E o único jeito de cobrir o
+ * host da demonstração: o guard de hostname do `<script>` do pixel e JS, e
+ * não roda quando é o `<noscript>` quem renderiza.
  */
 import type { MarcaResolvida } from "./services/marca.service";
 
@@ -239,6 +245,20 @@ function blocoDeCabecalho(marca: MarcaResolvida): string {
 }
 
 /**
+ * Remove o `<noscript>` do Meta Pixel (revisão final de segurança, item 4)
+ * quando presente — usado só para o host da demonstração, ver o comentário
+ * em `injetarMarca`. Casa pelo CONTEÚDO ("facebook.com/tr"), nunca por
+ * posição de linha — a mesma razão que `client/src/pixel-demo-guard.test.ts`
+ * acha o `<script>` do pixel por "fbevents.js": uma edição vizinha não pode
+ * quebrar isto em silêncio. Global (`/g`) e seletivo por bloco: se um dia
+ * outro `<noscript>` existir na página, este só remove o que contém o
+ * próprio pixel.
+ */
+function removerNoscriptDoPixel(html: string): string {
+  return html.replace(/<noscript>[\s\S]*?<\/noscript>\s*/g, (bloco) => (bloco.includes("facebook.com/tr") ? "" : bloco));
+}
+
+/**
  * Devolve o html com a marca aplicada.
  *
  * Marca da plataforma, ou template sem os marcadores: devolve o original
@@ -257,7 +277,21 @@ export function injetarMarca(html: string, marca: MarcaResolvida): string {
     //    primeiro que encontrar) e os icones.
     //    Provedor sem marca propria mantem o cabecalho da casa — ele so ganha o
     //    window.__MARCA__ que diz "aqui a tela e o login, nao a landing".
-    const cabecalho = marca.marcaId ? blocoDeCabecalho(marca) : html.slice(i + INICIO.length, f);
+    let cabecalho = marca.marcaId ? blocoDeCabecalho(marca) : html.slice(i + INICIO.length, f);
+
+    // Revisão final de segurança (item 4): o `<noscript>` do Meta Pixel
+    // sobrevive tanto ao guard de hostname do `<script>` (que é JS — não roda
+    // quando o `<noscript>` é o que renderiza) quanto à troca de marcaId
+    // acima quando NÃO há marca própria (o span original é preservado byte a
+    // byte, pixel incluso — é assim que um provedor sem white label continua
+    // com o cabeçalho da casa). `demoMode` é o MESMO sinal que
+    // `window.__MARCA__.demoMode` já recebe logo abaixo, e é a única forma de
+    // cobrir o host da demonstração aqui: por hostname não daria — quando
+    // marcaId É truthy o pixel já nem existe na saída (blocoDeCabecalho não o
+    // inclui), então esta linha só tem efeito real no ramo sem marca própria,
+    // que é exatamente onde a demonstração pública vive.
+    if (marca.demoMode) cabecalho = removerNoscriptDoPixel(cabecalho);
+
     let saida = html.slice(0, i)
       + `${INICIO}\n    ${cabecalho}\n    ${FIM}`
       + html.slice(f + FIM.length);

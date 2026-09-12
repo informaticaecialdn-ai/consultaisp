@@ -224,7 +224,7 @@ sessão do visitante não é gravado** — a demo pareceria deslogar sozinha a
 cada clique. **Sem `X-Forwarded-For`, todo visitante cai no mesmo balde do
 limitador de `/demo`** (`chaveDoLimite`, `server/middleware/rate-limiter.middleware.ts:26-31`,
 que chaveia por `req.ip`) — 2 sandboxes a cada 10 minutos
-(`server/routes/demo.routes.ts:33`) **no total, para todo mundo**, em vez de
+(`server/routes/demo.routes.ts:118`) **no total, para todo mundo**, em vez de
 por visitante. O plano original (Tarefa 11) trazia só `proxy_pass` e `Host`;
 os três cabeçalhos acima foram acrescentados aqui por isso.
 
@@ -368,10 +368,10 @@ sai com código diferente de zero — o mesmo sinal, só que legível por quem
 está executando isto de madrugada.
 
 **Por que este passo é opcional, mas recomendado mesmo assim:**
-`criarSandbox()` (`server/demo/sandbox.service.ts:544`) já chama
+`criarSandbox()` (`server/demo/sandbox.service.ts:751`) já chama
 `semearMundoBase()` sozinho, sempre, antes de montar a carteira de qualquer
 visitante — e a função é idempotente (se `rede-1`..`rede-5` já existem, ela
-não faz nada de novo, `server/demo/mundo-base.ts:627`). Ou seja: mesmo que
+não faz nada de novo, `server/demo/mundo-base.ts:805`). Ou seja: mesmo que
 você pule este passo, o primeiro `GET /demo` de alguém (inclusive o curl do
 Passo 9) semeia o mundo base sozinho. A razão para rodar explicitamente aqui,
 antes de anunciar o link, é só timing: semear os cinco provedores fictícios
@@ -408,7 +408,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://consultaisp.com.br/api/health
 ```
 
 O primeiro curl já conta como uma das 2 tentativas por IP a cada 10 minutos
-que `server/routes/demo.routes.ts:33` permite — rodar os três curls acima
+que `server/routes/demo.routes.ts:118` permite — rodar os três curls acima
 repetidamente da mesma máquina em teste devolve 429 na terceira vez; isso é o
 limitador funcionando, não um defeito.
 
@@ -492,13 +492,13 @@ processo, outro domínio. O banco `consultaispdemo` e o checkout
 | O quê | Onde |
 |---|---|
 | Chave de comportamento da demo | `server/demo/modo-demo.ts:12` (`emModoDemo`) |
-| Quem semeia o mundo base | `server/demo/sandbox.service.ts:544` chama `server/demo/mundo-base.ts:627` |
+| Quem semeia o mundo base | `server/demo/sandbox.service.ts:751` chama `server/demo/mundo-base.ts:805` |
 | Variáveis que realmente derrubam o boot | `server/env.ts:3` (`REQUIRED_VARS`) |
 | Migração automática no boot | `server/index.ts:194` → `server/migrate.ts:264` (`prepararSchemaOuCair`) |
 | Build (nomes de saída) | `script/build.ts:139,154` |
 | Ecosystem de produção (o que este par espelha) | `ecosystem.config.cjs` |
 | Padrão real de nginx para subdomínio nesta VPS | `script/dominio-whitelabel.sh:152-178` |
 | Padrão real de deploy (delete+start, não restart) | cabeçalho ("Deploy na VPS") de `ecosystem.config.cjs`, `.env.example:52-53` |
-| Limitador de `/demo` | `server/routes/demo.routes.ts:33` (2 / 10 min / IP) |
+| Limitador de `/demo` | `server/routes/demo.routes.ts:118` (2 / 10 min / IP) |
 | Sessão do visitante (5 campos) | `server/routes/demo.routes.ts`, no molde de `server/routes/auth.routes.ts:262-268` |
 | Design da instância | `docs/superpowers/specs/2026-09-11-demo-sandbox-design.md` §3.1, §6 |
