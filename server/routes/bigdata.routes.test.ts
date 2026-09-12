@@ -404,3 +404,36 @@ describe("GET /api/bigdata-consultations", () => {
     expect(body.consultations[1].consultaId).toBeNull();
   });
 });
+
+/**
+ * `client/src/pages/consulta/consulta-cadastral.tsx` esconde a barra de busca
+ * atrás de "configure sua credencial" quando `configurado` vem falso — e sem
+ * linha em `bigdata_integrations` (a instância de demonstração não tem
+ * nenhuma, de propósito) é exatamente isso que aconteceria, mesmo com a rota
+ * de consulta já sabendo simular. `configurado: true` em modo demo é o que
+ * mantém a tela real alcançável por um visitante.
+ */
+describe("GET /api/bigdata-integration", () => {
+  it("sem linha nenhuma, configurado vem falso fora do modo demo", async () => {
+    storageMock.getBigdataIntegration.mockResolvedValue(undefined);
+    const res = await fetch(`${base}/api/bigdata-integration`);
+    const body = await res.json() as any;
+    expect(body.configurado).toBe(false);
+  });
+
+  it("em modo demo, configurado vem verdadeiro mesmo sem credencial nenhuma", async () => {
+    storageMock.getBigdataIntegration.mockResolvedValue(undefined);
+    process.env.DEMO_MODE = "true";
+    try {
+      const res = await fetch(`${base}/api/bigdata-integration`);
+      const body = await res.json() as any;
+      expect(body.configurado).toBe(true);
+      // A senha real continua nunca saindo do servidor — a exceção e' so no
+      // booleano que decide qual tela o visitante ve.
+      expect(body.login).toBeNull();
+      expect(body.senhaMascarada).toBeNull();
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
+});

@@ -63,7 +63,16 @@ export function registerBigdataRoutes(): Router {
     try {
       const i = await storage.getBigdataIntegration(req.session.providerId!);
       return res.json({
-        configurado: !!(i?.login && i?.password),
+        /**
+         * Na instância de demonstração não há linha nenhuma nesta tabela (de
+         * propósito — `.env.demo` também não tem a credencial). Sem esta
+         * exceção, `client/src/pages/consulta/consulta-cadastral.tsx` nunca
+         * mostraria a barra de busca: `!configurado` manda direto para a tela
+         * "configure sua credencial", e um visitante nunca chegaria perto de
+         * `POST /api/bigdata-consultations` — que já sabe responder por CPF
+         * com `cadastralSimulado` (Tarefa 8) sem credencial nenhuma.
+         */
+        configurado: !!(i?.login && i?.password) || emModoDemo(),
         login: i?.login ?? null,
         senhaMascarada: i?.password ? "••••••••" : null,
         isEnabled: i?.isEnabled ?? false,
