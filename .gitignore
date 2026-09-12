@@ -13,6 +13,9 @@ vite.config.ts.*
 # em 03/09/2026.
 .env.*
 !.env.example
+# Template do .env.demo (instancia de demonstracao) — sem segredo real, mesmo
+# motivo da excecao acima.
+!.env.demo.example
 
 Consulta-ISP.zip
 *.zip
