@@ -41,6 +41,8 @@ const storageMock = vi.hoisted(() => ({
   createVisitorChatMessage: vi.fn(async (chatId: number, content: string, isFromAdmin: boolean, senderName: string): Promise<any> =>
     ({ id: 99, chatId, content, isFromAdmin, senderName })),
   getVisitorChatMessages: vi.fn(async (): Promise<any[]> => []),
+  createVisitorChat: vi.fn(async (name: string, email: string, phone: string | null): Promise<any> =>
+    ({ id: 2, token: `tok-${name}`, visitorName: name, visitorEmail: email, visitorPhone: phone })),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 
@@ -74,6 +76,8 @@ beforeEach(async () => {
   storageMock.getVisitorChatByToken.mockResolvedValue({ id: 1, status: "open", visitorName: "Visitante" });
   storageMock.createVisitorChatMessage.mockImplementation(async (chatId: number, content: string, isFromAdmin: boolean, senderName: string) =>
     ({ id: 99, chatId, content, isFromAdmin, senderName }));
+  storageMock.createVisitorChat.mockImplementation(async (name: string, email: string, phone: string | null) =>
+    ({ id: 2, token: `tok-${name}`, visitorName: name, visitorEmail: email, visitorPhone: phone }));
   await subirServidor();
 });
 
@@ -123,5 +127,61 @@ describe("POST /api/public/visitor-chat/messages — limite de taxa", () => {
 
     expect(status.filter(s => s === 201).length).toBe(20);
     expect(status[20]).toBe(429);
+  });
+});
+
+const iniciar = (overrides: Record<string, unknown> = {}) =>
+  fetch(`${base}/api/public/visitor-chat/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Visitante", email: "visitante@example.com", ...overrides }),
+  });
+
+/**
+ * `POST /api/public/visitor-chat/start` — revisão final de segurança antes
+ * da demonstração pública (item 5): a rota mintava token sem limite nenhum,
+ * e cada token emitido dá direito a 20 mensagens por minuto com resposta
+ * automática via IA (OpenAI) na rota `/messages` acima — sem freio aqui, um
+ * IP mintava tokens sem parar e cada um abria sua própria cota de custo.
+ */
+describe("POST /api/public/visitor-chat/start — limite de taxa", () => {
+  it("acima de 20 pedidos na mesma janela, o servidor recusa com 429", async () => {
+    const status: number[] = [];
+    for (let i = 0; i < 21; i++) {
+      status.push((await iniciar()).status);
+    }
+
+    expect(status.filter(s => s === 201).length).toBe(20);
+    expect(status[20]).toBe(429);
+  });
+
+  // A prova de que é o MESMO limitador, não um equivalente: as duas rotas
+  // dividem o balde. Sem isso, `/start` teria seus próprios 20 e `/messages`
+  // outros 20 — 40 no total pela mesma origem, o dobro da cota pretendida.
+  it("compartilha o balde com /messages — a mesma origem gasta a MESMA cota nas duas rotas", async () => {
+    for (let i = 0; i < 15; i++) await iniciar();
+
+    const status: number[] = [];
+    for (let i = 0; i < 10; i++) status.push((await enviar(`mensagem ${i}`)).status);
+
+    // So sobram 5 no balde compartilhado (20 - 15) antes de recusar.
+    expect(status.filter(s => s === 201).length).toBe(5);
+    expect(status.slice(5).every(s => s === 429)).toBe(true);
+  });
+
+  it("mensagem comum continua funcionando normalmente", async () => {
+    const res = await iniciar();
+
+    expect(res.status).toBe(201);
+    const corpo = await res.json();
+    expect(corpo.token).toBe("tok-Visitante");
+    expect(storageMock.createVisitorChat).toHaveBeenCalledWith("Visitante", "visitante@example.com", null);
+  });
+
+  it("recusa sem nome ou sem email, sem gravar nada", async () => {
+    const res = await iniciar({ name: "" });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
   });
 });

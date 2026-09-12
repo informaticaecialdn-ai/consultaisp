@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import type { Server } from "node:http";
 
@@ -446,5 +446,44 @@ describe("POST /api/auth/login — manter conectado", () => {
 
     expect(res.status).toBe(401);
     expect(sessao.cookie.maxAge).toBeUndefined();
+  });
+});
+
+/**
+ * `demoMode` no corpo do LOGIN — revisão final de segurança antes da
+ * demonstração pública (item 6). Antes, só `GET /api/auth/me` mandava este
+ * campo; um login feito DENTRO da página da demonstração só acendia a faixa
+ * de aviso no PRÓXIMO `checkAuth()` do client, nunca no instante do login.
+ * `emModoDemo()` lê `process.env.DEMO_MODE` — salvo/restaurado aqui para não
+ * vazar para os outros testes deste arquivo.
+ */
+describe("POST /api/auth/login — demoMode", () => {
+  const DEMO_MODE_ORIGINAL = process.env.DEMO_MODE;
+
+  afterEach(() => {
+    if (DEMO_MODE_ORIGINAL === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = DEMO_MODE_ORIGINAL;
+  });
+
+  it("demoMode: true quando esta instancia roda em modo demonstracao", async () => {
+    process.env.DEMO_MODE = "true";
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "active" });
+
+    const res = await login();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).demoMode).toBe(true);
+  });
+
+  it("demoMode: false fora da demonstracao (o caso normal, producao)", async () => {
+    delete process.env.DEMO_MODE;
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "active" });
+
+    const res = await login();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).demoMode).toBe(false);
   });
 });

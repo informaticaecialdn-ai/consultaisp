@@ -297,6 +297,13 @@ export function registerAuthRoutes(): Router {
         // e. Para os demais papeis ela nao aparece.
         ...(marca !== undefined ? { marca } : {}),
         mustChangePassword: user.mustChangePassword || false,
+        // Mesma projecao que `/api/auth/me` ja manda (revisao final de
+        // seguranca antes da demonstracao publica, item 6): sem isto, um
+        // login feito DENTRO da pagina da demonstracao so acendia a faixa de
+        // aviso no PROXIMO `checkAuth()` — nunca no instante em que a pessoa
+        // acabou de entrar. `client/src/lib/auth.tsx` (`estadoAposLogin`) le
+        // este campo.
+        demoMode: emModoDemo(),
       });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

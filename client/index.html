@@ -64,6 +64,15 @@
          literal aqui porque este script roda ANTES de qualquer bundle — nao
          ha modulo para importar uma constante.
 
+         A exclusao da demo e por SUFIXO (`(^|\.)demo\.consultaisp\.com\.br$`),
+         nao por igualdade exata — rodada de correcao (revisao final de
+         seguranca, item 6): igualdade exata so pega o host raiz da demo, e
+         nao um subdominio dele (ex.: algo.demo.consultaisp.com.br). O mesmo
+         cuidado do regex de cima: cobrir a FAMILIA do host, nao so o valor
+         literal mais comum. "minhademo.consultaisp.com.br" continua
+         disparando — "minhademo" nao termina em ".demo.consultaisp.com.br"
+         nem e exatamente "demo.consultaisp.com.br", entao nao e a demo.
+
          O CSP precisou abrir connect.facebook.net em script, e facebook.com
          em img e connect (server/index.ts). Sem isso o snippet carrega e nao
          reporta nada — o unico sinal seria no console do visitante.
@@ -73,7 +82,7 @@
     <script>
       (function () {
         if (!/(^|\.)consultaisp\.com\.br$/.test(location.hostname)) return;
-        if (location.hostname === "demo.consultaisp.com.br") return;
+        if (/(^|\.)demo\.consultaisp\.com\.br$/.test(location.hostname)) return;
         !function (f, b, e, v, n, t, s) {
           if (f.fbq) return;
           n = f.fbq = function () {

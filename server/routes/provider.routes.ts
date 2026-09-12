@@ -13,7 +13,7 @@ import {
   aceita, dataDeAbertura, recusa, SEGMENTOS, site, TIPOS_SOCIETARIOS, umaDasOpcoes,
   type Veredito,
 } from "@shared/cadastro-regras";
-import { ehEnderecoPrivado } from "@shared/chat-console";
+import { validarWebhookExterno, MOTIVO_TESTE_FALHOU } from "../utils/webhook-validador";
 import crypto from "crypto";
 import { z } from "zod";
 
@@ -768,38 +768,14 @@ export function registerProviderRoutes(): Router {
   });
 
   /**
-   * O provedor aponta o webhook para QUALQUER endereço externo — ao contrário
-   * da allowlist do console de agentes (`hostPermitido`, shared/chat-console.ts),
-   * aqui não há uma lista curta de hosts nossos para comparar: é o provedor
-   * quem escolhe o destino (Slack, Zapier, o próprio backend dele). O que
-   * sobra de `hostPermitido` sem a allowlist é exatamente a parte que importa
-   * aqui — exigir https e recusar endereço interno —, e é por isso que a
-   * checagem reusa `ehEnderecoPrivado` (mesmo arquivo) em vez de reescrever a
-   * lista de loopback/link-local/RFC1918: são os MESMOS endereços que a rede
-   * interna desta VPS tem, e divergir aqui reabriria o buraco que aquela lista
-   * fecha para o console.
-   *
-   * Sem esta checagem, tanto gravar (PUT) quanto testar (POST) o webhook
-   * fazem `fetch()` num endereço que o provedor escreveu, sem prova nenhuma —
-   * a VPS que hospeda a própria API viraria proxy para `127.0.0.1:8080`
-   * (Evolution API), a porta do banco e o endpoint de metadados de nuvem, e o
-   * `{success, status}` devolvido é um oráculo de porta funcionando.
+   * A checagem de endereço (https + não-interno + DNS resolvido) mora em
+   * `../utils/webhook-validador.ts` — COMPARTILHADA com `antifraude.routes.ts`
+   * (a tela de verdade, Painel do Provedor → Anti-Fraude) e com o DISPARO
+   * (`proactive-alert.service.ts`). As duas rotas abaixo não têm consumidor no
+   * client (checado por grep antes desta correção), mas continuam no ar —
+   * remover API é irreversível para quem tiver alguma integração — e por isso
+   * têm de ficar tão estritas quanto a tela.
    */
-  function webhookExternoValido(url: string): { ok: true } | { ok: false; motivo: string } {
-    let u: URL;
-    try {
-      u = new URL(url);
-    } catch {
-      return { ok: false, motivo: "Endereço inválido — informe uma URL completa, começando com https://" };
-    }
-    if (u.protocol !== "https:") {
-      return { ok: false, motivo: "Só endereços https:// são aceitos." };
-    }
-    if (ehEnderecoPrivado(u.hostname.toLowerCase())) {
-      return { ok: false, motivo: "Endereço interno não é permitido." };
-    }
-    return { ok: true };
-  }
 
   // ── Proactive Alert Settings ──────────────────────────────
   router.get("/api/providers/alert-settings", requireAuth, requireProvider, async (req, res) => {
@@ -815,7 +791,11 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.put("/api/providers/alert-settings", requireAuth, requireProvider, async (req, res) => {
+  // `exigirAdminDoProvedor`: faltava aqui enquanto já existia no `/test-webhook`
+  // abaixo — um operador `user` gravava o endereço que o disparo chama sozinho
+  // depois, sem nunca precisar de admin. O ESCRITOR tem de ser pelo menos tão
+  // estrito quanto o TESTE.
+  router.put("/api/providers/alert-settings", requireAuth, requireProvider, exigirAdminDoProvedor("configurar alertas de fuga"), async (req, res) => {
     try {
       const { proactiveAlertsEnabled, webhookUrl } = req.body;
       // Validado ANTES de gravar: `proactive-alert.service.ts` dispara este
@@ -823,7 +803,7 @@ export function registerProviderRoutes(): Router {
       // aqui, o único ponto de entrada seria confiar que o teste (abaixo) foi
       // chamado antes, e nada obriga isso.
       if (webhookUrl) {
-        const veredito = webhookExternoValido(webhookUrl);
+        const veredito = await validarWebhookExterno(webhookUrl);
         if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
       }
       await storage.updateProviderProfile(req.session.providerId!, {
@@ -843,7 +823,7 @@ export function registerProviderRoutes(): Router {
     try {
       const { webhookUrl } = req.body;
       if (!webhookUrl) return res.status(400).json({ message: "URL do webhook obrigatoria" });
-      const veredito = webhookExternoValido(webhookUrl);
+      const veredito = await validarWebhookExterno(webhookUrl);
       if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
 
       const testPayload = {
@@ -864,8 +844,15 @@ export function registerProviderRoutes(): Router {
 
       return res.json({ success: response.ok, status: response.status });
     } catch (error: any) {
+      // NUNCA `error.message` (revisão final de segurança, item 2): antes,
+      // este texto cru distinguia "conexão recusada" de "erro de TLS" de
+      // "timeout" — um oráculo de porta contra a rede interna da VPS mesmo
+      // depois de `validarWebhookExterno` já ter barrado o endereço óbvio,
+      // porque o erro aqui é sobre a TENTATIVA DE CONEXÃO, não sobre a forma
+      // da URL. Mensagem fixa: o provedor sabe que a chamada falhou, e nada
+      // mais.
       logger.error({ err: error }, "Webhook test failed");
-      return res.status(500).json({ message: "Falha ao testar webhook", error: error.message });
+      return res.status(500).json({ message: MOTIVO_TESTE_FALHOU });
     }
   });
 

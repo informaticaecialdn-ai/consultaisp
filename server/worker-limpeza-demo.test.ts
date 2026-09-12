@@ -17,10 +17,21 @@ import { describe, expect, it } from "vitest";
 const fonte = readFileSync(new URL("./worker.ts", import.meta.url), "utf8");
 
 describe("o worker so liga (e so desliga) a limpeza da demo em modo demonstracao", () => {
-  it("iniciarLimpezaDaDemo roda dentro de if (emModoDemo()), nao solta", () => {
+  /**
+   * `iniciarLimpezaDaDemo()` tem TRY/CATCH PRÓPRIO, separado do que detecta
+   * `emModoDemo()` — rodada de correção (revisão final de segurança, item
+   * 6). Uma versão anterior juntava os dois: um throw ao iniciar a limpeza
+   * caía no MESMO catch que loga "Deteccao de modo demo falhou", uma
+   * mensagem que MENTE (a detecção funcionou; foi o scheduler que não subiu)
+   * e, combinado com o teto de sandboxes vivos (item 3), deixava a
+   * demonstração presa em 503 para sempre com um aviso apontando pra causa
+   * errada.
+   */
+  it("iniciarLimpezaDaDemo roda dentro de if (emModoDemo()), num try/catch PROPRIO — nao solta, e nao se confunde com falha de deteccao", () => {
     expect(fonte).toContain(
-      'if (emModoDemo()) {\n      const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");\n      iniciarLimpezaDaDemo();',
+      'if (emModoDemo()) {\n    try {\n      const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");\n      iniciarLimpezaDaDemo();',
     );
+    expect(fonte).toMatch(/} catch \(err\) \{\s*\n\s*logger\.error\(\s*\n\s*\{ err \},\s*\n\s*"\[Worker\] Limpeza de sandboxes da demo falhou ao iniciar/);
   });
 
   /**
@@ -29,10 +40,13 @@ describe("o worker so liga (e so desliga) a limpeza da demo em modo demonstracao
    * (item 6). Sem ele, uma rejeição pularia — sem log, sem captura — todo o
    * resto desta IIFE: o laço da autonomia do chat, os handlers de
    * SIGTERM/SIGINT e a cadeia do mapa mais abaixo nunca seriam registrados.
+   *
+   * O try AGORA é ESTREITO — só a detecção, nunca o start da limpeza (ver o
+   * teste acima): é essa a correção desta rodada.
    */
-  it("a deteccao de emModoDemo() esta dentro de um try/catch, nao solta", () => {
+  it("a deteccao de emModoDemo() esta dentro de um try/catch ESTREITO — so a deteccao, nao o start da limpeza", () => {
     expect(fonte).toContain(
-      'let emModoDemo: () => boolean = () => false;\n  try {\n    ({ emModoDemo } = await import("./demo/modo-demo"));',
+      'let emModoDemo: () => boolean = () => false;\n  try {\n    ({ emModoDemo } = await import("./demo/modo-demo"));\n  } catch (err) {',
     );
     expect(fonte).toMatch(/} catch \(err\) \{\s*\n\s*logger\.warn\(\{ err \}, "\[Worker\] Deteccao de modo demo falhou/);
   });

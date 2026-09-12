@@ -101,12 +101,21 @@ describe("Meta Pixel em client/index.html — guarda de hostname", () => {
     expect(r.fbqFoiCriado).toBe(false);
   });
 
-  // O host da demo tem que ser comparado por IGUALDADE, nao por sufixo solto —
-  // senão um subdominio de tenant como "minhademo.consultaisp.com.br" também
-  // perderia o pixel por engano.
+  // O host da demo tem que ser comparado por SUFIXO DE RÓTULO (o mesmo
+  // cuidado de `hostPermitido`, shared/chat-console.ts), nao por CONTER a
+  // palavra "demo" solta — senão um subdominio de tenant como
+  // "minhademo.consultaisp.com.br" também perderia o pixel por engano.
   it("um host que so CONTEM a palavra demo, mas nao e o host da demo, continua disparando", () => {
     const r = rodarPixelPara("minhademo.consultaisp.com.br");
 
     expect(r.fbqFoiCriado).toBe(true);
+  });
+
+  // Revisão final de segurança (item 6): a exclusão era por IGUALDADE exata
+  // — só pegava "demo.consultaisp.com.br" literal, nunca um subdomínio dele.
+  it("NAO dispara para um subdominio do host da demo (ex.: algo.demo.consultaisp.com.br)", () => {
+    const r = rodarPixelPara("algo.demo.consultaisp.com.br");
+
+    expect(r.fbqFoiCriado).toBe(false);
   });
 });

@@ -6,14 +6,17 @@
  * nao respondeu. E `customers.status` so vira status de contrato nos valores
  * que o sync escreve — o default da coluna nao abre o portao.
  */
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 vi.mock("../storage", () => ({ storage: {} }));
 vi.mock("./email", () => ({ sendProactiveAlertEmail: vi.fn() }));
 vi.mock("./marca.service", () => ({ resolverMarcaPorProviderId: vi.fn(), urlDeEntrada: () => "" }));
 vi.mock("./crm/zapi", () => ({ isZapiConfigured: () => false, sendText: vi.fn() }));
 
-import { escolherDonos, statusDaBase, textoDoAlerta } from "./proactive-alert.service";
+const loggerMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
+vi.mock("../logger", () => ({ logger: loggerMock }));
+
+import { escolherDonos, statusDaBase, textoDoAlerta, enviarWebhookDoAlerta } from "./proactive-alert.service";
 
 const CONSULENTE = 9;
 
@@ -87,4 +90,72 @@ describe("textoDoAlerta", () => {
 it("usa a data de contrato sincronizada quando o ERP não responde", () => {
   const [dono] = escolherDonos(9, [], new Set(), [{ id: 1, providerId: 2, name: "Teste", status: "active", contractStartDate: "2026-08-01", totalOverdueAmount: "100", maxDaysOverdue: 4 }]);
   expect(dono.contractStartDate).toBe("2026-08-01");
+});
+
+/**
+ * `enviarWebhookDoAlerta` — revisão final de segurança antes da demonstração
+ * pública (item 1): o DISPARO revalida o endereço, porque produção vem
+ * gravando `proactiveAlertWebhookUrl` sem checagem nenhuma desde que a
+ * funcionalidade existe — uma linha antiga com `http://` ou endereço interno
+ * continua no banco até o provedor abrir a tela e salvar de novo, e é este
+ * disparo, não a tela, quem chama `fetch()` sozinho a cada consulta que casar
+ * a regra de fuga.
+ */
+describe("enviarWebhookDoAlerta", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sem webhookUrl gravado, nao faz nada e devolve false", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const enviou = await enviarWebhookDoAlerta({ id: 7, proactiveAlertWebhookUrl: null }, { evento: "x" });
+
+    expect(enviou).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("recusa endereco interno (o caso real: Evolution API na mesma VPS, 127.0.0.1:8080) — nao chama fetch, e loga ALTO com o providerId", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const enviou = await enviarWebhookDoAlerta({ id: 7, proactiveAlertWebhookUrl: "http://127.0.0.1:8080/x" }, { evento: "x" });
+
+    expect(enviou).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(loggerMock.error).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 7 }),
+      expect.stringMatching(/webhook recusado/i),
+    );
+  });
+
+  it("recusa uma linha GRAVADA ANTES da validacao existir (endpoint de metadados de nuvem, https:// mas interno)", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const enviou = await enviarWebhookDoAlerta({ id: 12, proactiveAlertWebhookUrl: "https://169.254.169.254/latest/meta-data/" }, {});
+
+    expect(enviou).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("endereco externo legitimo: chama fetch e devolve true quando a resposta e ok", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const enviou = await enviarWebhookDoAlerta({ id: 7, proactiveAlertWebhookUrl: "https://203.0.113.10/hook" }, { evento: "proactive_alert" });
+
+    expect(enviou).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith("https://203.0.113.10/hook", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("resposta HTTP nao-ok devolve false — o canal 'hook' nao entra na lista de enviados", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const enviou = await enviarWebhookDoAlerta({ id: 7, proactiveAlertWebhookUrl: "https://203.0.113.10/hook" }, {});
+
+    expect(enviou).toBe(false);
+  });
 });

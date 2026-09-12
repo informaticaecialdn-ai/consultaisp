@@ -53,6 +53,21 @@ function chamadasExternas() {
 }
 
 /**
+ * `validarWebhookExterno` (revisão final de segurança, item 2) resolve o
+ * host antes de aceitar — `dns.lookup` vira espião para que "webhook.example.com"
+ * (o host "legítimo" que os testes abaixo já usavam) resolva para um IP
+ * público de documentação (RFC 5737) sem depender de rede nenhuma. Um IP
+ * literal (127.0.0.1, 169.254.169.254) nem chega a chamar isto —
+ * `ehEnderecoPrivado` recusa pela FORMA antes de qualquer resolução.
+ */
+const dnsMock = vi.hoisted(() => ({
+  lookup: vi.fn((_host: string, _opts: unknown, cb: (err: Error | null, enderecos: { address: string; family: number }[]) => void) => {
+    cb(null, [{ address: "203.0.113.10", family: 4 }]);
+  }),
+}));
+vi.mock("node:dns", () => ({ default: { lookup: dnsMock.lookup }, lookup: dnsMock.lookup }));
+
+/**
  * O e-mail vira espiao; `email-destinatario` fica REAL. O que se prova sobre a
  * inclusao de um usuario e QUEM recebe o aviso — a pessoa criada, nao o contato
  * do provedor — e isso so aparece com o modulo de destinatario rodando.
@@ -536,6 +551,30 @@ describe("PUT /api/providers/alert-settings — SSRF no webhook de alerta", () =
       expect.objectContaining({ proactiveAlertWebhookUrl: "https://webhook.example.com/abc123" }),
     );
   });
+
+  // A guarda de FORMATO (ehEnderecoPrivado) nao pega isto sozinha: o host nao
+  // e IP nem cai em padrao de nome interno. So a RESOLUCAO de DNS revela que o
+  // destino de verdade e loopback (item 2 da revisao final de seguranca).
+  it("recusa um hostname PUBLICO que RESOLVE para endereco interno", async () => {
+    dnsMock.lookup.mockImplementationOnce((_h, _o, cb: any) => cb(null, [{ address: "127.0.0.1", family: 4 }]));
+
+    const res = await gravar("https://rebinding.example.com/x");
+
+    expect(res.status).toBe(400);
+    expect(storageMock.updateProviderProfile).not.toHaveBeenCalled();
+  });
+
+  // Item 6 da revisao final: esta rota gravava a MESMA coluna que o disparo
+  // depois chama sozinho, sem exigir admin nenhum — enquanto o teste (abaixo)
+  // ja exigia. O escritor tem de ser pelo menos tao estrito quanto o teste.
+  it("operador comum (nao admin) recebe 403 — nada e gravado", async () => {
+    sessao = { userId: 1, providerId: 7, role: "user" };
+
+    const res = await gravar("https://webhook.example.com/abc123");
+
+    expect(res.status).toBe(403);
+    expect(storageMock.updateProviderProfile).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/providers/alert-settings/test-webhook — SSRF e exigencia de admin", () => {
@@ -565,6 +604,29 @@ describe("POST /api/providers/alert-settings/test-webhook — SSRF e exigencia d
 
     expect(res.status).toBe(400);
     expect(chamadasExternas()).toHaveLength(0);
+  });
+
+  it("recusa um hostname PUBLICO que RESOLVE para endereco interno, sem chamar fetch nenhum para fora", async () => {
+    dnsMock.lookup.mockImplementationOnce((_h, _o, cb: any) => cb(null, [{ address: "127.0.0.1", family: 4 }]));
+
+    const res = await testar("https://rebinding.example.com/x");
+
+    expect(res.status).toBe(400);
+    expect(chamadasExternas()).toHaveLength(0);
+  });
+
+  // Item 2 da revisao final: o erro da TENTATIVA DE CONEXAO nao pode vazar
+  // `error.message` — antes, isso distinguia porta recusada de erro de TLS,
+  // um oraculo de porta mesmo com o endereco ja validado.
+  it("erro na conexao (fetch rejeita) devolve mensagem FIXA, nunca error.message cru", async () => {
+    proximaRespostaExterna = () => { throw new Error("connect ECONNREFUSED 10.9.9.9:9999 — detalhe que nao pode vazar"); };
+
+    const res = await testar("https://webhook.example.com/abc123");
+
+    expect(res.status).toBe(500);
+    const corpo = await res.json();
+    expect(corpo.message).not.toMatch(/ECONNREFUSED|10\.9\.9\.9/);
+    expect(corpo.message).toBe("Não foi possível conectar a esse endereço.");
   });
 
   // O caso que nao pode quebrar: producao depende deste teste passando de verdade.

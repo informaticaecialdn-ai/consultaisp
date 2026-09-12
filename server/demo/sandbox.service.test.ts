@@ -89,6 +89,7 @@ import {
 import {
   criarSandbox,
   sandboxesExpirados,
+  contarSandboxesVivos,
   apagarSandbox,
   SALDO_INICIAL,
 } from "./sandbox.service";
@@ -462,6 +463,45 @@ describe("sandbox do visitante", () => {
     const ids = await sandboxesExpirados();
     expect(ids).toContain(velho.providerId);
     for (const p of PROVEDORES_DA_DEMO) expect(ids).not.toContain(idDe(p.subdomain));
+  });
+
+  /**
+   * Revisão final de segurança antes da demonstração pública (item 3):
+   * `contarSandboxesVivos` contava TODO sandbox da tabela, expirado ou não —
+   * um sandbox com mais de 24h continuava ocupando vaga no teto até a
+   * limpeza HORÁRIA o alcançar (ou para sempre, se a limpeza atrasar ou
+   * parar). O teste mede por DELTA, não por valor absoluto: os `it()` deste
+   * arquivo são deliberadamente sequenciais e acumulam sandboxes no mesmo
+   * banco de mentira desde o início da suíte.
+   *
+   * `envelhecer(id, 0)` dá ao "vivo" um `createdAt` de AGORA — o proxy de
+   * teste não simula o `defaultNow()` da coluna (ver o comentário em "a
+   * limpeza periodica... nunca alcanca o mundo base", mais abaixo neste
+   * arquivo): sem isto todo sandbox nasce com `createdAt` NULO no banco de
+   * mentira, que este filtro (o MESMO corte de `sandboxesExpirados`) trata
+   * como epoch — mais velho que 24h — e portanto já expirado.
+   */
+  it("contarSandboxesVivos NAO conta sandbox ja expirado, mesmo que a linha ainda exista (limpeza horaria ainda nao passou)", async () => {
+    const antes = await contarSandboxesVivos();
+
+    const vivo = await criarSandbox();
+    await envelhecer(vivo.providerId, 0);
+    const expirado = await criarSandbox();
+    await envelhecer(expirado.providerId, 25 * 60 * 60 * 1000);
+
+    const depois = await contarSandboxesVivos();
+
+    // So o "vivo" soma ao teto — o "expirado" existe na tabela (a limpeza
+    // ainda nao rodou), mas nao ocupa mais vaga.
+    expect(depois).toBe(antes + 1);
+  });
+
+  it("contarSandboxesVivos conta um sandbox recem-criado normalmente", async () => {
+    const antes = await contarSandboxesVivos();
+    const s = await criarSandbox();
+    await envelhecer(s.providerId, 0);
+    const depois = await contarSandboxesVivos();
+    expect(depois).toBe(antes + 1);
   });
 
   it("apagar leva junto as linhas do provedor", async () => {

@@ -328,11 +328,74 @@ describe("GET /demo — teto de sandboxes vivos", () => {
     sandboxMock.contarSandboxesVivos.mockClear();
     // Simula a demonstracao lotada bem depois — se a rota conferisse o teto
     // ANTES do reaproveitamento, esta segunda visita cairia nele por engano.
-    sandboxMock.contarSandboxesVivos.mockResolvedValue(150);
+    sandboxMock.contarSandboxesVivos.mockResolvedValueOnce(150);
 
     const segundo = await pedirDemo();
 
     expect(segundo.status).toBe(302);
     expect(sandboxMock.contarSandboxesVivos).not.toHaveBeenCalled();
+
+    // A asserção acima PROVA que o "150" nunca foi consumido — mas ele
+    // continua ENFILEIRADO no mock (`clearAllMocks`, no `beforeEach`, limpa
+    // histórico de chamadas, não a fila de `mockResolvedValueOnce`). Sem
+    // descartar aqui, o próximo teste deste arquivo que CHAME
+    // `contarSandboxesVivos` herdaria esse "150" na primeira chamada — foi
+    // o que aconteceu ao escrever o describe de serialização, mais abaixo.
+    sandboxMock.contarSandboxesVivos.mockReset();
+    sandboxMock.contarSandboxesVivos.mockImplementation(async () => 0);
+  });
+});
+
+/**
+ * Revisão final de segurança antes da demonstração pública (item 3): o
+ * check-then-create (conferir o teto, depois criar) não tinha trava nenhuma
+ * — duas requisições concorrentes liam a mesma contagem, abaixo do teto,
+ * ANTES de qualquer uma commitar a própria criação, e cada `criarSandbox`
+ * monta uma carteira inteira (~5 mil linhas) num processo de 512 MB.
+ */
+describe("GET /demo — criacao serializada dentro do processo", () => {
+  it("duas requisicoes concorrentes NUNCA constroem duas carteiras ao mesmo tempo", async () => {
+    let emAndamento = 0;
+    let maiorConcorrencia = 0;
+    sandboxMock.criarSandbox.mockImplementation(async () => {
+      emAndamento++;
+      maiorConcorrencia = Math.max(maiorConcorrencia, emAndamento);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      emAndamento--;
+      return {
+        providerId: 42,
+        userId: 7,
+        subdomain: "sandbox-abc123",
+        expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      };
+    });
+
+    try {
+      // Sessao vazia e COMPARTILHADA entre as duas chamadas — simula duas
+      // requisicoes concorrentes chegando sem cookie nenhum (duplo clique,
+      // prefetch), o cenario que o comentario do rate limiter ja descreve.
+      sessao = { save: (cb: (e?: unknown) => void) => cb() };
+
+      const [a, b] = await Promise.all([pedirDemo(), pedirDemo()]);
+
+      expect(a.status).toBe(302);
+      expect(b.status).toBe(302);
+      expect(sandboxMock.criarSandbox).toHaveBeenCalledTimes(2);
+      // A prova central: as duas criacoes nunca estiveram "em andamento" ao
+      // mesmo tempo — sem a serializacao, as duas concorreriam (2), porque
+      // contarSandboxesVivos() resolve quase instantaneamente para as duas
+      // ANTES de qualquer criarSandbox() comecar.
+      expect(maiorConcorrencia).toBe(1);
+    } finally {
+      // Restaura o padrao do arquivo — este e o `it()` que MAIS precisa
+      // disso, porque sobrescreveu com `mockImplementation` (persistente),
+      // nao `mockResolvedValueOnce` (o padrao dos outros testes deste arquivo).
+      sandboxMock.criarSandbox.mockImplementation(async () => ({
+        providerId: 42,
+        userId: 7,
+        subdomain: "sandbox-abc123",
+        expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }));
+    }
   });
 });

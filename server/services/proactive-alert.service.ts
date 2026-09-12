@@ -26,6 +26,7 @@ import { isZapiConfigured, sendText } from "./crm/zapi";
 import { logger } from "../logger";
 import { avaliarRiscoDeFuga, rotuloDoAlerta, severidadeDoAlerta, motivoPrincipal, type MotivoFuga } from "./antifraude-rules";
 import { montarRegras, type RegrasAntiFraude } from "@shared/antifraude-regras";
+import { validarWebhookExterno } from "../utils/webhook-validador";
 
 export type StatusContrato = "active" | "cancelled" | "suspended";
 
@@ -201,6 +202,59 @@ export function textoDoAlerta(
   }
 }
 
+/**
+ * O DISPARO do webhook do alerta — revalidando o endereço na hora, e não só
+ * confiando em quem gravou (revisão final de segurança antes da demonstração
+ * pública, item 1).
+ *
+ * Por quê revalidar aqui: a coluna `providers.proactive_alert_webhook_url` é
+ * gravada por duas rotas — `PUT /api/anti-fraud/rules` (a tela, Painel do
+ * Provedor → Anti-Fraude) e `PUT /api/providers/alert-settings` (sem
+ * consumidor no client, mas ainda no ar) — e produção vem GRAVANDO nela desde
+ * que a funcionalidade existe, inclusive antes de `validarWebhookExterno`
+ * nascer. Uma linha antiga com `http://` ou um endereço interno continua no
+ * banco até o próprio provedor abrir a tela e salvar de novo; sem esta
+ * segunda checagem, ela dispararia para dentro da rede da VPS a cada
+ * consulta que casar a regra de fuga, para sempre.
+ *
+ * Uma recusa aqui NUNCA derruba o alerta inteiro: e-mail e WhatsApp já
+ * saíram (ou tentaram) antes desta chamada — só o canal "webhook" fica de
+ * fora. Loga ALTO (`logger.error`, com o `providerId`) porque é a ÚNICA pista
+ * de que aquele provedor precisa reabrir a aba Anti-Fraude e salvar o
+ * endereço de novo para o canal voltar a funcionar.
+ */
+export async function enviarWebhookDoAlerta(
+  ownerProvider: { id: number; proactiveAlertWebhookUrl?: string | null },
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  const webhookUrl = ownerProvider.proactiveAlertWebhookUrl;
+  if (!webhookUrl) return false;
+
+  const veredito = await validarWebhookExterno(webhookUrl);
+  if (!veredito.ok) {
+    logger.error(
+      { providerId: ownerProvider.id, motivo: veredito.motivo },
+      "Alerta de fuga: webhook recusado na hora do disparo (endereco interno, http:// ou nao resolve) — o provedor precisa reabrir a aba Anti-Fraude e salvar o endereco de novo",
+    );
+    return false;
+  }
+
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`Webhook respondeu HTTP ${response.status}`);
+    logger.info({ providerId: ownerProvider.id, channel: "webhook", status: response.status }, "Proactive alert webhook sent");
+    return true;
+  } catch (webhookErr) {
+    logger.error({ err: webhookErr, providerId: ownerProvider.id }, "Failed to send proactive alert webhook");
+    return false;
+  }
+}
+
 export async function notifyOwnerProviders(
   cpfCnpj: string,
   allCustomers: ClienteAoVivo[],
@@ -346,36 +400,23 @@ export async function notifyOwnerProviders(
         }
       }
 
-      const webhookUrl = ownerProvider.proactiveAlertWebhookUrl;
-      if (webhookUrl) {
-        try {
-          const webhookPayload = {
-            event: "proactive_alert",
-            provider: ownerProvider.name,
-            maskedCpf,
-            maskedCustomerName: maskedName,
-            message: resumo,
-            motivo,
-            motivos: avaliacao.motivos,
-            severidade,
-            contrato,
-            valorVencido: dono.totalOverdueAmount,
-            diasDeAtraso: dono.maxDaysOverdue,
-            diasDeContrato: avaliacao.diasDeContrato ?? null,
-            timestamp: new Date().toISOString(),
-          };
-          const response = await fetch(webhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(webhookPayload),
-            signal: AbortSignal.timeout(10_000),
-          });
-          if (!response.ok) throw new Error(`Webhook respondeu HTTP ${response.status}`);
-          canais.push("hook");
-          logger.info({ providerId: ownerProvider.id, channel: "webhook", status: response.status }, "Proactive alert webhook sent");
-        } catch (webhookErr) {
-          logger.error({ err: webhookErr, providerId: ownerProvider.id }, "Failed to send proactive alert webhook");
-        }
+      const webhookPayload = {
+        event: "proactive_alert",
+        provider: ownerProvider.name,
+        maskedCpf,
+        maskedCustomerName: maskedName,
+        message: resumo,
+        motivo,
+        motivos: avaliacao.motivos,
+        severidade,
+        contrato,
+        valorVencido: dono.totalOverdueAmount,
+        diasDeAtraso: dono.maxDaysOverdue,
+        diasDeContrato: avaliacao.diasDeContrato ?? null,
+        timestamp: new Date().toISOString(),
+      };
+      if (await enviarWebhookDoAlerta(ownerProvider, webhookPayload)) {
+        canais.push("hook");
       }
 
       // ── 3. O LOG DE ENVIO — e a trava de 24h ───────────────────────────

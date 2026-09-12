@@ -103,11 +103,19 @@ export function registerChatRoutes(): Router {
    * IP grava mensagens sem parar; o corpo já tem teto de 10 MB no parser
    * global (`server/index.ts`), mas isso ainda é generoso demais por MENSAGEM
    * — daí o teto de tamanho logo abaixo, além do limite de taxa.
+   *
+   * O MESMO limitador guarda `/start` (logo abaixo): `/start` não grava
+   * mensagem nenhuma, mas cada token que ele emite dá direito a 20 mensagens
+   * POR MINUTO — cada uma com resposta automática via IA (OpenAI). Sem
+   * limite ali, um IP mintava tokens sem parar e cada um abria sua própria
+   * cota de 20 mensagens/min de custo de IA; é por isso que as duas rotas
+   * dividem o MESMO balde (a mesma instância), não um balde equivalente cada
+   * uma — o custo de IA por origem é um teto só, não a soma de dois.
    */
   const limiteMensagemVisitante = createRateLimiter({ windowMs: 60_000, maxRequests: 20 });
   const TAMANHO_MAXIMO_MENSAGEM_VISITANTE = 4_000;
 
-  router.post("/api/public/visitor-chat/start", async (req, res) => {
+  router.post("/api/public/visitor-chat/start", limiteMensagemVisitante, async (req, res) => {
     try {
       const { name, email, phone } = req.body;
       if (!name || !email) return res.status(400).json({ message: "Nome e email sao obrigatorios" });

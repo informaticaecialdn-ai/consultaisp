@@ -135,8 +135,8 @@ const SANDBOXES_EM_RODIZIO = 200; // 510_000 + 199*2_000 + 1_349 = 909_349, nunc
  *      que a limpeza horaria (`limpeza.service.ts`) absorve numa passada ou
  *      duas mesmo se cair para tras, sem competir por espaco com o banco de
  *      producao que mora no MESMO filesystem.
- *   2. A conferencia e check-then-create, NAO atomica: duas requisicoes de
- *      IPs diferentes (o limite de 2/10min so trava por IP) podem ler a
+ *   2. A conferencia e check-then-create — duas requisicoes de IPs
+ *      diferentes (o limite de 2/10min so trava por IP) podiam ler a
  *      contagem antes de qualquer uma commitar, e `criarSandbox` tambem
  *      consome um id da sequencia do Postgres a cada tentativa que esbarra
  *      em colisao de CNPJ/subdominio (raro, mas gera lacuna). Colar o teto
@@ -144,6 +144,14 @@ const SANDBOXES_EM_RODIZIO = 200; // 510_000 + 199*2_000 + 1_349 = 909_349, nunc
  *      colidir index é o que impede DOIS sandboxes vivos de sobrescrever a
  *      carteira um do outro — numa corrida que nunca deveria chegar perto do
  *      limite matematico. 150 deixa 50 sandboxes (25%) de folga.
+ *
+ *      Revisão final de segurança antes da demonstração pública (item 3):
+ *      `GET /demo` (server/routes/demo.routes.ts) agora serializa a
+ *      conferência + criação com `p-limit(1)` — dentro deste processo
+ *      (`exec_mode: "fork"` na demo, uma instância só), duas requisições
+ *      concorrentes não conferem o teto ao mesmo tempo nem constroem duas
+ *      carteiras completas em paralelo num processo de 512 MB. A folga desta
+ *      lista continua valendo como segunda camada, não como única defesa.
  *
  * 150 visitantes simultaneos dentro da janela de 24h de vida do sandbox e
  * folgado para uma demonstracao publica de autoatendimento — o produto nao
@@ -835,15 +843,35 @@ export async function sandboxesExpirados(agora: Date = new Date()): Promise<numb
 }
 
 /**
- * Quantos sandboxes existem AGORA na base — vivos ou expirados-mas-ainda-nao-
- * varridos, tanto faz: o que importa aqui é quantas linhas essa convenção já
- * ocupa no MESMO disco do banco de produção, e é contra isso que `GET /demo`
- * confere `TETO_DE_SANDBOXES_VIVOS` antes de criar mais um. Mesma consulta e
- * mesmo filtro de `sandboxesExpirados`, só sem o corte por idade.
+ * Quantos sandboxes VIVOS existem AGORA — isto é, ainda dentro de
+ * `VIDA_DO_SANDBOX_MS` (24h). É contra isso que `GET /demo` confere
+ * `TETO_DE_SANDBOXES_VIVOS` antes de criar mais um.
+ *
+ * Rodada de correção (revisão final de segurança antes da demonstração
+ * pública, item 3): a versão anterior contava TODO sandbox da tabela —
+ * "vivo ou expirado-mas-ainda-não-varrido, tanto faz", nas palavras do
+ * comentário que ela tinha. Isso inflava o teto: a limpeza roda de HORA em
+ * hora (`limpeza.service.ts`), então um sandbox que passou de 24h continuava
+ * ocupando vaga no teto até a próxima varredura — e se ela atrasar (ou
+ * parar, ver `server/worker.ts`), para sempre. Um punhado de IPs distintos
+ * criando 2 sandboxes cada (o limite por IP) bastava para fechar a
+ * demonstração pública por um dia inteiro, mesmo com o sweep rodando
+ * direitinho: nada impedia os já-expirados de contar até serem fisicamente
+ * apagados.
+ *
+ * Agora o corte por idade é o MESMO de `sandboxesExpirados` — um sandbox
+ * expirado para de ocupar vaga no instante em que expira, não no instante em
+ * que a próxima varredura horária o alcança.
  */
-export async function contarSandboxesVivos(): Promise<number> {
-  const todos = await db.select({ subdomain: providers.subdomain }).from(providers);
-  return todos.filter((p) => (p.subdomain ?? "").startsWith(PREFIXO_SANDBOX)).length;
+export async function contarSandboxesVivos(agora: Date = new Date()): Promise<number> {
+  const todos = await db.select({ subdomain: providers.subdomain, createdAt: providers.createdAt }).from(providers);
+  const limite = agora.getTime() - VIDA_DO_SANDBOX_MS;
+  return todos
+    .filter((p) => (p.subdomain ?? "").startsWith(PREFIXO_SANDBOX))
+    .filter((p) => {
+      const criadoEm = p.createdAt ? new Date(p.createdAt).getTime() : 0;
+      return criadoEm > limite;
+    }).length;
 }
 
 /**

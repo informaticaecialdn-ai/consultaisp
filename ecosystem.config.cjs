@@ -15,9 +15,32 @@
  *   pm2 save
  */
 
-// Carrega .env e injeta nos dois processos (mesmo pattern do ecosystem antigo).
+// O par de PRODUCAO le o .env DELE. Sem o path explicito, `dotenv.config()`
+// resolve ".env" contra o CWD de quem chama `pm2 start` — nao contra este
+// arquivo. Iniciado de qualquer diretorio que nao seja a raiz do repo (ou
+// pelo daemon do pm2, que reusa o cwd do primeiro `pm2 start` da maquina),
+// `.parsed` vem vazio e o antigo `|| {}` fazia este par herdar o env que o
+// DAEMON do pm2 ja carregava em memoria — o mesmo defeito que
+// `ecosystem.demo.config.cjs` corrigiu primeiro (revisao final de seguranca
+// antes da demonstracao publica, item 4). Ali o risco era a demo herdar
+// producao; aqui e o INVERSO e pior: se o daemon algum dia carregar o env da
+// DEMO antes deste par subir, producao boota com `DEMO_MODE=true` —
+// cadastro fechado, bureaus simulados, faixa de "dados ficticios" na tela de
+// provedores pagantes, em silencio.
+//
+// Path ANCORADO em `__dirname`, e ausencia de `.env` e ERRO FATAL, nao um
+// `{}` silencioso — mesma correcao, mesmo motivo.
+const path = require("path");
 const dotenv = require("dotenv");
-const env = dotenv.config().parsed || {};
+const ENV_PATH = path.resolve(__dirname, ".env");
+const resultadoDoEnv = dotenv.config({ path: ENV_PATH });
+if (resultadoDoEnv.error) {
+  throw new Error(
+    `ecosystem.config.cjs: nao encontrei ${ENV_PATH} — a producao nao pode subir sem o .env dela ` +
+    `(copie .env.example para .env e preencha). Erro original: ${resultadoDoEnv.error.message}`,
+  );
+}
+const env = resultadoDoEnv.parsed;
 
 module.exports = {
   apps: [

@@ -173,25 +173,45 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   // sempre, produção incluída) — por isso a checagem fica na CHAMADA, não
   // dentro do serviço. Ver server/demo/limpeza.service.ts e modo-demo.ts.
   //
-  // Sem try/catch (revisão final de segurança antes da demonstração pública,
-  // item 6): um `import()` que rejeitasse pularia, sem log e sem captura,
-  // todo o resto desta IIFE — o laço da autonomia do chat, os handlers de
-  // SIGTERM/SIGINT e a cadeia do mapa mais abaixo nunca seriam registrados.
-  // Mesmo padrão dos blocos vizinhos acima (LGPD titular, régua de cobrança):
-  // tentar, logar e seguir. Se a detecção falhar, `emModoDemo` cai para
-  // "não é demo" — o lado mais seguro: no pior caso a limpeza de sandbox não
-  // liga (produção não perde nada), nunca o oposto (a cadeia do mapa sendo
-  // desligada por engano numa instância de produção de verdade, linha 313).
+  // A DETECÇÃO tem try/catch próprio (revisão final de segurança antes da
+  // demonstração pública, item 6): um `import()` que rejeitasse pularia, sem
+  // log e sem captura, todo o resto desta IIFE — o laço da autonomia do
+  // chat, os handlers de SIGTERM/SIGINT e a cadeia do mapa mais abaixo nunca
+  // seriam registrados. Mesmo padrão dos blocos vizinhos acima (LGPD
+  // titular, régua de cobrança): tentar, logar e seguir. Se a detecção
+  // falhar, `emModoDemo` cai para "não é demo" — o lado mais seguro: no pior
+  // caso a limpeza de sandbox não liga (produção não perde nada), nunca o
+  // oposto (a cadeia do mapa sendo desligada por engano numa instância de
+  // produção de verdade — o `if (!emModoDemo())` logo abaixo, antes de
+  // `iniciarCadeiaDoMapa()`).
+  //
+  // O START DA LIMPEZA (a chamada a `iniciarLimpezaDaDemo`, logo abaixo) tem
+  // o SEU PRÓPRIO try/catch, separado — rodada de correção (revisão final de
+  // segurança, item 6): uma
+  // versão anterior desta correção juntava os dois num só, e um throw ali
+  // caía no MESMO `catch` que loga "Deteccao de modo demo falhou — seguindo
+  // como producao". A mensagem mentia (a detecção tinha funcionado; era o
+  // SCHEDULER de limpeza que não subiu) e, combinado com o teto de sandboxes
+  // vivos (item 3), deixava a demonstração presa em 503 pra sempre — com um
+  // aviso que aponta pra causa errada. Loga ALTO (`error`, não `warn`) e com
+  // mensagem própria: é a única pista de que alguém precisa reiniciar o worker.
   let emModoDemo: () => boolean = () => false;
   try {
     ({ emModoDemo } = await import("./demo/modo-demo"));
-    if (emModoDemo()) {
+  } catch (err) {
+    logger.warn({ err }, "[Worker] Deteccao de modo demo falhou — seguindo como producao");
+  }
+  if (emModoDemo()) {
+    try {
       const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");
       iniciarLimpezaDaDemo();
       logger.info("[Worker] Limpeza de sandboxes da demo scheduler started");
+    } catch (err) {
+      logger.error(
+        { err },
+        "[Worker] Limpeza de sandboxes da demo falhou ao iniciar — sandboxes NUNCA vao expirar sozinhos ate o worker reiniciar",
+      );
     }
-  } catch (err) {
-    logger.warn({ err }, "[Worker] Deteccao de modo demo falhou — seguindo como producao");
   }
   /*
    * A autonomia do chat confere se as tabelas da 0028 existem antes de ligar o

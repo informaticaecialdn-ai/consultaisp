@@ -10,6 +10,7 @@ import { montarRegras, desmontarRegras, regrasAntiFraudeSchema } from "@shared/a
 import { isZapiConfigured } from "../services/crm/zapi";
 import { z } from "zod";
 import { anonymizeProvider } from "../utils/provider-anonymizer";
+import { validarWebhookExterno } from "../utils/webhook-validador";
 
 export function registerAntiFraudeRoutes(): Router {
   const router = Router();
@@ -56,8 +57,15 @@ export function registerAntiFraudeRoutes(): Router {
     regras: regrasAntiFraudeSchema,
     canais: z.object({
       proactiveAlertsEnabled: z.boolean(),
-      webhookUrl: z.string().trim().max(500)
-        .refine(v => v === "" || /^https?:\/\//i.test(v), "O webhook precisa começar com http:// ou https://"),
+      // O FORMATO fica so aqui (texto, tamanho). https + endereco publico e
+      // resolvido e responsabilidade de `validarWebhookExterno`, chamada
+      // abaixo antes de qualquer escrita — esta e a MESMA coluna que
+      // `provider.routes.ts` grava, e o servidor DISPARA sozinho depois
+      // (`proactive-alert.service.ts`) a cada consulta que casar a regra de
+      // fuga. Um regex `/^https?:\/\//` aqui ADMITIA http:// e qualquer host,
+      // inclusive interno — a tela de verdade (aba Anti-Fraude do Painel do
+      // Provedor) era a porta mais aberta das duas.
+      webhookUrl: z.string().trim().max(500),
     }).optional(),
   });
 
@@ -67,6 +75,14 @@ export function registerAntiFraudeRoutes(): Router {
       const parsed = salvarRegrasSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: parsed.error.issues[0]?.message || "Regras inválidas" });
+      }
+      // Validado ANTES de qualquer escrita — inclusive antes de gravar as
+      // REGRAS, que não têm nada a ver com o webhook: um webhook recusado não
+      // pode deixar a tela num estado onde as regras já mudaram, mas o canal
+      // não foi salvo (nem confirmado, nem recusado com clareza).
+      if (parsed.data.canais?.webhookUrl) {
+        const veredito = await validarWebhookExterno(parsed.data.canais.webhookUrl);
+        if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
       }
       await storage.saveAntiFraudRules(providerId, desmontarRegras(parsed.data.regras));
       if (parsed.data.canais) {

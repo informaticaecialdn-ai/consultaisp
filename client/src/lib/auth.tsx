@@ -84,6 +84,61 @@ interface AuthState {
   clearMustChangePassword: () => void;
 }
 
+/**
+ * O que `login()` grava no estado, a partir do corpo de `POST /api/auth/login`.
+ *
+ * Extraída como função PURA (revisão final de segurança antes da
+ * demonstração pública, item 6): este projeto não configura jsdom
+ * (`vitest.config.ts` só coleta `.test.ts`, nunca `.test.tsx`), então a única
+ * forma de testar o que o login grava é isolar o mapeamento em algo que não
+ * precise renderizar o `AuthProvider`.
+ *
+ * `demoMode` é o bug que esta função fecha: antes, `login()` não lia esse
+ * campo — quem entra pela tela de login (em vez de cair direto no sandbox
+ * por `GET /demo`) só via a faixa de demonstração no PRÓXIMO `checkAuth()`
+ * (`GET /api/auth/me`, no próximo mount ou refresh), nunca no instante do
+ * login. `POST /api/auth/login` já devolve `demoMode` (mesma projeção de
+ * `emModoDemo()` que `/api/auth/me` manda, server/routes/auth.routes.ts).
+ */
+export function estadoAposLogin(data: {
+  user: AuthState["user"];
+  provider: Provider | null;
+  marca?: MarcaDaSessao | null;
+  mustChangePassword?: boolean;
+  demoMode?: boolean;
+}): {
+  user: AuthState["user"];
+  provider: Provider | null;
+  marca: MarcaDaSessao | null;
+  personificando: false;
+  mustChangePassword: boolean;
+  demoMode: boolean;
+} {
+  return {
+    user: data.user,
+    provider: data.provider,
+    // `?? null` faz as duas coisas de uma vez.
+    //
+    // ZERA: o corpo do login so traz `marca` para revendedor, entao quem entra
+    // como provedor apaga a marca de quem estava logado antes nesta aba. Sem
+    // isso, um login de provedor por cima da sessao de um revendedor herdaria a
+    // marca do anterior — o mesmo acidente que `personificando: false` evita,
+    // no outro eixo.
+    //
+    // E GUARDA: para o revendedor, aproveitar o corpo do login em vez de
+    // esperar o proximo `/api/auth/me` evita o quadro em que ele ja esta dentro
+    // e a marca ainda e `null`. A barra lateral dele nasce dessa marca.
+    marca: data.marca ?? null,
+    // Login encerra qualquer personificacao no servidor (`encerrarPersonificacao`
+    // em auth.routes.ts), entao o estado local tem de acompanhar: uma aba que
+    // fizesse login por cima de uma sessao de suporte continuaria desenhando a
+    // navegacao do tenant anterior.
+    personificando: false,
+    mustChangePassword: data.mustChangePassword || false,
+    demoMode: data.demoMode === true,
+  };
+}
+
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -133,26 +188,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       err.email = data.email;
       throw err;
     }
-    setUser(data.user);
-    setProvider(data.provider);
-    // `?? null` faz as duas coisas de uma vez.
-    //
-    // ZERA: o corpo do login so traz `marca` para revendedor, entao quem entra
-    // como provedor apaga a marca de quem estava logado antes nesta aba. Sem
-    // isso, um login de provedor por cima da sessao de um revendedor herdaria a
-    // marca do anterior — o mesmo acidente que a linha de `personificando`
-    // logo abaixo evita, no outro eixo.
-    //
-    // E GUARDA: para o revendedor, aproveitar o corpo do login em vez de
-    // esperar o proximo `/api/auth/me` evita o quadro em que ele ja esta dentro
-    // e a marca ainda e `null`. A barra lateral dele nasce dessa marca.
-    setMarca(data.marca ?? null);
-    // Login encerra qualquer personificacao no servidor (`encerrarPersonificacao`
-    // em auth.routes.ts), entao o estado local tem de acompanhar: uma aba que
-    // fizesse login por cima de uma sessao de suporte continuaria desenhando a
-    // navegacao do tenant anterior.
-    setPersonificando(false);
-    setMustChangePassword(data.mustChangePassword || false);
+    const proximo = estadoAposLogin(data);
+    setUser(proximo.user);
+    setProvider(proximo.provider);
+    setMarca(proximo.marca);
+    setPersonificando(proximo.personificando);
+    setMustChangePassword(proximo.mustChangePassword);
+    // Sem isto, um login feito DENTRO da página da demonstração (em vez de
+    // cair no sandbox por `GET /demo`) só mostrava a faixa de aviso no
+    // próximo `checkAuth()` — nunca no instante em que a pessoa acabou de
+    // entrar.
+    setDemoMode(proximo.demoMode);
   };
 
   const register = async (data: { email: string; password: string; name: string; phone?: string; responsavelCpf: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => {

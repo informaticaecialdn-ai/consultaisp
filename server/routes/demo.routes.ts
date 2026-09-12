@@ -1,10 +1,30 @@
 import { Router } from "express";
+import pLimit from "p-limit";
 import { contarSandboxesVivos, criarSandbox, TETO_DE_SANDBOXES_VIVOS } from "../demo/sandbox.service";
 import { emModoDemo } from "../demo/modo-demo";
 import { normalizarHost } from "../tenant";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { storage } from "../storage";
+
+/**
+ * A demonstração pública roda como UM processo só (`exec_mode: "fork"` em
+ * `ecosystem.demo.config.cjs`) — por isso serializar AQUI, dentro do
+ * processo, fecha a corrida por inteiro, não só reduz a janela.
+ *
+ * Revisão final de segurança antes da demonstração pública (item 3): a
+ * conferência do teto (`contarSandboxesVivos`) e a criação (`criarSandbox`)
+ * eram um check-then-create SEM trava — duas (ou cem) requisições
+ * concorrentes liam a mesma contagem, abaixo do teto, ANTES de qualquer uma
+ * commitar a própria criação, e cada uma monta uma carteira inteira (~5 mil
+ * linhas, dezenas de queries) num processo de 512 MB. `p-limit(1)` faz a
+ * checagem e a criação de CADA requisição rodarem em SÉRIE — a próxima só
+ * começa a conferir o teto depois que a anterior já commitou (ou falhou).
+ */
+const filaDeCriacaoDoSandbox = pLimit(1);
+
+/** Sinaliza "no teto" para fora de `filaDeCriacaoDoSandbox` sem confundir com qualquer outra falha (500 genérico). */
+class TetoDeSandboxesAtingidoError extends Error {}
 
 /**
  * A PORTA da demonstracao publica: um clique em "Ver demonstracao" cai aqui e
@@ -60,13 +80,28 @@ export function registerDemoRoutes(): Router {
       // `TETO_DE_SANDBOXES_VIVOS` em sandbox.service.ts. Depois da checagem de
       // reaproveitamento acima: um visitante que VOLTA nunca é barrado por um
       // teto que existe para conter CRIAÇÃO nova.
-      if ((await contarSandboxesVivos()) >= TETO_DE_SANDBOXES_VIVOS) {
-        return res.status(503).json({
-          message: "A demonstração está muito concorrida agora. Tente novamente em alguns minutos.",
+      //
+      // A checagem e a criação rodam DENTRO do mesmo `filaDeCriacaoDoSandbox`
+      // — não cada uma no seu próprio `limit(...)` — porque é a DUPLA
+      // (conferir E criar como uma coisa só) que precisa ser atômica dentro
+      // do processo. Duas chamadas separadas ainda deixariam a requisição B
+      // conferir o teto entre o "conferiu" e o "criou" da requisição A.
+      let sandbox: Awaited<ReturnType<typeof criarSandbox>>;
+      try {
+        sandbox = await filaDeCriacaoDoSandbox(async () => {
+          if ((await contarSandboxesVivos()) >= TETO_DE_SANDBOXES_VIVOS) {
+            throw new TetoDeSandboxesAtingidoError();
+          }
+          return criarSandbox();
         });
+      } catch (error) {
+        if (error instanceof TetoDeSandboxesAtingidoError) {
+          return res.status(503).json({
+            message: "A demonstração está muito concorrida agora. Tente novamente em alguns minutos.",
+          });
+        }
+        throw error;
       }
-
-      const sandbox = await criarSandbox();
 
       // Os mesmos cinco campos que o login de verdade grava
       // (auth.routes.ts:262-268). Sem `hostLogin`/`subdomain`, `requireAuth`
