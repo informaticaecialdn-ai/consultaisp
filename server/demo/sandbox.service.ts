@@ -34,6 +34,7 @@ import {
   customers,
   invoices,
   equipment,
+  acessosSuporte,
   cobrancaCasos,
   cobrancaEventos,
   cobrancaNegociacoes,
@@ -639,7 +640,7 @@ export async function sandboxesExpirados(agora: Date = new Date()): Promise<numb
  *
  * REUSA `storage.deleteProvider` (rodada de correção, 11/09/2026) pela
  * cobertura de base — assim a demonstração herda qualquer manutenção futura
- * daquela função — mais o DELTA que só o sandbox precisa: 23 tabelas com FK
+ * daquela função — mais o DELTA que só o sandbox precisa: 24 tabelas com FK
  * para `providers` que `deleteProvider` não conhece, ou conhece só por um
  * dos dois lados (`server/storage/providers.storage.ts:190-226` foi lido
  * inteiro antes de escrever isto; ela NÃO aceita executor de transação —
@@ -649,9 +650,9 @@ export async function sandboxesExpirados(agora: Date = new Date()): Promise<numb
  * O universo de "tabelas com FK para providers" é conferido CONTRA O SCHEMA
  * pelo teste (`sandbox.service.test.ts`, "a limpeza cobre toda tabela com FK
  * para providers"), que deriva a lista via `getTableConfig` em vez de uma
- * enumeração solta — se uma tabela nova ganhar essa FK no futuro e ninguém
- * atualizar a lista abaixo, é o teste que acende vermelho, não um sandbox
- * zumbi em produção.
+ * enumeração solta, **sem exceção nenhuma** — 38 tabelas, 41 pares — se uma
+ * tabela nova ganhar essa FK no futuro e ninguém atualizar a lista abaixo, é
+ * o teste que acende vermelho, não um sandbox zumbi em produção.
  *
  * Ordem do delta: filhas antes de pais (calculada por ordenação topológica
  * do grafo de FKs antes de escrever — ver o relatório da tarefa). Delta
@@ -659,12 +660,22 @@ export async function sandboxesExpirados(agora: Date = new Date()): Promise<numb
  * tabelas referenciam `customers`/`equipment`, que só `deleteProvider`
  * apaga.
  *
- * `acessos_suporte` fica de fora de propósito: é a trilha de auditoria de
- * acesso de suporte, e `deleteProvider` RECUSA apagar o provedor (sem
- * apagar a trilha) quando ela tem linha — `ProvedorComTrilhaDeSuporteError`,
- * decisão de LGPD que vale para QUALQUER provedor, sandbox incluído. Se um
- * sandbox um dia acumular uma dessas linhas, `apagarSandbox` deve mesmo
- * recusar, e a limpeza da Tarefa 7 já loga e segue para o próximo.
+ * `acessos_suporte` ENTRA no delta (rodada de correção 2, 11/09/2026) — não
+ * fica de fora. `deleteProvider` RECUSA apagar o provedor (sem apagar a
+ * trilha) quando essa tabela tem linha — `ProvedorComTrilhaDeSuporteError`,
+ * guarda de LGPD para proteger o TITULAR real cujo dado um inquilino
+ * levaria embora ao sair (`providers.storage.ts:41-72`). Essa guarda segue
+ * intacta e vale para todo provedor real. Mas para o sandbox ela vira o
+ * mesmo zumbi permanente que esta correção existe para consertar, por um
+ * caminho que o próprio visitante aciona sem querer: o admin do sandbox tem
+ * acesso à aba "Suporte" do painel dele (`POST /api/provider/acesso-suporte/liberar`,
+ * `requireAdmin` sem exclusão de demonstração), e "revogar" um acesso NÃO
+ * apaga a linha — só marca `revogadoEm`, então a contagem da guarda nunca
+ * volta a zero. Como os clientes do sandbox são 100% sintéticos
+ * (`pessoaFicticia`/`cpfFicticio`), não há titular real a proteger aqui — a
+ * exceção fica estreita o bastante (só `subdomain` com o prefixo `sandbox-`,
+ * a mesma trava que a função já faz na linha de baixo) para nunca alcançar
+ * um provedor de verdade.
  *
  * Recusa apagar um provedor que não pareça um sandbox: `apagarSandbox` é
  * chamado pela limpeza automática (Tarefa 7) a partir de ids que ELA leu de
@@ -680,6 +691,9 @@ export async function apagarSandbox(providerId: number): Promise<void> {
   await db.transaction(async (tx) => {
     // Folhas do grafo (nada mais no delta referencia estas) — ordem entre
     // elas não importa, só precisam vir antes das tabelas que as usam.
+    // acessos_suporte primeiro: é o que a guarda de `deleteProvider` conta
+    // ANTES de qualquer outro delete — se sobrar aqui, tudo mais é em vão.
+    await tx.delete(acessosSuporte).where(eq(acessosSuporte.providerId, providerId));
     await tx.delete(antiFraudAlerts).where(eq(antiFraudAlerts.consultingProviderId, providerId));
     await tx.delete(providerDocuments).where(eq(providerDocuments.uploadedById, providerId));
     await tx.delete(proactiveAlerts).where(eq(proactiveAlerts.providerId, providerId));
@@ -713,6 +727,7 @@ export async function apagarSandbox(providerId: number): Promise<void> {
   // customers, isp/spcConsultations, erpSyncLogs, erpIntegrations,
   // planChanges, providerInvoices, creditOrders,
   // providerDocuments[providerId], providerPartners, supportThreads+
-  // Messages, users, providers) — e o guard de `acessosSuporte`.
+  // Messages, users, providers). O guard de `acessosSuporte` que ela roda
+  // primeiro já encontra a tabela vazia — o delta acima limpou.
   await storage.deleteProvider(providerId);
 }

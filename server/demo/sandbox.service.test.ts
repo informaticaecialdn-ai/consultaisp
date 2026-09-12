@@ -550,25 +550,22 @@ describe("sandbox do visitante", () => {
  * digitada à mão: uma enumeração escrita a mão envelhece na primeira tabela
  * que outra feature criar amanhã; esta, não — ganha a FK, o teste passa a
  * semeá-la, e se `apagarSandbox` não souber limpá-la, ACENDE VERMELHO aqui.
+ *
+ * SEM EXCEÇÃO — 38 tabelas, 41 pares (tabela, coluna), zero exclusões
+ * (rodada de correção 2, 11/09/2026). A primeira versão deste teste excluía
+ * `acessos_suporte` (a guarda de LGPD de `storage.deleteProvider` recusa
+ * apagar um provedor real com trilha de acesso de suporte, e o raciocínio
+ * era "então não é resíduo, é desenho"). Isso reabria o MESMO zumbi
+ * permanente por outro caminho: o admin do sandbox tem acesso à aba
+ * "Suporte" do próprio painel, `POST /api/provider/acesso-suporte/liberar`
+ * grava a linha na hora, e "revogar" NUNCA apaga — só marca `revogadoEm`. A
+ * guarda ficava presa em ">0" para sempre a partir de UM clique de
+ * curiosidade. `apagarSandbox` agora limpa `acessos_suporte` para
+ * provedores `sandbox-*` (a guarda em si continua intacta para provedor
+ * real — ver o comentário em `sandbox.service.ts`), então este teste não
+ * tem mais nenhuma tabela para excluir.
  */
-describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado do schema)", () => {
-  /**
-   * Única exclusão, e DECLARADA com o motivo — nunca uma omissão silenciosa.
-   * `acessos_suporte` é a trilha de auditoria de acesso de suporte;
-   * `storage.deleteProvider` RECUSA apagar o provedor (sem tocar a trilha)
-   * quando ela tem linha — `ProvedorComTrilhaDeSuporteError`
-   * (`server/storage/providers.storage.ts:73-84`), decisão de LGPD que vale
-   * para QUALQUER provedor, sandbox incluído. Semear uma linha aqui e exigir
-   * "sucesso e resíduo zero" contradiria essa decisão de propósito — o
-   * comportamento CORRETO, se um sandbox algum dia acumular uma linha destas,
-   * é `apagarSandbox` recusar (e a limpeza da Tarefa 7 já loga e segue para
-   * o próximo), não apagar por baixo do pano.
-   */
-  const EXCLUIDAS_COM_MOTIVO: Record<string, string> = {
-    acessos_suporte:
-      "storage.deleteProvider recusa apagar o provedor (ProvedorComTrilhaDeSuporteError) quando esta tabela tem linha — trilha de LGPD, vale para qualquer provedor. Não é resíduo, é desenho.",
-  };
-
+describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado do schema, sem excecao)", () => {
   interface AlvoDeFk {
     tabela: PgTable;
     nomeTabela: string;
@@ -626,17 +623,15 @@ describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado d
     return linha;
   }
 
-  it("as tabelas excluidas da varredura tem motivo declarado — nao omissao silenciosa", () => {
-    expect(Object.keys(EXCLUIDAS_COM_MOTIVO)).toEqual(["acessos_suporte"]);
-    expect(EXCLUIDAS_COM_MOTIVO.acessos_suporte.length).toBeGreaterThan(20);
-  });
-
-  it("apagarSandbox limpa toda tabela com FK para providers — lista derivada do schema, nunca digitada a mao", async () => {
-    const alvos = tabelasComFkParaProviders().filter((a) => !(a.nomeTabela in EXCLUIDAS_COM_MOTIVO));
-    // Sonda de sanidade do PROPRIO teste: se o schema mudar de forma e o
-    // reflexo parar de achar FKs, é melhor um teste vermelho aqui do que um
-    // teste verde que não testa mais nada.
-    expect(alvos.length, "nenhuma FK para providers encontrada — o reflexo sobre o schema quebrou").toBeGreaterThan(30);
+  it("apagarSandbox limpa toda tabela com FK para providers — lista derivada do schema, nunca digitada a mao, sem excecao", async () => {
+    const alvos = tabelasComFkParaProviders();
+    // Contagem EXATA, não só "> 30": 38 tabelas / 41 pares (3 tabelas —
+    // anti_fraud_alerts, proactive_alerts, provider_documents — têm duas
+    // colunas cada uma apontando para providers). Se o schema mudar de
+    // forma e esse número desviar, é melhor um teste vermelho apontando o
+    // número exato do que um "> 30" que deixa passar uma tabela a menos.
+    expect(alvos.length, "universo de FKs para providers mudou — recontar antes de ajustar este numero").toBe(41);
+    expect(new Set(alvos.map((a) => a.nomeTabela)).size).toBe(38);
 
     const s = await criarSandbox();
 
