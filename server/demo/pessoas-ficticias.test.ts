@@ -4,7 +4,9 @@ import { validarCpfCnpj } from "../utils/cpf-cnpj-validator";
 
 describe("pessoas ficticias", () => {
   it("todo CPF tem digito valido e nasce na faixa 999 (nao emitida)", () => {
-    for (let i = 0; i < 500; i++) {
+    // 20.000 — a ordem de grandeza real de uso (5 provedores x 1.500 clientes
+    // + sandboxes de visitante), nao os 500 do brief original.
+    for (let i = 0; i < 20_000; i++) {
       const cpf = cpfFicticio(i);
       expect(cpf, `i=${i}`).toMatch(/^999\d{8}$/);
       // O brief assumia `.valido`; o validador real devolve `.valid` — ver
@@ -18,9 +20,22 @@ describe("pessoas ficticias", () => {
     expect(pessoaFicticia(7)).toEqual(pessoaFicticia(7));
   });
 
-  it("indices diferentes nao repetem CPF", () => {
-    const cpfs = new Set(Array.from({ length: 500 }, (_, i) => cpfFicticio(i)));
-    expect(cpfs.size).toBe(500);
+  it("indices diferentes nao repetem CPF — inclusive 999.998 e 999.999, o par que colidia antes do fix", () => {
+    // Fix round 1: a primeira versao desviava o unico indice que geraria CPF
+    // com os 11 digitos iguais (999999) para o valor de outro indice natural
+    // (999998), colidindo os dois em silencio. Os dois entram explicitamente
+    // aqui, alem do bloco de 20.000, para a regressao nunca mais passar batido.
+    const indices = [...Array.from({ length: 20_000 }, (_, i) => i), 999_998, 999_999];
+    const cpfs = new Set(indices.map((i) => cpfFicticio(i)));
+    expect(cpfs.size).toBe(indices.length);
+  });
+
+  it("999.998 e 999.999 tambem nascem com CPF valido, nao so distinto um do outro", () => {
+    for (const i of [999_998, 999_999]) {
+      const cpf = cpfFicticio(i);
+      expect(cpf, `i=${i}`).toMatch(/^999\d{8}$/);
+      expect(validarCpfCnpj(cpf).valid, `i=${i}`).toBe(true);
+    }
   });
 
   it("so as quatro cidades do mapa, com UF PR", () => {
