@@ -191,32 +191,32 @@ function paraEmail(txt: string): string {
 /**
  * Os 6 dígitos "livres" da base do CPF (depois do prefixo fixo "999").
  *
- * "999999999" geraria um CPF com os 11 dígitos iguais — a única sequência que
- * o próprio algoritmo da Receita rejeita por definição —, e é exatamente o
- * que sai quando `indice % 1_000_000 === 999_999`. Esse valor precisa de um
- * substituto — e com 6 dígitos livres (10^6 combinações, uma proibida) é
- * matematicamente impossível ter mais de 999.999 índices consecutivos com
- * CPF distinto: quando o índice 999.999 (o milionésimo) precisa de um valor,
- * os outros 999.999 já usaram os 999.999 valores válidos que sobram, sem
- * folga — ALGUM vai se repetir (princípio da casa dos pombos). A pergunta que
- * dá pra escolher é só QUAL repete.
+ * Módulo **999.999**, não 1.000.000. "999999999" geraria um CPF com os 11
+ * dígitos iguais — a única sequência que o próprio algoritmo da Receita
+ * rejeita por definição —, e é exatamente o que sairia se o resto pudesse
+ * valer `999999`. Com módulo 999.999 esse resto NUNCA é alcançado (o maior
+ * resto possível é 999.998) — o valor proibido simplesmente não existe mais
+ * no espaço de saída, então não há nada para substituir. Consequência:
+ * **nenhum índice dentro de um período colide com outro** — os primeiros
+ * 999.999 índices (`0`..`999_998`) produzem 999.999 CPFs distintos, um por
+ * índice, sem exceção. O período do gerador é 999.999 (ver `cpfFicticio`).
  *
- * A primeira versão substituía por "999998" — o valor NATURAL do índice
- * vizinho —, então `cpfFicticio(999_998)` e `cpfFicticio(999_999)` saíam
- * iguais: uma colisão silenciosa achada em revisão, não em teste (o CPF
- * continuava válido, só duplicado). "Vizinho mais próximo" é o pior alvo
- * possível: é o primeiro par que qualquer teste de fronteira experimenta.
- * Agora o substituto é **500.000** — longe da faixa realista de uso (a demo
- * semeia, no máximo, dezenas de milhares de linhas) e longe do índice
- * original (999.999), ao contrário de "n-1". A única colisão do gerador
- * inteiro fica isolada em índice 500.000 ≡ índice 999.999 (e qualquer índice
- * ≡ 999.999 mod 1.000.000 depois dele) — ver o comentário de `cpfFicticio`
- * para o período que sobra fora dela.
+ * Duas versões anteriores tentaram outra coisa: **substituir** o único resto
+ * proibido (que aparecia só sob módulo 1.000.000) por um valor fixo —
+ * primeiro "999998" (o vizinho natural: colidia visivelmente, achado em
+ * revisão), depois "500.000" (escolhido por "parecer" longe de qualquer uso
+ * real — só que 500.000 é `BASE_ARESTA` em `server/demo/mundo-base.ts`, o
+ * índice exato de onde o semeador começa a gerar os CPFs compartilhados da
+ * rede: `cpfFicticio(999_999)` saía igual a `CPFS_COMPARTILHADOS[0]`,
+ * achado por uma segunda revisão). As duas eram a mesma classe de erro —
+ * "escolher um número que parece seguro" — porque QUALQUER valor fixo dentro
+ * do espaço de 6 dígitos já pertence a algum índice real; não existe
+ * "número neutro" nesse espaço. Reduzir o módulo elimina a pergunta: não há
+ * mais valor nenhum para substituir.
  */
 function seisDigitosLivres(indice: number): string {
-  const n = Math.trunc(Math.abs(indice)) % 1_000_000;
-  const substituto = n === 999_999 ? 500_000 : n;
-  return String(substituto).padStart(6, "0");
+  const n = Math.trunc(Math.abs(indice)) % 999_999;
+  return String(n).padStart(6, "0");
 }
 
 /** Dígito verificador de CPF: soma ponderada, resto da divisão por 11. */
@@ -232,15 +232,13 @@ function digitoVerificadorCpf(digitos: number[], pesoInicial: number): number {
  * + 6 dígitos derivados do índice + 2 dígitos verificadores calculados pelo
  * algoritmo oficial — por isso `validarCpfCnpj` sempre aceita o resultado.
  *
- * Período de 1.000.000: `cpfFicticio(i) === cpfFicticio(i + 1_000_000)` para
- * qualquer `i` (os 6 dígitos livres vêm de `indice % 1_000_000`). Inofensivo
- * na escala desta demo (dezenas de milhares de índices, no máximo); relevante
- * só se este gerador for reaproveitado além de ~1 milhão de pessoas.
- *
- * Uma única EXCEÇÃO ao período limpo: todo índice ≡ 999.999 (mod 1.000.000)
- * sai igual ao índice 500.000 — ver `seisDigitosLivres` para o porquê (o
- * valor "999999" é proibido, e com 6 dígitos livres alguma colisão é
- * matematicamente inevitável; esta é a única do gerador inteiro).
+ * Período de **999.999**, sem exceção: `cpfFicticio(i) === cpfFicticio(i +
+ * 999_999)` para qualquer `i` (os 6 dígitos livres vêm de `indice % 999_999`
+ * — ver `seisDigitosLivres`). Dentro de um período (uma faixa de 999.999
+ * índices consecutivos) todo CPF é distinto; só ao cruzar a fronteira do
+ * período um índice repete o CPF de outro — inofensivo na escala desta demo
+ * (dezenas de milhares de índices, no máximo); relevante só se este gerador
+ * for reaproveitado além de ~999.999 pessoas.
  */
 export function cpfFicticio(indice: number): string {
   const base9 = `999${seisDigitosLivres(indice)}`;
