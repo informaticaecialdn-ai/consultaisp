@@ -53,6 +53,7 @@ import type {
 } from "../types.js";
 import { cleanCpfCnpj, calculateDaysOverdue, vencimentoIso } from "../normalize.js";
 import { registerConnector } from "../registry.js";
+import { FONTE_ERP_DEMO } from "../fonte-demo.js";
 
 type EquipamentoNormalizado = NonNullable<NormalizedErpCustomer["equipmentDetails"]>[number];
 
@@ -168,12 +169,12 @@ function paraClienteNormalizado(
     unreturnedEquipmentCount: equipamentos?.length ?? 0,
     equipmentDetails: temEquipamento ? equipamentos : undefined,
     contractStatus: cliente.status === "cancelled" ? "cancelled" : cliente.status === "active" ? "active" : undefined,
-    erpSource: "demo",
+    erpSource: FONTE_ERP_DEMO,
   };
 }
 
 class DemoConnector implements ErpConnector {
-  readonly name = "demo";
+  readonly name = FONTE_ERP_DEMO;
   readonly label = "Demonstracao";
 
   /** Nada a configurar: a demo nao tem credencial, so providerId (via extra). */

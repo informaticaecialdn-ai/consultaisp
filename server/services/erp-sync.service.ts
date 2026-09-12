@@ -23,6 +23,7 @@ import { coordenadaValida } from "./coordenada";
 import { coordenadaDoErpCoerente } from "./coords-erp.service";
 import { canonizarCidadeDoCadastro } from "./cidade-canonica.service";
 import { avaliarPausaAutomatica, FALHAS_PARA_PAUSAR } from "./erp-pausa-automatica";
+import { ehFonteDeDemonstracao } from "../erp/fonte-demo";
 
 let _syncing = false;
 
@@ -879,7 +880,32 @@ export async function syncProviderToDb(
   erpSource: string,
   intg: Parameters<typeof syncProviderToDbInterno>[3],
   syncType: "auto" | "manual" = "auto",
-): Promise<{ upserted: number; errors: number; jaEmAndamento?: boolean }> {
+): Promise<{ upserted: number; errors: number; jaEmAndamento?: boolean; pulado?: boolean }> {
+  /**
+   * A fonte "demo" PULA a escrita, de propósito — nunca chega a `tentarTravar`.
+   *
+   * O conector demo (`server/erp/connectors/demo.ts`) lê `customers`/`invoices`
+   * DA PRÓPRIA base; a escrita daqui usa `upsertFromErp`/`upsertFaturasDoErp`,
+   * cuja chave de conciliação é `erp_ref` (índice parcial em
+   * `shared/schema.ts`). As faturas que `server/demo/mundo-base.ts` semeia não
+   * têm `erp_ref` — então a varredura não encontraria as linhas seedadas para
+   * ATUALIZAR, e inseriria AO LADO delas. Cada varredura completa (agendada
+   * seg/qua/sex, ou o botão "sincronizar agora" do superadmin) dobraria o
+   * mundo da demonstração. Achado na revisão da Tarefa 4 (11/09/2026); a
+   * leitura ao vivo (`realtime-query.service.ts`, `snapshot-ao-vivo.service.ts`)
+   * não usa este caminho e continua alcançando o conector normalmente.
+   *
+   * Pular aqui — e não em `syncAllProviders`/na rota manual — cobre as DUAS
+   * portas de entrada (agendador e `POST /api/admin/providers/:id/sync/:source`)
+   * com uma condição só, porque as duas afunilam para esta função. E pular não
+   * é falhar: nada é gravado em `erp_sync_logs`, e `contarFalhasConsecutivas`
+   * nunca vê esta tentativa — do contrário a tolerância de 3 falhas viraria
+   * uma pausa automática da integração de demonstração, todo dia, para sempre.
+   */
+  if (ehFonteDeDemonstracao(erpSource)) {
+    console.log(`[ERPSync] ${providerName} (${erpSource}): fonte de demonstracao — varredura pulada de proposito, sem registro`);
+    return { upserted: 0, errors: 0, pulado: true };
+  }
   const chave = `${providerId}:${erpSource}`;
   const trava = await tentarTravar(providerId, erpSource);
   if (!trava.obtida) {
