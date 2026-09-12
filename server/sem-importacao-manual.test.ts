@@ -145,7 +145,18 @@ describe("o caminho que ficou", () => {
     // A premissa que sustenta a exceção, conferida no fonte e não de memória:
     // se um dia mais conectores trouxerem equipamento, este número muda e a
     // decisão volta à mesa.
-    const conectores = arquivosDe("server/erp/connectors", [".ts"]);
+    //
+    // `demo.ts` fica de fora desta contagem de propósito: não é um ERP que um
+    // provedor real escolhe (só registra em DEMO_MODE, ver server/erp/index.ts),
+    // então ele não participa da pergunta que este teste vigia — "quais dos
+    // ERPs que um provedor de verdade pode configurar trazem equipamento".
+    // Ele declara `supportsEquipment = true` porque REALMENTE lê o comodato
+    // semeado por server/demo/mundo-base.ts (a demonstração também precisa
+    // mostrar o módulo de recuperação funcionando); a exclusão aqui é só para
+    // não confundir o tripwire dos ERPs reais, não uma contradição com esse
+    // valor.
+    const conectores = arquivosDe("server/erp/connectors", [".ts"])
+      .filter(c => relativo(c) !== "server/erp/connectors/demo.ts");
     const comEquipamento = conectores.filter(c => /supportsEquipment\s*=\s*true/.test(ler(c)));
     expect(comEquipamento.map(relativo).sort()).toEqual([
       "server/erp/connectors/ixc.ts",

@@ -14,10 +14,11 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// O barrel importa os dez modulos e registra todos; e o mesmo caminho que a
-// rota do catalogo de conectores usa.
+// O barrel importa os dez conectores de catalogo e registra todos, mais o
+// conector "demo" (registro condicional, ver describe proprio mais abaixo) —
+// e o mesmo caminho que a rota do catalogo de conectores usa.
 import { getAllConnectors, getConnector } from "./index.js";
 import type { ErpConnector } from "./types.js";
 
@@ -111,17 +112,70 @@ describe("todo conector importado pelo barrel chega ao registry", () => {
     .map(m => m[1] ?? m[2]);
   const unicos = [...new Set(arquivosCitados)];
 
+  // "demo" e o UNICO conector cujo import no barrel nao implica registro
+  // incondicional — `connectors/demo.ts` so chama `registerConnector()` quando
+  // `emModoDemo()`, de proposito (ver o comentario em index.ts e em demo.ts).
+  // Cobrar `getConnector("demo")` aqui, junto dos demais, faria este teste
+  // falhar sempre que rodasse fora do modo demo — que e o caso normal. O
+  // comportamento condicional dele tem describe proprio mais abaixo.
+  const semCondicional = unicos.filter((arquivo) => arquivo !== "demo");
+
   it("o barrel cita conectores (guarda contra a expressao parar de casar)", () => {
     // Sem esta linha, uma mudanca de formatacao no index.ts esvaziaria a lista e
     // o `it.each` abaixo passaria sem testar nada.
     expect(unicos.length).toBeGreaterThanOrEqual(10);
   });
 
-  it.each(unicos)("%s.ts esta registrado depois do import do barrel", (arquivo) => {
+  it("o barrel cita o conector demo (guarda contra o import condicional sumir)", () => {
+    expect(unicos).toContain("demo");
+  });
+
+  it.each(semCondicional)("%s.ts esta registrado depois do import do barrel", (arquivo) => {
     const fonte = readFileSync(join(import.meta.dirname, "connectors", `${arquivo}.ts`), "utf8");
     const nome = fonte.match(/readonly name = "([^"]+)"/)?.[1];
     expect(nome, `connectors/${arquivo}.ts nao declara readonly name`).toBeDefined();
     expect(getConnector(nome!), `connectors/${arquivo}.ts e importado por index.ts mas nao chega ao registry`).toBeDefined();
+  });
+});
+
+/**
+ * O conector demo e o UNICO cujo registro depende do ambiente. Fora do modo
+ * demo (o caso de producao, e o caso normal deste arquivo de teste) ele tem
+ * que ficar de fora do registry — nenhum provedor real pode configurar um
+ * "ERP" que le a propria base do Consulta ISP. `vi.resetModules()` +
+ * reimport dinamico e o unico jeito de ver as DUAS respostas no mesmo
+ * processo: o barril decide na primeira vez que e avaliado (o `if
+ * (emModoDemo())` roda uma vez, na carga do modulo), e o import estatico do
+ * topo deste arquivo ja capturou essa decisao para o resto da suite — por
+ * isso os dois testes abaixo reimportam o barril, em vez de reusar
+ * `getConnector` importado no topo.
+ */
+describe("conector demo — registro condicional por DEMO_MODE", () => {
+  const originalDemoMode = process.env.DEMO_MODE;
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+    if (originalDemoMode === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = originalDemoMode;
+  });
+
+  it("sem DEMO_MODE, o registry nao contem o conector demo", async () => {
+    delete process.env.DEMO_MODE;
+    const { getConnector: getConnectorFresco } = await import("./index.js");
+    expect(getConnectorFresco("demo")).toBeUndefined();
+  });
+
+  it("com DEMO_MODE=true, o registry contem o conector demo", async () => {
+    process.env.DEMO_MODE = "true";
+    const { getConnector: getConnectorFresco } = await import("./index.js");
+    const conector = getConnectorFresco("demo");
+    expect(conector).toBeDefined();
+    expect(conector?.name).toBe("demo");
+    expect(conector?.naoImplementado).toBeFalsy();
   });
 });
 
