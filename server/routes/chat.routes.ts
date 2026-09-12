@@ -33,7 +33,7 @@ export function registerChatRoutes(): Router {
     try {
       const threadId = parseInt(req.params.id);
       const { content } = req.body;
-      if (!content?.trim()) return res.status(400).json({ message: "Mensagem nao pode ser vazia" });
+      if (typeof content !== "string" || !content.trim()) return res.status(400).json({ message: "Mensagem nao pode ser vazia" });
       const me = await storage.getUser(req.session.userId!);
       const msg = await storage.createSupportMessage({
         threadId, senderId: req.session.userId!, senderName: me?.name || "Admin",
@@ -72,7 +72,7 @@ export function registerChatRoutes(): Router {
   router.post("/api/chat/thread/messages", requireAuth, requireProvider, async (req, res) => {
     try {
       const { content } = req.body;
-      if (!content?.trim()) return res.status(400).json({ message: "Mensagem nao pode ser vazia" });
+      if (typeof content !== "string" || !content.trim()) return res.status(400).json({ message: "Mensagem nao pode ser vazia" });
       const me = await storage.getUser(req.session.userId!);
       const thread = await storage.getOrCreateSupportThread(req.session.providerId!);
       const msg = await storage.createSupportMessage({

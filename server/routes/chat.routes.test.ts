@@ -43,6 +43,9 @@ const storageMock = vi.hoisted(() => ({
   getVisitorChatMessages: vi.fn(async (): Promise<any[]> => []),
   createVisitorChat: vi.fn(async (name: string, email: string, phone: string | null): Promise<any> =>
     ({ id: 2, token: `tok-${name}`, visitorName: name, visitorEmail: email, visitorPhone: phone })),
+  getUser: vi.fn(async (userId: number): Promise<any> => ({ id: userId, name: "Usuario Teste" })),
+  createSupportMessage: vi.fn(async (data: any): Promise<any> => ({ id: 100, ...data })),
+  getOrCreateSupportThread: vi.fn(async (providerId: number): Promise<any> => ({ id: 5, providerId })),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 
@@ -390,5 +393,56 @@ describe("POST /api/admin/visitor-chats/:id/messages — tipo do campo content",
 
     expect(res.status).toBe(201);
     expect(storageMock.createVisitorChatMessage).toHaveBeenCalledWith(1, "Ola, em que posso ajudar?", true, "Atendente Teste");
+  });
+});
+
+const enviarParaThreadAdmin = (content: unknown, threadId = 1) =>
+  fetch(`${base}/api/admin/chat/threads/${threadId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+
+/**
+ * `POST /api/admin/chat/threads/:id/messages` — o mesmo `content?.trim()` sem
+ * `typeof` do `/api/admin/visitor-chats/:id/messages` acima (mesmo item 1), so
+ * que no chat de suporte provedor <-> admin.
+ */
+describe("POST /api/admin/chat/threads/:id/messages — tipo do campo content", () => {
+  beforeEach(() => {
+    sessaoAtual = { role: "superadmin", userId: 1 };
+  });
+
+  it("recusa content que nao e string, com 400 — nunca 500 (nao lanca excecao)", async () => {
+    for (const valorInvalido of [{ pad: "x" }, [1, 2, 3], 12345, true]) {
+      const res = await enviarParaThreadAdmin(valorInvalido);
+      expect(res.status).toBe(400);
+    }
+    expect(storageMock.createSupportMessage).not.toHaveBeenCalled();
+  });
+});
+
+const enviarParaThreadProvedor = (content: unknown) =>
+  fetch(`${base}/api/chat/thread/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+
+/**
+ * `POST /api/chat/thread/messages` — o mesmo `content?.trim()` sem `typeof` de
+ * cima, do lado do provedor (mesmo item 1).
+ */
+describe("POST /api/chat/thread/messages — tipo do campo content", () => {
+  beforeEach(() => {
+    sessaoAtual = { userId: 1, providerId: 1 };
+  });
+
+  it("recusa content que nao e string, com 400 — nunca 500 (nao lanca excecao)", async () => {
+    for (const valorInvalido of [{ pad: "x" }, [1, 2, 3], 12345, true]) {
+      const res = await enviarParaThreadProvedor(valorInvalido);
+      expect(res.status).toBe(400);
+    }
+    expect(storageMock.createSupportMessage).not.toHaveBeenCalled();
   });
 });
