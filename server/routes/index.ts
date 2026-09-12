@@ -37,6 +37,7 @@ import { registerChatBullqAgenteRoutes } from "./chat-bullq-agente.routes";
 import { registerWebhooksZapSignRoutes } from "./webhooks-zapsign.routes";
 import { registerChatConsoleRoutes } from "./chat-console.routes";
 import { registerChatAutonomiaRoutes } from "./chat-autonomia.routes";
+import { registerDemoRoutes } from "./demo.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -100,6 +101,10 @@ export async function registerRoutes(
   app.use(registerWebhooksZapSignRoutes());
   // A autonomia do chat: configuracao por provedor, fila por status e a volta da conversa ao assistente (sessao).
   app.use(registerChatAutonomiaRoutes());
+  // A porta da demonstracao publica (`GET /demo`). Registrada SEMPRE — o
+  // handler que decide 404 fora de DEMO_MODE, nao a ausencia de rota (ver
+  // server/routes/demo.routes.ts).
+  app.use(registerDemoRoutes());
 
   return httpServer;
 }
