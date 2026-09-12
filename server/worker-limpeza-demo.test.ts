@@ -19,8 +19,22 @@ const fonte = readFileSync(new URL("./worker.ts", import.meta.url), "utf8");
 describe("o worker so liga (e so desliga) a limpeza da demo em modo demonstracao", () => {
   it("iniciarLimpezaDaDemo roda dentro de if (emModoDemo()), nao solta", () => {
     expect(fonte).toContain(
-      'if (emModoDemo()) {\n    const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");\n    iniciarLimpezaDaDemo();',
+      'if (emModoDemo()) {\n      const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");\n      iniciarLimpezaDaDemo();',
     );
+  });
+
+  /**
+   * A DETECÇÃO em si (o `import("./demo/modo-demo")`) está dentro de um
+   * try/catch — revisão final de segurança antes da demonstração pública
+   * (item 6). Sem ele, uma rejeição pularia — sem log, sem captura — todo o
+   * resto desta IIFE: o laço da autonomia do chat, os handlers de
+   * SIGTERM/SIGINT e a cadeia do mapa mais abaixo nunca seriam registrados.
+   */
+  it("a deteccao de emModoDemo() esta dentro de um try/catch, nao solta", () => {
+    expect(fonte).toContain(
+      'let emModoDemo: () => boolean = () => false;\n  try {\n    ({ emModoDemo } = await import("./demo/modo-demo"));',
+    );
+    expect(fonte).toMatch(/} catch \(err\) \{\s*\n\s*logger\.warn\(\{ err \}, "\[Worker\] Deteccao de modo demo falhou/);
   });
 
   it("pararLimpezaDaDemo e chamada (e esperada) no shutdown, dentro do mesmo guard", () => {

@@ -172,11 +172,26 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   // instância de demonstração, ao contrário das agendas acima (que rodam
   // sempre, produção incluída) — por isso a checagem fica na CHAMADA, não
   // dentro do serviço. Ver server/demo/limpeza.service.ts e modo-demo.ts.
-  const { emModoDemo } = await import("./demo/modo-demo");
-  if (emModoDemo()) {
-    const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");
-    iniciarLimpezaDaDemo();
-    logger.info("[Worker] Limpeza de sandboxes da demo scheduler started");
+  //
+  // Sem try/catch (revisão final de segurança antes da demonstração pública,
+  // item 6): um `import()` que rejeitasse pularia, sem log e sem captura,
+  // todo o resto desta IIFE — o laço da autonomia do chat, os handlers de
+  // SIGTERM/SIGINT e a cadeia do mapa mais abaixo nunca seriam registrados.
+  // Mesmo padrão dos blocos vizinhos acima (LGPD titular, régua de cobrança):
+  // tentar, logar e seguir. Se a detecção falhar, `emModoDemo` cai para
+  // "não é demo" — o lado mais seguro: no pior caso a limpeza de sandbox não
+  // liga (produção não perde nada), nunca o oposto (a cadeia do mapa sendo
+  // desligada por engano numa instância de produção de verdade, linha 313).
+  let emModoDemo: () => boolean = () => false;
+  try {
+    ({ emModoDemo } = await import("./demo/modo-demo"));
+    if (emModoDemo()) {
+      const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");
+      iniciarLimpezaDaDemo();
+      logger.info("[Worker] Limpeza de sandboxes da demo scheduler started");
+    }
+  } catch (err) {
+    logger.warn({ err }, "[Worker] Deteccao de modo demo falhou — seguindo como producao");
   }
   /*
    * A autonomia do chat confere se as tabelas da 0028 existem antes de ligar o

@@ -38,8 +38,27 @@
 // O par da demo lê o .env DELA. Sem o path explicito o pm2 leria o .env de
 // producao e a demo subiria apontando para o banco real — exatamente o que
 // a instancia separada existe para impedir.
+//
+// O path e ANCORADO NESTE ARQUIVO (`__dirname`), nao no cwd do processo que
+// roda `pm2 start` — revisao final de seguranca antes da demonstracao
+// publica (item 6). `path: ".env.demo"` sozinho resolve contra o cwd de QUEM
+// CHAMA; iniciado de qualquer diretorio que nao seja a raiz do repo, o
+// dotenv nao encontra nada, `.parsed` fica vazio, e o `|| {}` de entao fazia
+// o par da demo herdar o env que o DAEMON do pm2 carrega — que nesta maquina
+// foi o de PRODUCAO. E por isso que agora e ERRO FATAL, e nao um `|| {}`
+// silencioso: sem `.env.demo`, subir mesmo assim e o cenario que a instancia
+// separada existe para impedir, entao o processo nem tenta.
+const path = require("path");
 const dotenv = require("dotenv");
-const env = dotenv.config({ path: ".env.demo" }).parsed || {};
+const ENV_DEMO_PATH = path.resolve(__dirname, ".env.demo");
+const resultadoDoEnv = dotenv.config({ path: ENV_DEMO_PATH });
+if (resultadoDoEnv.error) {
+  throw new Error(
+    `ecosystem.demo.config.cjs: nao encontrei ${ENV_DEMO_PATH} — a demo nao pode subir sem o .env dela ` +
+    `(copie .env.demo.example para .env.demo e preencha). Erro original: ${resultadoDoEnv.error.message}`,
+  );
+}
+const env = resultadoDoEnv.parsed;
 
 module.exports = {
   apps: [

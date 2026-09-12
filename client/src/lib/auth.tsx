@@ -68,6 +68,14 @@ interface AuthState {
    */
   personificando: boolean;
   mustChangePassword: boolean;
+  /**
+   * "Esta instância é a demonstração pública?" — vem de `GET /api/auth/me`
+   * (`emModoDemo()` no servidor, a ÚNICA leitura de `DEMO_MODE`). O client
+   * nunca lê a variável de ambiente; é por isso que `FaixaDemonstracao` exige
+   * este campo JUNTO com o prefixo `sandbox-` do subdomínio, e não um dos
+   * dois sozinho.
+   */
+  demoMode: boolean;
   isLoading: boolean;
   /** `lembrar` = "manter conectado por 30 dias"; quem decide o prazo e o servidor. */
   login: (email: string, password: string, lembrar?: boolean) => Promise<{ code?: string; email?: string } | void>;
@@ -85,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [partnerCode, setPartnerCode] = useState<string | null>(null);
   const [personificando, setPersonificando] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
@@ -98,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPartnerCode(data.partnerCode || null);
         setPersonificando(data.personificando === true);
         setMustChangePassword(data.mustChangePassword || false);
+        setDemoMode(data.demoMode === true);
       }
     } catch {
     } finally {
@@ -170,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearMustChangePassword = () => setMustChangePassword(false);
 
   return (
-    <AuthContext.Provider value={{ user, provider, marca, partnerCode, personificando, mustChangePassword, isLoading, login, register, logout, clearMustChangePassword }}>
+    <AuthContext.Provider value={{ user, provider, marca, partnerCode, personificando, mustChangePassword, demoMode, isLoading, login, register, logout, clearMustChangePassword }}>
       {children}
     </AuthContext.Provider>
   );

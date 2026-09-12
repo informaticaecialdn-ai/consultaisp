@@ -420,9 +420,14 @@ describe("GET /api/auth/me", () => {
 
     const corpo = await (await me()).json();
 
+    // `demoMode` entrou na revisão final de segurança antes da demonstração
+    // pública (item 6, `FaixaDemonstracao`) — projeção de `emModoDemo()`,
+    // sempre `false` fora da instância de demonstração. É o ÚNICO campo novo
+    // desde a fase 1; qualquer outro aqui é regressão de verdade.
     expect(Object.keys(corpo).sort()).toEqual(
-      ["mustChangePassword", "partnerCode", "personificando", "provider", "user"],
+      ["demoMode", "mustChangePassword", "partnerCode", "personificando", "provider", "user"],
     );
+    expect(corpo.demoMode).toBe(false);
     expect(corpo).not.toHaveProperty("marca");
     expect(corpo.provider.id).toBe(5);
     expect(typeof corpo.partnerCode).toBe("string");
@@ -441,9 +446,12 @@ describe("GET /api/auth/me", () => {
 
     const corpo = await (await me()).json();
 
+    // Mesma nota do teste do admin logo acima: `demoMode` é o único campo
+    // novo desde a fase 1.
     expect(Object.keys(corpo).sort()).toEqual(
-      ["mustChangePassword", "partnerCode", "personificando", "provider", "user"],
+      ["demoMode", "mustChangePassword", "partnerCode", "personificando", "provider", "user"],
     );
+    expect(corpo.demoMode).toBe(false);
     expect(corpo).not.toHaveProperty("marca");
     expect(corpo.provider).toBeNull();
     expect(corpo.partnerCode).toBeNull();

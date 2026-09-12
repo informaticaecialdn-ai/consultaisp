@@ -13,6 +13,7 @@ import {
   aceita, dataDeAbertura, recusa, SEGMENTOS, site, TIPOS_SOCIETARIOS, umaDasOpcoes,
   type Veredito,
 } from "@shared/cadastro-regras";
+import { ehEnderecoPrivado } from "@shared/chat-console";
 import crypto from "crypto";
 import { z } from "zod";
 
@@ -766,6 +767,40 @@ export function registerProviderRoutes(): Router {
     }
   });
 
+  /**
+   * O provedor aponta o webhook para QUALQUER endereço externo — ao contrário
+   * da allowlist do console de agentes (`hostPermitido`, shared/chat-console.ts),
+   * aqui não há uma lista curta de hosts nossos para comparar: é o provedor
+   * quem escolhe o destino (Slack, Zapier, o próprio backend dele). O que
+   * sobra de `hostPermitido` sem a allowlist é exatamente a parte que importa
+   * aqui — exigir https e recusar endereço interno —, e é por isso que a
+   * checagem reusa `ehEnderecoPrivado` (mesmo arquivo) em vez de reescrever a
+   * lista de loopback/link-local/RFC1918: são os MESMOS endereços que a rede
+   * interna desta VPS tem, e divergir aqui reabriria o buraco que aquela lista
+   * fecha para o console.
+   *
+   * Sem esta checagem, tanto gravar (PUT) quanto testar (POST) o webhook
+   * fazem `fetch()` num endereço que o provedor escreveu, sem prova nenhuma —
+   * a VPS que hospeda a própria API viraria proxy para `127.0.0.1:8080`
+   * (Evolution API), a porta do banco e o endpoint de metadados de nuvem, e o
+   * `{success, status}` devolvido é um oráculo de porta funcionando.
+   */
+  function webhookExternoValido(url: string): { ok: true } | { ok: false; motivo: string } {
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      return { ok: false, motivo: "Endereço inválido — informe uma URL completa, começando com https://" };
+    }
+    if (u.protocol !== "https:") {
+      return { ok: false, motivo: "Só endereços https:// são aceitos." };
+    }
+    if (ehEnderecoPrivado(u.hostname.toLowerCase())) {
+      return { ok: false, motivo: "Endereço interno não é permitido." };
+    }
+    return { ok: true };
+  }
+
   // ── Proactive Alert Settings ──────────────────────────────
   router.get("/api/providers/alert-settings", requireAuth, requireProvider, async (req, res) => {
     try {
@@ -783,6 +818,14 @@ export function registerProviderRoutes(): Router {
   router.put("/api/providers/alert-settings", requireAuth, requireProvider, async (req, res) => {
     try {
       const { proactiveAlertsEnabled, webhookUrl } = req.body;
+      // Validado ANTES de gravar: `proactive-alert.service.ts` dispara este
+      // endereço sozinho, em toda consulta que casar a regra — sem a checagem
+      // aqui, o único ponto de entrada seria confiar que o teste (abaixo) foi
+      // chamado antes, e nada obriga isso.
+      if (webhookUrl) {
+        const veredito = webhookExternoValido(webhookUrl);
+        if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
+      }
       await storage.updateProviderProfile(req.session.providerId!, {
         proactiveAlertsEnabled: proactiveAlertsEnabled === true,
         proactiveAlertWebhookUrl: webhookUrl || null,
@@ -793,10 +836,15 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/providers/alert-settings/test-webhook", requireAuth, requireProvider, async (req, res) => {
+  // `exigirAdminDoProvedor`: sem ela, um operador `user` disparava um fetch do
+  // SERVIDOR contra qualquer endereço — a mesma trava que toda outra mutação
+  // deste arquivo já exige, e que faltava exatamente aqui.
+  router.post("/api/providers/alert-settings/test-webhook", requireAuth, requireProvider, exigirAdminDoProvedor("testar o webhook de alerta"), async (req, res) => {
     try {
       const { webhookUrl } = req.body;
       if (!webhookUrl) return res.status(400).json({ message: "URL do webhook obrigatoria" });
+      const veredito = webhookExternoValido(webhookUrl);
+      if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
 
       const testPayload = {
         event: "test",

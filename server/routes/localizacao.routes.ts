@@ -12,6 +12,7 @@ import {
   cargaDeCoberturaAtiva, estadoDaCobertura, rodarCargaDeCobertura,
 } from "../services/cobertura-geo-agenda.service";
 import { logger } from "../logger";
+import { emModoDemo } from "../demo/modo-demo";
 
 /**
  * Uma cidade da carteira, como a tela a recebe.
@@ -177,6 +178,20 @@ export function registerLocalizacaoRoutes(): Router {
    * "iniciada" quando o disparo virou no-op.
    */
   router.post("/api/localizacao/plotagem", requireAuth, requireProvider, requireAdmin, async (req, res) => {
+    /**
+     * A instância de demonstração não roda a cadeia do mapa (`emModoDemo()`
+     * em `server/worker.ts`, que desliga `iniciarCadeiaDoMapa` — os clientes
+     * fictícios já nascem com coordenada na semeadura). Sem esta guarda, o
+     * visitante do sandbox — que É admin dentro dele — tem no painel um botão
+     * que o worker não tem: cada clique chama Nominatim (1 req/s, sem número
+     * de casa) por cliente sem coordenada, um custo que a demo não paga e que
+     * não teria plotagem alguma para mostrar no fim.
+     */
+    if (emModoDemo()) {
+      return res.status(403).json({
+        message: "Nesta demonstração, a plotagem de endereços não é processada.",
+      });
+    }
     if (await varreduraAtiva()) {
       return res.json({ iniciado: false, mensagem: "A plotagem já está em andamento." });
     }
@@ -305,6 +320,22 @@ export function registerLocalizacaoRoutes(): Router {
     requireAuth, requireProvider, requireAdmin, limiteCargaDeBase,
     async (req, res) => {
       try {
+        /**
+         * A instância de demonstração não roda esta cadeia (`emModoDemo()` em
+         * `server/worker.ts` desliga `iniciarCadeiaDoMapa`). A rota HTTP é o
+         * caminho que sobra: até 12 arquivos de município, ~47 MB CADA, lidos
+         * INTEIROS num Buffer dentro deste mesmo processo — que a demo limita
+         * a 512 MB (`ecosystem.demo.config.cjs`) por não rodar essa cadeia. O
+         * visitante do sandbox é admin dentro dele e o botão está na mesma
+         * tela; sem a guarda aqui, ele aciona de propósito o que o worker
+         * evita de propósito.
+         */
+        if (emModoDemo()) {
+          return res.status(403).json({
+            message: "Nesta demonstração, a carga da base de endereços não é processada.",
+          });
+        }
+
         const providerId = req.session.providerId!;
 
         // A trava é GLOBAL, e não por provedor: o recurso disputado é o FTP do

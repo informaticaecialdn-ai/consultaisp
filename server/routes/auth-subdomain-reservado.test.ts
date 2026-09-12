@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import type { Server } from "node:http";
 
@@ -157,6 +157,25 @@ describe("GET /api/auth/check-subdomain — o prefixo reservado nunca chega ao b
     expect(storageMock.getProviderBySubdomain).toHaveBeenCalledWith("provedor-real");
     expect(corpo).toEqual({ available: false });
   });
+
+  /**
+   * `subdomain` vem de `req.query` tipado por asserção (`as { subdomain?:
+   * string }`), não por validação em runtime. O Express (via `qs`) entrega um
+   * parâmetro REPETIDO como ARRAY, e array não tem `.toLowerCase()` — sem
+   * `String(...)` primeiro, a rota (sem try/catch) lançava por um parâmetro
+   * que qualquer visitante controla livremente.
+   */
+  it("parametro repetido (vira array no Express) nao derruba a rota", async () => {
+    const res = await fetch(`${base}/api/auth/check-subdomain?subdomain=abc&subdomain=def`);
+
+    // Sem o `String(...)`, `["abc","def"].toLowerCase` nao existe e a rota
+    // (sem try/catch) lancava — 500, ou pior, derrubava o processo.
+    expect(res.status).toBe(200);
+    // O array vira string por junção (",") antes de seguir — não é o
+    // comportamento que importa aqui, só que ele NÃO LANÇA e chega ao banco
+    // como texto de verdade.
+    expect(storageMock.getProviderBySubdomain).toHaveBeenCalledWith("abc,def");
+  });
 });
 
 describe("POST /api/auth/register — o prefixo reservado nunca vira provedor", () => {
@@ -181,5 +200,46 @@ describe("POST /api/auth/register — o prefixo reservado nunca vira provedor", 
     expect(status).toBe(201);
     expect(storageMock.createProvider).toHaveBeenCalledTimes(1);
     expect(storageMock.createProvider.mock.calls[0][0]).toMatchObject({ subdomain: "provedor-de-verdade" });
+  });
+});
+
+/**
+ * Revisão final de segurança (item 3): na instância de demonstração o cadastro
+ * grava um provedor e um usuário PERMANENTES — CPF do responsável incluído —
+ * que nenhuma limpeza apaga (o prefixo `sandbox-` é reservado, então este
+ * cadastro nunca cai nele), o e-mail de verificação sai mudo, e a pessoa nunca
+ * consegue entrar. `emModoDemo()` lê `process.env.DEMO_MODE` direto — não há
+ * módulo para mockar, só a variável de ambiente do processo.
+ */
+describe("POST /api/auth/register — bloqueado na instância de demonstração", () => {
+  afterEach(() => {
+    delete process.env.DEMO_MODE;
+  });
+
+  it("DEMO_MODE=true recusa com 403, antes de tocar em qualquer storage", async () => {
+    process.env.DEMO_MODE = "true";
+
+    const { status, corpo } = await registrar(cadastro());
+
+    expect(status).toBe(403);
+    expect(corpo.message).toMatch(/consultaisp\.com\.br/);
+    expect(storageMock.getUserByEmail).not.toHaveBeenCalled();
+    expect(storageMock.createProvider).not.toHaveBeenCalled();
+    expect(storageMock.createUser).not.toHaveBeenCalled();
+  });
+
+  it("qualquer outro valor (ex.: '1') não ativa a recusa — só a string exata 'true' liga a demo", async () => {
+    process.env.DEMO_MODE = "1";
+
+    const { status } = await registrar(cadastro({ subdomain: "provedor-fora-da-demo" }));
+
+    expect(status).toBe(201);
+    expect(storageMock.createProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("sem DEMO_MODE (producao), o cadastro segue funcionando", async () => {
+    const { status } = await registrar(cadastro({ subdomain: "provedor-em-producao" }));
+
+    expect(status).toBe(201);
   });
 });

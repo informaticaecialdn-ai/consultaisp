@@ -12,6 +12,7 @@ import { MENSAGEM_PROVEDOR_SUSPENSO, encerrarPersonificacao, duracaoDaSessao } f
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import { cnpjCru } from "@shared/cnpj";
 import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
+import { emModoDemo } from "../demo/modo-demo";
 import crypto from "crypto";
 import { z } from "zod";
 
@@ -305,8 +306,20 @@ export function registerAuthRoutes(): Router {
   const subdomainLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10 });
 
   router.get("/api/auth/check-subdomain", subdomainLimiter, async (req, res) => {
-    const { subdomain } = req.query as { subdomain?: string };
-    if (!subdomain) return res.status(400).json({ message: "Subdominio obrigatorio" });
+    const { subdomain: subdomainCru } = req.query as { subdomain?: string };
+    if (!subdomainCru) return res.status(400).json({ message: "Subdominio obrigatorio" });
+    /**
+     * `String(...)` uma vez só, aqui — e não só antes do `.toLowerCase()`.
+     *
+     * `subdomainCru` vem de `req.query` tipado por asserção (`as {subdomain?:
+     * string}`), não por validação em runtime: um parâmetro REPETIDO
+     * (`?subdomain=a&subdomain=b`) chega do Express (via `qs`) como ARRAY, e
+     * array não tem `.toLowerCase()`. Sem isto, a rota (sem try/catch)
+     * lançava por um parâmetro que qualquer visitante controla livremente.
+     * Normalizado uma vez só e não só no `.toLowerCase()` de baixo: sem isto
+     * o array corrigido aqui ainda vazava cru para `getProviderBySubdomain`.
+     */
+    const subdomain = String(subdomainCru);
     // Namespace reservado para os sandboxes da demonstracao publica — ver o
     // comentario de `PREFIXO_SANDBOX` em server/demo/sandbox.service.ts.
     // Reportado como indisponivel, no mesmo formato de uma colisao real: a
@@ -319,6 +332,25 @@ export function registerAuthRoutes(): Router {
   });
 
   router.post("/api/auth/register", registerLimiter, async (req, res) => {
+    /**
+     * A demonstração pública não abre cadastro real — decisão da revisão final
+     * de segurança antes de expor a demo a estranhos.
+     *
+     * `POST /api/auth/register` coleta nome, e-mail, telefone, o CPF do
+     * responsável e um CNPJ, e grava um provedor e um usuário PERMANENTES:
+     * nenhuma varredura de limpeza os apaga (`sandboxesExpirados` só enxerga o
+     * prefixo `sandbox-`, e este cadastro nunca o usa). Na instância de
+     * demonstração o e-mail de verificação sai mudo (`emModoDemo()` em
+     * `server/services/email.ts`) e o login exige e-mail verificado — a
+     * pessoa nunca consegue entrar, nunca é avisada, e o CPF dela fica preso
+     * numa base de demonstração para sempre. A recusa vem ANTES de ler o
+     * corpo: nenhum dado chega a ser validado ou tocado.
+     */
+    if (emModoDemo()) {
+      return res.status(403).json({
+        message: "Nesta demonstração, o cadastro de novos provedores não está disponível. Cadastre-se em https://consultaisp.com.br/login?mode=register.",
+      });
+    }
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -729,6 +761,21 @@ export function registerAuthRoutes(): Router {
       personificando,
       ...(marca !== undefined ? { marca } : {}),
       mustChangePassword: user.mustChangePassword || false,
+      /**
+       * O sinal HONESTO de "esta instancia é a demonstração" — revisão final
+       * de segurança antes da demonstração pública (item 6, `FaixaDemonstracao`).
+       *
+       * O client nunca le `DEMO_MODE` (so o servidor le, de proposito —
+       * `emModoDemo()`), e a faixa de aviso hoje decide sozinha pelo prefixo
+       * `sandbox-` do subdominio. Isso funciona para o visitante do sandbox,
+       * mas um provedor de VERDADE cujo subdominio comecasse por `sandbox-`
+       * veria a mesma faixa em producao — a reserva do prefixo em
+       * `/api/auth/register` e `/api/admin/providers` torna isso já
+       * praticamente impossível, mas esta chave é a segunda prova, vinda do
+       * SERVIDOR, e não custa endpoint novo: `/api/auth/me` já é chamado por
+       * toda sessão autenticada.
+       */
+      demoMode: emModoDemo(),
     });
   });
 

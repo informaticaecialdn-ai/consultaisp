@@ -63,16 +63,21 @@ describe("porta da demonstração", () => {
    * contagem bateria e o primeiro `toMatch` acharia uma ocorrência qualquer);
    * o `(?:(?!<\/div>)[\s\S])*?` proíbe a busca de atravessar o fechamento do
    * próprio contêiner antes de achar o link do demo.
+   *
+   * `rel` exige TAMBÉM `nofollow` (revisão final de segurança antes da
+   * demonstração pública, item 6): `GET /demo` GRAVA ~2.000 linhas por clique
+   * — não é uma leitura —, e um crawler ou bot de prévia de link que segue
+   * `href` sem `nofollow` cria sandbox sozinho, sem visitante nenhum por trás.
    */
-  it("no herói, junto do cadastro — abre em outra aba, sem entregar a sessão da landing", () => {
+  it("no herói, junto do cadastro — abre em outra aba, sem entregar a sessão da landing, e crawler não segue (nofollow)", () => {
     expect(landing).toMatch(
-      /<div className="hero-ctas">(?:(?!<\/div>)[\s\S])*?<a href=\{DEMO\}[^>]*target="_blank"[^>]*rel="noopener"[^>]*>Ver demonstração<\/a>/
+      /<div className="hero-ctas">(?:(?!<\/div>)[\s\S])*?<a href=\{DEMO\}[^>]*target="_blank"[^>]*rel="noopener nofollow"[^>]*>Ver demonstração<\/a>/
     );
   });
 
-  it("no CTA final — abre em outra aba, sem entregar a sessão da landing", () => {
+  it("no CTA final — abre em outra aba, sem entregar a sessão da landing, e crawler não segue (nofollow)", () => {
     expect(landing).toMatch(
-      /<div className="final-cta-buttons">(?:(?!<\/div>)[\s\S])*?<a href=\{DEMO\}[^>]*target="_blank"[^>]*rel="noopener"[^>]*>Ver demonstração<\/a>/
+      /<div className="final-cta-buttons">(?:(?!<\/div>)[\s\S])*?<a href=\{DEMO\}[^>]*target="_blank"[^>]*rel="noopener nofollow"[^>]*>Ver demonstração<\/a>/
     );
   });
 

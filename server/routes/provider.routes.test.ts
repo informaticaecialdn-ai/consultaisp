@@ -16,8 +16,41 @@ const storageMock = vi.hoisted(() => ({
   // O requireProvider REAL le o status do provedor para barrar sessao aberta
   // de provedor suspenso. Ativo por padrao; o teste de suspensao troca.
   getProvider: vi.fn(async (): Promise<any> => ({ id: 42, name: "Provedor Teste", status: "active" })),
+  updateProviderProfile: vi.fn(async (): Promise<any> => undefined),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
+
+/**
+ * `fetch` global vira espiao para o teste de SSRF do webhook de alerta
+ * (`/api/providers/alert-settings*`) — mas este MESMO arquivo usa `fetch` de
+ * verdade para bater no servidor local que `beforeAll` sobe (`fetch(`${base}/...`)`
+ * em toda chamada de toda `describe` deste arquivo, nao so nas novas). Um stub
+ * cego quebraria TODAS as outras: a chamada do harness contra `base` nunca
+ * chegaria ao Express, e toda asserção de status viraria "200 generico do mock".
+ *
+ * A saida e a URL: chamada para a ORIGEM do servidor de teste (`baseOrigem`,
+ * so preenchida em `beforeAll`, quando a porta e conhecida) atravessa para o
+ * `fetch` real; qualquer outra origem — exatamente o que o SERVIDOR chama para
+ * testar/disparar o webhook — cai no mock. `chamadasExternas()` isola so essas
+ * ultimas, que e o que os testes de SSRF conferem.
+ */
+const fetchReal: typeof fetch = globalThis.fetch;
+let baseOrigem = "";
+let proximaRespostaExterna: () => Response = () => new Response(null, { status: 200 });
+const fetchMock = vi.fn((input: any, init?: any) => {
+  const url = typeof input === "string" ? input : String((input as { url?: string })?.url ?? input);
+  if (baseOrigem && url.startsWith(baseOrigem)) return fetchReal(input, init);
+  return Promise.resolve(proximaRespostaExterna());
+});
+vi.stubGlobal("fetch", fetchMock);
+
+/** Só as chamadas de fetch que o SERVIDOR fez para fora — exclui o proprio harness de teste batendo em `base`. */
+function chamadasExternas() {
+  return fetchMock.mock.calls.filter(([input]) => {
+    const url = typeof input === "string" ? input : String((input as { url?: string })?.url ?? input);
+    return !(baseOrigem && url.startsWith(baseOrigem));
+  });
+}
 
 /**
  * O e-mail vira espiao; `email-destinatario` fica REAL. O que se prova sobre a
@@ -109,6 +142,10 @@ beforeAll(async () => {
   });
   const addr = server.address();
   base = typeof addr === "object" && addr ? `http://127.0.0.1:${addr.port}` : "";
+  // So agora a porta e conhecida — e a partir daqui que o fetchMock sabe
+  // distinguir "o harness batendo no servidor deste teste" de "o servidor
+  // chamando pra fora" (ver o comentario ao lado de `fetchMock`, no topo).
+  baseOrigem = base;
 });
 
 afterAll(async () => {
@@ -126,6 +163,11 @@ beforeEach(() => {
     id: 42, name: "Provedor Teste", status: "active",
     contactEmail: "contato@provedor.com.br", marcaId: 3, subdomain: "teste",
   });
+  storageMock.updateProviderProfile.mockResolvedValue(undefined);
+  // So o valor-padrao da resposta EXTERNA — a implementacao do mock (o desvio
+  // por origem) sobrevive ao `clearAllMocks()` acima de proposito (ver o
+  // comentario ao lado de `fetchMock`).
+  proximaRespostaExterna = () => new Response(null, { status: 200 });
   sessao = { userId: 1, providerId: 7, role: "admin" };
 });
 
@@ -448,5 +490,102 @@ describe("GET /api/provider/cnpj", () => {
 
     expect(res.status).toBe(502);
     expect((await res.json()).message).toMatch(/tente de novo|alguns minutos/i);
+  });
+});
+
+/**
+ * SSRF no webhook de alerta de fuga — revisao final de seguranca antes da
+ * demonstracao publica (item 1).
+ *
+ * `PUT` grava o endereco que `proactive-alert.service.ts` chama sozinho, sem
+ * intervencao humana, em toda consulta que casar a regra de fuga; `POST
+ * .../test-webhook` chama `fetch()` NA HORA e devolve `{success, status}` — um
+ * oraculo de porta para quem controla o valor. Sem a guarda, um operador
+ * autenticado (nao precisa nem ser admin, antes desta correcao) usa a VPS como
+ * proxy contra `127.0.0.1:8080` (Evolution API), a porta do Postgres ou o
+ * endpoint de metadados de nuvem.
+ */
+describe("PUT /api/providers/alert-settings — SSRF no webhook de alerta", () => {
+  const gravar = (webhookUrl: string) =>
+    fetch(`${base}/api/providers/alert-settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proactiveAlertsEnabled: true, webhookUrl }),
+    });
+
+  it("recusa endereco interno (127.0.0.1) e nao grava nada", async () => {
+    const res = await gravar("http://127.0.0.1:8080/x");
+
+    expect(res.status).toBe(400);
+    expect(storageMock.updateProviderProfile).not.toHaveBeenCalled();
+  });
+
+  it("recusa host externo em http:// — so https e aceito", async () => {
+    const res = await gravar("http://webhook.example.com/x");
+
+    expect(res.status).toBe(400);
+    expect(storageMock.updateProviderProfile).not.toHaveBeenCalled();
+  });
+
+  it("aceita e grava um webhook https:// legitimo", async () => {
+    const res = await gravar("https://webhook.example.com/abc123");
+
+    expect(res.status).toBe(200);
+    expect(storageMock.updateProviderProfile).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ proactiveAlertWebhookUrl: "https://webhook.example.com/abc123" }),
+    );
+  });
+});
+
+describe("POST /api/providers/alert-settings/test-webhook — SSRF e exigencia de admin", () => {
+  const testar = (webhookUrl: string) =>
+    fetch(`${base}/api/providers/alert-settings/test-webhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ webhookUrl }),
+    });
+
+  it("recusa http://127.0.0.1:8080/x sem chamar fetch nenhum para fora", async () => {
+    const res = await testar("http://127.0.0.1:8080/x");
+
+    expect(res.status).toBe(400);
+    expect(chamadasExternas()).toHaveLength(0);
+  });
+
+  it("recusa host externo em http:// (protocolo tem que ser https)", async () => {
+    const res = await testar("http://webhook.example.com/x");
+
+    expect(res.status).toBe(400);
+    expect(chamadasExternas()).toHaveLength(0);
+  });
+
+  it("recusa o endpoint de metadados de nuvem", async () => {
+    const res = await testar("https://169.254.169.254/latest/meta-data/");
+
+    expect(res.status).toBe(400);
+    expect(chamadasExternas()).toHaveLength(0);
+  });
+
+  // O caso que nao pode quebrar: producao depende deste teste passando de verdade.
+  it("um webhook https:// legitimo continua funcionando", async () => {
+    proximaRespostaExterna = () => new Response(null, { status: 204 });
+
+    const res = await testar("https://webhook.example.com/abc123");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, status: 204 });
+    expect(chamadasExternas()).toHaveLength(1);
+    expect(chamadasExternas()[0][0]).toBe("https://webhook.example.com/abc123");
+    expect(chamadasExternas()[0][1]).toMatchObject({ method: "POST" });
+  });
+
+  it("operador comum (nao admin) recebe 403 — nada e chamado", async () => {
+    sessao = { userId: 1, providerId: 7, role: "user" };
+
+    const res = await testar("https://webhook.example.com/abc123");
+
+    expect(res.status).toBe(403);
+    expect(chamadasExternas()).toHaveLength(0);
   });
 });

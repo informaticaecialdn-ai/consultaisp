@@ -206,6 +206,14 @@ vi.mock("../services/cobertura-geo.service", () => ({
   carregarBasesFaltantes: duble.carregarBasesFaltantes,
 }));
 
+/**
+ * `emModoDemo()` real le `process.env.DEMO_MODE`, que fica ausente durante
+ * todo o resto deste arquivo — o duble so entra nos dois testes que precisam
+ * provar a recusa em modo demonstracao (item 2 da revisao de seguranca).
+ */
+const modoDemoMock = vi.hoisted(() => ({ emModoDemo: vi.fn(() => false) }));
+vi.mock("../demo/modo-demo", () => modoDemoMock);
+
 import { esquecerStatusDeProvedor } from "../auth";
 import { ROTA_COBERTURA } from "@/components/localizacao/CoberturaEnderecos";
 import { registerLocalizacaoRoutes } from "./localizacao.routes";
@@ -236,6 +244,7 @@ beforeEach(async () => {
   esquecerStatusDeProvedor();
   storageMock.getProvider.mockImplementation(async (id: number) => ({ id, name: "Provedor", status: "active" }));
   plotagemMock.varreduraAtiva.mockResolvedValue(false);
+  modoDemoMock.emModoDemo.mockReturnValue(false);
   sessao = { ...ADMIN, save: (cb: (e?: unknown) => void) => cb() };
 
   const app = express();
@@ -537,6 +546,57 @@ describe("POST /api/localizacao/cobertura — quem pode", () => {
     const res = await carregar();
 
     expect(res.status).toBe(429);
+  });
+});
+
+/**
+ * Revisão de segurança antes da demonstração pública (item 2): a demo NUNCA
+ * roda `iniciarCadeiaDoMapa` (`server/worker.ts`, guardado por `emModoDemo()`)
+ * porque cada arquivo de município baixado do IBGE tem ~47 MB, lido INTEIRO
+ * num Buffer dentro do processo — e o processo da demo é limitado a 512 MB
+ * (`ecosystem.demo.config.cjs`). Sem a mesma guarda AQUI, o visitante do
+ * sandbox — que é admin dentro dele — aciona pela tela exatamente o que o
+ * worker evita, e o processo pode estourar o teto de memória.
+ */
+describe("POST /api/localizacao/cobertura — recusada em modo demonstração", () => {
+  it("403 em modo demo, e nada é baixado", async () => {
+    modoDemoMock.emModoDemo.mockReturnValue(true);
+
+    const res = await carregar();
+
+    expect(res.status).toBe(403);
+    await aguardarACarga();
+    expect(duble.estado.chamadas).toEqual([]);
+  });
+
+  it("fora do modo demo, continua disparando normalmente", async () => {
+    modoDemoMock.emModoDemo.mockReturnValue(false);
+
+    const res = await carregar();
+
+    expect(res.status).toBe(202);
+  });
+});
+
+describe("POST /api/localizacao/plotagem — recusada em modo demonstração", () => {
+  const plotar = () => fetch(`${base}/api/localizacao/plotagem`, { method: "POST" });
+
+  it("403 em modo demo, e o backfill nunca roda", async () => {
+    modoDemoMock.emModoDemo.mockReturnValue(true);
+
+    const res = await plotar();
+
+    expect(res.status).toBe(403);
+    expect(plotagemMock.runGeocodeBackfill).not.toHaveBeenCalled();
+  });
+
+  it("fora do modo demo, continua disparando normalmente", async () => {
+    modoDemoMock.emModoDemo.mockReturnValue(false);
+
+    const res = await plotar();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).iniciado).toBe(true);
   });
 });
 

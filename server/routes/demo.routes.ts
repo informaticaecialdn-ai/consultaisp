@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { criarSandbox } from "../demo/sandbox.service";
+import { contarSandboxesVivos, criarSandbox, TETO_DE_SANDBOXES_VIVOS } from "../demo/sandbox.service";
 import { emModoDemo } from "../demo/modo-demo";
 import { normalizarHost } from "../tenant";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
@@ -54,6 +54,16 @@ export function registerDemoRoutes(): Router {
           return res.redirect("/");
         }
         // Sessao orfa: cai para criar um sandbox novo abaixo, do zero.
+      }
+
+      // Teto de sandboxes VIVOS ao mesmo tempo — ver a justificativa de
+      // `TETO_DE_SANDBOXES_VIVOS` em sandbox.service.ts. Depois da checagem de
+      // reaproveitamento acima: um visitante que VOLTA nunca é barrado por um
+      // teto que existe para conter CRIAÇÃO nova.
+      if ((await contarSandboxesVivos()) >= TETO_DE_SANDBOXES_VIVOS) {
+        return res.status(503).json({
+          message: "A demonstração está muito concorrida agora. Tente novamente em alguns minutos.",
+        });
       }
 
       const sandbox = await criarSandbox();

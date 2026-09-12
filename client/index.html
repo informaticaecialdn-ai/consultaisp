@@ -54,6 +54,16 @@
          revendedor sem marca propria, que herda o cabecalho da casa, e
          mantem localhost e preview fora dos dados.
 
+         Exclui TAMBEM demo.consultaisp.com.br (revisao de seguranca antes da
+         demonstracao publica, item 4): esse host serve o MESMO build, entao
+         sem esta linha o regex acima — que cobre qualquer subdominio de
+         consultaisp.com.br de proposito — deixava passar o visitante anonimo
+         do sandbox. Cada tela que ele abre viraria evento no Meta com URL,
+         referrer, IP e cookie, sem consentimento nenhum, e ainda misturaria
+         trafego de demonstracao na conversao real do dono. O host da demo e
+         literal aqui porque este script roda ANTES de qualquer bundle — nao
+         ha modulo para importar uma constante.
+
          O CSP precisou abrir connect.facebook.net em script, e facebook.com
          em img e connect (server/index.ts). Sem isso o snippet carrega e nao
          reporta nada — o unico sinal seria no console do visitante.
@@ -63,6 +73,7 @@
     <script>
       (function () {
         if (!/(^|\.)consultaisp\.com\.br$/.test(location.hostname)) return;
+        if (location.hostname === "demo.consultaisp.com.br") return;
         !function (f, b, e, v, n, t, s) {
           if (f.fbq) return;
           n = f.fbq = function () {

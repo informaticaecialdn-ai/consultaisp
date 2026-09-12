@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth, requireProvider, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 
 export function registerChatRoutes(): Router {
   const router = Router();
@@ -95,6 +96,17 @@ export function registerChatRoutes(): Router {
 
   // ---- VISITOR CHAT (Public) ----
 
+  /**
+   * Sem sessão, sem `provider_id` na linha (`visitorChatMessages` não tem essa
+   * coluna) e sem varredura de limpeza que alcance esta tabela — revisão final
+   * de segurança antes da demonstração pública (item 5). Sem limite, qualquer
+   * IP grava mensagens sem parar; o corpo já tem teto de 10 MB no parser
+   * global (`server/index.ts`), mas isso ainda é generoso demais por MENSAGEM
+   * — daí o teto de tamanho logo abaixo, além do limite de taxa.
+   */
+  const limiteMensagemVisitante = createRateLimiter({ windowMs: 60_000, maxRequests: 20 });
+  const TAMANHO_MAXIMO_MENSAGEM_VISITANTE = 4_000;
+
   router.post("/api/public/visitor-chat/start", async (req, res) => {
     try {
       const { name, email, phone } = req.body;
@@ -120,7 +132,7 @@ export function registerChatRoutes(): Router {
     }
   });
 
-  router.post("/api/public/visitor-chat/messages", async (req, res) => {
+  router.post("/api/public/visitor-chat/messages", limiteMensagemVisitante, async (req, res) => {
     try {
       const token = req.headers["x-visitor-token"] as string;
       if (!token) return res.status(401).json({ message: "Token necessario" });
@@ -129,6 +141,9 @@ export function registerChatRoutes(): Router {
       if (chat.status === "closed") return res.status(400).json({ message: "Chat encerrado" });
       const { content } = req.body;
       if (!content?.trim()) return res.status(400).json({ message: "Mensagem vazia" });
+      if (content.length > TAMANHO_MAXIMO_MENSAGEM_VISITANTE) {
+        return res.status(400).json({ message: `Mensagem muito longa (maximo ${TAMANHO_MAXIMO_MENSAGEM_VISITANTE} caracteres)` });
+      }
 
       // Salvar mensagem do visitante
       const msg = await storage.createVisitorChatMessage(chat.id, content.trim(), false, chat.visitorName);

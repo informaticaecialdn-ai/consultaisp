@@ -12,15 +12,20 @@
  * que essa dúvida nunca precise ser resolvida por adivinhação.
  *
  * DE ONDE VEM O SINAL
- * O servidor não expõe nenhum "estou em modo demo" ao navegador — `emModoDemo()`
- * (server/demo/modo-demo.ts) é deliberadamente a ÚNICA leitura de `DEMO_MODE`,
- * e só no servidor. O que a faixa usa é a identidade do PROVEDOR da sessão,
- * que `GET /api/auth/me` já entrega via `useAuth()`: todo sandbox nasce com um
- * subdomínio começando por `sandbox-` (`PREFIXO_SANDBOX`, em
- * server/demo/sandbox.service.ts) — a mesma convenção que a limpeza automática
- * usa para achar o que apagar. Um provedor de verdade nunca cai nesse prefixo
- * (`/api/auth/register` e `/api/auth/check-subdomain` o reservam), então o
- * sinal é tão confiável quanto a própria trava de identidade do sandbox.
+ * DOIS sinais, e não um só (rodada de correção da revisão de segurança,
+ * item 6). O primeiro é a identidade do PROVEDOR da sessão — todo sandbox
+ * nasce com um subdomínio começando por `sandbox-` (`PREFIXO_SANDBOX`, em
+ * server/demo/sandbox.service.ts), a mesma convenção que a limpeza automática
+ * usa para achar o que apagar. Só que essa reserva vive em código que pode
+ * divergir (o cadastro público e o painel do superadmin são dois arquivos
+ * diferentes), então o segundo sinal vem do SERVIDOR desta instância:
+ * `demoMode` em `GET /api/auth/me`, projeção direta de `emModoDemo()`
+ * (server/demo/modo-demo.ts) — a ÚNICA leitura de `DEMO_MODE`, que o client
+ * nunca lê sozinho. Um provedor de verdade cujo subdomínio começasse por
+ * `sandbox-` (a reserva falhando por algum caminho esquecido) ainda não veria
+ * a faixa em produção, porque lá `demoMode` é sempre `false`. Exigir os DOIS
+ * juntos é o que torna essa segunda trava útil — só o prefixo já bastava para
+ * o caso comum, mas dependia inteiramente da reserva nunca ter uma exceção.
  *
  * DE ONDE VEM O PRAZO
  * Não há coluna de expiração — o sandbox não passou por migração nenhuma (ver
@@ -53,6 +58,17 @@ const VIDA_DO_SANDBOX_MS = 24 * 60 * 60 * 1000;
 /** Mesmo prefixo de `PREFIXO_SANDBOX` (server/demo/sandbox.service.ts), pelo mesmo motivo acima. */
 const PADRAO_SUBDOMINIO_SANDBOX = /^sandbox-/;
 
+/**
+ * Os DOIS sinais, exigidos JUNTOS — ver "DE ONDE VEM O SINAL" no cabeçalho.
+ * Exportada (e não inline no componente) para o mesmo motivo de
+ * `tempoRestanteEmTexto`: é lógica pura, testável sem montar componente
+ * nenhum — este projeto ainda não configura ambiente de DOM para teste de
+ * `.tsx` (ver `vitest.config.ts`).
+ */
+export function ehInstanciaDeDemonstracao(demoMode: boolean | undefined, subdomain: string | null | undefined): boolean {
+  return demoMode === true && PADRAO_SUBDOMINIO_SANDBOX.test(subdomain ?? "");
+}
+
 /** A cada quanto tempo o texto de "expira em" se atualiza sozinho. */
 const INTERVALO_DE_ATUALIZACAO_MS = 30_000;
 
@@ -71,8 +87,8 @@ export function tempoRestanteEmTexto(ms: number): string {
 }
 
 export function FaixaDemonstracao() {
-  const { provider } = useAuth();
-  const ehSandbox = PADRAO_SUBDOMINIO_SANDBOX.test(provider?.subdomain ?? "");
+  const { provider, demoMode } = useAuth();
+  const ehSandbox = ehInstanciaDeDemonstracao(demoMode, provider?.subdomain);
 
   // O hook roda em TODA sessão autenticada (as regras de hooks não deixam
   // um `return` condicional vir antes dele), mas o timer em si só nasce

@@ -25,6 +25,7 @@ const storageMock = vi.hoisted(() => ({
   getUsersByProvider: vi.fn(async (): Promise<any[]> => []),
   getUserByEmail: vi.fn(async (): Promise<any> => null),
   createUser: vi.fn(async (dados: any): Promise<any> => ({ id: 99, ...dados })),
+  createProvider: vi.fn(async (dados: any): Promise<any> => ({ id: 55, ...dados })),
   deleteProvider: vi.fn(async (_id: number): Promise<void> => undefined),
   getProviderByCnpj: vi.fn(async (): Promise<any> => null),
   getProviderBySubdomain: vi.fn(async (): Promise<any> => null),
@@ -118,6 +119,7 @@ beforeEach(() => {
   storageMock.getUserByEmail.mockResolvedValue(null);
   storageMock.adminUpdateProvider.mockImplementation(async (_id: number, dados: any) => dados);
   storageMock.createUser.mockImplementation(async (dados: any) => ({ id: 99, ...dados }));
+  storageMock.createProvider.mockImplementation(async (dados: any) => ({ id: 55, ...dados }));
   storageMock.deleteProvider.mockResolvedValue(undefined);
   storageMock.getProviderByCnpj.mockResolvedValue(null);
   storageMock.getProviderBySubdomain.mockResolvedValue(null);
@@ -182,6 +184,58 @@ const alterar = (id: number, corpo: Record<string, unknown>) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(corpo),
   });
+
+const cadastroDeProvedor = (extra: Record<string, unknown> = {}) => ({
+  name: "Provedor Teste",
+  cnpj: "23864873000148",
+  subdomain: "provedor-teste",
+  adminName: "Admin Teste",
+  adminEmail: "admin@provedorteste.com.br",
+  adminPassword: "senha123",
+  ...extra,
+});
+
+const criar = (corpo: Record<string, unknown>) =>
+  fetch(`${base}/api/admin/providers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo),
+  });
+
+/**
+ * Revisão final de segurança antes da demonstração pública (item 6): a mesma
+ * reserva de namespace que `/api/auth/register` aplica ao cadastro público
+ * também vale na porta do SUPERADMIN — privilégio maior, mesmo risco: sem
+ * ela, o superadmin cria um provedor de verdade dentro do prefixo `sandbox-`,
+ * e a limpeza automática da demonstração o apaga na próxima passada (ela
+ * decide o que apagar só por esse prefixo, sem checar LGPD nenhuma).
+ */
+describe("POST /api/admin/providers — namespace da demonstracao reservado", () => {
+  it("subdominio sandbox-* e recusado com 400, sem consultar nem gravar nada", async () => {
+    const res = await criar(cadastroDeProvedor({ subdomain: "sandbox-empresa" }));
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo).toEqual({ message: "Subdominio reservado. Escolha outro." });
+    expect(storageMock.getProviderByCnpj).not.toHaveBeenCalled();
+    expect(storageMock.createProvider).not.toHaveBeenCalled();
+  });
+
+  it("a reserva nao diferencia caixa — SANDBOX-Foo tambem e recusado", async () => {
+    const res = await criar(cadastroDeProvedor({ subdomain: "SANDBOX-Foo" }));
+
+    expect(res.status).toBe(400);
+    expect(storageMock.createProvider).not.toHaveBeenCalled();
+  });
+
+  it("um subdominio comum, fora do prefixo, continua cadastrando normalmente", async () => {
+    const res = await criar(cadastroDeProvedor({ subdomain: "provedor-de-verdade" }));
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createProvider).toHaveBeenCalledTimes(1);
+    expect(storageMock.createProvider.mock.calls[0][0]).toMatchObject({ subdomain: "provedor-de-verdade" });
+  });
+});
 
 /**
  * A tela de cadastros reenvia o PATCH inteiro a cada clique e deixa o botao
@@ -582,6 +636,37 @@ describe("PATCH /api/admin/providers/:id — CNPJ e subdominio ja usados", () =>
 
     expect(res.status).toBe(404);
     expect(storageMock.getProviderByCnpj).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Revisão final de segurança antes da demonstração pública (item 6): a
+ * reserva do namespace `sandbox-` (que já protegia `/api/auth/register`)
+ * também vale aqui. Sem ela, o SUPERADMIN — privilégio maior que o cadastro
+ * público — podia renomear um provedor de verdade para dentro do prefixo que
+ * a limpeza da demonstração usa para decidir o que apagar.
+ */
+describe("PATCH /api/admin/providers/:id — namespace da demonstracao reservado", () => {
+  it("renomear para sandbox-* e recusado com 400, e nada e gravado", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { subdomain: "sandbox-qualquer-coisa" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.message).toBe("Subdominio reservado. Escolha outro.");
+    expect(corpo.errors.subdomain).toEqual([corpo.message]);
+    expect(storageMock.getProviderBySubdomain).not.toHaveBeenCalled();
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  it("a reserva nao diferencia caixa — SANDBOX-Foo tambem e recusado", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { subdomain: "SANDBOX-Foo" });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
   });
 });
 

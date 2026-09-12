@@ -118,6 +118,37 @@ const PASSO_POR_SANDBOX = 2_000; // > 1.350 índices exclusivos por sandbox, com
 const SANDBOXES_EM_RODIZIO = 200; // 510_000 + 199*2_000 + 1_349 = 909_349, nunca chega em 999_998
 
 /**
+ * Teto de sandboxes VIVOS ao mesmo tempo — acima disso, `GET /demo` recusa em
+ * vez de criar (revisão final de segurança antes da demonstração pública,
+ * item 5).
+ *
+ * O numero e 150, e nao 200 (`SANDBOXES_EM_RODIZIO`), por causa de DOIS
+ * argumentos que apontam para baixo desse teto:
+ *
+ *   1. Espaco em disco COMPARTILHADO com producao. Cada sandbox grava ~2.000
+ *      linhas (1.500 clientes + faturas + equipamentos + 9 casos de kanban).
+ *      150 vivos ao mesmo tempo e ~300.000 linhas no PIOR CASO — um numero
+ *      que a limpeza horaria (`limpeza.service.ts`) absorve numa passada ou
+ *      duas mesmo se cair para tras, sem competir por espaco com o banco de
+ *      producao que mora no MESMO filesystem.
+ *   2. A conferencia e check-then-create, NAO atomica: duas requisicoes de
+ *      IPs diferentes (o limite de 2/10min so trava por IP) podem ler a
+ *      contagem antes de qualquer uma commitar, e `criarSandbox` tambem
+ *      consome um id da sequencia do Postgres a cada tentativa que esbarra
+ *      em colisao de CNPJ/subdominio (raro, mas gera lacuna). Colar o teto
+ *      em 200 apostaria a seguranca de `baseDeIndicesDoSandbox` — nao
+ *      colidir index é o que impede DOIS sandboxes vivos de sobrescrever a
+ *      carteira um do outro — numa corrida que nunca deveria chegar perto do
+ *      limite matematico. 150 deixa 50 sandboxes (25%) de folga.
+ *
+ * 150 visitantes simultaneos dentro da janela de 24h de vida do sandbox e
+ * folgado para uma demonstracao publica de autoatendimento — o produto nao
+ * promete trafego sustentado, e quem tenta gerar mais que isso de proposito
+ * e exatamente quem esta guarda existe para conter.
+ */
+export const TETO_DE_SANDBOXES_VIVOS = 150;
+
+/**
  * Até 200 sandboxes vivos ao mesmo tempo nunca colidem — cada `providerId`
  * cai num balde de 2.000 índices exclusivo dele enquanto vivo. Acima disso
  * (improvável: rate limit de 5/10min por IP na Tarefa 6, limpeza de hora em
@@ -646,6 +677,18 @@ export async function sandboxesExpirados(agora: Date = new Date()): Promise<numb
       return criadoEm <= limite;
     })
     .map((p) => p.id);
+}
+
+/**
+ * Quantos sandboxes existem AGORA na base — vivos ou expirados-mas-ainda-nao-
+ * varridos, tanto faz: o que importa aqui é quantas linhas essa convenção já
+ * ocupa no MESMO disco do banco de produção, e é contra isso que `GET /demo`
+ * confere `TETO_DE_SANDBOXES_VIVOS` antes de criar mais um. Mesma consulta e
+ * mesmo filtro de `sandboxesExpirados`, só sem o corte por idade.
+ */
+export async function contarSandboxesVivos(): Promise<number> {
+  const todos = await db.select({ subdomain: providers.subdomain }).from(providers);
+  return todos.filter((p) => (p.subdomain ?? "").startsWith(PREFIXO_SANDBOX)).length;
 }
 
 /**

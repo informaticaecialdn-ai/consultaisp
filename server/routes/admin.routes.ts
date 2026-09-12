@@ -37,6 +37,7 @@ import { maskCpfCnpj } from "../services/lgpd-masking";
 import { CUSTO_EM_CREDITOS } from "@shared/planos";
 import { isSpcConfigured, listarProdutosSpc, produtoSpcPadrao, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
 import { getRegionalProviderIds } from "../services/regional.service";
+import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
 import {
   dataDeAbertura, SEGMENTOS, siteComEsquemaAceito, SITE_MAX, TIPOS_SOCIETARIOS, umaDasOpcoes,
   type Veredito,
@@ -602,6 +603,18 @@ export function registerAdminRoutes(): Router {
         contactEmail, contactPhone, addressZip, addressStreet, addressNumber,
         addressComplement, addressNeighborhood, addressCity, addressState,
         legalType, openingDate, businessSegment } = parsed.data;
+      /**
+       * Mesma reserva de `/api/auth/register` (rodada de correção da revisão
+       * de segurança, item 6) — até aqui só o cadastro público a aplicava.
+       * `POST /api/admin/providers` é a porta do SUPERADMIN, com privilégio
+       * MAIOR, e sem esta trava ele podia criar um provedor de verdade dentro
+       * do namespace `sandbox-`: a limpeza da demonstração
+       * (`sandboxesExpirados`, server/demo/sandbox.service.ts) identifica o
+       * que apagar SÓ por esse prefixo, sem checar LGPD nenhuma.
+       */
+      if (subdomain.toLowerCase().startsWith(PREFIXO_SANDBOX)) {
+        return res.status(400).json({ message: "Subdominio reservado. Escolha outro." });
+      }
       const existingCnpj = await storage.getProviderByCnpj(cnpj);
       if (existingCnpj) return res.status(409).json({ message: "CNPJ ja cadastrado" });
       const existingSubdomain = await storage.getProviderBySubdomain(subdomain);
@@ -772,6 +785,17 @@ export function registerAdminRoutes(): Router {
         }
       }
       if (campos.subdomain) {
+        /**
+         * Mesma reserva de `/api/auth/register` e do POST logo acima (rodada
+         * de correção da revisão de segurança, item 6) — sem ela, o
+         * superadmin podia RENOMEAR um provedor de verdade para dentro do
+         * namespace `sandbox-`, e a próxima varredura de limpeza da
+         * demonstração o apagaria junto com os sandboxes expirados.
+         */
+        if (campos.subdomain.toLowerCase().startsWith(PREFIXO_SANDBOX)) {
+          const frase = "Subdominio reservado. Escolha outro.";
+          return res.status(400).json({ message: frase, errors: { subdomain: [frase] } });
+        }
         const dono = await storage.getProviderBySubdomain(campos.subdomain);
         if (dono && dono.id !== id) {
           const frase = `Subdominio ja em uso pelo provedor "${dono.name}"`;

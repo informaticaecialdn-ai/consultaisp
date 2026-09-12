@@ -40,6 +40,10 @@ const sandboxMock = vi.hoisted(() => ({
     // ficaria refem de quando a suíte roda de verdade.
     expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
   })),
+  // Por padrao, bem abaixo do teto — a maioria dos testes quer o caminho
+  // feliz de criacao. O teste do teto (abaixo) troca para um valor >= ele.
+  contarSandboxesVivos: vi.fn(async () => 0),
+  TETO_DE_SANDBOXES_VIVOS: 150,
 }));
 vi.mock("../demo/sandbox.service", () => sandboxMock);
 
@@ -280,5 +284,55 @@ describe("GET /demo — limite", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toMatch(/^\d+$/);
     expect((await res.json()).message).toMatch(/Tente novamente em \d+ minuto/);
+  });
+});
+
+/**
+ * Revisão final de segurança (item 5): um teto GLOBAL de sandboxes vivos, além
+ * do limite por IP acima — sem ele, muitos IPs diferentes (o limite de 2/10min
+ * só trava por IP) podiam somar sandboxes sem parar, e cada um grava ~2.000
+ * linhas num banco que compartilha o filesystem com produção. Ver a
+ * justificativa completa de `TETO_DE_SANDBOXES_VIVOS` em sandbox.service.ts.
+ */
+describe("GET /demo — teto de sandboxes vivos", () => {
+  it("no teto (150), recusa com 503 e nao cria sandbox nenhum", async () => {
+    sandboxMock.contarSandboxesVivos.mockResolvedValueOnce(150);
+
+    const res = await pedirDemo();
+
+    expect(res.status).toBe(503);
+    expect(sandboxMock.criarSandbox).not.toHaveBeenCalled();
+  });
+
+  it("acima do teto, tambem recusa", async () => {
+    sandboxMock.contarSandboxesVivos.mockResolvedValueOnce(151);
+
+    const res = await pedirDemo();
+
+    expect(res.status).toBe(503);
+    expect(sandboxMock.criarSandbox).not.toHaveBeenCalled();
+  });
+
+  it("um a menos que o teto ainda cria normalmente", async () => {
+    sandboxMock.contarSandboxesVivos.mockResolvedValueOnce(149);
+
+    const res = await pedirDemo();
+
+    expect(res.status).toBe(302);
+    expect(sandboxMock.criarSandbox).toHaveBeenCalledTimes(1);
+  });
+
+  it("visitante que RETORNA (sessao com sandbox ainda vivo) nunca esbarra no teto", async () => {
+    // Primeira visita: cria normalmente (chama contarSandboxesVivos uma vez).
+    await pedirDemo();
+    sandboxMock.contarSandboxesVivos.mockClear();
+    // Simula a demonstracao lotada bem depois — se a rota conferisse o teto
+    // ANTES do reaproveitamento, esta segunda visita cairia nele por engano.
+    sandboxMock.contarSandboxesVivos.mockResolvedValue(150);
+
+    const segundo = await pedirDemo();
+
+    expect(segundo.status).toBe(302);
+    expect(sandboxMock.contarSandboxesVivos).not.toHaveBeenCalled();
   });
 });
