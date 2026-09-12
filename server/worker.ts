@@ -167,6 +167,17 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   }
   const { iniciarPrimeirosContatos, pararPrimeirosContatos } = await import("./services/chat/chat-primeiro-contato.service");
   iniciarPrimeirosContatos();
+
+  // A limpeza de sandboxes da demonstração pública: só faz sentido na
+  // instância de demonstração, ao contrário das agendas acima (que rodam
+  // sempre, produção incluída) — por isso a checagem fica na CHAMADA, não
+  // dentro do serviço. Ver server/demo/limpeza.service.ts e modo-demo.ts.
+  const { emModoDemo } = await import("./demo/modo-demo");
+  if (emModoDemo()) {
+    const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");
+    iniciarLimpezaDaDemo();
+    logger.info("[Worker] Limpeza de sandboxes da demo scheduler started");
+  }
   /*
    * A autonomia do chat confere se as tabelas da 0028 existem antes de ligar o
    * laço de 3 s — `verifySchema` acima não as cobre porque o chat é opcional.
@@ -220,6 +231,10 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "[Worker] Shutdown signal received");
     await pararPrimeirosContatos();
+    if (emModoDemo()) {
+      const { pararLimpezaDaDemo } = await import("./demo/limpeza.service");
+      await pararLimpezaDaDemo();
+    }
     // A tentativa pendente de ligar a fila (corrida de boot) morre junto.
     if (timerDaAutonomia) { clearTimeout(timerDaAutonomia); timerDaAutonomia = null; }
     tentativaDaAutonomia = TENTATIVAS_DA_AUTONOMIA;

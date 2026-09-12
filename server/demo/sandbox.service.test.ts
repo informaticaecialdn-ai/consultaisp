@@ -93,6 +93,7 @@ import {
   SALDO_INICIAL,
 } from "./sandbox.service";
 import { PROVEDORES_DA_DEMO, INDICE_MIGRADOR_DE_EXEMPLO } from "./mundo-base";
+import { limparSandboxesExpirados } from "./limpeza.service";
 import { cpfFicticio } from "./pessoas-ficticias";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
@@ -656,5 +657,65 @@ describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado d
       if (linhas.length > 0) residuos.push(`${alvo.nomeTabela}.${alvo.chaveCamelCase} (${linhas.length} linha[s])`);
     }
     expect(residuos, `apagarSandbox nao limpou: ${residuos.join(", ")}`).toEqual([]);
+  });
+});
+
+/**
+ * Tarefa 7 (`server/demo/limpeza.service.ts`) delega TODA a seleção para
+ * `sandboxesExpirados`/`apagarSandbox` — os mesmos dois já provados acima
+ * ("expira so o sandbox, nunca o mundo base"). Esta prova roda a passada REAL
+ * (nada de `./sandbox.service` mockado neste arquivo) contra o mundo base já
+ * semeado: os 5 provedores da rede e a carteira deles têm que sobreviver a um
+ * sweep que encontrou outro sandbox para apagar. Sem isto, o teste de
+ * `sandboxesExpirados()` sozinho prova a seleção, mas não prova que o sweep
+ * INTEIRO (que também chama `apagarSandbox`) deixa a rede intacta.
+ *
+ * O relógio dos 5 provedores da rede TAMBÉM é expirado aqui, de propósito —
+ * não só o do sandbox alvo. Em produção o mundo base é semeado uma vez e fica
+ * no ar para sempre: passadas 24h do primeiro seed, `rede-1..5` estão
+ * genuinamente "velhos" pelo relógio, exatamente como o teste irmão acima
+ * ("expira so o sandbox, nunca o mundo base") NÃO simula. Quem os protege do
+ * sweep é só o prefixo do subdomain (`PREFIXO_SANDBOX`), nunca a idade — um
+ * teste que deixasse a rede "nova" provaria a sobrevivência dela por
+ * acidente de cronômetro, não pela trava de verdade.
+ */
+describe("a limpeza periodica (Tarefa 7) nunca alcanca o mundo base", () => {
+  it("mundo base semeado E com o relogio expirado, sweep de verdade: os 5 provedores da rede e os clientes deles sobrevivem", async () => {
+    const alvo = await criarSandbox();
+
+    const idsDaBase = PROVEDORES_DA_DEMO.map((p) => idDe(p.subdomain));
+    const clientesDaBaseAntes = new Map<number, number>();
+    for (const id of idsDaBase) {
+      const total = (await clientesDe(id)).length;
+      expect(total, `mundo base ${id} deveria ja ter clientes semeados`).toBeGreaterThan(0);
+      clientesDaBaseAntes.set(id, total);
+    }
+
+    // Expira o relogio de TODO MUNDO — o sandbox alvo e os 5 da rede — mais
+    // velho que VIDA_DO_SANDBOX_MS. So o prefixo do subdomain pode salvar a
+    // rede agora; a idade sozinha nao salva mais ninguem.
+    await envelhecer(alvo.providerId, 25 * 60 * 60 * 1000);
+    for (const id of idsDaBase) await envelhecer(id, 25 * 60 * 60 * 1000);
+
+    // `>= 1`, nao `=== 1`, de proposito: este arquivo e sequencial e cumulativo
+    // (ver o comentario no topo), e o proxy de teste nao simula o
+    // `defaultNow()` de `providers.createdAt` — todo sandbox de um `it()`
+    // anterior que nunca chamou `envelhecer` nem `apagarSandbox` fica com
+    // `createdAt` nulo no banco de mentira, que `sandboxesExpirados` trata
+    // como epoch (bem mais velho que 24h) e este sweep varre junto. Sao
+    // sobras inofensivas de outros testes (este describe roda por ultimo no
+    // arquivo) — o que importa aqui e SO o alvo e a rede, verificados abaixo.
+    const resultado = await limparSandboxesExpirados();
+    expect(resultado.apagados, "o sandbox envelhecido deveria ter sido varrido").toBeGreaterThanOrEqual(1);
+
+    // O sandbox alvo sumiu...
+    expect(await clientesDe(alvo.providerId)).toHaveLength(0);
+
+    // ...mas os 5 provedores da rede e a carteira de cada um continuam
+    // intactos, mesmo tao "velhos pelo relogio" quanto o sandbox apagado.
+    for (const id of idsDaBase) {
+      expect(await providerDe(id)).toBeTruthy();
+      expect(await clientesDe(id)).toHaveLength(clientesDaBaseAntes.get(id)!);
+    }
   });
 });
