@@ -105,6 +105,8 @@ function linhaCliente(o: {
   city?: string | null;
   latitude?: string | null;
   longitude?: string | null;
+  contractStartDate?: string | null;
+  contractPlan?: string | null;
 }): Record<string, unknown> {
   return {
     id: o.id,
@@ -124,6 +126,8 @@ function linhaCliente(o: {
     longitude: o.longitude ?? null,
     status: o.status ?? "active",
     paymentStatus: o.paymentStatus ?? "current",
+    contractStartDate: o.contractStartDate ?? null,
+    contractPlan: o.contractPlan ?? null,
   };
 }
 
@@ -210,6 +214,38 @@ describe("conector demo", () => {
       erpSource: "demo",
       contractStatus: "active",
     });
+  });
+
+  it("fetchCustomerByCpf traz contractStartDate e contractPlan quando a base semeada os tem preenchidos", async () => {
+    banco.linhas.set("customers", [
+      linhaCliente({
+        id: 1,
+        providerId: PROVEDOR_A,
+        cpfCnpj: CPF_1,
+        contractStartDate: "2019-03-15",
+        contractPlan: "Combo 500MB",
+      }),
+    ]);
+
+    const r = await connector.fetchCustomerByCpf(config(PROVEDOR_A), CPF_1);
+
+    expect(r.ok).toBe(true);
+    expect(r.customers[0]).toMatchObject({
+      contractStartDate: "2019-03-15",
+      contractPlan: "Combo 500MB",
+    });
+  });
+
+  it("fetchCustomerByCpf nao inventa contractStartDate/contractPlan quando a base semeada nao os tem", async () => {
+    banco.linhas.set("customers", [
+      linhaCliente({ id: 1, providerId: PROVEDOR_A, cpfCnpj: CPF_1 }),
+    ]);
+
+    const r = await connector.fetchCustomerByCpf(config(PROVEDOR_A), CPF_1);
+
+    expect(r.ok).toBe(true);
+    expect(r.customers[0].contractStartDate).toBeUndefined();
+    expect(r.customers[0].contractPlan).toBeUndefined();
   });
 
   it("fetchCustomerByCpf devolve ok:true com lista vazia para quem nao existe — ausencia e resposta, nao erro", async () => {

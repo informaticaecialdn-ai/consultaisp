@@ -169,6 +169,12 @@ function paraClienteNormalizado(
     unreturnedEquipmentCount: equipamentos?.length ?? 0,
     equipmentDetails: temEquipamento ? equipamentos : undefined,
     contractStatus: cliente.status === "cancelled" ? "cancelled" : cliente.status === "active" ? "active" : undefined,
+    // Sem estes dois o anti-fraude (contrato_novo) e a Economia do 360 nao tem
+    // como ler tempo de casa nem plano na demonstracao — ver ixc.ts/sgp.ts para
+    // o mesmo par nos conectores reais. `cliente` e uma linha tipada do Drizzle
+    // (nunca ""), entao `??` basta: sem inventar data nem string vazia.
+    contractPlan: cliente.contractPlan ?? undefined,
+    contractStartDate: cliente.contractStartDate ?? undefined,
     erpSource: FONTE_ERP_DEMO,
   };
 }
