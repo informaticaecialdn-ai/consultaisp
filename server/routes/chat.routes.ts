@@ -144,6 +144,22 @@ export function registerChatRoutes(): Router {
       if (email.length > TAMANHO_MAXIMO_EMAIL_VISITANTE) {
         return res.status(400).json({ message: `Email muito longo (maximo ${TAMANHO_MAXIMO_EMAIL_VISITANTE} caracteres)` });
       }
+      /**
+       * `phone` e OPCIONAL — ausente, `null` ou `undefined` continua valido —
+       * mas a guarda antiga (`typeof phone === "string" && phone.length >
+       * ...`) e um E: um `phone` que NAO e string faz a condicao inteira dar
+       * falso, pula o teto de tamanho por inteiro e chega cru em
+       * `storage.createVisitorChat`. `{"phone": {"pad": "x".repeat(5_000_000)}}`
+       * atravessa assim — o driver do Postgres (`prepareValue` ->
+       * `prepareObject` em `pg/lib/utils.js`) cai em `JSON.stringify` para
+       * qualquer objeto sem `toPostgres`, e o blob inteiro grava em
+       * `visitor_phone` (`text`, sem teto), numa rota publica, sem sessao, sem
+       * varredura de limpeza. Mesma forma da guarda de `name`/`email` acima:
+       * recusa ANTES de qualquer `.length`, e so entao mede o tamanho.
+       */
+      if (phone != null && typeof phone !== "string") {
+        return res.status(400).json({ message: "Telefone invalido" });
+      }
       if (typeof phone === "string" && phone.length > TAMANHO_MAXIMO_TELEFONE_VISITANTE) {
         return res.status(400).json({ message: `Telefone muito longo (maximo ${TAMANHO_MAXIMO_TELEFONE_VISITANTE} caracteres)` });
       }

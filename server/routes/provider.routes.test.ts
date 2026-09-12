@@ -435,6 +435,108 @@ describe("POST /api/provider/users — aviso a quem foi adicionado", () => {
 });
 
 /**
+ * Rodada de seguranca, 12/09/2026 — o ataque que apaga o segundo sinal de
+ * identidade do sandbox (ver o comentario de `recusarEmSandbox` em
+ * provider.routes.ts e `temSegundoSinal` em server/demo/sandbox.service.ts).
+ *
+ * Um visitante criava um segundo admin por este POST, entrava como ele e
+ * apagava o admin deterministico original por este DELETE — as duas travas que
+ * ja existiam (nao apagar a propria conta, nao apagar o ultimo admin do papel)
+ * nunca pegam com DOIS admins na mesa. A prova aqui e dupla, de proposito: o
+ * sandbox e recusado nas duas rotas, E um provedor de verdade — a mesma
+ * funcionalidade que qualquer assinante pagante usa — continua identico a
+ * antes desta trava.
+ */
+describe("POST/DELETE /api/provider/users — sandbox nao mexe na propria equipe", () => {
+  const convidar = (corpo: Record<string, unknown> = { name: "Ana", email: "ana@x.com", password: "segredo-forte" }) =>
+    fetch(`${base}/api/provider/users`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    });
+
+  beforeEach(() => {
+    esquecerStatusDeProvedor();
+    sessao = { userId: 1, providerId: 42, role: "admin" };
+  });
+
+  it("403 ao tentar criar um segundo admin dentro de um sandbox", async () => {
+    storageMock.getProvider.mockResolvedValue({
+      id: 42, name: "Sandbox de demonstracao", status: "active", subdomain: "sandbox-abc123",
+    });
+
+    const res = await convidar();
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).message).toMatch(/demonstra/i);
+    expect(storageMock.createUser).not.toHaveBeenCalled();
+  });
+
+  it("403 ao tentar apagar o admin original de um sandbox, mesmo com dois admins na mesa", async () => {
+    storageMock.getProvider.mockResolvedValue({
+      id: 42, name: "Sandbox de demonstracao", status: "active", subdomain: "sandbox-abc123",
+    });
+    // O que a rota faria SEM a trava: dois admins presentes, nenhuma das duas
+    // guardas antigas (propria conta / ultimo admin) pegaria esta exclusao.
+    storageMock.getUser.mockResolvedValue({ id: 9, role: "admin", providerId: 42 });
+    storageMock.getUsersByProvider.mockResolvedValue([
+      { id: 9, role: "admin" },
+      { id: 1, role: "admin" },
+    ]);
+
+    const res = await apagar(9);
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).message).toMatch(/demonstra/i);
+    expect(storageMock.deleteUser).not.toHaveBeenCalled();
+    // A recusa e antes de olhar o alvo: nem chega a consultar quem seria apagado.
+    expect(storageMock.getUser).not.toHaveBeenCalled();
+  });
+
+  it("subdominio comecando por outra coisa que nao 'sandbox-' nao e bloqueado (sem falso positivo por substring)", async () => {
+    // "sandboxeando" comeca parecido mas NAO e o prefixo reservado — prova que a
+    // checagem e de PREFIXO e nao de substring solta em qualquer lugar do nome.
+    storageMock.getProvider.mockResolvedValue({
+      id: 42, name: "Provedor Legitimo", status: "active", subdomain: "sandboxeando-provedores-ltda",
+    });
+    storageMock.getUser.mockResolvedValue({ id: 1, name: "Marcos", providerId: 42 });
+
+    const res = await convidar();
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createUser).toHaveBeenCalled();
+  });
+
+  it("provedor de verdade (nao sandbox) continua podendo adicionar um usuario — feature paga, sem dano colateral", async () => {
+    storageMock.getProvider.mockResolvedValue({
+      id: 42, name: "NsLink Telecom", status: "active", subdomain: "nslink",
+    });
+    storageMock.getUser.mockResolvedValue({ id: 1, name: "Marcos", providerId: 42 });
+
+    const res = await convidar();
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createUser).toHaveBeenCalled();
+  });
+
+  it("provedor de verdade (nao sandbox) continua podendo remover um administrador quando sobra outro", async () => {
+    storageMock.getProvider.mockResolvedValue({
+      id: 42, name: "NsLink Telecom", status: "active", subdomain: "nslink",
+    });
+    storageMock.getUser.mockResolvedValue({ id: 9, role: "admin", providerId: 42 });
+    storageMock.getUsersByProvider.mockResolvedValue([
+      { id: 9, role: "admin" },
+      { id: 1, role: "admin" },
+    ]);
+
+    const res = await apagar(9);
+
+    expect(res.status).toBe(200);
+    expect(storageMock.deleteUser).toHaveBeenCalledWith(9);
+  });
+});
+
+/**
  * GET /api/provider/cnpj — o cadastro da PROPRIA empresa na Receita.
  *
  * A rota nasceu em 04/09/2026 porque a busca acontecia NO NAVEGADOR, contra uma

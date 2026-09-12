@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
+import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
 import { hashPassword } from "../password";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { sanitizeFilename } from "../utils/filename-sanitizer";
@@ -102,6 +103,59 @@ function exigirAdminDoProvedor(acao: string) {
     next();
   };
 }
+
+/**
+ * O SANDBOX NAO MEXE NA PROPRIA EQUIPE (rodada de seguranca, 12/09/2026).
+ *
+ * `sandbox.service.ts` so reconhece um provedor como sandbox descartavel com
+ * DUAS provas GRAVADAS JUNTAS por `criarSandbox`: o prefixo `sandbox-` no
+ * subdominio E o administrador deterministico `<subdominio>@demo.consultaisp.com.br`
+ * (`temSegundoSinal`). Antes desta trava, um visitante apagava a segunda prova
+ * com dois pedidos comuns, ja publicados: criava um segundo admin por `POST
+ * /api/provider/users` (sem limite de assento, sem checar plano), entrava como
+ * ele e apagava o admin original por `DELETE /api/provider/users/:id` — que so
+ * recusa "a propria conta" e "o ultimo admin do papel", e com DOIS admins na
+ * mesa nenhuma das duas pega. O e-mail deterministico some, `sandboxesExpirados`
+ * para de reconhecer aquele provedor PARA SEMPRE (so *loga* um aviso, nunca
+ * apaga — ver o comentario de `temSegundoSinal`), e o sandbox vira um vazamento
+ * permanente: por volta de 2 mil linhas que a limpeza horaria nunca mais varre,
+ * e uma vaga do rodizio de CPFs presa para sempre junto com elas.
+ *
+ * A trava fica so NESTAS DUAS ROTAS — nao dentro de `exigirAdminDoProvedor`,
+ * que tambem guarda settings, socios, documentos e webhook. Um sandbox de 24h
+ * nao tem uso para GERIR EQUIPE (e por isso a unica alavanca que existia vira
+ * um ataque), mas continua podendo usar o resto do painel normalmente, que e o
+ * que faz a demonstracao parecer o produto de verdade.
+ *
+ * Le o PROVIDER no banco, e nao `req.session.subdomain`: aquele campo nasce do
+ * HOST de login (`extractSubdomainFromHost`, auth.routes.ts) ou e gravado so
+ * pela porta da demo (`demo.routes.ts`) — cobre o visitante comum, mas nao uma
+ * sessao de SUPORTE personificando o provedor (`session.suporte`), que nunca
+ * ganha o subdominio do sandbox. A coluna e a MESMA fonte que `sandbox.service.ts`
+ * usa para tudo — o segundo admin, a limpeza, o teto de vivos — entao e ela,
+ * e nao um campo de sessao com outro motivo de existir, quem decide aqui.
+ *
+ * Erro de leitura falha FECHADO (500): as duas acoes que esta funcao guarda
+ * sao irreversiveis, e "nao consegui confirmar que NAO e sandbox" nunca e
+ * motivo para deixar passar.
+ */
+function recusarEmSandbox(mensagem: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const provider = await storage.getProvider(req.session.providerId!);
+      if ((provider?.subdomain ?? "").toLowerCase().startsWith(PREFIXO_SANDBOX)) {
+        return res.status(403).json({ message: mensagem });
+      }
+      next();
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  };
+}
+
+/** Mesma frase para as duas rotas: e o MESMO motivo (equipe congelada do sandbox) — nunca duas mensagens para uma recusa so. */
+const MENSAGEM_EQUIPE_CONGELADA_NO_SANDBOX =
+  "Nesta demonstração, a equipe já vem pronta e não pode ser alterada — um sandbox novo, com equipe nova, é criado a cada 24 horas.";
 
 /**
  * A REGUA DO CADASTRO DO PROVEDOR — e por que ela so julga o que MUDOU.
@@ -318,7 +372,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/users", requireAuth, requireProvider, exigirAdminDoProvedor("convidar usuarios"), async (req, res) => {
+  router.post("/api/provider/users", requireAuth, requireProvider, exigirAdminDoProvedor("convidar usuarios"), recusarEmSandbox(MENSAGEM_EQUIPE_CONGELADA_NO_SANDBOX), async (req, res) => {
     try {
       const { name, email, password, role } = req.body as { name: string; email: string; password: string; role: string };
       if (!name || !email || !password) {
@@ -349,7 +403,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.delete("/api/provider/users/:id", requireAuth, requireProvider, exigirAdminDoProvedor("remover usuarios"), async (req, res) => {
+  router.delete("/api/provider/users/:id", requireAuth, requireProvider, exigirAdminDoProvedor("remover usuarios"), recusarEmSandbox(MENSAGEM_EQUIPE_CONGELADA_NO_SANDBOX), async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
       // 409, nao 400: o pedido esta bem formado: o que impede e o ESTADO. E a

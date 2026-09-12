@@ -270,4 +270,26 @@ describe("POST /api/public/visitor-chat/start — tipo dos campos", () => {
     expect(res.status).toBe(400);
     expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
   });
+
+  /**
+   * `phone` ficou de fora da correcao acima: a guarda dele era um E
+   * (`typeof phone === "string" && phone.length > ...`), entao um `phone` que
+   * nao e string faz a condicao inteira dar falso e pula o teto por inteiro —
+   * ao contrario de `name`/`email`, que recusam tipo errado ANTES de medir.
+   * Um objeto sobrevive ate `storage.createVisitorChat` cru.
+   */
+  it("recusa telefone como objeto, sem gravar nada (phone e opcional, mas nao qualquer tipo)", async () => {
+    const res = await iniciar({ phone: { pad: "x".repeat(5000) } });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/telefone/i);
+    expect(storageMock.createVisitorChat).not.toHaveBeenCalled();
+  });
+
+  it("telefone ausente continua valido (opcional, diferente de nome/email)", async () => {
+    const res = await iniciar();
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createVisitorChat).toHaveBeenCalledWith("Visitante", "visitante@example.com", null);
+  });
 });

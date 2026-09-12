@@ -254,6 +254,22 @@ CONFIRMAÇÃO, não um provável fracasso. Se isto um dia FALHAR, pare aqui —
 significa que o `ecosystem.config.cjs` de produção não sobe mais, e nenhum
 passo abaixo (que só mexe no par da demo) resolve isso.
 
+O dry run acima só fala do config de PRODUÇÃO — ele não diz nada sobre o
+`.env.demo` que você acabou de preencher no Passo 3. Nesta primeira subida
+ainda não existe processo da demo no ar para proteger de um restart ruim (que
+é a razão do dry run do Passo 10, contra deletar um par que já funciona), mas
+um `.env.demo` quebrado (`DATABASE_URL` ausente, `SESSION_SECRET` faltando)
+continua melhor descoberto agora, num `node -e` limpo, do que pelo próprio
+`pm2 start` falhando contra o daemon compartilhado — é o MESMO `require()`
+que o pm2 faz, só que sem subir processo nenhum:
+
+```bash
+cd /var/www/consulta-isp-demo && node -e "require('./ecosystem.demo.config.cjs')" && echo BOOT-CONFIG-OK
+```
+
+Se isto falhar, corrija o `.env.demo` (Passo 3) antes de continuar — nenhum
+comando abaixo deveria rodar contra uma configuração que nem carrega.
+
 ```bash
 cd /var/www/consulta-isp-demo
 pm2 start ecosystem.demo.config.cjs
@@ -299,7 +315,7 @@ trabalho deste passo é uma chamada de função já pronta). Em vez disso:
 
 ```bash
 cd /var/www/consulta-isp-demo
-npx tsx -e "import('dotenv').then(d => d.config({ path: '.env.demo', override: true })).then(() => import('./server/demo/mundo-base')).then(m => m.semearMundoBase()).then(r => console.log('mundo base semeado:', r))"
+npx tsx -e "import('dotenv').then(d => d.config({ path: '.env.demo', override: true })).then(() => import('./server/demo/mundo-base')).then(m => m.semearMundoBase()).then(r => console.log('mundo base semeado:', r)).catch(err => { console.error('ERRO ao semear o mundo base:', err); process.exit(1); })"
 ```
 
 **Por que o comando carrega `.env.demo` explicitamente, com `override: true`,
@@ -340,6 +356,16 @@ usar. **Não troque a cadeia por duas chamadas `import(...)` soltas**: rodar
 o `import('./server/demo/mundo-base')` fora da cadeia (em paralelo com o
 `config()`, em vez de depois dele) reabre exatamente o mesmo risco, porque
 `server/db.ts` pode ser avaliado antes do `config()` terminar.
+
+**O `.catch()` no fim não é enfeite.** Sem ele, uma rejeição em qualquer elo
+da cadeia (banco inacessível, `.env.demo` com `DATABASE_URL` errado, uma
+migração pendente que `semearMundoBase()` não esperava) sobe como rejeição de
+promessa não tratada — Node encerra o processo, mas o que aparece no
+terminal é uma pilha crua, sem dizer QUAL dos passos falhou, diferente de
+todo outro erro que este roteiro produz com uma frase nomeada. O `.catch()`
+acima imprime uma linha reconhecível (`ERRO ao semear o mundo base: ...`) e
+sai com código diferente de zero — o mesmo sinal, só que legível por quem
+está executando isto de madrugada.
 
 **Por que este passo é opcional, mas recomendado mesmo assim:**
 `criarSandbox()` (`server/demo/sandbox.service.ts:544`) já chama
