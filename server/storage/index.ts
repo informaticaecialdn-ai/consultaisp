@@ -108,7 +108,7 @@ export interface IStorage {
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   upsertFromErp(data: Parameters<CustomersStorage["upsertFromErp"]>[0]): Promise<Customer>;
   updateCustomerEquipmentAggregate(providerId: number, customerId: number, count: number, value: string): Promise<void>;
-  getHeatmapAll(): ReturnType<CustomersStorage["getHeatmapAll"]>;
+  getHeatmapAll(observadorId?: number): ReturnType<CustomersStorage["getHeatmapAll"]>;
   getCustomersByCepPrefix(cepPrefix: string, excludeProviderId?: number): Promise<Customer[]>;
   getCustomersByAddressForAlert(params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]): ReturnType<CustomersStorage["getCustomersByAddressForAlert"]>;
   getTrend(providerId: number): ReturnType<CustomersStorage["getTrend"]>;
@@ -492,7 +492,7 @@ class DatabaseStorage implements IStorage {
   createCustomer = (customer: InsertCustomer) => this._customers.createCustomer(customer);
   upsertFromErp = (data: Parameters<CustomersStorage["upsertFromErp"]>[0]) => this._customers.upsertFromErp(data);
   updateCustomerEquipmentAggregate = (providerId: number, customerId: number, count: number, value: string) => this._customers.updateCustomerEquipmentAggregate(providerId, customerId, count, value);
-  getHeatmapAll = () => this._customers.getHeatmapAll();
+  getHeatmapAll = (observadorId?: number) => this._customers.getHeatmapAll(observadorId);
   getCustomersByCepPrefix = (cepPrefix: string, excludeProviderId?: number) => this._customers.getCustomersByCepPrefix(cepPrefix, excludeProviderId);
   getCustomersByAddressForAlert = (params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]) => this._customers.getCustomersByAddressForAlert(params);
   getTrend = (providerId: number) => this._customers.getTrend(providerId);

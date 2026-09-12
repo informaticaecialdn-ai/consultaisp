@@ -1,6 +1,7 @@
 import { db, pool } from "../db";
 import { providers } from "@shared/schema";
 import { eq, sql, and, ne, arrayOverlaps } from "drizzle-orm";
+import { PADRAO_DE_SANDBOX_NO_SQL, provedorForaDeSandboxAlheio } from "../utils/fora-de-sandbox";
 
 /**
  * Find providers whose cidadesAtendidas overlap with the requesting provider.
@@ -45,35 +46,23 @@ export function sobreposicaoDeCidades(cidades: string[]) {
 }
 
 /**
- * O padrão SQL de sandbox de demonstração: `PREFIXO_SANDBOX`
- * (`server/demo/sandbox.service.ts`) seguido de `%`.
- *
- * Escrito aqui como texto, e não importado de lá, de propósito: este serviço é
- * núcleo (benchmark, rota regional, superadmin), e o módulo do sandbox arrasta
- * meio schema e o gerador do mundo fictício junto. A igualdade com o prefixo de
- * verdade está presa em teste (`server/demo/sandbox.service.test.ts`).
+ * O padrão e o predicado de sandbox moram em `server/utils/fora-de-sandbox.ts`,
+ * que as outras leituras entre provedores também usam — lá está o porquê.
+ * Os dois nomes continuam exportados daqui porque
+ * `server/demo/sandbox.service.test.ts` e `regional.service.test.ts` os
+ * importam deste arquivo.
  */
-export const PADRAO_DE_SANDBOX_NO_SQL = "sandbox-%";
+export { PADRAO_DE_SANDBOX_NO_SQL };
 
 /**
- * "Não é o sandbox de OUTRO visitante" — em SQL.
- *
- * Achado ao pôr a demonstração no ar (12/09/2026): a busca regional casava
- * qualquer provedor ativo da mesma região, e todo sandbox nasce na MESMA
- * região do mundo fictício. Com a região preenchida, cada visitante veria os
- * outros visitantes como "provedores parceiros", e o benchmark regional
- * misturaria a atividade deles. A consulta na rede já fazia essa exclusão
- * (`server/routes/consultas.routes.ts`); aqui ela passa a valer para toda
- * busca regional, na query, e não em cada rota que a chama. O próprio
- * provedor já sai pelo `id != ...` de cada busca.
- *
- * `subdomain` aceita nulo, e `NULL NOT LIKE ...` dá NULL — que o WHERE trata
- * como falso. Sem o `IS NULL OR`, todo provedor sem subdomínio sumiria da
- * região. Em produção não existe sandbox (o cadastro recusa o prefixo), então
- * lá o efeito é nenhum.
+ * "Não é o sandbox de OUTRO visitante", para as duas buscas deste arquivo.
+ * Achado ao pôr a demonstração no ar (12/09/2026): todo sandbox nasce na MESMA
+ * região do mundo fictício, e sem isto cada visitante veria os outros como
+ * "provedores parceiros". O próprio provedor já sai pelo `id != ...` de cada
+ * busca, então aqui saem todos os sandboxes.
  */
 export function foraDeSandboxAlheio() {
-  return sql`(${providers.subdomain} IS NULL OR ${providers.subdomain} NOT LIKE ${PADRAO_DE_SANDBOX_NO_SQL})`;
+  return provedorForaDeSandboxAlheio();
 }
 
 export async function getRegionalProviders(providerId: number) {

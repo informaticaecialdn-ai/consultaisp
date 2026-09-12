@@ -657,6 +657,9 @@ export function registerConsultasRoutes(): Router {
               addressNumber: erpNumber,
               city: erpCity,
               excludeCpfCnpj: cleaned,
+              // Na demonstracao, o inadimplente do sandbox de OUTRO visitante nao
+              // conta como "registro na rede" deste endereco.
+              observadorId: providerId,
             });
           }
         } catch (err) {
@@ -961,7 +964,14 @@ export function registerConsultasRoutes(): Router {
       // Quem consultou este documento, na rede INTEIRA — mesma decisao da
       // consulta (05/09/2026). O parceiro sai como codigo pareado, entao ver a
       // linha de outra regiao nao expoe ninguem.
-      const allProviderIds = (await storage.getAllProviders()).map(p => p.id);
+      //
+      // Menos o sandbox de OUTRO visitante da demonstracao: os CPFs compartilhados
+      // com a rede se repetem entre sandboxes, e sem este corte a linha do tempo
+      // de um visitante incluiria as consultas dos outros. Mesma regra da
+      // consulta ao vivo, acima.
+      const allProviderIds = (await storage.getAllProviders())
+        .filter(p => p.id === providerId || !(p.subdomain ?? "").startsWith(PREFIXO_SANDBOX))
+        .map(p => p.id);
 
       const consultations = await storage.getConsultationTimeline(cleaned, allProviderIds, 50);
 

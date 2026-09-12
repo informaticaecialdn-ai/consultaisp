@@ -41,6 +41,7 @@ import { customers, providers } from "@shared/schema";
 import { normalizarCidade } from "./area-atendida";
 import { criarCasadorDeBairro, normalizarLocalidade } from "./localidade";
 import { carregarTerritorio, type TerritorioDoMunicipio } from "./geo-bases.service";
+import { provedorForaDeSandboxAlheio } from "../utils/fora-de-sandbox";
 
 /** k-anonimato: abaixo disto o "mercado" identifica um concorrente. */
 export const BENCHMARK_K_MINIMO = 3;
@@ -277,9 +278,15 @@ async function lerAgregado(carteira: CarteiraBenchmark): Promise<LinhaAgregadaBe
     })
     .from(customers)
     .innerJoin(providers, eq(providers.id, customers.providerId))
+    // Sandbox de demonstração nenhum contribui — nem o do observador: este
+    // agregado é um só para todos (cache por carteira), e o observador já sai
+    // do número em `resumirBenchmark`. Sem isto, a Localização da demo dizia
+    // "12 outros provedores" com oito sandboxes vivos, num mundo de cinco
+    // (12/09/2026). Ver server/utils/fora-de-sandbox.ts.
     .where(sql`
       ${providers.status} = 'active'
       and ${providers.verificationStatus} = 'approved'
+      and ${provedorForaDeSandboxAlheio()}
       and ${filtroCarteira}
     `)
     .groupBy(customers.providerId, customers.state, customers.city, customers.neighborhood);

@@ -242,3 +242,51 @@ describe("resultado da Consulta ISP leva 'simulado' quando emModoDemo() (item 6)
     expect(body.result.simulado).toBeFalsy();
   });
 });
+
+/**
+ * Fora da consulta ao vivo, duas leituras desta rota tambem cruzavam provedores
+ * sem tirar o sandbox de outro visitante (varredura de 12/09/2026): o alerta de
+ * endereco, que roda dentro de TODA consulta, e a linha do tempo de quem
+ * consultou o documento. Os CPFs compartilhados com a rede se repetem entre
+ * sandboxes, entao as duas misturavam a atividade dos visitantes.
+ */
+describe("leituras entre provedores da Consulta ISP excluem o sandbox de outro visitante", () => {
+  it("o alerta de endereco recebe o provedor da sessao como observador", async () => {
+    storageMock.getAllEnabledErpIntegrationsWithCredentials.mockResolvedValue([integracao(PROPRIO, "sandbox-aaaa")]);
+    // O alerta so roda com numero no endereco, e a rota tira o endereco do
+    // cliente proprio que o ERP devolveu.
+    const comEndereco = erpResult(PROPRIO);
+    comEndereco.customers[0] = {
+      ...comEndereco.customers[0], address: "Rua Um", addressNumber: "10", cep: "86025169", city: "Londrina",
+    } as any;
+    erpMock.queryRegionalErps.mockResolvedValue([comEndereco]);
+
+    const { status } = await consultar(PROPRIO);
+
+    expect(status).toBe(200);
+    expect(storageMock.getCustomersByAddressForAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ observadorId: PROPRIO }),
+    );
+  });
+
+  it("a linha do tempo nao pergunta pelas consultas do sandbox de outro visitante", async () => {
+    const getConsultationTimeline = vi.fn(async () => [] as any[]);
+    Object.assign(storageMock as any, {
+      getAllProviders: vi.fn(async () => [
+        { id: PROPRIO, subdomain: "sandbox-aaaa" },
+        { id: OUTRO_SANDBOX, subdomain: "sandbox-bbbb" },
+        { id: REDE_1, subdomain: "rede-1" },
+        { id: REDE_2, subdomain: null },
+      ]),
+      getConsultationTimeline,
+    });
+    sessao.providerId = PROPRIO;
+
+    const res = await fetch(`${base}/api/isp-consultations/timeline/${CPF}`);
+
+    expect(res.status).toBe(200);
+    const [, idsPerguntados] = getConsultationTimeline.mock.calls[0] as unknown as [string, number[]];
+    expect([...idsPerguntados].sort((a, b) => a - b)).toEqual([REDE_1, REDE_2, PROPRIO].sort((a, b) => a - b));
+    expect(idsPerguntados).not.toContain(OUTRO_SANDBOX);
+  });
+});

@@ -37,10 +37,12 @@ export function registerHeatmapRoutes(): Router {
   // O mapa em uso e Leaflet sobre tiles do OpenStreetMap, servidos pelo proxy
   // /api/tiles acima — nao depende de chave nenhuma.
 
-  // Dados regionais agregados de todos os provedores (anonimizado)
-  router.get("/api/heatmap/regional", requireAuth, requireProvider, async (_req, res) => {
+  // Dados regionais agregados de todos os provedores (anonimizado). O provedor
+  // da sessao vai junto para, na demonstracao, o sandbox de OUTRO visitante
+  // ficar fora do mapa (ver server/utils/fora-de-sandbox.ts).
+  router.get("/api/heatmap/regional", requireAuth, requireProvider, async (req, res) => {
     try {
-      const allPoints = await storage.getHeatmapAll();
+      const allPoints = await storage.getHeatmapAll(req.session.providerId!);
       const clusterMap = new Map<string, { lat: number; lng: number; city: string; count: number; totalOverdue: number }>();
       for (const item of allPoints) {
         if (isNaN(item.lat) || isNaN(item.lng)) continue;

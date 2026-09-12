@@ -42,6 +42,7 @@ import { coordenadaValida } from "./coordenada";
 import { normalizarCidade } from "./area-atendida";
 import { criarAgrupadorDeBairro, criarCasadorDeBairro, normalizarLocalidade } from "./localidade";
 import { carregarCentroidesDeBairro, type CentroidesPorCidade } from "./geo-bases.service";
+import { doProvedorForaDeSandboxAlheio } from "../utils/fora-de-sandbox";
 
 /** Ocorrências mínimas para um bairro aparecer. */
 export const MIN_POR_BAIRRO = 3;
@@ -369,8 +370,10 @@ export function agregarRede(
  * ele mora para a concorrência não é informação de risco, é lista de alvos.
  *
  * `observador` é o provedor da sessão, e SÓ dele: a rota o tira de
- * `req.session.providerId`, nunca do pedido. Ele não entra no WHERE — filtrar
- * por provedor aqui transformaria a rede na carteira própria.
+ * `req.session.providerId`, nunca do pedido. No WHERE ele entra para UMA coisa
+ * só: manter o sandbox do próprio visitante quando os sandboxes dos outros saem
+ * (`doProvedorForaDeSandboxAlheio`, server/utils/fora-de-sandbox.ts). Filtrar
+ * por provedor além disso transformaria a rede na carteira própria.
  */
 export async function bairrosDaRede(cidades: string[], observador: number): Promise<ResultadoRede> {
   if (cidades.length === 0) return agregarRede([], [], new Map(), observador);
@@ -391,6 +394,9 @@ export async function bairrosDaRede(cidades: string[], observador: number): Prom
         inArray(customers.status, ["cancelled", "inactive"]),
         gt(customers.totalOverdueAmount, "0"),
         isNotNull(customers.neighborhood),
+        // Na demonstração, o ex-cliente do sandbox de OUTRO visitante não é
+        // "rede": sem isto, cada visitante veria no mapa os de todos os outros.
+        doProvedorForaDeSandboxAlheio(customers.providerId, observador),
       )),
     carregarCentroidesDeBairro(cidades.map(c => normalizarLocalidade(normalizarCidade(c)))),
   ]);

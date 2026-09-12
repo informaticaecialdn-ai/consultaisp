@@ -7,6 +7,7 @@ import { getSafeErrorMessage } from "../utils/safe-error";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { sendConfirmationEmail } from "../services/lgpd-email.service";
 import { resolverMarcaPorHost } from "../services/marca.service";
+import { ehSubdominioDeSandbox } from "../utils/fora-de-sandbox";
 
 export function registerPublicRoutes(): Router {
   const router = Router();
@@ -105,7 +106,9 @@ export function registerPublicRoutes(): Router {
         const provedores = await storage.getAllProviders();
         redeEmCache = {
           valor: {
-            provedoresAtivos: provedores.filter(p => p.status === "active").length,
+            // Sandbox de demonstracao nao e rede: na instancia da demo, a tela de
+            // login contaria cada visitante como "provedor ativo".
+            provedoresAtivos: provedores.filter(p => p.status === "active" && !ehSubdominioDeSandbox(p.subdomain)).length,
             lidoEm: new Date(agora).toISOString(),
           },
           ate: agora + CINCO_MINUTOS,

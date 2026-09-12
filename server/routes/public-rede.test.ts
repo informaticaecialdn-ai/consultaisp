@@ -56,6 +56,19 @@ describe("GET /api/public/rede", () => {
     expect(corpo.provedoresAtivos).toBe(2);
   });
 
+  it("sandbox de demonstracao nao conta como provedor ativo — na demo, cada visitante inflaria o selo", async () => {
+    storageMock.getAllProviders.mockResolvedValue([
+      { ...provedor(1, "active"), subdomain: "rede-1" },
+      { ...provedor(2, "active"), subdomain: "sandbox-aaaa" },
+      { ...provedor(3, "active"), subdomain: "sandbox-bbbb" },
+      { ...provedor(4, "active"), subdomain: null },
+    ]);
+
+    const corpo = await (await fetch(`${base}/api/public/rede`)).json();
+
+    expect(corpo.provedoresAtivos).toBe(2);
+  });
+
   it("devolve o numero e a hora da leitura — nenhum nome, CNPJ ou id", async () => {
     storageMock.getAllProviders.mockResolvedValue([provedor(1, "active")]);
 

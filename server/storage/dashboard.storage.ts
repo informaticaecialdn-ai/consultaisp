@@ -1,5 +1,6 @@
 import { eq, and, desc, sql, count, inArray, gte } from "drizzle-orm";
 import { db } from "../db";
+import { provedorForaDeSandboxAlheio } from "../utils/fora-de-sandbox";
 import {
   providers, customers, invoices, equipment, ispConsultations,
 } from "@shared/schema";
@@ -41,10 +42,14 @@ export class DashboardStorage {
 
     const [provider] = await db.select().from(providers).where(eq(providers.id, providerId));
 
+    // Sandbox de demonstração não é parceiro de ninguém — nem o de outro
+    // visitante, nem o do próprio (que já sai pelo id). Ver
+    // server/utils/fora-de-sandbox.ts.
     const partnerProviders = await db.select({ count: count() }).from(providers)
       .where(and(
         eq(providers.status, "active"),
         sql`${providers.id} != ${providerId}`,
+        provedorForaDeSandboxAlheio(),
       ));
 
     // Consultas hoje e no mes

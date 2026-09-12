@@ -272,6 +272,20 @@ describe("benchmark municipal — amostra ponderada independente do censo", () =
     expect(sql).not.toContain("total_overdue_amount");
   });
 
+  it("sandbox de demonstração não contribui para o benchmark — nem o de outro visitante, nem o do observador", async () => {
+    // A Localização da demo dizia "12 outros provedores" com oito sandboxes
+    // vivos, num mundo de cinco (12/09/2026). O agregado é um só para todos
+    // (cache por carteira), então a exclusão é total, no SQL.
+    const { PADRAO_DE_SANDBOX_NO_SQL } = await import("../utils/fora-de-sandbox");
+    _limparCacheDeBenchmarkParaTestes();
+    banco.atual = [];
+    await calcularBenchmarkCidade([{ cidadeNorm: "LONDRINA", uf: "PR" }], "ativo");
+    const q = new PgDialect().sqlToQuery(banco.where as any);
+    expect(q.sql.toLowerCase()).toContain("is null or");
+    expect(q.sql.toLowerCase()).toContain("not like");
+    expect(q.params).toContain(PADRAO_DE_SANDBOX_NO_SQL);
+  });
+
   it("carteira todas não condiciona denominador à dívida ou status", async () => {
     banco.atual = [];
     await calcularBenchmarkCidade([{ cidadeNorm: "LONDRINA", uf: "PR" }], "todas");

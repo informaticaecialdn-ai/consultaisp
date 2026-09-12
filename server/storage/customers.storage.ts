@@ -7,6 +7,7 @@ import {
   type Customer, type InsertCustomer,
 } from "@shared/schema";
 import { canonizarCidadeDoCadastro } from "../services/cidade-canonica.service";
+import { doProvedorForaDeSandboxAlheio } from "../utils/fora-de-sandbox";
 
 /**
  * `YYYY-MM-DD` das partes LOCAIS da data — o formato de uma coluna DATE.
@@ -431,14 +432,21 @@ export class CustomersStorage {
     }
   }
 
-  /** Buscar todos os inadimplentes de todos os provedores (mapa regional) — max 365 dias */
-  async getHeatmapAll(): Promise<{
+  /**
+   * Buscar todos os inadimplentes de todos os provedores (mapa regional) — max 365 dias.
+   *
+   * `observadorId` é o provedor da sessão: na demonstração, o sandbox de OUTRO
+   * visitante não entra no mapa dele (ver server/utils/fora-de-sandbox.ts). Sem
+   * observador, todo sandbox fica de fora.
+   */
+  async getHeatmapAll(observadorId?: number): Promise<{
     lat: number; lng: number; city: string; totalOverdueAmount: number;
     maxDaysOverdue: number; overdueCount: number; providerId: number;
   }[]> {
     const rows = await db.select().from(customers).where(and(
       eq(customers.paymentStatus, "overdue"),
       gte(customers.maxDaysOverdue, 1),
+      doProvedorForaDeSandboxAlheio(customers.providerId, observadorId),
     ));
     return rows
       .filter(r => r.latitude && r.longitude && (r.maxDaysOverdue || 0) <= 365)
@@ -479,6 +487,12 @@ export class CustomersStorage {
     addressNumber?: string;
     city?: string;
     excludeCpfCnpj: string;
+    /**
+     * O provedor da sessão. Na demonstração, o inadimplente do sandbox de OUTRO
+     * visitante não conta como registro na rede deste endereço (ver
+     * server/utils/fora-de-sandbox.ts). Sem ele, todo sandbox fica de fora.
+     */
+    observadorId?: number;
   }): Promise<{
     cpfMasked: string;
     nomeMascarado: string;
@@ -487,16 +501,17 @@ export class CustomersStorage {
     status: string;
     matchType: "cep_numero" | "endereco_completo";
   }[]> {
-    const { cep, address, addressNumber, city, excludeCpfCnpj } = params;
+    const { cep, address, addressNumber, city, excludeCpfCnpj, observadorId } = params;
     if (!addressNumber) return []; // sem numero, nao tem como identificar imovel
 
     const cleanExclude = excludeCpfCnpj.replace(/\D/g, "");
     const cleanCep = cep?.replace(/\D/g, "") || "";
     const isGenericCep = cleanCep.endsWith("000") || cleanCep.length < 8;
 
-    const rows = await db.select().from(customers).where(
+    const rows = await db.select().from(customers).where(and(
       eq(customers.paymentStatus, "overdue"),
-    );
+      doProvedorForaDeSandboxAlheio(customers.providerId, observadorId),
+    ));
 
     const normalizeStreet = (s: string): string => {
       return s
