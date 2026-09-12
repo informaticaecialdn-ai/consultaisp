@@ -15,6 +15,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const banco = vi.hoisted(() => ({
   linhas: new Map<string, Record<string, unknown>[]>(),
   db: null as any,
+  /** Todo SELECT que passou pelo banco de mentira, na ordem — usado para provar ESCOPO de query, nao so o resultado final. */
+  sqlExecutado: [] as string[],
 }));
 
 vi.mock("../../db", () => ({
@@ -91,7 +93,9 @@ function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
 
 beforeEach(() => {
   banco.linhas = new Map();
+  banco.sqlExecutado = [];
   banco.db = drizzle(async (sqlTexto: string, params: unknown[]) => {
+    banco.sqlExecutado.push(sqlTexto);
     if (sqlTexto.startsWith("select")) return { rows: processarSelect(sqlTexto, params) };
     throw new Error(`SQL nao suportado pelo banco de mentira: ${sqlTexto}`);
   });
@@ -283,6 +287,46 @@ describe("conector demo", () => {
     const r = await connector.fetchCustomerByCpf(config(undefined), CPF_1);
     expect(r.ok).toBe(false);
     expect(r.customers).toEqual([]);
+  });
+
+  /**
+   * Rodada de correcao (Tarefa 1, 11/09/2026): antes, `fetchCustomerByCpf`
+   * lia `invoices`/`equipment` do PROVEDOR INTEIRO e so DEPOIS filtrava por
+   * `customerId` num Map em memoria — a resposta ja saia certa (por isso um
+   * teste que so olhasse o resultado final nao pegaria a regressao se este
+   * fix fosse revertido), mas o custo era uma varredura de tabela inteira por
+   * consulta. Com o teto de 150 sandboxes vivos e 1.500 clientes cada, isso e
+   * 155 varreduras completas por UMA consulta ao vivo. Este teste inspeciona
+   * o SQL de verdade que chegou ao banco de mentira — nao so o JSON de volta
+   * — porque e o unico jeito de provar que o filtro foi embutido na query.
+   */
+  it("fetchCustomerByCpf filtra faturas e equipamentos por customerId na propria query — nao varre a base do provedor inteiro", async () => {
+    banco.linhas.set("customers", [
+      linhaCliente({ id: 1, providerId: PROVEDOR_A, cpfCnpj: CPF_1 }),
+      linhaCliente({ id: 2, providerId: PROVEDOR_A, cpfCnpj: CPF_2 }),
+    ]);
+    banco.linhas.set("invoices", [
+      linhaFatura({ id: 501, customerId: 1, providerId: PROVEDOR_A, value: "119.90", diasAtraso: 45 }),
+      linhaFatura({ id: 502, customerId: 2, providerId: PROVEDOR_A, value: "500.00", diasAtraso: 90 }),
+    ]);
+    banco.linhas.set("equipment", [
+      linhaEquipamento({ id: 900, customerId: 1, providerId: PROVEDOR_A, status: "retido" }),
+      linhaEquipamento({ id: 901, customerId: 2, providerId: PROVEDOR_A, status: "retido" }),
+    ]);
+
+    const r = await connector.fetchCustomerByCpf(config(PROVEDOR_A), CPF_1);
+    expect(r.ok).toBe(true);
+    // A resposta continua correta (nao vaza a fatura/equipamento do cliente 2) —
+    // isso ja era verdade antes do fix, entao a prova real esta no SQL abaixo.
+    expect(r.customers[0].totalOverdueAmount).toBeCloseTo(119.9);
+    expect(r.customers[0].unreturnedEquipmentCount).toBe(1);
+
+    const selectsDeFaturas = banco.sqlExecutado.filter((s) => s.includes(`from "invoices"`));
+    const selectsDeEquipamento = banco.sqlExecutado.filter((s) => s.includes(`from "equipment"`));
+    expect(selectsDeFaturas, banco.sqlExecutado.join("\n")).toHaveLength(1);
+    expect(selectsDeEquipamento, banco.sqlExecutado.join("\n")).toHaveLength(1);
+    expect(selectsDeFaturas[0]).toMatch(/"invoices"\."customer_id" = \$\d+/);
+    expect(selectsDeEquipamento[0]).toMatch(/"equipment"\."customer_id" = \$\d+/);
   });
 
   it("fetchDelinquents traz so os vencidos, com totalOverdueAmount e maxDaysOverdue batendo com as faturas", async () => {

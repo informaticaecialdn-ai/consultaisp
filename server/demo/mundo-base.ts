@@ -21,16 +21,16 @@
  * rede-1 pronta e rede-3 pela metade nunca se autocorrige. Com a transação, o
  * pior caso é "nada foi gravado", que o guard já sabe tratar.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { providers, customers, invoices, equipment, erpIntegrations } from "@shared/schema";
-import type { InsertProvider, InsertCustomer, InsertInvoice, InsertEquipment, InsertErpIntegration } from "@shared/schema";
+import type { InsertCustomer, InsertInvoice, InsertEquipment, InsertErpIntegration } from "@shared/schema";
 import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
 import { encryptField } from "../utils/crypto";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 
-/** O que uma transação de verdade e o `pg-proxy` de teste têm em comum: `insert`/`select`/`transaction`. */
-type Executor = Pick<typeof db, "insert" | "select">;
+/** O que uma transação de verdade e o `pg-proxy` de teste têm em comum: `insert`/`select`/`update`/`transaction`. */
+type Executor = Pick<typeof db, "insert" | "select" | "update">;
 
 export interface ProvedorDaDemo {
   nome: string;
@@ -93,6 +93,15 @@ const IDADES_DE_VENCIMENTO_REPRESENTATIVAS = [10, 45, 120, 300, 5, 20, 35, 60, 7
 
 /** Mensalidades por faixa de plano — cíclico pelo índice da pessoa, só para variedade. */
 const VALORES_DE_PLANO = [79.9, 99.9, 119.9, 149.9, 199.9];
+/**
+ * Nome do plano, no MESMO índice de `VALORES_DE_PLANO` — para o nome bater
+ * com a mensalidade em vez de sortear os dois de forma independente. Sem
+ * `customers.contractPlan` o relatório de consulta e o Cliente 360 mostram o
+ * plano em branco (rodada de correção, 11/09/2026) — é o campo que o ERP
+ * escreve de verdade (`contract_plan`, migração 0036) e a demonstração nunca
+ * preencheu.
+ */
+const NOMES_DE_PLANO = ["Fibra 200 Mega", "Fibra 300 Mega", "Fibra 500 Mega", "Fibra 600 Mega", "Fibra 800 Mega"];
 
 /**
  * Tempo de casa, em meses — cobre as três faixas do DNA de cobrança (novo até
@@ -223,6 +232,11 @@ function valorMensalidade(personaIndex: number): number {
   return VALORES_DE_PLANO[Math.abs(personaIndex) % VALORES_DE_PLANO.length];
 }
 
+/** Mesmo índice de `valorMensalidade` — o nome do plano sempre bate com a mensalidade. */
+function planoDoContrato(personaIndex: number): string {
+  return NOMES_DE_PLANO[Math.abs(personaIndex) % NOMES_DE_PLANO.length];
+}
+
 function tenureMeses(personaIndex: number): number {
   return TENURE_MESES_REPRESENTATIVOS[Math.abs(personaIndex) % TENURE_MESES_REPRESENTATIVOS.length];
 }
@@ -307,6 +321,13 @@ function linhaDoCliente(providerId: number, entrada: EntradaDoPlano, agora: Date
     latitude: pessoa.latitude,
     longitude: pessoa.longitude,
     contractStartDate,
+    contractPlan: planoDoContrato(entrada.personaIndex),
+    // Default de schema e "manual" (shared/schema.ts:357) — o mesmo "veio do
+    // ERP ou foi digitado" que `invoices.erpSource` marca. Sem isto
+    // `novaDividaAposSaldoZerado` (server/storage/cobranca.storage.ts:1676) e
+    // o card de qualidade do Cliente 360 tratam a demonstracao inteira como
+    // dado nao verificavel.
+    erpSource: FONTE_ERP_DEMO,
     // `recalculateCustomerEquipmentAggregate` (server/storage/equipment.storage.ts)
     // só CONTA equipamento em estado retido — comodato normal fica em 0/"0",
     // e é o valor CERTO (o card de perda do anti-fraude lê estas duas
@@ -343,6 +364,13 @@ function linhaDaFatura(providerId: number, customerId: number, entrada: EntradaD
     value: valorMensalidade(entrada.personaIndex).toFixed(2),
     dueDate: vencimento,
     status: "overdue",
+    // `erp_source` nulo = digitada a mao (shared/schema.ts:444) — sem isto
+    // `baseDeFaturas` fica 0 e `/api/cobranca/carteira/mes` responde
+    // `live:false` para a demonstracao inteira. `erpRef` unico por
+    // (provider, fonte) — ver o uniqueIndex em `invoices` — e o `customerId`
+    // ja e globalmente unico, entao basta prefixar.
+    erpSource: FONTE_ERP_DEMO,
+    erpRef: `demo-fatura-${customerId}`,
   };
 }
 
@@ -378,6 +406,12 @@ function linhaDaFaturaDeSaida(providerId: number, customerId: number, entrada: E
     dueDate: cortadoEm,
     status: paga ? "paid" : "overdue",
     descricao,
+    // Mesma razao da fatura normal: sem `erpSource`/`erpRef` esta fatura conta
+    // como "digitada a mao" e nem `erpConfirmaPagamentos` nem `mensalidadeDoCliente`
+    // a enxergam — a Economia do ex-cliente (realizada OU estimada) fica sem nada
+    // para ler.
+    erpSource: FONTE_ERP_DEMO,
+    erpRef: `demo-saida-${customerId}`,
     ...(paga ? { paidDate: cortadoEm, paidValue: valor.toFixed(2) } : {}),
   };
 }
@@ -429,7 +463,16 @@ export function cnpjFicticio(indiceProvedor: number): string {
   return `${raiz}${d1}${d2}`;
 }
 
-function linhaDoProvedor(indice: number, p: ProvedorDaDemo): InsertProvider {
+/**
+ * `typeof providers.$inferInsert`, e não `InsertProvider` (`shared/schema.ts`):
+ * aquele tipo vem de `createInsertSchema(providers).omit({id: true, createdAt: true})`
+ * — OMITE `created_at` de propósito, para a ROTA de cadastro nunca aceitar um
+ * cliente inventando a própria data de criação. Aqui é o oposto: esta função
+ * PRECISA escrever `created_at` explícito (ver o comentário no campo, abaixo)
+ * — o tipo mais estrito da rota não se aplica a um seed interno que nunca
+ * passa por validação de request.
+ */
+function linhaDoProvedor(indice: number, p: ProvedorDaDemo, agora: Date): typeof providers.$inferInsert {
   return {
     name: p.nome,
     cnpj: cnpjFicticio(indice),
@@ -442,6 +485,11 @@ function linhaDoProvedor(indice: number, p: ProvedorDaDemo): InsertProvider {
     addressCity: p.cidade,
     addressState: "PR",
     contactEmail: `contato@${p.subdomain}.demo.consultaisp.com.br`,
+    // Explícito, e não o `defaultNow()` do schema: esta coluna dobra como a
+    // ÂNCORA do relógio do mundo fictício (ver `atualizarRelogioDoMundoBaseSePreciso`
+    // logo abaixo) — precisa ser EXATAMENTE o `agora` que ancorou toda data
+    // gravada nesta rodada, não um instante alguns milissegundos depois.
+    createdAt: agora,
   };
 }
 
@@ -471,7 +519,7 @@ const URL_DE_FACHADA = "demo://mundo-base";
  * `server/services/erp-sync.service.ts` pula a fonte `FONTE_ERP_DEMO` antes
  * de qualquer tentativa) — só na leitura ao vivo. Ver `server/erp/fonte-demo.ts`.
  */
-function linhaDaIntegracao(providerId: number): InsertErpIntegration {
+export function linhaDaIntegracao(providerId: number): InsertErpIntegration {
   return {
     providerId,
     erpSource: FONTE_ERP_DEMO,
@@ -506,7 +554,7 @@ async function inserirEquipamentosEmBlocos(executor: Executor, linhas: InsertEqu
 
 async function semearUmProvedor(tx: Executor, indice: number, agora: Date): Promise<{ providerId: number; clientes: number }> {
   const provedor = PROVEDORES_DA_DEMO[indice];
-  const [criado] = await tx.insert(providers).values(linhaDoProvedor(indice, provedor)).returning({ id: providers.id });
+  const [criado] = await tx.insert(providers).values(linhaDoProvedor(indice, provedor, agora)).returning({ id: providers.id });
   const providerId = criado.id;
 
   await tx.insert(erpIntegrations).values(linhaDaIntegracao(providerId));
@@ -582,6 +630,10 @@ async function semearParMigradorDeExemplo(tx: Executor, providerIdRede1: number,
     longitude: pessoa.longitude,
     equipmentCount: 0,
     equipmentEstimatedValue: "0.00",
+    contractPlan: planoDoContrato(INDICE_MIGRADOR_DE_EXEMPLO),
+    // Mesma razao de `linhaDoCliente`: sem isto este par conta como "digitado
+    // a mao" para quem le `customers.erpSource`.
+    erpSource: FONTE_ERP_DEMO,
   };
 
   await tx.insert(customers).values({
@@ -611,14 +663,128 @@ async function semearParMigradorDeExemplo(tx: Executor, providerIdRede1: number,
     value: "80.00",
     dueDate: subtrairDias(agora, 20),
     status: "overdue",
+    erpSource: FONTE_ERP_DEMO,
+    erpRef: `demo-fatura-${clienteRede2.id}`,
+  });
+}
+
+/**
+ * Acima de quantos dias sem atualizar o relógio do mundo é velho demais
+ * (rodada de correção, Tarefa 5, 11/09/2026).
+ *
+ * O prazo real em jogo: `isRecentCancellation`
+ * (`server/services/migrator-detection.service.ts`) exige que o
+ * `contractStartDate` do par migrador-serial de exemplo esteja a menos de 90
+ * dias de HOJE — e como esse campo é escrito UMA VEZ, a 45 dias do `agora` da
+ * semeadura, ele só cruza essa janela conforme o RELÓGIO REAL anda, nunca por
+ * causa de nada que o visitante faça. Medido por execução (ver o describe
+ * "o mundo envelhece" em `mundo-base.test.ts`): o exemplo pára de disparar em
+ * algum ponto entre o dia 44 e o dia 45 sem atualização — a franja de horas
+ * entre "meia-noite UTC" (como a coluna DATE é escrita) e "agora" (como
+ * `isRecentCancellation` calcula `hoje - 90 dias`, preservando o horário
+ * corrente) come uma fatia do prazo nominal de 90.
+ *
+ * Sete dias deixa mais de 6x de folga antes desse penhasco — nenhuma
+ * demonstração pública fica tanto tempo sem UM visitante sequer — e mantém a
+ * OUTRA deriva (o atraso da fatura que só cresce ao vivo, contra
+ * `customers.max_days_overdue` congelado no seed) sempre abaixo de uma
+ * semana: imperceptível contra faixas de 10 a 300 dias. O refresh em si (a
+ * parte cara: dois UPDATEs em massa tocando ~9 mil linhas) fica raro — no
+ * máximo uma vez por semana, não uma vez por visitante — porque o CHEQUE (uma
+ * leitura indexada por subdomain) é a parte que roda em toda criação de
+ * sandbox, e é ela que precisa ser barata.
+ */
+const LIMIAR_DE_ATUALIZACAO_DO_MUNDO_DIAS = 7;
+
+/** Dias INTEIROS entre duas datas — `hoje` é sempre depois da âncora, aqui. Aceita `Date` ou o texto ISO que o banco de mentira devolve (ver mundo-base.test.ts). */
+function diasEntre(hoje: Date, ancora: Date | string): number {
+  return Math.floor((hoje.getTime() - new Date(ancora).getTime()) / 86_400_000);
+}
+
+/**
+ * Desloca toda data que a semeadura gravou por `driftDias` dias — o
+ * equivalente a semear de novo com um `agora` mais recente, sem apagar nada.
+ *
+ * Funciona porque toda data que este arquivo grava é sempre "o `agora`
+ * compartilhado da rodada, menos um deslocamento fixo em dias" (idade de
+ * fatura, tempo de casa, recência de cancelamento). Somar o MESMO
+ * `driftDias` aos dois lados dessa conta preserva cada deslocamento
+ * exatamente, sem precisar saber qual fórmula gerou qual linha — e sem tocar
+ * nenhuma coluna que não seja data (mensalidade, motivo do corte, contagem de
+ * equipamento... nada disso depende de `agora`).
+ *
+ * Dois UPDATEs em massa (não um por linha, nem um por provedor): mais barato
+ * — e mais seguro do que apagar e re-semear, que exigiria primeiro limpar
+ * toda tabela com FK para estes clientes (`anti_fraud_alerts` inclusive, se
+ * algum visitante real já tiver disparado um alerta contra a base) — o mesmo
+ * problema que `apagarSandbox` existe para resolver, só que aqui contra dados
+ * que NUNCA deveriam sumir.
+ */
+async function deslocarDatasDoMundoBase(tx: Executor, idsDosProvedores: number[], driftDias: number): Promise<void> {
+  await tx.update(customers)
+    .set({
+      contractStartDate: sql`(${customers.contractStartDate} + ${driftDias} * interval '1 day')::date`,
+      cortadoEm: sql`${customers.cortadoEm} + ${driftDias} * interval '1 day'`,
+    })
+    .where(inArray(customers.providerId, idsDosProvedores));
+
+  await tx.update(invoices)
+    .set({
+      dueDate: sql`${invoices.dueDate} + ${driftDias} * interval '1 day'`,
+      paidDate: sql`${invoices.paidDate} + ${driftDias} * interval '1 day'`,
+    })
+    .where(inArray(invoices.providerId, idsDosProvedores));
+}
+
+/**
+ * Se o relógio do mundo estiver velho demais, desloca todas as datas para a
+ * idade voltar a bater com HOJE. `criadoEmRede1` é a ÂNCORA — o `createdAt`
+ * de "rede-1", escrito explicitamente com o `agora` da última rodada (seed ou
+ * refresh) em vez do `defaultNow()` do schema (ver `linhaDoProvedor`). Só
+ * "rede-1" é lido e escrito: os outros quatro provedores nunca precisam da
+ * própria âncora (ninguém a lê), e não vale reescrever `created_at` deles só
+ * por simetria.
+ *
+ * Otimista, não travado: duas requisições concorrentes cruzando o limiar ao
+ * mesmo tempo poderiam somar o drift duas vezes se ambas escrevessem sem
+ * checar. O UPDATE condicional abaixo (subdomain + created_at IGUAL ao que
+ * acabamos de ler) só avança o relógio se ninguém tiver mexido nele desde a
+ * leitura — quem perde a corrida só pula o refresh desta vez; a próxima
+ * criação de sandbox tenta de novo, e a âncora já estará fresca. Mesmo
+ * espírito do "check-then-create não atômico" que `criarSandbox`/
+ * `contarSandboxesVivos` já aceitam (ver os comentários em sandbox.service.ts) —
+ * a janela de corrida é de milissegundos e o pior caso (perder um refresh) se
+ * autocorrige na tentativa seguinte.
+ */
+async function atualizarRelogioDoMundoBaseSePreciso(
+  primeiroSubdomain: string,
+  idsDosProvedores: number[],
+  criadoEmRede1: Date | string | null,
+  agora: Date,
+): Promise<void> {
+  if (!criadoEmRede1) return; // sem âncora, sem como medir o drift — não mexe em nada.
+  const driftDias = diasEntre(agora, criadoEmRede1);
+  if (driftDias < LIMIAR_DE_ATUALIZACAO_DO_MUNDO_DIAS) return;
+
+  const ancoraLida = new Date(criadoEmRede1);
+  await db.transaction(async (tx) => {
+    const [ganhou] = await tx.update(providers)
+      .set({ createdAt: agora })
+      .where(and(eq(providers.subdomain, primeiroSubdomain), eq(providers.createdAt, ancoraLida)))
+      .returning({ id: providers.id });
+    if (!ganhou) return;
+    await deslocarDatasDoMundoBase(tx, idsDosProvedores, driftDias);
   });
 }
 
 /**
  * Semeia os cinco provedores da demonstração, a carteira de cada um e a
  * sobreposição de CPFs entre vizinhos. Idempotente: se "rede-1" já existe,
- * não grava nada de novo — só devolve o estado atual. Tudo o que grava (do
- * primeiro provedor ao último equipamento) vive numa transação só.
+ * não grava nada de novo — só devolve o estado atual (depois de, se
+ * preciso, atualizar o relógio do mundo — ver
+ * `atualizarRelogioDoMundoBaseSePreciso`). Tudo o que INSERE (do primeiro
+ * provedor ao último equipamento) vive numa transação só; o refresh, quando
+ * acontece, vive na própria transação dele.
  *
  * `agora` é injetável (nunca `new Date()` espalhado pela função) para que a
  * idade de vencimento de cada fatura, o tempo de casa e a data de saída sejam
@@ -626,14 +792,15 @@ async function semearParMigradorDeExemplo(tx: Executor, providerIdRede1: number,
  */
 export async function semearMundoBase(agora: Date = new Date()): Promise<{ provedores: number[]; clientes: number }> {
   const primeiroSubdomain = PROVEDORES_DA_DEMO[0].subdomain;
-  const jaSemeado = await db.select({ id: providers.id }).from(providers).where(eq(providers.subdomain, primeiroSubdomain));
+  const [ancora] = await db.select({ id: providers.id, createdAt: providers.createdAt }).from(providers).where(eq(providers.subdomain, primeiroSubdomain));
 
-  if (jaSemeado.length > 0) {
+  if (ancora) {
     const idsExistentes: number[] = [];
     for (const p of PROVEDORES_DA_DEMO) {
       const [linha] = await db.select({ id: providers.id }).from(providers).where(eq(providers.subdomain, p.subdomain));
       if (linha) idsExistentes.push(linha.id);
     }
+    await atualizarRelogioDoMundoBaseSePreciso(primeiroSubdomain, idsExistentes, ancora.createdAt, agora);
     return { provedores: idsExistentes, clientes: idsExistentes.length * CLIENTES_POR_PROVEDOR };
   }
 

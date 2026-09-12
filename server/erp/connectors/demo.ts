@@ -79,9 +79,39 @@ function semProviderId(): ErpFetchResult {
   };
 }
 
+/** Uma linha de `invoices` -> o formato de fatura aberta que o restante do arquivo consome. */
+function paraFaturaAberta(fatura: typeof invoices.$inferSelect): FaturaAbertaDoErp {
+  return {
+    ref: String(fatura.id),
+    vencimento: vencimentoIso(fatura.dueDate) ?? "",
+    valor: Number(fatura.value),
+    descricao: fatura.descricao ?? undefined,
+  };
+}
+
+/** Uma linha de `equipment` -> o formato normalizado que o restante do arquivo consome. */
+function paraEquipamentoNormalizado(item: typeof equipment.$inferSelect): EquipamentoNormalizado {
+  return {
+    type: item.type,
+    brand: item.brand ?? "",
+    model: item.model ?? "",
+    serialNumber: item.serialNumber ?? "",
+    mac: item.mac ?? undefined,
+    value: item.value ?? "290.00",
+    // Todo status seedado por mundo-base.ts (retido, retirada_pendente,
+    // nao_localizado, em_cobranca, not_returned) e "nao devolvido" — nenhum
+    // representa equipamento ja recuperado. "em_cobranca" e o unico que
+    // tambem marca o processo de recuperacao em curso, no mesmo sentido que
+    // os conectores reais usam para este campo (ver ixc.ts, rbx.ts).
+    inRecoveryProcess: item.status === "em_cobranca",
+  };
+}
+
 /**
  * As faturas ABERTAS (status "overdue") de todos os clientes do provedor,
- * agrupadas por `customerId` — uma consulta so, e nao uma por cliente.
+ * agrupadas por `customerId` — uma consulta so, e nao uma por cliente. Usado
+ * por `buscarClientes` (fetchDelinquents/fetchCustomers), que legitimamente
+ * precisa da base inteira.
  *
  * `totalOverdueAmount`/`maxDaysOverdue` do cliente normalizado saem DESTA
  * lista (soma e maior atraso), nunca das colunas agregadas de `customers`:
@@ -96,18 +126,13 @@ async function faturasAbertasPorCliente(providerId: number): Promise<Map<number,
   const mapa = new Map<number, FaturaAbertaDoErp[]>();
   for (const fatura of linhas) {
     const lista = mapa.get(fatura.customerId) ?? [];
-    lista.push({
-      ref: String(fatura.id),
-      vencimento: vencimentoIso(fatura.dueDate) ?? "",
-      valor: Number(fatura.value),
-      descricao: fatura.descricao ?? undefined,
-    });
+    lista.push(paraFaturaAberta(fatura));
     mapa.set(fatura.customerId, lista);
   }
   return mapa;
 }
 
-/** O comodato de todos os clientes do provedor, agrupado por `customerId`. */
+/** O comodato de todos os clientes do provedor, agrupado por `customerId`. Usado por `buscarClientes`. */
 async function equipamentosPorCliente(providerId: number): Promise<Map<number, EquipamentoNormalizado[]>> {
   const linhas = await db.select().from(equipment).where(eq(equipment.providerId, providerId));
 
@@ -115,23 +140,37 @@ async function equipamentosPorCliente(providerId: number): Promise<Map<number, E
   for (const item of linhas) {
     if (item.customerId === null) continue;
     const lista = mapa.get(item.customerId) ?? [];
-    lista.push({
-      type: item.type,
-      brand: item.brand ?? "",
-      model: item.model ?? "",
-      serialNumber: item.serialNumber ?? "",
-      mac: item.mac ?? undefined,
-      value: item.value ?? "290.00",
-      // Todo status seedado por mundo-base.ts (retido, retirada_pendente,
-      // nao_localizado, em_cobranca, not_returned) e "nao devolvido" — nenhum
-      // representa equipamento ja recuperado. "em_cobranca" e o unico que
-      // tambem marca o processo de recuperacao em curso, no mesmo sentido que
-      // os conectores reais usam para este campo (ver ixc.ts, rbx.ts).
-      inRecoveryProcess: item.status === "em_cobranca",
-    });
+    lista.push(paraEquipamentoNormalizado(item));
     mapa.set(item.customerId, lista);
   }
   return mapa;
+}
+
+/**
+ * As faturas abertas e o comodato de UM SO cliente — usado por
+ * `fetchCustomerByCpf` (rodada de correcao, 11/09/2026). Antes, uma consulta
+ * de CPF carregava as tabelas `invoices`/`equipment` do PROVEDOR INTEIRO para
+ * depois descartar tudo que nao fosse deste cliente (o `.get(cliente.id)` no
+ * Map escondia isso: a resposta ja saia certa, so o custo estava errado). Com
+ * ate 150 sandboxes vivos e 1.500 clientes cada, uma unica consulta ao vivo
+ * virava 2 varreduras de tabela inteira — 155 quando multiplicado pelo teto
+ * de sandboxes. Aqui o filtro por `customerId` vai na propria query.
+ */
+async function faturasAbertasDoCliente(providerId: number, customerId: number): Promise<FaturaAbertaDoErp[]> {
+  const linhas = await db
+    .select()
+    .from(invoices)
+    .where(and(eq(invoices.providerId, providerId), eq(invoices.customerId, customerId), eq(invoices.status, "overdue")));
+  return linhas.map(paraFaturaAberta);
+}
+
+/** O comodato de UM SO cliente — ver `faturasAbertasDoCliente`. */
+async function equipamentosDoCliente(providerId: number, customerId: number): Promise<EquipamentoNormalizado[]> {
+  const linhas = await db
+    .select()
+    .from(equipment)
+    .where(and(eq(equipment.providerId, providerId), eq(equipment.customerId, customerId)));
+  return linhas.map(paraEquipamentoNormalizado);
 }
 
 function paraClienteNormalizado(
@@ -224,15 +263,17 @@ class DemoConnector implements ErpConnector {
     }
 
     const cliente = linhas[0];
+    // Escopado por customerId — nao a base do provedor inteiro. Ver o
+    // comentario de `faturasAbertasDoCliente`.
     const [faturas, equipamentos] = await Promise.all([
-      faturasAbertasPorCliente(providerId),
-      equipamentosPorCliente(providerId),
+      faturasAbertasDoCliente(providerId, cliente.id),
+      equipamentosDoCliente(providerId, cliente.id),
     ]);
 
     return {
       ok: true,
       message: "Cliente encontrado na base de demonstracao",
-      customers: [paraClienteNormalizado(cliente, faturas.get(cliente.id), equipamentos.get(cliente.id))],
+      customers: [paraClienteNormalizado(cliente, faturas, equipamentos)],
     };
   }
 

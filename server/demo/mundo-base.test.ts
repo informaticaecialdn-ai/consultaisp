@@ -23,6 +23,14 @@ vi.hoisted(() => {
  * responde com uma fixture fixa de uma linha, e aqui o teste precisa enxergar
  * o que a semeadura REALMENTE gravou (7.500 clientes, faturas, equipamentos).
  *
+ * Também reconhece UPDATE (rodada de correção, Tarefa 5, 11/09/2026): antes
+ * `mundo-base.ts` só inseria; agora `atualizarRelogioDoMundoBaseSePreciso`
+ * atualiza `providers.created_at` (checagem otimista) e desloca
+ * `contract_start_date`/`cortado_em`/`due_date`/`paid_date` em massa quando o
+ * mundo fica velho demais. `processarUpdate` reconhece só as DUAS formas que
+ * aquele arquivo emite — um parâmetro cru, ou a própria coluna somada a
+ * `$N * interval '1 day'` — não um interpretador de SQL genérico.
+ *
  * Sem `beforeEach` limpando `banco.linhas`: os `it()` abaixo são
  * deliberadamente sequenciais (o primeiro semeia, os do meio leem, o último
  * semeia de novo para provar idempotência) — igual ao brief da Tarefa 3.
@@ -49,6 +57,7 @@ import { cpfFicticio } from "./pessoas-ficticias";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
 import { getConnector } from "../erp/registry";
+import { detectMigrator } from "../services/migrator-detection.service";
 // Efeito colateral: com DEMO_MODE=true (acima), registra o conector no registry.
 import "../erp/connectors/demo";
 
@@ -77,11 +86,31 @@ function nomesDeColuna(textoDeColunas: string): string[] {
 }
 
 /** Linhas (objeto, chave camelCase) -> array-of-arrays na ordem das colunas pedidas — o formato que o pg-proxy espera de volta. */
+/**
+ * O decoder de TIMESTAMP do drizzle-orm (`PgTimestamp.mapFromDriverValue`,
+ * para uma coluna sem `withTimezone` — o caso de `providers.createdAt`) monta
+ * a data como `valor + "+0000"`: espera de volta exatamente o que um driver
+ * real de Postgres devolveria, uma string SEM sufixo de fuso. A GRAVAÇÃO
+ * (`mapToDriverValue`) grava `date.toISOString()`, que termina em "Z" —
+ * devolver essa mesma string na LEITURA vira "...Z+0000", uma data inválida
+ * (mesmo achado documentado em `server/demo/sandbox.service.test.ts`). Até
+ * a Tarefa 5 (11/09/2026) nenhuma leitura deste arquivo passava por um
+ * `db.select` de coluna TIMESTAMP — só `providers.id` — por isso este ajuste
+ * nunca precisou existir aqui antes de `atualizarRelogioDoMundoBaseSePreciso`
+ * ler `providers.createdAt`.
+ */
+function paraFormatoDeDriverReal(valor: unknown): unknown {
+  if (typeof valor === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(valor)) {
+    return valor.slice(0, -1);
+  }
+  return valor;
+}
+
 function projetar(tabela: string, linhas: Record<string, unknown>[], textoDeColunas: string): unknown[][] {
   const mapa = chavePorColuna.get(tabela);
   if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
   const colunas = nomesDeColuna(textoDeColunas);
-  return linhas.map((linha) => colunas.map((c) => (mapa.get(c) ? linha[mapa.get(c)!] ?? null : null)));
+  return linhas.map((linha) => colunas.map((c) => paraFormatoDeDriverReal(mapa.get(c) ? linha[mapa.get(c)!] ?? null : null)));
 }
 
 /**
@@ -128,7 +157,28 @@ function processarInsert(sqlTexto: string, params: unknown[]): { tabela: string;
   return { tabela, linhasCriadas };
 }
 
-/** `select <cols> from "t" [where "t"."col" = $1 [and ...]]` — só igualdade, é tudo que `mundo-base.ts` emite. */
+/**
+ * Avalia um trecho de WHERE contra uma linha — igualdade (`"t"."col" = $N`) e
+ * `in` (`"t"."col" in ($N, $M, ...)`, o que `inArray` gera para o UPDATE em
+ * massa de `deslocarDatasDoMundoBase`), combinadas em E — mesmo formato de
+ * `server/demo/sandbox.service.test.ts`. Busca o padrão em QUALQUER lugar do
+ * texto (não ancorado), então parênteses ao redor de um AND não importam.
+ */
+function avaliarCondicoes(whereTexto: string, mapa: Map<string, string>, params: unknown[], linha: Record<string, unknown>): boolean {
+  const igualdades = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g));
+  for (const c of igualdades) {
+    if (linha[mapa.get(c[1])!] !== params[Number(c[2]) - 1]) return false;
+  }
+  const listas = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" in \(([^)]*)\)/g));
+  for (const c of listas) {
+    const indices = c[2].split(", ").map((ref) => Number(ref.replace("$", "")) - 1);
+    const permitidos = indices.map((i) => params[i]);
+    if (!permitidos.includes(linha[mapa.get(c[1])!])) return false;
+  }
+  return true;
+}
+
+/** `select <cols> from "t" [where ...]` — igualdade ou `in`, ver `avaliarCondicoes`. */
 function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
   const m = sqlTexto.match(/^select (.+) from "(\w+)"(?: where (.+))?$/s);
   if (!m) throw new Error(`SELECT nao reconhecido pelo banco de mentira: ${sqlTexto}`);
@@ -136,10 +186,88 @@ function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
   let linhas = banco.linhas.get(tabela) ?? [];
   if (whereTexto) {
     const mapa = chavePorColuna.get(tabela)!;
-    const condicoes = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g));
-    linhas = linhas.filter((linha) => condicoes.every((c) => linha[mapa.get(c[1])!] === params[Number(c[2]) - 1]));
+    linhas = linhas.filter((linha) => avaliarCondicoes(whereTexto, mapa, params, linha));
   }
   return projetar(tabela, linhas, textoDeColunas);
+}
+
+/**
+ * `data` (uma coluna DATE, texto "YYYY-MM-DD", ou uma coluna TIMESTAMP, `Date`
+ * ou string ISO) mais `dias` dias. `null`/`undefined` continua `null` — a
+ * mesma aritmética de NULL do Postgres (`NULL + interval` é `NULL`), o que
+ * cobre `cortado_em`/`paid_date` de clientes que nunca foram cortados/pagos.
+ *
+ * Devolve sempre TEXTO para o caso TIMESTAMP (`toISOString()`), nunca um
+ * `Date` cru: é o formato que `banco.linhas` já guarda para qualquer valor
+ * que passou por um INSERT de verdade (`PgTimestamp.mapToDriverValue` grava
+ * `value.toISOString()` ANTES de virar parâmetro) — devolver um objeto
+ * `Date` aqui deixaria o valor inconsistente com o resto da tabela e, pior,
+ * quebraria a PRÓXIMA leitura via `db.select`: `mapFromDriverValue` faz
+ * `valor + "+0000"`, e em um `Date` isso aciona `Date.prototype.toString()`
+ * (não `toISOString()`) por coerção do operador `+`, produzindo uma string
+ * de fuso ilegível que `new Date(...)` reconstrói errada (achado ao investigar
+ * uma falha real deste teste).
+ */
+function somarDias(valorAtual: unknown, dias: number, comoData: boolean): unknown {
+  if (valorAtual === null || valorAtual === undefined) return valorAtual;
+  if (comoData) {
+    const [ano, mes, dia] = String(valorAtual).split("-").map(Number);
+    const d = new Date(Date.UTC(ano, mes - 1, dia));
+    d.setUTCDate(d.getUTCDate() + dias);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  }
+  const base = valorAtual instanceof Date ? valorAtual : new Date(valorAtual as string);
+  return new Date(base.getTime() + dias * 86_400_000).toISOString();
+}
+
+/**
+ * `update "t" set "col" = <expr>[, ...] where <condicoes> [returning <cols>]`
+ * — as DUAS únicas formas de `<expr>` que `mundo-base.ts` emite:
+ *   1. um parâmetro cru (`$N`) — `atualizarRelogioDoMundoBaseSePreciso`
+ *      escrevendo `providers.created_at`;
+ *   2. a PRÓPRIA coluna somada a `$N * interval '1 day'`, com `::date`
+ *      opcional no fim — `deslocarDatasDoMundoBase` deslocando
+ *      `contract_start_date`/`cortado_em`/`due_date`/`paid_date`.
+ * Não é um interpretador de SQL genérico — assim como `processarInsert` só
+ * reconhece o INSERT que este arquivo gera.
+ */
+function processarUpdate(sqlTexto: string, params: unknown[]): { tabela: string; linhasAfetadas: Record<string, unknown>[] } {
+  const m = sqlTexto.match(/^update "(\w+)" set (.+?) where (.+?)(?: returning (.+))?$/s);
+  if (!m) throw new Error(`UPDATE nao reconhecido pelo banco de mentira: ${sqlTexto}`);
+  const [, tabela, setTexto, whereTexto] = m;
+  const mapa = chavePorColuna.get(tabela);
+  if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+
+  const atribuicoes = setTexto.split(", ").map((parte) => {
+    const am = parte.match(/^"(\w+)" = (.+)$/);
+    if (!am) throw new Error(`Atribuicao de UPDATE nao reconhecida: ${parte}`);
+    return { coluna: am[1], expressao: am[2] };
+  });
+
+  const linhas = (banco.linhas.get(tabela) ?? []).filter((linha) => avaliarCondicoes(whereTexto, mapa, params, linha));
+
+  for (const linha of linhas) {
+    for (const { coluna, expressao } of atribuicoes) {
+      const chave = mapa.get(coluna);
+      if (!chave) throw new Error(`Coluna "${coluna}" nao mapeada em "${tabela}"`);
+
+      const paramDireto = expressao.match(/^\$(\d+)$/);
+      if (paramDireto) {
+        linha[chave] = params[Number(paramDireto[1]) - 1];
+        continue;
+      }
+
+      const deslocamento = expressao.match(/^\(?(?:"\w+"\.)?"(\w+)" \+ \$(\d+) \* interval '1 day'\)?(::date)?$/);
+      if (!deslocamento) throw new Error(`Expressao de UPDATE nao reconhecida em ${tabela}.${coluna}: ${expressao}`);
+      const [, colunaOrigem, refDrift, comoData] = deslocamento;
+      const chaveOrigem = mapa.get(colunaOrigem);
+      if (!chaveOrigem) throw new Error(`Coluna de origem "${colunaOrigem}" nao mapeada em "${tabela}"`);
+      const dias = Number(params[Number(refDrift) - 1]);
+      linha[chave] = somarDias(linha[chaveOrigem], dias, Boolean(comoData));
+    }
+  }
+
+  return { tabela, linhasAfetadas: linhas };
 }
 
 beforeAll(() => {
@@ -151,6 +279,11 @@ beforeAll(() => {
     }
     if (sqlTexto.startsWith("select")) {
       return { rows: processarSelect(sqlTexto, params) };
+    }
+    if (sqlTexto.startsWith("update")) {
+      const retorno = sqlTexto.match(/ returning (.+)$/s);
+      const { tabela, linhasAfetadas } = processarUpdate(sqlTexto, params);
+      return { rows: retorno ? projetar(tabela, linhasAfetadas, retorno[1]) : [] };
     }
     throw new Error(`SQL nao suportado pelo banco de mentira: ${sqlTexto}`);
   });
@@ -223,6 +356,40 @@ async function totalDeProvedores(): Promise<number> {
   return (banco.linhas.get("providers") ?? []).length;
 }
 
+/**
+ * Simula `dias` dias se passando desde a última ancoragem do mundo, sem
+ * esperar de verdade — anda `providers.created_at` de "rede-1" (a âncora)
+ * para trás e desloca toda data que a semeadura gravou
+ * (`contractStartDate`/`cortadoEm`/`dueDate`/`paidDate`) dos CINCO provedores
+ * da rede pela MESMA quantidade, na direção OPOSTA de
+ * `deslocarDatasDoMundoBase`. Mutação direta de `banco.linhas`, no mesmo
+ * espírito do `envelhecer()` de `sandbox.service.test.ts` — mas precisa
+ * mover TAMBÉM as datas de negócio (não só `created_at`), senão "a âncora
+ * diz 50 dias" e "a fatura vence daqui a X dias calculados agora mesmo"
+ * ficam inconsistentes, e o teste não provaria nada sobre o REFRESH em si.
+ */
+function envelhecerMundoEm(dias: number): void {
+  const idsDaRede = new Set(PROVEDORES_DA_DEMO.map((p) => idDoProvedor(p.subdomain)));
+  const rede1 = (banco.linhas.get("providers") ?? []).find((p) => p.subdomain === PROVEDORES_DA_DEMO[0].subdomain);
+  if (!rede1) throw new Error("rede-1 nao semeada — chame semearMundoBase() antes de envelhecerMundoEm()");
+  const ancoraAtual = rede1.createdAt ? new Date(rede1.createdAt as string | Date) : new Date();
+  // Texto, nao `Date` cru — mesma razao do comentario de `somarDias`: e o
+  // formato que `banco.linhas` guarda de verdade, e o unico que a PROXIMA
+  // leitura via `db.select` (`mapFromDriverValue`) reconstroi corretamente.
+  rede1.createdAt = new Date(ancoraAtual.getTime() - dias * 86_400_000).toISOString();
+
+  for (const c of banco.linhas.get("customers") ?? []) {
+    if (!idsDaRede.has(c.providerId as number)) continue;
+    if (c.contractStartDate != null) c.contractStartDate = somarDias(c.contractStartDate, -dias, true);
+    if (c.cortadoEm != null) c.cortadoEm = somarDias(c.cortadoEm, -dias, false);
+  }
+  for (const f of banco.linhas.get("invoices") ?? []) {
+    if (!idsDaRede.has(f.providerId as number)) continue;
+    if (f.dueDate != null) f.dueDate = somarDias(f.dueDate, -dias, false);
+    if (f.paidDate != null) f.paidDate = somarDias(f.paidDate, -dias, false);
+  }
+}
+
 describe("mundo base da demonstracao", () => {
   const PROPORCOES = { clientes: 1500, inadimplentes: 225, cancelados: 150, comEquipamento: 120, compartilhados: 150 };
 
@@ -267,9 +434,40 @@ describe("mundo base da demonstracao", () => {
     for (const c of clientes) expect(c.contractStartDate, JSON.stringify(c)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("todo cliente tem contractPlan preenchido — sem ele o relatorio de consulta e o Cliente 360 mostram o plano em branco", async () => {
+    const clientes = await clientesDe("rede-1");
+    for (const c of clientes) expect(c.contractPlan, JSON.stringify(c)).toEqual(expect.any(String));
+    expect((await clientesDe("rede-1")).filter((c) => (c.contractPlan as string).trim() === "")).toHaveLength(0);
+  });
+
   it("as faturas vencidas cobrem as quatro idades, para a regua ter o que mostrar", async () => {
     const idades = await idadesDeVencimento("rede-1");
     for (const dias of [10, 45, 120, 300]) expect(idades, `idades=${idades.join(",")}`).toContain(dias);
+  });
+
+  /**
+   * Rodada de correcao (Tarefa 2, 11/09/2026): `erp_source` nulo significa
+   * "digitado a mao" (shared/schema.ts:444) — o motor que faz o resumo
+   * mensal, a Economia do cliente e a Economia do ex-cliente so contam
+   * fatura/cliente com `erpSource` preenchido. Provado pelo caminho real (a
+   * mesma condicao que `storage/faturas.storage.ts` usa), nao so pela coluna:
+   * uma fatura com erpSource errado passaria numa checagem ingenua e ainda
+   * assim ficaria fora de `mensalidadesDoProvedor`.
+   */
+  it("faturas e clientes saem marcados como vindos do ERP demo — sem isto a carteira/mes e a Economia ficam sem nada para contar", async () => {
+    const clientes = (await clientesDe("rede-1")).filter((c) => c.cpfCnpj !== CPF_DO_MIGRADOR_DE_EXEMPLO);
+    for (const c of clientes) expect(c.erpSource, JSON.stringify(c)).toBe(FONTE_ERP_DEMO);
+
+    const faturas = await faturasDe("rede-1");
+    expect(faturas.length).toBeGreaterThan(0);
+    for (const f of faturas) {
+      expect(f.erpSource, JSON.stringify(f)).toBe(FONTE_ERP_DEMO);
+      expect(f.erpRef, JSON.stringify(f)).toEqual(expect.any(String));
+      expect((f.erpRef as string).length, JSON.stringify(f)).toBeGreaterThan(0);
+    }
+    // erpRef unico por (provider, erpSource) — o uniqueIndex real de `invoices`.
+    const refs = faturas.map((f) => f.erpRef as string);
+    expect(new Set(refs).size, "erpRef duplicado dentro do mesmo provedor").toBe(refs.length);
   });
 
   describe("equipamento — rodada de correcao (11/09/2026): comodato no ativo, retido no cancelado", () => {
@@ -459,5 +657,83 @@ describe("mundo base da demonstracao", () => {
     // que a idempotencia de semearMundoBase() tambem cobre — nao duplica em
     // uma segunda chamada, mas continua ali desde a primeira.
     expect((await clientesDe("rede-1"))).toHaveLength(PROPORCOES.clientes + 1);
+  });
+});
+
+/**
+ * Tarefa 5 (rodada de correção, 11/09/2026): o mundo base é semeado UMA VEZ e
+ * fica no ar indefinidamente — sem isto, o par migrador-serial de exemplo
+ * (`contractStartDate` fixo a 45 dias do `agora` da semeadura ORIGINAL) sai
+ * da janela de 90 dias que `isRecentCancellation`
+ * (`server/services/migrator-detection.service.ts`) exige conforme o relógio
+ * de verdade anda — não por nada que a demonstração faça.
+ *
+ * Os dois testes abaixo provam pelo CAMINHO REAL (conector "demo" +
+ * `detectMigrator`, mesmo molde de `server/demo/sandbox.service.test.ts`),
+ * não por uma coluna inspecionada isoladamente: o que importa é o que a
+ * TELA mostraria, e a tela chama exatamente este caminho.
+ */
+describe("o mundo envelhece: o relogio se autoatualiza quando fica velho demais", () => {
+  const CPF_MIGRADOR = cpfFicticio(INDICE_MIGRADOR_DE_EXEMPLO);
+
+  /** `detectMigrator` pelo caminho real — mesmo molde da prova em sandbox.service.test.ts. */
+  async function migradorDetectado(): Promise<boolean> {
+    const conector = getConnector(FONTE_ERP_DEMO)!;
+    const erpResults = await Promise.all(
+      PROVEDORES_DA_DEMO.map(async (p) => {
+        const providerId = idDoProvedor(p.subdomain);
+        const integracao = (await integracaoDe(p.subdomain))!;
+        const config = buildConnectorConfig({
+          apiUrl: integracao.apiUrl as string,
+          apiToken: decryptField(integracao.apiToken as string | null),
+          apiUser: null, clientId: null, clientSecret: null, mkContraSenha: null, extraConfig: null,
+        });
+        config.extra = { ...config.extra, providerId: String(providerId) };
+        const r = await conector.fetchCustomerByCpf!(config, CPF_MIGRADOR);
+        return {
+          providerId, providerName: p.nome, erpSource: FONTE_ERP_DEMO, ok: r.ok,
+          customers: r.customers.map((c) => ({
+            ...c,
+            // Mesmo operador de normalizeCustomer (server/services/realtime-query.service.ts):
+            // `||`, nao `??`.
+            status: c.contractStatus || (c as any).status,
+            registrationDate: c.contractStartDate || (c as any).registrationDate,
+          })),
+        };
+      }),
+    );
+    const resultado = detectMigrator({
+      cpfCnpj: CPF_MIGRADOR,
+      consultingProviderId: 999_999, // nenhum dos 5 da rede — so precisa ser diferente deles
+      consultingProviderName: "Consulente de teste",
+      erpResults: erpResults as any,
+      recentConsultationsByDistinctProviders: 1,
+    });
+    return resultado?.detected === true;
+  }
+
+  it("mundo fresco: semear de novo nao desloca nenhuma data (o cheque e barato e nao mexe em nada por engano)", async () => {
+    expect(await migradorDetectado(), "invariante do mundo fresco quebrou antes mesmo deste teste rodar").toBe(true);
+    const antes = (await clientesDe("rede-1")).find((c) => c.cpfCnpj === CPF_MIGRADOR)!.contractStartDate;
+
+    await semearMundoBase();
+
+    const depois = (await clientesDe("rede-1")).find((c) => c.cpfCnpj === CPF_MIGRADOR)!.contractStartDate;
+    expect(depois, "mundo fresco (poucos ms de idade) nao deveria ter suas datas tocadas").toBe(antes);
+  });
+
+  it("mundo com 50 dias sem atualizar: o exemplo de migrador para de ser detectado, e semearMundoBase() o traz de volta", async () => {
+    envelhecerMundoEm(50);
+    expect(
+      await migradorDetectado(),
+      "50 dias sem refresh deveria ultrapassar a janela de 90 dias de isRecentCancellation (medido por execucao: quebra entre o dia 44 e o 45)",
+    ).toBe(false);
+
+    await semearMundoBase();
+
+    expect(
+      await migradorDetectado(),
+      "semearMundoBase() deveria ter deslocado as datas do mundo e trazido o exemplo de volta para dentro da janela",
+    ).toBe(true);
   });
 });

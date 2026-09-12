@@ -34,6 +34,7 @@ import {
   customers,
   invoices,
   equipment,
+  erpIntegrations,
   acessosSuporte,
   cobrancaCasos,
   cobrancaEventos,
@@ -60,14 +61,17 @@ import {
   providerDocuments,
   users,
 } from "@shared/schema";
-import type { InsertCustomer, InsertInvoice, InsertEquipment, InsertCobrancaCaso } from "@shared/schema";
+import type { InsertCustomer, InsertInvoice, InsertEquipment, InsertCobrancaCaso, InsertAntiFraudAlert } from "@shared/schema";
 import { storage } from "../storage";
 import { emailCanonico } from "../storage/users.storage";
 import { hashPassword } from "../password";
 import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
-import { PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase } from "./mundo-base";
+import { PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase, linhaDaIntegracao } from "./mundo-base";
 import { STATUS_DE_CASO, type StatusDeCaso } from "@shared/cobranca/estados";
 import type { EtapaId } from "@shared/cobranca/regua";
+import { severidadeDoAlerta } from "@shared/antifraude-avaliacao";
+import { MOTIVO_CANCELADO_NO_ERP, MOTIVO_DIVIDA_ZERADA } from "../services/cobranca/regua-diaria.service";
+import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 
 /** O que uma transação de verdade e o `pg-proxy` de teste têm em comum. Ver o mesmo tipo em `mundo-base.ts`. */
 type Executor = Pick<typeof db, "insert" | "select" | "delete">;
@@ -172,8 +176,20 @@ const CANCELADOS_COM_EQUIPAMENTO_RETIDO = 30; // ex-clientes, ONU NÃO devolvida
 
 const IDADES_DE_VENCIMENTO_REPRESENTATIVAS = [10, 45, 120, 300, 20, 60, 90, 150, 250];
 const VALORES_DE_PLANO = [79.9, 99.9, 119.9, 149.9, 199.9];
+/** Mesmo índice de `VALORES_DE_PLANO` — ver a mesma constante em `mundo-base.ts`. */
+const NOMES_DE_PLANO = ["Fibra 200 Mega", "Fibra 300 Mega", "Fibra 500 Mega", "Fibra 600 Mega", "Fibra 800 Mega"];
 const TENURE_MESES_REPRESENTATIVOS = [2, 5, 9, 14, 20, 28, 36, 48, 60, 84];
 const RECENCIA_CANCELAMENTO_DIAS = [30, 60, 90, 150, 210, 365];
+
+/**
+ * As cidades que o mundo base atende (`PROVEDORES_DA_DEMO`, deduplicadas:
+ * Londrina aparece em rede-1 e rede-5). O sandbox nasce SEM
+ * `cidadesAtendidas` nem `addressState` (rodada de correção, Tarefa 6,
+ * 11/09/2026) — sem eles o modo "Rede" do mapa de calor manda o visitante
+ * configurar as cidades do PRÓPRIO provedor antes de mostrar qualquer coisa,
+ * numa demonstração que não tem onde clicar para configurar.
+ */
+const CIDADES_DO_MUNDO_BASE = Array.from(new Set(PROVEDORES_DA_DEMO.map((p) => p.cidade)));
 
 const STATUS_DE_EQUIPAMENTO_RETIDO = ["retido", "retirada_pendente", "nao_localizado", "em_cobranca", "not_returned"] as const;
 const STATUS_DE_EQUIPAMENTO_COMODATO = "em_comodato";
@@ -321,6 +337,11 @@ function valorMensalidade(indice: number): number {
   return VALORES_DE_PLANO[Math.abs(indice) % VALORES_DE_PLANO.length];
 }
 
+/** Mesmo índice de `valorMensalidade` — o nome do plano sempre bate com a mensalidade. */
+function planoDoContrato(indice: number): string {
+  return NOMES_DE_PLANO[Math.abs(indice) % NOMES_DE_PLANO.length];
+}
+
 function tenureMeses(indice: number): number {
   return TENURE_MESES_REPRESENTATIVOS[Math.abs(indice) % TENURE_MESES_REPRESENTATIVOS.length];
 }
@@ -379,6 +400,11 @@ function linhaDoCliente(providerId: number, entrada: EntradaSandbox, agora: Date
     latitude: pessoa.latitude,
     longitude: pessoa.longitude,
     contractStartDate,
+    contractPlan: planoDoContrato(indice),
+    // Default de schema e "manual" — mesma razao de `mundo-base.ts`: sem
+    // isto o sandbox conta como carteira digitada a mao para quem le
+    // `customers.erpSource` (Cliente 360, o motor de reabertura de caso).
+    erpSource: FONTE_ERP_DEMO,
     equipmentCount: equip?.retido ? 1 : 0,
     equipmentEstimatedValue: equip?.retido ? equip.value.toFixed(2) : "0.00",
     ...(cortadoEm ? { cortadoEm } : {}),
@@ -408,6 +434,11 @@ function linhaDaFatura(providerId: number, customerId: number, entrada: EntradaS
     value: valorMensalidade(indice).toFixed(2),
     dueDate: subtrairDias(agora, idadeDias),
     status: "overdue",
+    // Ver a mesma marcação em `mundo-base.ts`: `erp_source` nulo = digitado a
+    // mao, e sem ela `baseDeFaturas`/`mensalidadesDoProvedor` ficam cegos
+    // para a carteira inteira do sandbox.
+    erpSource: FONTE_ERP_DEMO,
+    erpRef: `demo-fatura-${customerId}`,
   };
 }
 
@@ -431,6 +462,8 @@ function linhaDaFaturaDeSaida(providerId: number, customerId: number, entrada: E
     dueDate: cortadoEm,
     status: paga ? "paid" : "overdue",
     descricao,
+    erpSource: FONTE_ERP_DEMO,
+    erpRef: `demo-saida-${customerId}`,
     ...(paga ? { paidDate: cortadoEm, paidValue: valor.toFixed(2) } : {}),
   };
 }
@@ -486,6 +519,21 @@ async function inserirEquipamentosEmBlocos(tx: Executor, linhas: InsertEquipment
  * cancelados — nenhum dos 9 toca os clientes de exemplo ("limpo",
  * "devendo_na_rede"), que vivem fora da faixa exclusiva de cursores usada
  * aqui (0..4 e 225..227).
+ *
+ * Rodada de correção (Tarefa 3, 11/09/2026): `montarColuna`
+ * (`server/routes/cobranca.routes.ts`) só mostra uma coluna FECHADA
+ * (`casoFechado`, `shared/cobranca/estados.ts` — "pago", "baixado",
+ * "encerrado", "cancelamento") quando o caso tem `encerradoEm` DENTRO da
+ * janela de 30 dias (`JANELA_DE_FECHADOS_DIAS`); sem `encerradoEm` a
+ * varredura filtra TUDO fora, e quatro das nove colunas nasciam vazias.
+ * `agora` (a própria criação do sandbox) está sempre bem dentro da janela,
+ * pelas 24h de vida do sandbox inteiro. `motivoEncerramento` usa o
+ * VOCABULÁRIO REAL que a régua diária de verdade grava
+ * (`server/services/cobranca/regua-diaria.service.ts`), nunca uma string
+ * inventada — "baixado" fica com `null` de propósito: é a única das quatro
+ * que só o admin fecha na mão pelo kanban (`SO_ADMIN` em
+ * `movimentos-cobranca.ts`), sem motivo automático correspondente, e o PATCH
+ * que fecha por essa via não exige motivo (só "cancelamento" exige).
  */
 function casosDoKanban(
   providerId: number,
@@ -505,10 +553,11 @@ function casosDoKanban(
     { status: "negativado", cursor: 4, etapa: "pre_negativacao", prioridade: "critica" },
     { status: "pago", cursor: 5, etapa: null, prioridade: "normal" },
   ];
-  const TERMINAIS_EX_CLIENTE: Array<{ status: StatusDeCaso; cursor: number }> = [
-    { status: "cancelamento", cursor: INADIMPLENTES_POR_SANDBOX + 0 },
-    { status: "baixado", cursor: INADIMPLENTES_POR_SANDBOX + 1 },
-    { status: "encerrado", cursor: INADIMPLENTES_POR_SANDBOX + 2 },
+  /** `motivo: null` = fechado sem motivo automático (ver o comentário da função) — nunca uma string inventada. */
+  const TERMINAIS_EX_CLIENTE: Array<{ status: StatusDeCaso; cursor: number; motivo: string | null }> = [
+    { status: "cancelamento", cursor: INADIMPLENTES_POR_SANDBOX + 0, motivo: MOTIVO_CANCELADO_NO_ERP },
+    { status: "baixado", cursor: INADIMPLENTES_POR_SANDBOX + 1, motivo: null },
+    { status: "encerrado", cursor: INADIMPLENTES_POR_SANDBOX + 2, motivo: MOTIVO_DIVIDA_ZERADA },
   ];
 
   const casos: InsertCobrancaCaso[] = [];
@@ -517,6 +566,10 @@ function casosDoKanban(
     const entrada = entradaDoCursor(item.cursor);
     const indice = indiceDaEntrada(providerId, entrada);
     const valor = valorMensalidade(indice).toFixed(2);
+    // "pago" é o único status FECHADO dentro de NAO_TERMINAIS (ver
+    // STATUS_FECHADOS_DE_CASO em shared/cobranca/estados.ts) — os outros
+    // cinco são vivos e não levam encerradoEm.
+    const fechado = item.status === "pago";
     casos.push({
       providerId,
       customerId: idDoCursor(item.cursor),
@@ -528,6 +581,7 @@ function casosDoKanban(
       valorAtual: valor,
       prioridade: item.prioridade,
       proximoContatoEm: item.status === "pago" ? null : new Date(agora.getTime() + 24 * 60 * 60 * 1000),
+      ...(fechado ? { encerradoEm: agora, motivoEncerramento: null } : {}),
     });
   }
 
@@ -543,6 +597,8 @@ function casosDoKanban(
       valorAtual: "0.00",
       prioridade: "baixa",
       proximoContatoEm: null,
+      encerradoEm: agora,
+      motivoEncerramento: item.motivo,
     });
   }
 
@@ -554,6 +610,84 @@ function casosDoKanban(
   }
 
   return casos;
+}
+
+/**
+ * Cursores de exemplo para os alertas de anti-fraude — um punhado (3), não a
+ * carteira inteira: inadimplentes (a categoria que a regra padrão
+ * `ativo_inadimplente` exige), fora da faixa 0..5 que `casosDoKanban` já usa
+ * — as duas histórias não precisam se sobrepor.
+ */
+const CURSORES_DE_ALERTA_ANTI_FRAUDE = [20, 21, 22] as const;
+
+/**
+ * Um punhado de `anti_fraud_alerts` para o PRÓPRIO sandbox, na FORMA exata
+ * que `notifyOwnerProviders` (`server/services/proactive-alert.service.ts`)
+ * grava de verdade quando a regra de fuga dispara.
+ *
+ * Sem isto a aba Anti-Fraude do sandbox SEMPRE abre vazia: o detector só
+ * escreve alerta no DONO do cliente consultado, e numa consulta ao vivo de
+ * verdade o dono é sempre outro provedor da rede — nunca o PRÓPRIO sandbox
+ * que o visitante acabou de logar em (é a Tarefa 4: a segunda funcionalidade
+ * que a landing anuncia, e a demonstração nunca mostrava nada nela).
+ *
+ * `customerId` aponta para um cliente ATIVO e INADIMPLENTE da PRÓPRIA
+ * carteira do sandbox — a mesma condição que a regra `ativo_inadimplente`
+ * (padrão, ligada) exige antes de um alerta nascer de verdade.
+ * `consultingProviderId` é sempre um dos CINCO provedores do mundo base
+ * (nunca o próprio sandbox, e nunca inventado): é a "rede" que teria
+ * consultado este cliente. `riskFactors` no MESMO formato que
+ * `notifyOwnerProviders` grava — é o que a tela lê de volta via
+ * `motivosGravados` (`shared/antifraude-avaliacao.ts`); sem "divida_ativa"
+ * ali o card cairia no motivo genérico em vez do rótulo real.
+ */
+function alertasAntiFraudeDoSandbox(
+  providerId: number,
+  entradas: EntradaSandbox[],
+  idsClientes: number[],
+  indicePorCursor: Map<number, number>,
+  provedoresDoMundoBase: readonly number[],
+): InsertAntiFraudAlert[] {
+  const idDoCursor = (cursor: number): number => idsClientes[indicePorCursor.get(cursor)!];
+  const entradaDoCursor = (cursor: number): EntradaSandbox => entradas[indicePorCursor.get(cursor)!];
+
+  return CURSORES_DE_ALERTA_ANTI_FRAUDE.map((cursor, i) => {
+    const entrada = entradaDoCursor(cursor);
+    const indice = indiceDaEntrada(providerId, entrada);
+    const pessoa = pessoaFicticia(indice);
+    const totalOverdueAmount = valorMensalidade(indice);
+    const maxDaysOverdue = idadeRepresentativa(entrada.posicaoNaCategoria);
+    const diasDeContrato = tenureMeses(indice) * 30;
+    const consultingProviderId = provedoresDoMundoBase[i % provedoresDoMundoBase.length];
+    const consultingProviderName = PROVEDORES_DA_DEMO[i % PROVEDORES_DA_DEMO.length].nome;
+    const severidade = severidadeDoAlerta(["divida_ativa"], { totalOverdueAmount, maxDaysOverdue });
+
+    return {
+      providerId,
+      customerId: idDoCursor(cursor),
+      consultingProviderId,
+      consultingProviderName,
+      customerName: pessoa.nome,
+      customerCpfCnpj: cpfFicticio(indice),
+      type: "defaulter_consulted",
+      severity: severidade,
+      message: `Seu cliente ativo com R$ ${formatarReal(totalOverdueAmount)} vencidos há ${maxDaysOverdue} dia${maxDaysOverdue === 1 ? "" : "s"} foi consultado por outro provedor da rede`,
+      riskScore: severidade === "critical" ? 90 : severidade === "high" ? 70 : 50,
+      riskLevel: severidade === "critical" ? "critico" : severidade === "high" ? "alto" : "medio",
+      riskFactors: [
+        "consulta_outro_provedor",
+        "divida_ativa",
+        `dias_contrato:${diasDeContrato}`,
+        "combinacao:qualquer",
+        "erp_ao_vivo",
+      ],
+      daysOverdue: maxDaysOverdue,
+      overdueAmount: totalOverdueAmount.toFixed(2),
+      recentConsultations: 1,
+      resolved: false,
+      status: "new",
+    };
+  });
 }
 
 /** Código de erro do Postgres para violação de unicidade (`unique_violation`). */
@@ -572,12 +706,12 @@ const TENTATIVAS_DE_CRIACAO = 5;
  * na hora, sem retentativa.
  */
 export async function criarSandbox(): Promise<{ providerId: number; userId: number; subdomain: string; expiraEm: Date }> {
-  await semearMundoBase();
+  const mundoBase = await semearMundoBase();
   const agora = new Date();
 
   for (let tentativa = 1; tentativa <= TENTATIVAS_DE_CRIACAO; tentativa++) {
     try {
-      return await tentarCriarSandbox(agora);
+      return await tentarCriarSandbox(agora, mundoBase.provedores);
     } catch (err) {
       const codigo = (err as { code?: string } | null | undefined)?.code;
       if (codigo !== CODIGO_UNIQUE_VIOLATION || tentativa === TENTATIVAS_DE_CRIACAO) throw err;
@@ -590,10 +724,16 @@ export async function criarSandbox(): Promise<{ providerId: number; userId: numb
 /**
  * Uma tentativa de criação, inteira, numa ÚNICA transação — provedor,
  * usuário administrador e carteira (clientes, faturas, equipamentos, casos
- * de cobrança). Falhar em qualquer ponto não deixa par provedor+usuário
- * órfão: a transação inteira desfaz.
+ * de cobrança, integração ERP, alertas de anti-fraude). Falhar em qualquer
+ * ponto não deixa par provedor+usuário órfão: a transação inteira desfaz.
+ *
+ * `provedoresDoMundoBase` (Tarefa 4, 11/09/2026) são os ids que
+ * `semearMundoBase()` já devolveu para `criarSandbox()` — os alertas de
+ * anti-fraude do sandbox precisam de um "consulente" que exista de verdade
+ * (FK de `anti_fraud_alerts.consulting_provider_id` para `providers.id`), e
+ * nunca o próprio sandbox.
  */
-async function tentarCriarSandbox(agora: Date): Promise<{ providerId: number; userId: number; subdomain: string; expiraEm: Date }> {
+async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly number[]): Promise<{ providerId: number; userId: number; subdomain: string; expiraEm: Date }> {
   const subdomain = subdominioDoSandbox();
   const senhaHash = await hashPassword(crypto.randomBytes(24).toString("hex"));
 
@@ -608,7 +748,19 @@ async function tentarCriarSandbox(agora: Date): Promise<{ providerId: number; us
       verificationStatus: "approved",
       ispCredits: SALDO_INICIAL,
       spcCredits: SALDO_INICIAL,
+      // Rodada de correção (Tarefa 6): sem isto o modo "Rede" do mapa de
+      // calor manda o visitante configurar as próprias cidades antes de
+      // mostrar qualquer coisa — numa demonstração sem tela para isso.
+      cidadesAtendidas: CIDADES_DO_MUNDO_BASE,
+      addressState: "PR",
     }).returning();
+
+    // Rodada de correção (Tarefa 1): o MESMO conjunto de campos que o mundo
+    // base grava (`linhaDaIntegracao`, mundo-base.ts) — sem integração
+    // habilitada `buildErpConfig` lança antes de o conector "demo" ser
+    // chamado, e a rede inteira (inclusive a PRÓPRIA carteira do sandbox)
+    // fica invisível para a consulta ao vivo.
+    await tx.insert(erpIntegrations).values(linhaDaIntegracao(provider.id));
 
     // Espelha storage.createUser (server/storage/users.storage.ts:92-98),
     // email canonicalizado incluído.
@@ -649,6 +801,9 @@ async function tentarCriarSandbox(agora: Date): Promise<{ providerId: number; us
 
     const casos = casosDoKanban(provider.id, entradas, idsClientes, indicePorCursor, agora);
     await tx.insert(cobrancaCasos).values(casos);
+
+    const alertas = alertasAntiFraudeDoSandbox(provider.id, entradas, idsClientes, indicePorCursor, provedoresDoMundoBase);
+    await tx.insert(antiFraudAlerts).values(alertas);
 
     return {
       providerId: provider.id,

@@ -99,6 +99,10 @@ import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
 import { getConnector } from "../erp/registry";
 import { detectMigrator } from "../services/migrator-detection.service";
+import { decryptField } from "../utils/crypto";
+import { motivosGravados, rotuloDoAlerta } from "@shared/antifraude-avaliacao";
+import { maskAlertForProvider } from "../utils/mask-alert";
+import { casoFechado } from "@shared/cobranca/estados";
 // Efeito colateral: com DEMO_MODE=true (acima), registra o conector "demo" no registry.
 import "../erp/connectors/demo";
 
@@ -360,6 +364,18 @@ async function casosDeCobrancaDe(providerId: number): Promise<Record<string, unk
   return (banco.linhas.get("cobranca_casos") ?? []).filter((c) => c.providerId === providerId);
 }
 
+async function faturasDe(providerId: number): Promise<Record<string, unknown>[]> {
+  return (banco.linhas.get("invoices") ?? []).filter((f) => f.providerId === providerId);
+}
+
+async function integracaoDe(providerId: number): Promise<Record<string, unknown> | undefined> {
+  return (banco.linhas.get("erp_integrations") ?? []).find((i) => i.providerId === providerId);
+}
+
+async function alertasAntiFraudeDe(providerId: number): Promise<Record<string, unknown>[]> {
+  return (banco.linhas.get("anti_fraud_alerts") ?? []).filter((a) => a.providerId === providerId);
+}
+
 function idDe(subdomain: string): number {
   const linha = (banco.linhas.get("providers") ?? []).find((p) => p.subdomain === subdomain);
   if (!linha) throw new Error(`Provedor nao semeado: ${subdomain}`);
@@ -493,6 +509,153 @@ describe("sandbox do visitante", () => {
     const casos = await casosDeCobrancaDe(s.providerId);
     const ORDEM_DO_KANBAN = ["aberto", "em_contato", "negociando", "acordo_ativo", "pago", "cancelamento", "negativado", "baixado", "encerrado"];
     expect(new Set(casos.map((c) => c.status))).toEqual(new Set(ORDEM_DO_KANBAN));
+  });
+
+  /**
+   * Rodada de correção (Tarefa 3, 11/09/2026): ter uma LINHA por status não
+   * prova que a COLUNA aparece no quadro. `montarColuna`
+   * (`server/routes/cobranca.routes.ts`) só mostra uma coluna FECHADA
+   * (`casoFechado`: pago, baixado, encerrado, cancelamento) quando o caso tem
+   * `encerradoEm` DENTRO da janela de 30 dias (`JANELA_DE_FECHADOS_DIAS`) —
+   * o mesmo filtro está reproduzido aqui, contra o que `criarSandbox()`
+   * REALMENTE gravou. Antes desta correção, `encerradoEm` nascia sempre
+   * `null` para as quatro, e as quatro colunas apareciam vazias no quadro
+   * mesmo com o caso existindo (o teste acima, sozinho, nunca pegava isso).
+   */
+  it("as quatro colunas FECHADAS do kanban tem encerradoEm dentro da janela de 30 dias que montarColuna exige — senao a coluna aparece vazia mesmo com o caso existindo", async () => {
+    const s = await criarSandbox();
+    const casos = await casosDeCobrancaDe(s.providerId);
+    const hoje = new Date();
+    const fechadosDesde = new Date(hoje.getTime() - 30 * 24 * 60 * 60 * 1000); // JANELA_DE_FECHADOS_DIAS
+
+    const statusFechados = casos.filter((c) => casoFechado(c.status as string));
+    expect(statusFechados.map((c) => c.status).sort()).toEqual(["baixado", "cancelamento", "encerrado", "pago"]);
+
+    for (const caso of statusFechados) {
+      const encerradoEm = caso.encerradoEm as Date | string | null;
+      expect(encerradoEm, `${caso.status}: encerradoEm nulo — a coluna nasce vazia`).not.toBeNull();
+      const quando = new Date(encerradoEm as string | Date).getTime();
+      expect(quando, `${caso.status}: encerradoEm fora da janela de 30 dias`).toBeGreaterThanOrEqual(fechadosDesde.getTime());
+    }
+  });
+
+  it("faturas e clientes do sandbox saem marcados como vindos do ERP demo, com plano preenchido — sem isto a Economia e a carteira/mes ficam sem nada para contar", async () => {
+    const s = await criarSandbox();
+    const clientes = await clientesDe(s.providerId);
+    for (const c of clientes) {
+      expect(c.erpSource, JSON.stringify(c)).toBe(FONTE_ERP_DEMO);
+      expect(c.contractPlan, JSON.stringify(c)).toEqual(expect.any(String));
+    }
+
+    const faturas = await faturasDe(s.providerId);
+    expect(faturas.length).toBeGreaterThan(0);
+    for (const f of faturas) {
+      expect(f.erpSource, JSON.stringify(f)).toBe(FONTE_ERP_DEMO);
+      expect((f.erpRef as string | null)?.length ?? 0, JSON.stringify(f)).toBeGreaterThan(0);
+    }
+    const refs = faturas.map((f) => f.erpRef as string);
+    expect(new Set(refs).size, "erpRef duplicado dentro do mesmo sandbox").toBe(refs.length);
+  });
+
+  it("o provedor do sandbox nasce com cidadesAtendidas e addressState — senao o modo Rede do mapa manda o visitante configurar as proprias cidades", async () => {
+    const s = await criarSandbox();
+    const provider = await providerDe(s.providerId);
+    expect(provider.addressState).toBe("PR");
+    // `cidadesAtendidas` e coluna ARRAY: o pg-proxy nunca decodifica de volta
+    // para JS (o banco de mentira le `banco.linhas` direto, sem passar pelo
+    // decoder do Drizzle) — o que chega e o literal de array do Postgres que
+    // `mapToDriverValue` gerou ao gravar, tipo `{"Londrina","Ibiporã",...}`.
+    const cidades = provider.cidadesAtendidas as string;
+    expect(cidades, "cidadesAtendidas vazio ou nulo").toBeTruthy();
+    for (const cidade of ["Londrina", "Ibiporã", "Cambé", "Apucarana"]) {
+      expect(cidades, cidades).toContain(cidade);
+    }
+  });
+
+  it("o sandbox tem integracao 'demo' habilitada — sem ela a consulta ao vivo nunca alcanca o conector, nem para a PROPRIA carteira do sandbox", async () => {
+    const s = await criarSandbox();
+    const integracao = await integracaoDe(s.providerId);
+    expect(integracao).toMatchObject({ erpSource: FONTE_ERP_DEMO, isEnabled: true });
+
+    const apiUrl = (integracao?.apiUrl as string) ?? "";
+    expect(apiUrl).not.toBe("");
+    expect(() => new URL(apiUrl)).not.toThrow();
+    expect(decryptField(integracao?.apiToken as string | null)).toBeTruthy();
+  });
+
+  /**
+   * Rodada de correção (Tarefa 1, 11/09/2026): a raiz do defeito que motivou
+   * esta rodada inteira — o visitante abre a PRÓPRIA carteira, vê um cliente
+   * devendo, consulta o MESMO CPF, e a consulta respondia "nada consta"
+   * porque o sandbox não tinha integração ERP nenhuma. Prova pelo caminho
+   * REAL: o conector "demo" de verdade, respondendo pela integração que
+   * `criarSandbox()` gravou — não por uma linha em `customers` inspecionada
+   * isoladamente.
+   */
+  it("um cliente da PROPRIA carteira do sandbox e encontrado pela consulta ao vivo — a raiz do defeito que esta rodada corrige", async () => {
+    const s = await criarSandbox();
+    const clientes = await clientesDe(s.providerId);
+    const inadimplente = clientes.find((c) => c.paymentStatus === "overdue")!;
+
+    const integracao = (await integracaoDe(s.providerId))!;
+    const config = buildConnectorConfig({
+      apiUrl: integracao.apiUrl as string,
+      apiToken: decryptField(integracao.apiToken as string | null),
+      apiUser: null, clientId: null, clientSecret: null, mkContraSenha: null, extraConfig: null,
+    });
+    config.extra = { ...config.extra, providerId: String(s.providerId) };
+
+    const conector = getConnector(FONTE_ERP_DEMO)!;
+    const resultado = await conector.fetchCustomerByCpf!(config, inadimplente.cpfCnpj as string);
+    expect(resultado.ok, JSON.stringify(resultado)).toBe(true);
+    expect(resultado.customers).toHaveLength(1);
+    expect(resultado.customers[0].totalOverdueAmount).toBeGreaterThan(0);
+  });
+
+  /**
+   * Rodada de correção (Tarefa 4, 11/09/2026): sem alertas seedados, a aba
+   * Anti-Fraude do sandbox SEMPRE abre vazia — a segunda funcionalidade que a
+   * landing anuncia, e a demonstração nunca mostrava nada nela. Prova pelas
+   * MESMAS transformações que `GET /api/anti-fraud/alerts`
+   * (`server/routes/antifraude.routes.ts`) aplica antes de mandar para a
+   * tela: `maskAlertForProvider` (o dono vê o próprio cliente sem máscara) e
+   * `motivosGravados`/`rotuloDoAlerta` (o motivo que o card mostra) — não só
+   * a existência da linha em `anti_fraud_alerts`.
+   */
+  it("o sandbox nasce com alertas de anti-fraude, na forma que a tela realmente le (mascaramento + motivo)", async () => {
+    const s = await criarSandbox();
+    const alertas = await alertasAntiFraudeDe(s.providerId);
+    expect(alertas.length).toBeGreaterThan(0);
+
+    const idsDaRede = new Set(PROVEDORES_DA_DEMO.map((p) => idDe(p.subdomain)));
+    for (const alerta of alertas) {
+      // Só "defaulter_consulted" chega na tela — "migrador_serial" é ignorado por design.
+      expect(alerta.type).toBe("defaulter_consulted");
+      // O consulente é sempre outro provedor de VERDADE da rede, nunca o próprio sandbox.
+      expect(idsDaRede.has(alerta.consultingProviderId as number), JSON.stringify(alerta)).toBe(true);
+      expect(alerta.consultingProviderId).not.toBe(s.providerId);
+
+      // `riskFactors` e coluna JSONB: o pg-proxy grava o JSON.stringify que o
+      // Drizzle gerou como parametro, e o banco de mentira devolve esse texto
+      // cru (le `banco.linhas` direto, sem passar pelo decoder) — um
+      // Postgres de verdade devolveria o array ja desserializado.
+      const riskFactors = typeof alerta.riskFactors === "string" ? JSON.parse(alerta.riskFactors) : alerta.riskFactors;
+      const motivos = motivosGravados(riskFactors);
+      expect(motivos, JSON.stringify(alerta)).toContain("divida_ativa");
+      expect(rotuloDoAlerta(motivos)).toBe("Fuga · cliente ativo com dívida");
+
+      // `customerProviderId` simula o JOIN que `getAlertsByProvider` faz de
+      // verdade (server/storage/antifraude.storage.ts) — sem ele
+      // `maskAlertForProvider` não sabe que o cliente É do próprio dono.
+      const mascarado = maskAlertForProvider({ ...alerta, customerProviderId: s.providerId }, s.providerId);
+      expect(mascarado.customerName, "cliente do proprio dono nao deveria sair mascarado").toBe(alerta.customerName);
+      expect(mascarado.customerCpfCnpj).toBe(alerta.customerCpfCnpj);
+      // O nome do parceiro nunca sai cru — sempre o código anonimizado.
+      expect(mascarado.consultingProviderName as string).toMatch(/^Provedor Parceiro ISP-/);
+    }
+
+    // Clientes distintos — os alertas não apontam todos para o mesmo cliente.
+    expect(new Set(alertas.map((a) => a.customerId)).size).toBe(alertas.length);
   });
 
   // ── O sinal de migrador serial: prova pelo CAMINHO REAL, nao pela linha ──
