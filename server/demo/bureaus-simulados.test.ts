@@ -61,6 +61,67 @@ describe("bureaus simulados", () => {
     expect(contraditorios, contraditorios.join("; ")).toHaveLength(0);
   });
 
+  describe("relogio real: frescor no carimbo, determinismo no conteudo", () => {
+    // Regressao do ruling das datas: a demonstracao tem que mostrar o dia
+    // REAL de hoje (frescor), sem deixar de contar sempre a MESMA historia
+    // para o mesmo documento (determinismo). O teste de determinismo que ja
+    // existe ("o mesmo documento devolve sempre o mesmo resultado") passa por
+    // ACIDENTE de granularidade — as duas chamadas caem no mesmo dia UTC,
+    // entao ficaria verde mesmo se alguem devolvesse um ancora fixo. Este
+    // teste prende as duas propriedades SEPARADAMENTE, travando o relogio em
+    // dois dias DIFERENTES (7 dias de distancia).
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("consultadoEm e as datas internas deslocam com 'hoje'; score/nivel/situacao/valores nao mudam", () => {
+      const doc = "99912345607";
+      const DIA_MS = 86_400_000;
+
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-01-10T12:00:00.000Z"));
+      const spcDia1 = spcSimulado(doc);
+      const bdcDia1 = cadastralSimulado(doc);
+
+      vi.setSystemTime(new Date("2026-01-17T12:00:00.000Z")); // +7 dias exatos
+      const spcDia2 = spcSimulado(doc);
+      const bdcDia2 = cadastralSimulado(doc);
+
+      // ── Frescor: o carimbo da consulta É o "hoje" mockado em cada execução.
+      expect(spcDia1.consultadoEm).toBe("2026-01-10");
+      expect(spcDia2.consultadoEm).toBe("2026-01-17");
+
+      // ── Frescor: datas internas do histórico deslocam os MESMOS 7 dias.
+      expect(spcDia1.cadastralData.dataNascimento).toBeTruthy();
+      const deslocamentoNascimento =
+        (new Date(spcDia2.cadastralData.dataNascimento!).getTime() -
+          new Date(spcDia1.cadastralData.dataNascimento!).getTime()) / DIA_MS;
+      expect(deslocamentoNascimento).toBe(7);
+
+      expect(bdcDia1.identidade.dataSituacao).toBeTruthy();
+      const deslocamentoDataSituacao =
+        (new Date(bdcDia2.identidade.dataSituacao!).getTime() -
+          new Date(bdcDia1.identidade.dataSituacao!).getTime()) / DIA_MS;
+      expect(deslocamentoDataSituacao).toBe(7);
+
+      // ── Determinismo de conteúdo: mesmo documento, mesma história — só a
+      // data-calendário muda. Cobre exatamente o que a re-revisão confirmou
+      // por execução (score, nível, emCobrancaAgora, dividaAtiva).
+      expect(spcDia2.score).toBe(spcDia1.score);
+      expect(spcDia2.restricao).toBe(spcDia1.restricao);
+      expect(spcDia2.status).toBe(spcDia1.status);
+      expect(spcDia2.restrictions.map(r => [r.type, r.value, r.severity, r.creditor])).toEqual(
+        spcDia1.restrictions.map(r => [r.type, r.value, r.severity, r.creditor]),
+      );
+
+      expect(bdcDia2.risco.score).toBe(bdcDia1.risco.score);
+      expect(bdcDia2.risco.nivel).toBe(bdcDia1.risco.nivel);
+      expect(bdcDia2.dados.emCobrancaAgora).toBe(bdcDia1.dados.emCobrancaAgora);
+      expect(bdcDia2.dados.temExecucao).toBe(bdcDia1.dados.temExecucao);
+      expect(bdcDia2.dados.dividaAtiva).toBe(bdcDia1.dados.dividaAtiva);
+    });
+  });
+
   describe("modo demo desvia as duas entradas reais antes de qualquer rede", () => {
     const original = process.env.DEMO_MODE;
     beforeEach(() => {
