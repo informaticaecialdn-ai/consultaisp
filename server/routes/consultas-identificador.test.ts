@@ -477,6 +477,25 @@ describe("POST /api/spc-consultations — identificador", () => {
     }
   });
 
+  /**
+   * A rota SPC espalha o `SpcResult` inteiro (`const { rawXml, ...paraTela } =
+   * result; ... result: paraTela`) — ao contrário da rota cadastral, que monta
+   * campo a campo. Ainda assim, sem este teste ninguém prova que `simulado`
+   * de fato atravessa: só que o serviço foi chamado.
+   */
+  it("simulado:true do servico chega em result.simulado na resposta", async () => {
+    spcMock.isSpcConfigured.mockReturnValue(false);
+    spcMock.consultarSpc.mockResolvedValue({ ...resultadoSpc, simulado: true });
+    process.env.DEMO_MODE = "true";
+    try {
+      const { status, body } = await consultarSpcNaRota();
+      expect(status).toBe(200);
+      expect(body.result.simulado).toBe(true);
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
+
   it("saldo insuficiente antes da consulta: codigo na resposta e no log, sem tocar o SPC", async () => {
     storageMock.getProvider.mockResolvedValue({ id: PROVEDOR, name: "Provedor Teste", ispCredits: 0 });
 

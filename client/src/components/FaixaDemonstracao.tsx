@@ -72,16 +72,20 @@ export function tempoRestanteEmTexto(ms: number): string {
 
 export function FaixaDemonstracao() {
   const { provider } = useAuth();
+  const ehSandbox = PADRAO_SUBDOMINIO_SANDBOX.test(provider?.subdomain ?? "");
 
-  // Sempre chamado, mesmo quando a faixa não vai renderizar nada — hooks não
-  // podem depender de um `return` condicional antes deles.
+  // O hook roda em TODA sessão autenticada (as regras de hooks não deixam
+  // um `return` condicional vir antes dele), mas o timer em si só nasce
+  // quando `ehSandbox`: sem essa guarda dentro do efeito, todo provedor de
+  // verdade em produção manteria um `setInterval` de 30s rodando para
+  // sempre, sem nunca ter para onde reportar.
   const [agora, setAgora] = useState(() => Date.now());
   useEffect(() => {
+    if (!ehSandbox) return;
     const id = window.setInterval(() => setAgora(Date.now()), INTERVALO_DE_ATUALIZACAO_MS);
     return () => window.clearInterval(id);
-  }, []);
+  }, [ehSandbox]);
 
-  const ehSandbox = PADRAO_SUBDOMINIO_SANDBOX.test(provider?.subdomain ?? "");
   if (!ehSandbox) return null;
 
   const criadoEm = provider?.createdAt ? new Date(provider.createdAt).getTime() : null;

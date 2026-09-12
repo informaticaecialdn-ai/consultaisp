@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { tempoRestanteEmTexto } from "./FaixaDemonstracao";
 
 const RAIZ = resolve(__dirname, "../../..");
 const ler = (rel: string) => readFileSync(join(RAIZ, rel), "utf8").replace(/\r\n/g, "\n");
@@ -40,5 +41,31 @@ describe("faixa de demonstracao", () => {
     const posFaixaDemonstracao = app.indexOf("<FaixaDemonstracao />");
     expect(posFaixaDemonstracao).toBeGreaterThan(posFaixaSuporte);
     expect(posFaixaDemonstracao).toBeLessThan(posFaixaSuporte + 400);
+  });
+});
+
+describe("tempoRestanteEmTexto", () => {
+  it("zero ou negativo: a qualquer momento — nunca minuto negativo na tela", () => {
+    expect(tempoRestanteEmTexto(0)).toBe("a qualquer momento");
+    expect(tempoRestanteEmTexto(-1)).toBe("a qualquer momento");
+    expect(tempoRestanteEmTexto(-60_000)).toBe("a qualquer momento");
+    expect(tempoRestanteEmTexto(-999_999_999)).toBe("a qualquer momento");
+  });
+
+  it("menos de uma hora: so minutos", () => {
+    expect(tempoRestanteEmTexto(1 * 60_000)).toBe("1 min");
+    expect(tempoRestanteEmTexto(5 * 60_000)).toBe("5 min");
+    expect(tempoRestanteEmTexto(59 * 60_000)).toBe("59 min");
+  });
+
+  it("uma hora ou mais: horas e minutos, minutos sempre com dois digitos", () => {
+    expect(tempoRestanteEmTexto(60 * 60_000)).toBe("1 h 00 min");
+    expect(tempoRestanteEmTexto((60 + 5) * 60_000)).toBe("1 h 05 min");
+    expect(tempoRestanteEmTexto((23 * 60 + 42) * 60_000)).toBe("23 h 42 min");
+  });
+
+  it("arredonda para baixo dentro do minuto — nao antecipa a virada", () => {
+    // 89.9s ainda e "1 min", nao "2 min"
+    expect(tempoRestanteEmTexto(89_900)).toBe("1 min");
   });
 });

@@ -86,6 +86,20 @@ export function registerBigdataRoutes(): Router {
 
   router.patch("/api/bigdata-integration", requireAuth, requireProvider, async (req, res) => {
     try {
+      /**
+       * A instância de demonstração não chama a BigDataCorp para NADA — nem
+       * a consulta cadastral (que já desvia em `consultarCpf`), nem aqui.
+       * Sem esta guarda, um visitante que abrisse a tela "Credencial" (o
+       * `configurado: true` de demonstração não a esconde) e salvasse
+       * qualquer login/senha dispararia `testarCredencial` de verdade contra
+       * a BigDataCorp — a única chamada de rede real a terceiro que sobrava
+       * alcançável por um visitante anônimo em todo este plano.
+       */
+      if (emModoDemo()) {
+        return res.status(403).json({
+          message: "Nesta demonstração, a credencial cadastral não é configurada.",
+        });
+      }
       const parsed = credencialSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
 
@@ -109,6 +123,17 @@ export function registerBigdataRoutes(): Router {
   /** Valida a credencial guardada sem gastar consulta — so gera token. */
   router.post("/api/bigdata-integration/test", requireAuth, requireProvider, async (req, res) => {
     try {
+      // Mesma guarda do PATCH acima, e pela mesma razão: sem credencial
+      // nenhuma cadastrada na demonstração, o único jeito de esta rota
+      // "testar" alguma coisa seria com uma credencial que um visitante
+      // acabou de inventar — e isso chamaria a BigDataCorp de verdade. Sem
+      // consumidor no client hoje, mas alcançável por chamada direta.
+      if (emModoDemo()) {
+        return res.status(403).json({
+          ok: false,
+          message: "Nesta demonstração, a credencial cadastral não é configurada.",
+        });
+      }
       const providerId = req.session.providerId!;
       const i = await storage.getBigdataIntegration(providerId);
       if (!i?.login || !i?.password) {

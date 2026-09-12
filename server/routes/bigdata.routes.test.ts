@@ -206,6 +206,27 @@ describe("todo caminho de saida devolve o identificador", () => {
       expect(credencial).toEqual({ login: "demo", password: "demo" });
     });
 
+    /**
+     * A rota cadastral monta a resposta E a linha gravada campo a campo, sem
+     * `...spread` (é o defeito que já aconteceu uma vez neste arquivo: um
+     * campo novo do serviço não chega em lugar nenhum sozinho). Este teste
+     * prova a FIAÇÃO, não só o alcance: com o serviço devolvendo
+     * `simulado: true`, tanto a resposta quanto o objeto gravado em
+     * `createBigdataConsultation` precisam carregar o mesmo valor. Removendo
+     * `simulado: r.simulado` de qualquer um dos dois pontos em
+     * `bigdata.routes.ts`, este teste cai.
+     */
+    it("simulado:true do servico chega na resposta E na linha gravada", async () => {
+      servicoMock.consultarCpf.mockResolvedValue({ ...resultadoCpf(), simulado: true });
+
+      const r = await consultar({ cpfCnpj: CPF });
+
+      expect(r.status).toBe(200);
+      expect(r.body.simulado).toBe(true);
+      const gravado = storageMock.createBigdataConsultation.mock.calls[0][0] as any;
+      expect(gravado.result.simulado).toBe(true);
+    });
+
     it("CNPJ continua exigindo credencial de verdade — consultarCnpj nunca aprendeu a simular", async () => {
       const r = await consultar({ cpfCnpj: CNPJ });
       expect(r.status).toBe(400);
@@ -432,6 +453,48 @@ describe("GET /api/bigdata-integration", () => {
       // booleano que decide qual tela o visitante ve.
       expect(body.login).toBeNull();
       expect(body.senhaMascarada).toBeNull();
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
+});
+
+/**
+ * Estas duas rotas são as únicas do plano inteiro que chamam a BigDataCorp
+ * fora de uma consulta faturada (`testarCredencial` só pede token, mas ainda
+ * é rede real de terceiro). `configurado: true` em modo demo (acima) não
+ * esconde o botão "Credencial" da tela — então sem esta guarda um visitante
+ * que salvasse qualquer login/senha inventados dispararia a chamada de
+ * verdade. `testarCredencial`/`invalidarToken` continuam SEM mock neste
+ * arquivo (real, via `importOriginal`): os testes abaixo provam que a guarda
+ * retorna ANTES de alcançá-los, não apenas que a resposta é 403.
+ */
+describe("PATCH /api/bigdata-integration em modo demo", () => {
+  it("recusa com 403 sem gravar nada", async () => {
+    process.env.DEMO_MODE = "true";
+    try {
+      const res = await fetch(`${base}/api/bigdata-integration`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login: "visitante", password: "qualquercoisa" }),
+      });
+      expect(res.status).toBe(403);
+      expect(storageMock.upsertBigdataIntegration).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
+});
+
+describe("POST /api/bigdata-integration/test em modo demo", () => {
+  it("recusa com 403 sem gravar nada", async () => {
+    process.env.DEMO_MODE = "true";
+    try {
+      const res = await fetch(`${base}/api/bigdata-integration/test`, { method: "POST" });
+      expect(res.status).toBe(403);
+      const body = await res.json() as any;
+      expect(body.ok).toBe(false);
+      expect(storageMock.upsertBigdataIntegration).not.toHaveBeenCalled();
     } finally {
       delete process.env.DEMO_MODE;
     }
