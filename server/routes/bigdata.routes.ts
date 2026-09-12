@@ -12,6 +12,7 @@ import { decidirVeredito } from "../services/bigdata-veredito";
 import { consultarCnpj, decidirVereditoEmpresa } from "../services/bigdata-empresa";
 import { gerarIdentificadorDeConsulta, protocoloDaOrigem } from "../services/identificador-consulta";
 import { logger } from "../logger";
+import { emModoDemo } from "../demo/modo-demo";
 
 /**
  * Consulta Cadastral (BigDataCorp).
@@ -216,7 +217,18 @@ export function registerBigdataRoutes(): Router {
       }
 
       const integ = await storage.getBigdataIntegration(providerId);
-      if (!integ?.login || !integ?.password) {
+      /**
+       * Na instância de demonstração não há credencial BigDataCorp nenhuma —
+       * de propósito, o `.env.demo` a deixa de fora (Tarefa 11): é uma
+       * consulta que custa dinheiro por chamada, e não há por que pagar por
+       * um visitante anônimo. A exceção vale só para CPF: `consultarCpf`
+       * desvia para `cadastralSimulado` antes de tocar rede (Tarefa 8), mas
+       * `consultarCnpj` NUNCA foi ensinado a fazer isso — sem esta distinção,
+       * uma consulta de CNPJ na demo chamaria a BigDataCorp de verdade com
+       * credencial vazia.
+       */
+      const semCredencial = !integ?.login || !integ?.password;
+      if (semCredencial && !(emModoDemo() && !ehCnpj)) {
         logger.warn({ ...contexto, motivo: "sem-credencial" }, "[Cadastral] consulta recusada sem cobranca");
         return res.status(400).json({
           consultaId,
@@ -232,6 +244,16 @@ export function registerBigdataRoutes(): Router {
       // de pessoa (renda familiar, beneficio, domicilio). Custa 1 credito
       // igual, embora saia mais barato para nos — a diferenca vira margem.
       if (ehCnpj) {
+        // A guarda acima só deixa passar SEM credencial quando `emModoDemo()`
+        // e o documento NÃO é CNPJ (`consultarCnpj` nunca aprendeu a desviar
+        // para um resultado simulado). Como este bloco é exatamente o de
+        // CNPJ, chegar aqui garante credencial — a checagem existe para dar
+        // ao TypeScript a mesma certeza que a lógica acima já tem, e para
+        // nunca mandar `undefined` para a BigDataCorp se essa garantia
+        // quebrar num refactor futuro.
+        if (!integ?.login || !integ?.password) {
+          throw new Error("Consulta cadastral: CNPJ sem credencial alcançou o caminho de rede");
+        }
         custoCreditos = NIVEIS[NIVEL_PADRAO].creditos;
         debitou = await storage.debitarBigdataCredito(providerId, custoCreditos);
         if (!debitou) {
@@ -362,8 +384,12 @@ export function registerBigdataRoutes(): Router {
           }
         : null;
 
+      // `integ` pode não existir aqui — só na demonstração (ver o comentário
+      // acima), e só para CPF. O placeholder nunca é usado de verdade:
+      // `consultarCpf` desvia para `cadastralSimulado` na primeira linha,
+      // antes de olhar para a credencial.
       const r = await consultarCpf(
-        providerId, { login: integ.login, password: integ.password }, cpf, nivel,
+        providerId, { login: integ?.login ?? "demo", password: integ?.password ?? "demo" }, cpf, nivel,
         enderecoInstalacao,
       );
       const v = decidirVeredito(r.dados, { valorPlano: parsed.data.valorPlano });
@@ -433,6 +459,9 @@ export function registerBigdataRoutes(): Router {
           nivelPedido: nivel,
           creditosCobrados: custoCreditos,
           bureauIndisponivel,
+          // true só na instância de demonstração — sem isto a linha gravada
+          // nunca saberia de onde veio quando reaberta depois.
+          simulado: r.simulado,
           // Mesmo padrao LGPD da consulta ISP
           baseLegal: "Legítimo interesse (LGPD Art. 7, IX)",
           finalidadeConsulta: "Análise de risco de crédito para contratação de serviço",
@@ -489,6 +518,9 @@ export function registerBigdataRoutes(): Router {
         // A tela precisa explicar por que o bloco de mercado nao apareceu — sem
         // isso o operador conclui que o CPF esta limpo, e nao que ninguem olhou.
         bureauIndisponivel,
+        // true só na instância de demonstração — a tela mostra o selo "SIMULADO"
+        // (ver client/src/components/consulta/report-ui.tsx, ProvTag).
+        simulado: r.simulado,
         createdAt: salva.createdAt,
       });
     } catch (error: any) {

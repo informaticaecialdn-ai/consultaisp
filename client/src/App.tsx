@@ -14,6 +14,7 @@ import ThemeToggle from "@/components/theme-toggle";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ChatWidget } from "@/components/chat-widget";
 import { FaixaSuporte, useSessaoDeSuporte } from "@/components/FaixaSuporte";
+import { FaixaDemonstracao } from "@/components/FaixaDemonstracao";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMarca } from "@/lib/marca";
 import { pagina } from "@/lib/pagina-do-deploy";
@@ -656,6 +657,7 @@ function AuthenticatedApp() {
            * inteira de qualquer forma.
            */}
           <FaixaSuporte />
+          <FaixaDemonstracao />
           <header className="flex items-center h-12 px-3 border-b border-[var(--border)] bg-[var(--surface)] sticky top-0 z-50">
             <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Abrir menu lateral" />
             <div className="ml-auto flex items-center gap-2">

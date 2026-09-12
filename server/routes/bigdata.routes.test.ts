@@ -12,7 +12,7 @@
  *   2. todo caminho escreve log com o mesmo codigo, e nenhum log leva o
  *      documento inteiro.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import type { Server } from "node:http";
 import { FORMATO_DO_IDENTIFICADOR } from "../services/identificador-consulta";
@@ -178,6 +178,40 @@ describe("todo caminho de saida devolve o identificador", () => {
     expect(r.status).toBe(400);
     expect(r.body.naoConfigurado).toBe(true);
     expect(r.body.consultaId).toMatch(FORMATO_DO_IDENTIFICADOR);
+  });
+
+  /**
+   * A instância de demonstração não tem credencial BigDataCorp nenhuma (o
+   * `.env.demo` a deixa de fora de propósito — é consulta paga). Sem esta
+   * exceção, a rota recusaria ANTES de `consultarCpf` decidir por
+   * `cadastralSimulado` (Tarefa 8), e a consulta cadastral simulada nunca
+   * seria alcançada na demonstração pública.
+   */
+  describe("em modo demo, sem credencial", () => {
+    beforeEach(() => {
+      process.env.DEMO_MODE = "true";
+      storageMock.getBigdataIntegration.mockResolvedValue(undefined);
+    });
+    afterEach(() => { delete process.env.DEMO_MODE; });
+
+    it("CPF chega ao serviço em vez de recusar por falta de credencial", async () => {
+      const r = await consultar({ cpfCnpj: CPF });
+      expect(r.status).toBe(200);
+      expect(r.body.naoConfigurado).toBeUndefined();
+      expect(servicoMock.consultarCpf).toHaveBeenCalledTimes(1);
+      // Placeholder inerte: `consultarCpf` real desvia para `cadastralSimulado`
+      // antes de olhar a credencial — mas o mock aqui exige que a chamada nao
+      // quebre em `integ.login` de um `integ` ausente.
+      const [, credencial] = servicoMock.consultarCpf.mock.calls[0] as any[];
+      expect(credencial).toEqual({ login: "demo", password: "demo" });
+    });
+
+    it("CNPJ continua exigindo credencial de verdade — consultarCnpj nunca aprendeu a simular", async () => {
+      const r = await consultar({ cpfCnpj: CNPJ });
+      expect(r.status).toBe(400);
+      expect(r.body.naoConfigurado).toBe(true);
+      expect(empresaMock.consultarCnpj).not.toHaveBeenCalled();
+    });
   });
 
   it("saldo insuficiente — CPF e CNPJ", async () => {

@@ -456,6 +456,27 @@ describe("POST /api/spc-consultations — identificador", () => {
     });
   });
 
+  /**
+   * A instância de demonstração não tem credencial SPC (`.env.demo` a deixa
+   * de fora de propósito — Tarefa 11, é consulta paga). Sem esta exceção a
+   * rota recusaria com 503 ANTES de `consultarSpc` decidir por `spcSimulado`
+   * (Tarefa 8), e a consulta SPC simulada nunca seria alcançada na
+   * demonstração pública.
+   */
+  it("em modo demo, mesmo sem SPC configurado, a consulta chega ao servico", async () => {
+    spcMock.isSpcConfigured.mockReturnValue(false);
+    spcMock.consultarSpc.mockResolvedValue({ ...resultadoSpc });
+    process.env.DEMO_MODE = "true";
+    try {
+      const { status, body } = await consultarSpcNaRota();
+      expect(status).toBe(200);
+      expect(spcMock.consultarSpc).toHaveBeenCalledTimes(1);
+      expect(body.consultaId).toMatch(FORMATO);
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
+
   it("saldo insuficiente antes da consulta: codigo na resposta e no log, sem tocar o SPC", async () => {
     storageMock.getProvider.mockResolvedValue({ id: PROVEDOR, name: "Provedor Teste", ispCredits: 0 });
 

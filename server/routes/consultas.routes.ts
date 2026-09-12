@@ -28,6 +28,7 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { logger } from "../logger";
 import { gerarIdentificadorDeConsulta } from "../services/identificador-consulta";
 import { isSpcConfigured, consultarSpc, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
+import { emModoDemo } from "../demo/modo-demo";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { notifyOwnerProviders } from "../services/proactive-alert.service";
 import { faixaIdadeOcorrencia, faixaValorEquipamento } from "../services/equipment-recovery-rules";
@@ -1038,7 +1039,14 @@ export function registerConsultasRoutes(): Router {
       }
 
       // Check feature flag
-      if (!isSpcConfigured()) {
+      //
+      // Na instancia de demonstracao nao ha credencial SPC nenhuma — de
+      // proposito, o `.env.demo` deliberadamente a deixa de fora (Tarefa 11):
+      // e uma consulta paga, e nao ha razao para pagar por um visitante
+      // anonimo. Sem esta excecao a rota recusaria ANTES de `consultarSpc`
+      // decidir por `spcSimulado`, e a consulta SPC simulada (Tarefa 8) nunca
+      // seria alcancada na demonstracao publica.
+      if (!isSpcConfigured() && !emModoDemo()) {
         logger.info({ consultaId, providerId: req.session.providerId, motivo: "spc_nao_configurado" }, "CONSULTA SPC recusada — nada gravado");
         res.setHeader("X-Feature-Status", "coming-soon");
         return res.status(503).json({

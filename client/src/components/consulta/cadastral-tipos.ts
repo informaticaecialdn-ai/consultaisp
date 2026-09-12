@@ -84,6 +84,8 @@ export interface ResultadoCadastral {
   nivel?: string;
   creditosCobrados?: number;
   createdAt?: string;
+  /** true só na instância de demonstração — a tela mostra o selo "SIMULADO". */
+  simulado?: boolean;
 
   /** Só em CNPJ. */
   empresa?: DadosEmpresaCadastro;

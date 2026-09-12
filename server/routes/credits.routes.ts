@@ -5,6 +5,7 @@ import { logger } from "../logger";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { sendCreditosLiberadosEmail } from "../services/email";
 import { avisarProvedor } from "../services/email-destinatario";
+import { emModoDemo } from "../demo/modo-demo";
 
 /** O minimo do pedido que o aviso de credito liberado precisa. */
 export interface PedidoLiberado {
@@ -103,6 +104,22 @@ export function registerCreditsRoutes(): Router {
 
   router.post("/api/credits/purchase", requireAuth, requireProvider, async (req, res) => {
     try {
+      /**
+       * A instância de demonstração não processa pagamento nenhum.
+       *
+       * Sem isto, um visitante clicando em "comprar créditos" gravava uma
+       * linha em `credit_orders` (a escrita abaixo vem ANTES de qualquer
+       * chamada ao Asaas) contra uma instância que não tem credencial Asaas
+       * configurada — o pedido nascia e nunca teria como ser pago. A guarda
+       * fica na PRIMEIRA linha do handler, antes até do pacote ser lido: nem
+       * o corpo da requisição decide se a demonstração processa a compra.
+       */
+      if (emModoDemo()) {
+        return res.status(403).json({
+          message: "Nesta demonstração, a compra de créditos não é processada.",
+        });
+      }
+
       const { packageId, billingType } = req.body;
       const { CREDIT_PACKAGES } = await import("@shared/schema");
 

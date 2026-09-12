@@ -2,7 +2,7 @@ import {
   Download, Save, CheckCircle, AlertCircle, XCircle, HelpCircle, Lock, Building2,
 } from "lucide-react";
 import {
-  Kicker, pillStyle, ReportSection, ScoreBar, Th, bandOf, ReportButton, type Tone,
+  Kicker, pillStyle, ReportSection, ScoreBar, Th, bandOf, ReportButton, ProvTag, type Tone,
 } from "./report-ui";
 import type { ResultadoCadastral, SocioEmpresa } from "./cadastral-tipos";
 import IdentificacaoConsulta from "./IdentificacaoConsulta";
@@ -87,6 +87,7 @@ export default function CadastralResultReport({ r, onSave, onGeneratePDF }: Prop
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <Kicker>{ehEmpresa ? "Relatório cadastral · empresa" : "Relatório cadastral"}</Kicker>
+            {r.simulado && <ProvTag kind="simulado" />}
           </div>
           <div style={{
             fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 600,

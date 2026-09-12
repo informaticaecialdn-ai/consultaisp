@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import "./consulta-spc.css";
 import IdentificacaoConsulta from "@/components/consulta/IdentificacaoConsulta";
 import ConsultaErroCard from "@/components/consulta/ConsultaErroCard";
+import { ProvTag } from "@/components/consulta/report-ui";
 import {
   lerIdentificacao, lerErroDeConsulta, normalizarCodigo,
   type IdentificacaoDaConsulta, type ErroDeConsulta,
@@ -93,6 +94,8 @@ interface SpcResult {
   alerts: { type: string; message: string; severity: string }[];
   rendaPresumida?: number | null;
   limiteCreditoSugerido?: number | null;
+  /** true só na instância de demonstração — a tela mostra o selo "SIMULADO". */
+  simulado?: boolean;
 }
 
 /** "2024-03-12" -> "12/03/2024" sem passar por Date: new Date("2024-03-12") cai no dia anterior no fuso -3. */
@@ -342,9 +345,12 @@ export default function ConsultaSPCPage() {
                           </p>
                         </div>
                       </div>
-                      <Badge className={`border-0 ${result.status === "clean" ? "bg-[var(--color-success)] text-white" : "bg-rose-500 text-white"}`}>
-                        {result.status === "clean" ? "Sem restrições" : "Com restrições"}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        {result.simulado && <ProvTag kind="simulado" />}
+                        <Badge className={`border-0 ${result.status === "clean" ? "bg-[var(--color-success)] text-white" : "bg-rose-500 text-white"}`}>
+                          {result.status === "clean" ? "Sem restrições" : "Com restrições"}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
 

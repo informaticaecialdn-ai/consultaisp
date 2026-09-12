@@ -203,6 +203,26 @@ describe("POST /api/credits/purchase", () => {
     expect(asaasMock.createCharge).not.toHaveBeenCalled();
     expect(storageMock.createCreditOrder).toHaveBeenCalled();
   });
+
+  // A instancia publica de demonstracao nao tem credencial Asaas: sem esta
+  // guarda, o clique em "comprar creditos" gravava um pedido que nunca teria
+  // como ser pago (server/demo/modo-demo.ts e a unica leitura de DEMO_MODE).
+  it("em modo demo nao chama o Asaas nem grava pedido", async () => {
+    process.env.DEMO_MODE = "true";
+    try {
+      const res = await comprar({ packageId: "credits-100", billingType: "PIX" });
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.message).toContain("não é processada");
+      expect(storageMock.createCreditOrder).not.toHaveBeenCalled();
+      expect(storageMock.getNextOrderNumber).not.toHaveBeenCalled();
+      expect(asaasMock.isAsaasConfigured).not.toHaveBeenCalled();
+      expect(asaasMock.findOrCreateCustomer).not.toHaveBeenCalled();
+      expect(asaasMock.createCharge).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
 });
 
 describe("GET /api/credits/orders/:id/asaas/pix", () => {

@@ -142,12 +142,20 @@ export function ScoreBar({ score }: { score: number }) {
   );
 }
 
-/** Selo de proveniência do dado — REAL (consulta ao vivo) / CACHE / SEM REDE. */
-export function ProvTag({ kind }: { kind: "real" | "cache" | "sem-rede" }) {
+/**
+ * Selo de proveniência do dado — REAL (consulta ao vivo) / CACHE / SEM REDE /
+ * SIMULADO (bureau fictício da instância de demonstração — `simulado: true`
+ * em `SpcResult`/`ResultadoConsulta`, ver `server/demo/bureaus-simulados.ts`).
+ * Tokens `--mock`/`--mock-bg`, reservados pelo DESIGN_SYSTEM.md §3.1 para
+ * exatamente este propósito.
+ */
+export function ProvTag({ kind }: { kind: "real" | "cache" | "sem-rede" | "simulado" }) {
   const cfg = kind === "real"
     ? { label: "REAL", fg: "var(--ok)", bg: "var(--ok-bg)", border: "var(--ok-border)" }
     : kind === "cache"
     ? { label: "CACHE", fg: "var(--info)", bg: "var(--info-bg)", border: "var(--info-border)" }
+    : kind === "simulado"
+    ? { label: "SIMULADO", fg: "var(--mock)", bg: "var(--mock-bg)", border: "var(--border)" }
     : { label: "SEM REDE", fg: "var(--text-muted)", bg: "var(--surface-inset)", border: "var(--border)" };
   return (
     <span style={{
