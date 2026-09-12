@@ -51,16 +51,45 @@ const chatAgentMock = vi.hoisted(() => ({
 }));
 vi.mock("../services/chat-agent", () => chatAgentMock);
 
+/**
+ * `../auth` mockado so por causa das rotas de ADMIN testadas mais abaixo
+ * (`/api/admin/visitor-chats/:id/messages`). As rotas publicas
+ * (`/api/public/visitor-chat/*`, o grosso deste arquivo) nao passam por
+ * nenhum destes middlewares. Mesmo padrao de `admin.routes.test.ts`: o que se
+ * prova aqui e a rota em si, nao a regra de acesso do superadmin (que tem
+ * teste proprio em `auth.test.ts`).
+ */
+vi.mock("../auth", () => ({
+  requireAuth: (_req: any, _res: any, next: any) => next(),
+  requireProvider: (_req: any, _res: any, next: any) => next(),
+  requireSuperAdmin: (req: any, res: any, next: any) => {
+    if (req.session?.role !== "superadmin") return res.status(403).json({ message: "Acesso restrito" });
+    next();
+  },
+}));
+
 import { registerChatRoutes } from "./chat.routes";
 
 let server: Server;
 let base: string;
 
+/**
+ * Sessao e usuario da requisicao — mutaveis de proposito (mesmo padrao de
+ * `admin.routes.test.ts`): o middleware abaixo le estas variaveis a CADA
+ * requisicao, entao um teste que precisa de superadmin so muda o valor antes
+ * de disparar o `fetch`. Reiniciadas no `beforeEach` para que as rotas
+ * publicas (a maioria dos testes deste arquivo) nunca herdem sessao de teste
+ * nenhum.
+ */
+let sessaoAtual: Record<string, any> = {};
+let usuarioAtual: any = undefined;
+
 async function subirServidor(): Promise<void> {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as any).session = {};
+    (req as any).session = sessaoAtual;
+    (req as any).user = usuarioAtual;
     next();
   });
   app.use(registerChatRoutes());
@@ -73,6 +102,8 @@ async function subirServidor(): Promise<void> {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  sessaoAtual = {};
+  usuarioAtual = undefined;
   storageMock.getVisitorChatByToken.mockResolvedValue({ id: 1, status: "open", visitorName: "Visitante" });
   storageMock.createVisitorChatMessage.mockImplementation(async (chatId: number, content: string, isFromAdmin: boolean, senderName: string) =>
     ({ id: 99, chatId, content, isFromAdmin, senderName }));
@@ -113,6 +144,25 @@ describe("POST /api/public/visitor-chat/messages — teto de tamanho", () => {
 
     expect(res.status).toBe(201);
     expect(storageMock.createVisitorChatMessage).toHaveBeenCalledWith(1, "Ola, quero saber mais sobre o produto", false, "Visitante");
+  });
+});
+
+/**
+ * Revisao seguinte (item 1): `content?.trim()` so protege contra `content`
+ * `null`/`undefined` — o `?.` guarda o ACESSO a propriedade, nao o METODO que
+ * ela devolve. Um objeto, array, numero ou booleano nao tem `.trim()`, entao
+ * `content?.trim` resolve para `undefined` e `undefined()` lanca
+ * `TypeError`, que o `catch` da rota devolve como 500 generico — servidor
+ * quebrado para o que e, na verdade, um pedido mal formado (o mesmo formato
+ * que a rodada anterior ja corrigiu em `/api/public/visitor-chat/start`).
+ */
+describe("POST /api/public/visitor-chat/messages — tipo do campo content", () => {
+  it("recusa content que nao e string, com 400 — nunca 500 (nao lanca excecao)", async () => {
+    for (const valorInvalido of [{ pad: "x" }, [1, 2, 3], 12345, true]) {
+      const res = await enviar(valorInvalido);
+      expect(res.status).toBe(400);
+    }
+    expect(storageMock.createVisitorChatMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -291,5 +341,54 @@ describe("POST /api/public/visitor-chat/start — tipo dos campos", () => {
 
     expect(res.status).toBe(201);
     expect(storageMock.createVisitorChat).toHaveBeenCalledWith("Visitante", "visitante@example.com", null);
+  });
+
+  /**
+   * "Ausente" (a chave nem existe no corpo) e "explicitamente null" tomam o
+   * MESMO caminho no codigo (`phone != null` cobre os dois), mas so o
+   * primeiro tinha teste. Fecha o buraco: o valor tem de continuar valido, e
+   * `storage.createVisitorChat` tem de receber `null` (nunca a string
+   * "null" nem o `undefined` cru).
+   */
+  it("telefone explicitamente null continua valido (nao e o mesmo caso do campo ausente)", async () => {
+    const res = await iniciar({ phone: null });
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createVisitorChat).toHaveBeenCalledWith("Visitante", "visitante@example.com", null);
+  });
+});
+
+const enviarComoAdmin = (content: unknown, chatId = 1) =>
+  fetch(`${base}/api/admin/visitor-chats/${chatId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+
+/**
+ * `POST /api/admin/visitor-chats/:id/messages` — o mesmo `content?.trim()`
+ * sem `typeof` do `/api/public/visitor-chat/messages` acima (item 1 da
+ * rodada seguinte), so que do lado do atendente. `sessaoAtual`/`usuarioAtual`
+ * dao o superadmin e o `req.user` que a rota le para `senderName`.
+ */
+describe("POST /api/admin/visitor-chats/:id/messages — tipo do campo content", () => {
+  beforeEach(() => {
+    sessaoAtual = { role: "superadmin" };
+    usuarioAtual = { name: "Atendente Teste" };
+  });
+
+  it("recusa content que nao e string, com 400 — nunca 500 (nao lanca excecao)", async () => {
+    for (const valorInvalido of [{ pad: "x" }, [1, 2, 3], 12345, true]) {
+      const res = await enviarComoAdmin(valorInvalido);
+      expect(res.status).toBe(400);
+    }
+    expect(storageMock.createVisitorChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("mensagem valida continua funcionando normalmente", async () => {
+    const res = await enviarComoAdmin("Ola, em que posso ajudar?");
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createVisitorChatMessage).toHaveBeenCalledWith(1, "Ola, em que posso ajudar?", true, "Atendente Teste");
   });
 });

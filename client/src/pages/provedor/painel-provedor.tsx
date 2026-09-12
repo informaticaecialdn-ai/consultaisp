@@ -13,6 +13,7 @@ import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { usePrecos, precoCurto, linhaDeCreditosDoPlano } from "@/hooks/use-precos";
 import { useLocation, useSearch } from "wouter";
 import { useMarca } from "@/lib/marca";
+import { ehInstanciaDeDemonstracao } from "@/components/FaixaDemonstracao";
 import {
   Building2, Globe, Users, CreditCard, Settings, Copy, CheckCircle,
   ExternalLink, Plus, Trash2, Shield, User, Mail, Phone, Link2,
@@ -300,6 +301,44 @@ export function desfechoDoLog(status: string): { rotulo: string; tom: TomEstado 
   return DESFECHO_DO_LOG[status] ?? { rotulo: status, tom: "neutro" };
 }
 
+/**
+ * Mesma frase de `MENSAGEM_EQUIPE_CONGELADA_NO_SANDBOX`
+ * (server/routes/provider.routes.ts, `recusarEmSandbox`) — client nao importa
+ * codigo de servidor, entao o texto e repetido aqui, como `VIDA_DO_SANDBOX_MS`
+ * em FaixaDemonstracao.tsx. E a mesma frase para as duas rotas que o servidor
+ * recusa (criar e excluir usuario): "a equipe... nao pode ser alterada" cobre
+ * as duas sem precisar de uma frase por botao.
+ *
+ * Separada em duas partes so para o numero poder ir em `tabular-nums` na
+ * tela (DESIGN_SYSTEM.md: "todo numero e mono e tabular") sem duplicar a
+ * frase inteira entre o texto puro (usado no `title` e neste modulo) e o JSX.
+ */
+const EQUIPE_SANDBOX_PREFIXO_FRASE =
+  "Nesta demonstração, a equipe já vem pronta e não pode ser alterada — um sandbox novo, com equipe nova, é criado a cada ";
+const EQUIPE_SANDBOX_PRAZO = "24 horas";
+const MENSAGEM_EQUIPE_BLOQUEADA_SANDBOX = `${EQUIPE_SANDBOX_PREFIXO_FRASE}${EQUIPE_SANDBOX_PRAZO}.`;
+
+/**
+ * O aviso da aba Usuarios ANTES do clique. Ate esta rodada os dois botoes
+ * (Novo Usuario e excluir usuario) ficavam totalmente clicaveis para um
+ * visitante da demonstracao publica e so revelavam a trava DEPOIS de um
+ * pedido recusado — o 403 de `recusarEmSandbox`
+ * (server/routes/provider.routes.ts). Quem tropeca na regra em vez de le-la
+ * antes.
+ *
+ * Reaproveita `ehInstanciaDeDemonstracao` (FaixaDemonstracao.tsx) — o MESMO
+ * par de sinais que a faixa de demonstracao exige, demoMode do servidor E o
+ * prefixo do subdominio — em vez de reimplementar a checagem aqui: um
+ * provedor de verdade cujo subdominio por acidente comecasse com "sandbox-"
+ * nao pode perder os proprios botoes so por causa do prefixo sozinho.
+ */
+export function avisoEquipeBloqueadaNoSandbox(
+  demoMode: boolean | undefined,
+  subdomain: string | null | undefined,
+): string | null {
+  return ehInstanciaDeDemonstracao(demoMode, subdomain) ? MENSAGEM_EQUIPE_BLOQUEADA_SANDBOX : null;
+}
+
 function relDate(d: string | null): string {
   if (!d) return "Nunca";
   const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
@@ -330,7 +369,7 @@ function formatFileSize(bytes: number) {
 
 export default function PainelProvedorPage() {
   const marca = useMarca();
-  const { user, provider, personificando } = useAuth();
+  const { user, provider, personificando, demoMode } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [location, navigate] = useLocation();
@@ -675,6 +714,12 @@ export default function PainelProvedorPage() {
    */
   const podeAdministrar =
     user?.role === "admin" || (user?.role === "superadmin" && personificando);
+
+  /**
+   * `null` fora do sandbox — a mesma sessao de sempre, sem nenhum dos dois
+   * botoes da aba Usuarios tocado. Ver `avisoEquipeBloqueadaNoSandbox` acima.
+   */
+  const avisoEquipeSandbox = avisoEquipeBloqueadaNoSandbox(demoMode, provider?.subdomain);
 
   /**
    * Preenche a ficha com o cadastro da Receita.
@@ -1643,9 +1688,21 @@ export default function PainelProvedorPage() {
                 </p>
               </div>
               {podeAdministrar && (
-                <Button size="sm" className="gap-1.5" onClick={() => setShowAddUser(!showAddUser)} data-testid="button-add-user">
-                  <Plus className="w-4 h-4" />Novo Usuario
-                </Button>
+                avisoEquipeSandbox ? (
+                  <div className="flex flex-col items-end gap-1">
+                    <Button size="sm" className="gap-1.5" disabled title={avisoEquipeSandbox} data-testid="button-add-user">
+                      <Plus className="w-4 h-4" />Novo Usuario
+                    </Button>
+                    <p className="max-w-[260px] text-right text-xs leading-snug" style={{ color: "var(--gated)" }} data-testid="text-equipe-sandbox-aviso">
+                      {EQUIPE_SANDBOX_PREFIXO_FRASE}
+                      <span className="font-mono tabular-nums">{EQUIPE_SANDBOX_PRAZO}</span>.
+                    </p>
+                  </div>
+                ) : (
+                  <Button size="sm" className="gap-1.5" onClick={() => setShowAddUser(!showAddUser)} data-testid="button-add-user">
+                    <Plus className="w-4 h-4" />Novo Usuario
+                  </Button>
+                )
               )}
             </div>
 
@@ -1708,25 +1765,43 @@ export default function PainelProvedorPage() {
                         <span title="Email pendente" aria-label="Email pendente"><Mail className="w-4 h-4 text-amber-500" aria-hidden /></span>
                       )}
                       {podeAdministrar && u.id !== user?.id && (
-                        <Button
-                          variant="ghost" size="sm"
-                          className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
-                          title="Excluir usuario"
-                          aria-label={`Excluir usuario ${u.name}`}
-                          // A rota apaga a linha de vez — nao ha "desativado" no
-                          // banco. A confirmacao precisa dizer isso, senao o
-                          // admin descobre depois de clicar. E precisa avisar do
-                          // caso mais comum: quem ja consultou tem historico, o
-                          // historico e do provedor, e a exclusao e recusada.
-                          onClick={() => {
-                            if (confirm(`Excluir o usuario ${u.name} (${u.email})?\n\nA conta e apagada em definitivo e as sessoes abertas dele caem na hora. Nao ha como desfazer — para devolver o acesso sera preciso cadastrar de novo.\n\nSe ele ja tiver historico no sistema (consultas ou mensagens de suporte), a exclusao e recusada: esse historico e do provedor e nao pode ser apagado junto.`)) {
-                              deleteUserMutation.mutate(u.id);
-                            }
-                          }}
-                          data-testid={`button-delete-user-${u.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        avisoEquipeSandbox ? (
+                          // Disabled + title no proprio botao nao basta: o
+                          // variant do Button aplica `disabled:pointer-events-none`,
+                          // que tambem bloqueia o hover que mostraria o title.
+                          // O `span` por fora continua recebendo o hover.
+                          <span title={avisoEquipeSandbox}>
+                            <Button
+                              variant="ghost" size="sm"
+                              className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
+                              aria-label={`Excluir usuario ${u.name} — bloqueado: ${avisoEquipeSandbox}`}
+                              disabled
+                              data-testid={`button-delete-user-${u.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </span>
+                        ) : (
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
+                            title="Excluir usuario"
+                            aria-label={`Excluir usuario ${u.name}`}
+                            // A rota apaga a linha de vez — nao ha "desativado" no
+                            // banco. A confirmacao precisa dizer isso, senao o
+                            // admin descobre depois de clicar. E precisa avisar do
+                            // caso mais comum: quem ja consultou tem historico, o
+                            // historico e do provedor, e a exclusao e recusada.
+                            onClick={() => {
+                              if (confirm(`Excluir o usuario ${u.name} (${u.email})?\n\nA conta e apagada em definitivo e as sessoes abertas dele caem na hora. Nao ha como desfazer — para devolver o acesso sera preciso cadastrar de novo.\n\nSe ele ja tiver historico no sistema (consultas ou mensagens de suporte), a exclusao e recusada: esse historico e do provedor e nao pode ser apagado junto.`)) {
+                                deleteUserMutation.mutate(u.id);
+                              }
+                            }}
+                            data-testid={`button-delete-user-${u.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )
                       )}
                     </div>
                   </div>

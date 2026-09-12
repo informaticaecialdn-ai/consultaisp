@@ -192,7 +192,13 @@ export function registerChatRoutes(): Router {
       if (!chat) return res.status(404).json({ message: "Chat nao encontrado" });
       if (chat.status === "closed") return res.status(400).json({ message: "Chat encerrado" });
       const { content } = req.body;
-      if (!content?.trim()) return res.status(400).json({ message: "Mensagem vazia" });
+      // Revisao seguinte (item 1): so `typeof` faltava aqui, no mesmo padrao
+      // que `name`/`email`/`phone` ja usam em `/start` acima. `content?.trim()`
+      // so protege contra `content` `null`/`undefined` — um objeto, array,
+      // numero ou booleano nao tem `.trim()`, e o `catch` da rota devolvia
+      // isso como 500 generico para o que e, na verdade, um pedido mal
+      // formado.
+      if (typeof content !== "string" || !content.trim()) return res.status(400).json({ message: "Mensagem vazia" });
       if (content.length > TAMANHO_MAXIMO_MENSAGEM_VISITANTE) {
         return res.status(400).json({ message: `Mensagem muito longa (maximo ${TAMANHO_MAXIMO_MENSAGEM_VISITANTE} caracteres)` });
       }
@@ -263,7 +269,11 @@ export function registerChatRoutes(): Router {
     try {
       const chatId = parseInt(req.params.id);
       const { content } = req.body;
-      if (!content?.trim()) return res.status(400).json({ message: "Mensagem vazia" });
+      // Mesma correcao de `/api/public/visitor-chat/messages` acima (item 1):
+      // sem o `typeof`, um `content` que nao e string chega ate `.trim()` e
+      // lanca `TypeError`, que o `catch` da rota devolve como 500 — servidor
+      // quebrado para o que e so um pedido mal formado.
+      if (typeof content !== "string" || !content.trim()) return res.status(400).json({ message: "Mensagem vazia" });
       const user = req.user as any;
       const msg = await storage.createVisitorChatMessage(chatId, content.trim(), true, user.name || "Atendente");
       return res.status(201).json(msg);
