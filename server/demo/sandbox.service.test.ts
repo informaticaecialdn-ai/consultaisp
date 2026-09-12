@@ -35,7 +35,7 @@ vi.mock("../db", () => ({
   pool: {},
 }));
 
-import { getTableColumns, getTableName, is } from "drizzle-orm";
+import { getTableColumns, getTableName, is, SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@shared/schema";
@@ -104,6 +104,7 @@ import { decryptField } from "../utils/crypto";
 import { motivosGravados, rotuloDoAlerta } from "@shared/antifraude-avaliacao";
 import { maskAlertForProvider } from "../utils/mask-alert";
 import { casoFechado } from "@shared/cobranca/estados";
+import { logger } from "../logger";
 // Efeito colateral: com DEMO_MODE=true (acima), registra o conector "demo" no registry.
 import "../erp/connectors/demo";
 
@@ -156,6 +157,8 @@ const chavePorColuna = new Map(
     new Map(Object.entries(getTableColumns(t)).map(([chave, coluna]) => [(coluna as any).name as string, chave])),
   ]),
 );
+/** tabela (nome real do banco) -> (chave camelCase -> objeto de coluna do Drizzle) — usado por `valorPadraoDaColuna` para checar `hasDefault`/`default`/`dataType` sem reconstruir o schema à mão. */
+const colunaPorCampo = new Map(TABELAS.map((t) => [getTableName(t), getTableColumns(t) as Record<string, any>]));
 
 function proximoId(tabela: string): number {
   const atual = (banco.proximoId.get(tabela) ?? 0) + 1;
@@ -202,6 +205,42 @@ function projetar(tabela: string, linhas: Record<string, unknown>[], textoDeColu
 }
 
 /**
+ * O valor que um Postgres de verdade aplicaria para uma coluna que o INSERT
+ * marcou como `default` (rodada de correção, 12/09/2026). Antes desta função
+ * TODA coluna não-`id` virava `null` aqui — `defaultNow()` incluído —, e isso
+ * era o defeito real por trás do "sweep apaga 20" documentado no relatório da
+ * rodada: `providers.createdAt` (`defaultNow()`) nascia `null` para todo
+ * provider inserido sem valor explícito (todo sandbox de `criarSandbox()`, que
+ * nunca passa `createdAt`), e `sandboxesExpirados()` trata `createdAt` nulo
+ * como epoch — mais velho que 24h, sempre "expirado". Como este arquivo é
+ * sequencial e cumulativo (ver o comentário no topo), cada sandbox de um
+ * `it()` anterior que nunca chamou `envelhecer`/`apagarSandbox` ficava
+ * empilhado como "já expirado" por este defeito, não pela idade real.
+ *
+ * Só dois casos dão para calcular em JS puro, sem um Postgres de verdade para
+ * avaliar a expressão:
+ *   1. um literal puro (`.default(valor)`, sem `sql\`...\``) — usa direto;
+ *   2. `defaultNow()` — que o Drizzle grava como `default: sql\`now()\``,
+ *      nunca como `defaultFn` — vira "agora". Só entra aqui quando a coluna é
+ *      `dataType "date"` (timestamp): conferido por grep em `shared/schema.ts`
+ *      antes de escrever isto — nenhuma OUTRA coluna date/timestamp do schema
+ *      usa `sql\`...\`` como default, então a checagem por dataType basta e
+ *      não depende de inspecionar o texto interno do fragmento SQL.
+ * Qualquer outra expressão SQL (ex.: `sql\`'{}'::text[]\`` num array, ou
+ * `sql\`'[]'::jsonb\`` num jsonb) cai em `null` — o MESMO comportamento de
+ * antes desta correção, porque não há Postgres aqui para avaliar a expressão,
+ * e nenhum teste deste arquivo depende do valor dessas colunas.
+ */
+function valorPadraoDaColuna(coluna: { hasDefault: boolean; default?: unknown; defaultFn?: () => unknown; dataType: string } | undefined): unknown {
+  if (!coluna?.hasDefault) return null;
+  if (typeof coluna.defaultFn === "function") return coluna.defaultFn();
+  const bruto = coluna.default;
+  if (bruto === undefined) return null;
+  if (is(bruto, SQL)) return coluna.dataType === "date" ? new Date().toISOString() : null;
+  return bruto;
+}
+
+/**
  * Reconstrói um INSERT de verdade — `insert into "t" ("a","b") values ($1,$2),($3,$4) [returning ...]`
  * — e acumula cada tupla como linha (camelCase), atribuindo `id` auto-incremental
  * quando a coluna não veio na lista (bulk insert nunca informa `id`, e um
@@ -215,6 +254,7 @@ function processarInsert(sqlTexto: string, params: unknown[]): { tabela: string;
   const tabela = m[1];
   const mapa = chavePorColuna.get(tabela);
   if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+  const colunasDaTabela = colunaPorCampo.get(tabela);
   const colunas = m[2].split(", ").map((c) => c.replace(/"/g, ""));
   const tuplas = Array.from(m[3].matchAll(/\(([^()]*)\)/g)).map((t) => t[1].split(", "));
 
@@ -227,7 +267,7 @@ function processarInsert(sqlTexto: string, params: unknown[]): { tabela: string;
       if (!chave) throw new Error(`Coluna "${coluna}" nao mapeada em "${tabela}"`);
       const valorBruto = tupla[idx];
       if (valorBruto === "default") {
-        linha[chave] = coluna === "id" ? proximoId(tabela) : null;
+        linha[chave] = coluna === "id" ? proximoId(tabela) : valorPadraoDaColuna(colunasDaTabela?.[chave]);
         return;
       }
       const ref = valorBruto?.match(/^\$(\d+)$/);
@@ -457,6 +497,48 @@ describe("sandbox do visitante", () => {
     expect(exemplos.map((e) => e.situacao).sort()).toEqual(["devendo_na_rede", "limpo", "migrador_serial"]);
   });
 
+  /**
+   * Teste dedicado da rodada de correção (12/09/2026) — prova, isolada de
+   * qualquer outro `it()`, que o banco de mentira aplica o default REAL de
+   * `providers.createdAt` (`defaultNow()`) num INSERT sem valor explícito
+   * (exatamente o que `tentarCriarSandbox` faz), em vez de gravar `null`.
+   *
+   * Sem `valorPadraoDaColuna` (o fix), `criadoEm` seria `null`, este teste
+   * falharia nas duas asserções abaixo (`null` não é uma `Date` válida, e
+   * `sandboxesExpirados()` trataria este sandbox recém-nascido como epoch —
+   * "mais velho que 24h" — incluindo-o na lista logo após criar).
+   */
+  it("um sandbox recem-criado nasce com createdAt de AGORA (defaultNow() aplicado pelo banco de mentira), nunca null — e por isso nao aparece como expirado", async () => {
+    const s = await criarSandbox();
+    const provider = await providerDe(s.providerId);
+
+    expect(provider.createdAt, "createdAt nulo — o banco de mentira nao aplicou o default de providers.createdAt").not.toBeNull();
+    const idadeMs = Date.now() - new Date(provider.createdAt as string).getTime();
+    expect(idadeMs, "createdAt deveria ser proximo de agora, nao uma data arbitraria").toBeLessThan(60_000);
+
+    // Prova pelo caminho REAL (db.select + decode de verdade do Drizzle):
+    // um sandbox recem-criado nunca deveria aparecer como candidato a apagar.
+    expect(await sandboxesExpirados()).not.toContain(s.providerId);
+  });
+
+  /**
+   * Usa `toContain`/`not.toContain`, não `toEqual([velho.providerId])`: este
+   * arquivo é sequencial e cumulativo, e outros `it()` (antes e depois deste)
+   * também chamam `criarSandbox()` sem envelhecer nem apagar o resultado — a
+   * lista de `sandboxesExpirados()` pode legitimamente conter outros ids além
+   * de `velho`. O teste prova exatamente as duas coisas do seu nome (o
+   * sandbox velho ENTRA, a rede NUNCA entra) e nada além disso.
+   *
+   * Nota da rodada de correção (12/09/2026): antes desta correção a lista
+   * também vinha inflada por um defeito do banco de mentira — todo sandbox
+   * criado sem `envelhecer`/`apagarSandbox` ficava com `createdAt` NULO
+   * (tratado como epoch, "sempre expirado"), não só pela acumulação legítima
+   * de outros `it()`. As duas asserções abaixo já passavam antes E continuam
+   * passando agora, mas antes toleravam RUÍDO por acidente (a lista incluía
+   * dezenas de ids que não deveriam estar expirados); agora toleram apenas a
+   * acumulação legítima do desenho do arquivo. Ver `valorPadraoDaColuna`
+   * (acima) e o relatório da rodada para a contagem medida antes/depois.
+   */
   it("expira so o sandbox, nunca o mundo base", async () => {
     const velho = await criarSandbox();
     await envelhecer(velho.providerId, 25 * 60 * 60 * 1000);
@@ -474,12 +556,20 @@ describe("sandbox do visitante", () => {
    * arquivo são deliberadamente sequenciais e acumulam sandboxes no mesmo
    * banco de mentira desde o início da suíte.
    *
-   * `envelhecer(id, 0)` dá ao "vivo" um `createdAt` de AGORA — o proxy de
-   * teste não simula o `defaultNow()` da coluna (ver o comentário em "a
-   * limpeza periodica... nunca alcanca o mundo base", mais abaixo neste
-   * arquivo): sem isto todo sandbox nasce com `createdAt` NULO no banco de
-   * mentira, que este filtro (o MESMO corte de `sandboxesExpirados`) trata
-   * como epoch — mais velho que 24h — e portanto já expirado.
+   * `envelhecer(id, 0)` dá ao "vivo" um `createdAt` explícito de AGORA —
+   * deixa o teste claro e determinístico, sem depender de quão rápido o
+   * relógio de fundo anda entre a criação e a leitura.
+   *
+   * Nota da rodada de correção (12/09/2026): até esta correção o banco de
+   * mentira NÃO simulava o `defaultNow()` da coluna — todo sandbox nascia com
+   * `createdAt` NULO, que este filtro (o MESMO corte de `sandboxesExpirados`)
+   * tratava como epoch e portanto já expirado, e `envelhecer(id, 0)` era a
+   * ÚNICA coisa que salvava o "vivo" de contar como expirado por acidente.
+   * Agora `processarInsert`/`valorPadraoDaColuna` aplicam o default REAL da
+   * coluna (`defaultNow()` vira "agora"), então um sandbox recém-criado já
+   * nasce corretamente "vivo" mesmo sem `envelhecer` — a chamada abaixo
+   * continua por clareza (fixa o instante em vez de depender do relógio de
+   * fundo), não mais por necessidade.
    */
   it("contarSandboxesVivos NAO conta sandbox ja expirado, mesmo que a linha ainda exista (limpeza horaria ainda nao passou)", async () => {
     const antes = await contarSandboxesVivos();
@@ -901,13 +991,26 @@ describe("a limpeza periodica (Tarefa 7) nunca alcanca o mundo base", () => {
     for (const id of idsDaBase) await envelhecer(id, 25 * 60 * 60 * 1000);
 
     // `>= 1`, nao `=== 1`, de proposito: este arquivo e sequencial e cumulativo
-    // (ver o comentario no topo), e o proxy de teste nao simula o
-    // `defaultNow()` de `providers.createdAt` — todo sandbox de um `it()`
-    // anterior que nunca chamou `envelhecer` nem `apagarSandbox` fica com
-    // `createdAt` nulo no banco de mentira, que `sandboxesExpirados` trata
-    // como epoch (bem mais velho que 24h) e este sweep varre junto. Sao
-    // sobras inofensivas de outros testes (este describe roda por ultimo no
-    // arquivo) — o que importa aqui e SO o alvo e a rede, verificados abaixo.
+    // (ver o comentario no topo) — "velho" (teste "expira so o sandbox...") e
+    // "expirado" (teste "contarSandboxesVivos NAO conta...") tambem ficaram
+    // no banco, genuinamente envelhecidos 25h por `envelhecer()`, e nenhum dos
+    // dois testes os apagou. Este sweep varre os dois JUNTO com o "alvo" desta
+    // rodada — 3 candidatos legitimos, nao so 1 — e nada garante que nenhum
+    // outro `it()` futuro passe a deixar mais sobras genuinas. O que importa
+    // aqui e SO o alvo e a rede, verificados abaixo por id; o numero exato de
+    // "apagados" e um detalhe de quantos outros testes tambem envelheceram um
+    // sandbox sem limpar, nao desta prova.
+    //
+    // Ate a rodada de correcao de 12/09/2026 este numero vinha inflado por um
+    // MOTIVO DIFERENTE: o banco de mentira nao simulava o `defaultNow()` de
+    // `providers.createdAt`, entao TODO sandbox de um `it()` anterior que
+    // nunca chamou `envelhecer`/`apagarSandbox` nascia com `createdAt` nulo,
+    // tratado como epoch (sempre "expirado") e varrido aqui tambem — 17
+    // sobras acidentais, medidas, empilhadas em cima dos 3 candidatos
+    // legitimos (apagados=20 num sweep medido antes da correcao). O `>= 1` ja
+    // tolerava esse ruido sem intencao; agora tolera so a acumulacao legitima
+    // documentada acima. Ver `valorPadraoDaColuna` (topo do arquivo) e o
+    // relatorio da rodada.
     const resultado = await limparSandboxesExpirados();
     expect(resultado.apagados, "o sandbox envelhecido deveria ter sido varrido").toBeGreaterThanOrEqual(1);
 
@@ -919,6 +1022,96 @@ describe("a limpeza periodica (Tarefa 7) nunca alcanca o mundo base", () => {
     for (const id of idsDaBase) {
       expect(await providerDe(id)).toBeTruthy();
       expect(await clientesDe(id)).toHaveLength(clientesDaBaseAntes.get(id)!);
+    }
+  });
+});
+
+/**
+ * Segundo sinal de identidade do sandbox (12/09/2026).
+ *
+ * Até aqui "é um sandbox descartável" era UMA string: `subdomain` começando
+ * por `sandbox-`. A reserva do namespace no cadastro (rodada da Tarefa 6,
+ * `auth.routes.ts` + `admin.routes.ts`) fecha as quatro portas por onde um
+ * subdomínio entra hoje — mas ela é a ÚNICA coisa entre um provedor pagante e
+ * a exclusão TOTAL e silenciosa da conta dele. Qualquer porta futura (um
+ * script, uma migração, uma rota nova, um UPDATE na mão) que esqueça a
+ * reserva reabre o buraco inteiro.
+ *
+ * E o estrago não tem volta nem aviso: desde que `apagarSandbox` limpa
+ * `acessos_suporte` dentro do próprio delta, a guarda de LGPD de
+ * `deleteProvider` — que ANTES salvava a conta por acidente, ao contar uma
+ * trilha de suporte não-zero e lançar antes de apagar `users`/`customers`/o
+ * próprio provedor — enxerga zero e deixa passar. Sem exceção, sem linha de
+ * log que distinga "apaguei um sandbox" de "apaguei a NsLink".
+ *
+ * Então a identidade passa a exigir DUAS provas que só `criarSandbox` produz
+ * juntas, na MESMA transação: o prefixo do subdomínio E o administrador
+ * determinístico (`<subdomain>@demo.consultaisp.com.br`). Um provedor de
+ * verdade teria que ter as duas ao mesmo tempo — e a segunda ninguém digita
+ * por acidente.
+ */
+describe("apagar exige o segundo sinal, nao so o prefixo do subdominio", () => {
+  it("provedor com subdominio 'sandbox-' mas SEM o administrador da demo sobrevive ao sweep e a chamada direta", async () => {
+    const impostor = await criarSandbox();
+
+    /**
+     * Vira um provedor "de verdade": mesmo prefixo no subdomínio,
+     * administrador com e-mail de gente. É exatamente o estado que a reserva
+     * do cadastro impede HOJE — e que qualquer caminho futuro sem a reserva
+     * volta a produzir.
+     */
+    const admin = (banco.linhas.get("users") ?? []).find((u) => u.providerId === impostor.providerId);
+    expect(admin, "o sandbox deveria ter nascido com administrador proprio").toBeTruthy();
+    admin!.email = "contato@provedorreal.com.br";
+
+    const clientesAntes = (await clientesDe(impostor.providerId)).length;
+    expect(clientesAntes, "o impostor precisa ter carteira para o teste provar algo").toBeGreaterThan(0);
+
+    await envelhecer(impostor.providerId, 25 * 60 * 60 * 1000);
+
+    // 1. A varredura nao o seleciona — velho pelo relogio e com o prefixo,
+    //    mas sem o segundo sinal.
+    expect(await sandboxesExpirados()).not.toContain(impostor.providerId);
+
+    // 2. A chamada DIRETA recusa: um id errado vindo de qualquer chamador
+    //    futuro nao pode virar exclusao de um provedor de verdade.
+    await expect(apagarSandbox(impostor.providerId)).rejects.toThrow();
+
+    // 3. E a passada real da limpeza deixa a conta inteira de pe.
+    await limparSandboxesExpirados();
+    expect(await providerDe(impostor.providerId)).toBeTruthy();
+    expect(await clientesDe(impostor.providerId)).toHaveLength(clientesAntes);
+  });
+
+  /**
+   * Escolha da rodada de correção (12/09/2026): um administrador que sumiu
+   * (por qualquer motivo) faz o provider FALHAR o segundo sinal e nunca mais
+   * ser apagado por `sandboxesExpirados()`/`limparSandboxesExpirados()` —
+   * undeletable para sempre. Silenciar essa exclusão seria transformar a
+   * guarda de segurança nova (Part 2) num vazamento lento e invisível: nada
+   * distinguiria "este provider nunca foi um sandbox" de "este sandbox
+   * perdeu o administrador e ficou preso". Por isso `sandboxesExpirados()`
+   * loga um `logger.warn` — com `providerId` E `subdomain`, os dois dados
+   * que uma investigação manual precisa — toda vez que um candidato bate
+   * prefixo+idade mas falha o segundo sinal.
+   *
+   * Este teste prova exatamente esse log: sem ele (ou se o campo `providerId`
+   * sumir do contexto do log), esta asserção falha.
+   */
+  it("provider sem o segundo sinal e avisado em log com o id do provider — sem isto o vazamento fica invisivel", async () => {
+    const impostor = await criarSandbox();
+    const admin = (banco.linhas.get("users") ?? []).find((u) => u.providerId === impostor.providerId);
+    admin!.email = "outra-pessoa@provedorreal.com.br";
+    await envelhecer(impostor.providerId, 25 * 60 * 60 * 1000);
+
+    const espiao = vi.spyOn(logger, "warn").mockImplementation((() => undefined) as any);
+    try {
+      await sandboxesExpirados();
+      const chamada = espiao.mock.calls.find(([contexto]) => (contexto as any)?.providerId === impostor.providerId);
+      expect(chamada, "deveria logar um warn identificando o provider sem segundo sinal, pelo id").toBeTruthy();
+      expect((chamada![0] as any).subdomain, "o log deveria trazer o subdomain tambem, para investigacao manual").toBe(impostor.subdomain);
+    } finally {
+      espiao.mockRestore();
     }
   });
 });

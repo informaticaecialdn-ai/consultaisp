@@ -46,7 +46,7 @@ vi.mock("../db", () => ({
   pool: {},
 }));
 
-import { getTableColumns, getTableName } from "drizzle-orm";
+import { getTableColumns, getTableName, is, SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
 import { providers, customers, invoices, equipment, erpIntegrations } from "@shared/schema";
 import { validarCNPJ } from "../utils/cpf-cnpj-validator";
@@ -69,6 +69,8 @@ const chavePorColuna = new Map(
     new Map(Object.entries(getTableColumns(t)).map(([chave, coluna]) => [(coluna as any).name as string, chave])),
   ]),
 );
+/** tabela (nome real do banco) -> (chave camelCase -> objeto de coluna do Drizzle) — mesmo par de `sandbox.service.test.ts`, usado por `valorPadraoDaColuna`. */
+const colunaPorCampo = new Map(TABELAS.map((t) => [getTableName(t), getTableColumns(t) as Record<string, any>]));
 
 function proximoId(tabela: string): number {
   const atual = (banco.proximoId.get(tabela) ?? 0) + 1;
@@ -114,6 +116,35 @@ function projetar(tabela: string, linhas: Record<string, unknown>[], textoDeColu
 }
 
 /**
+ * O valor que um Postgres de verdade aplicaria para uma coluna que o INSERT
+ * marcou como `default` — mesma função de `server/demo/sandbox.service.test.ts`
+ * (rodada de correção, 12/09/2026; ver o comentário lá para o achado completo
+ * e a contagem medida). Aplicada aqui por CONSISTÊNCIA de harness — hoje
+ * nenhum teste deste arquivo lê um campo com default não-nulo que a semeadura
+ * deixe de escrever explicitamente (`linhaDoProvedor` sempre grava
+ * `createdAt` explícito, nunca depende do `defaultNow()` do schema; ver o
+ * comentário dela), então esta correção não muda nenhuma asserção existente
+ * aqui — fecha a MESMA armadilha antes que uma escrita futura (própria ou de
+ * outro arquivo que copie este padrão) dependa dela sem saber.
+ *
+ * Só dois casos dão para calcular em JS puro, sem um Postgres de verdade para
+ * avaliar a expressão: um literal puro (`.default(valor)`, sem `sql\`...\``)
+ * usa direto; `defaultNow()` (`default: sql\`now()\``, nunca `defaultFn`) vira
+ * "agora" — só quando a coluna é `dataType "date"` (timestamp), conferido por
+ * grep em `shared/schema.ts`: nenhuma outra coluna date/timestamp usa
+ * `sql\`...\`` como default. Qualquer outra expressão SQL cai em `null` — o
+ * MESMO comportamento de antes desta correção.
+ */
+function valorPadraoDaColuna(coluna: { hasDefault: boolean; default?: unknown; defaultFn?: () => unknown; dataType: string } | undefined): unknown {
+  if (!coluna?.hasDefault) return null;
+  if (typeof coluna.defaultFn === "function") return coluna.defaultFn();
+  const bruto = coluna.default;
+  if (bruto === undefined) return null;
+  if (is(bruto, SQL)) return coluna.dataType === "date" ? new Date().toISOString() : null;
+  return bruto;
+}
+
+/**
  * Reconstrói um INSERT de verdade — `insert into "t" ("a","b") values ($1,$2),($3,$4) [returning ...]`
  * — e acumula cada tupla como linha (camelCase), atribuindo `id` auto-incremental
  * quando a coluna não veio na lista (bulk insert nunca informa `id`).
@@ -124,6 +155,7 @@ function processarInsert(sqlTexto: string, params: unknown[]): { tabela: string;
   const tabela = m[1];
   const mapa = chavePorColuna.get(tabela);
   if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+  const colunasDaTabela = colunaPorCampo.get(tabela);
   const colunas = m[2].split(", ").map((c) => c.replace(/"/g, ""));
   const tuplas = Array.from(m[3].matchAll(/\(([^()]*)\)/g)).map((t) => t[1].split(", "));
 
@@ -138,12 +170,11 @@ function processarInsert(sqlTexto: string, params: unknown[]): { tabela: string;
       // O Drizzle sempre lista TODAS as colunas da tabela (medido: `db.insert`
       // gera a coluna inteira, com a palavra-chave `default` no lugar de quem
       // nao foi passado — nao so as colunas informadas). "id" (serial) vira
-      // auto-incremento aqui, como o Postgres faria; as demais viram null —
-      // nenhum teste desta suite le um campo com default nao-nulo que a
-      // semeadura deixe de escrever explicitamente (equipmentCount/
-      // equipmentEstimatedValue SEMPRE vao explicitos, por causa disso).
+      // auto-incremento aqui, como o Postgres faria; as demais passam por
+      // `valorPadraoDaColuna` (defaultNow() e literal puro viram o valor real;
+      // o resto continua null, como antes desta correção).
       if (valorBruto === "default") {
-        linha[chave] = coluna === "id" ? proximoId(tabela) : null;
+        linha[chave] = coluna === "id" ? proximoId(tabela) : valorPadraoDaColuna(colunasDaTabela?.[chave]);
         return;
       }
       const ref = valorBruto?.match(/^\$(\d+)$/);

@@ -27,8 +27,9 @@
  * funções fazem, `emailCanonico` incluído.
  */
 import crypto from "crypto";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
+import { logger } from "../logger";
 import {
   providers,
   customers,
@@ -77,18 +78,27 @@ import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 type Executor = Pick<typeof db, "insert" | "select" | "delete">;
 
 /**
- * Toda identidade de sandbox é esta convenção — sem coluna nova, sem migração
- * (ver CLAUDE.md/regras do plano).
+ * O PRIMEIRO dos DOIS sinais de identidade do sandbox — sem coluna nova, sem
+ * migração (ver CLAUDE.md/regras do plano). O segundo é o administrador
+ * determinístico que `tentarCriarSandbox` grava na MESMA transação
+ * (`emailDoAdminDaDemo`/`temSegundoSinal`, logo abaixo de `apagarSandbox`).
+ *
+ * Até a rodada de correção de 12/09/2026 este prefixo sozinho era A
+ * identidade inteira. Deixou de ser: ele é a ÚNICA coisa entre um provedor
+ * pagante e a exclusão TOTAL e silenciosa da conta dele, e qualquer caminho
+ * futuro (script, migração, rota nova, UPDATE na mão) que esqueça de
+ * reservar o prefixo reabre o buraco inteiro. Ver o describe de teste
+ * "apagar exige o segundo sinal, nao so o prefixo do subdominio".
  *
  * Exportado (rodada de correção, Tarefa 6) porque a convenção sozinha não
  * reserva nada: `registerSchema.subdomain` (shared/schema.ts) só exige
  * `/^[a-z0-9-]+$/`, e nem `/api/auth/register` nem `/api/auth/check-subdomain`
  * recusavam um provedor pagante escolhendo `sandbox-alguma-coisa`. Isso
- * importa porque a limpeza da demonstração (`sandboxesExpirados`, acima)
- * identifica o que apagar POR ESTE PREFIXO — sem a reserva, um provedor de
- * verdade cadastrado assim seria apagado pela varredura da demo, sem
- * esbarrar em nenhuma guarda de LGPD. `auth.routes.ts` importa esta mesma
- * constante em vez de repetir o literal.
+ * importa porque a limpeza da demonstração (`sandboxesExpirados`, abaixo)
+ * ainda usa este prefixo como PRIMEIRO filtro — sem a reserva, um provedor de
+ * verdade cadastrado assim entraria na lista de candidatos (o segundo sinal
+ * o salva, mas depender só dele seria abrir mão da primeira linha de defesa).
+ * `auth.routes.ts` importa esta mesma constante em vez de repetir o literal.
  */
 export const PREFIXO_SANDBOX = "sandbox-";
 
@@ -771,9 +781,11 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
     await tx.insert(erpIntegrations).values(linhaDaIntegracao(provider.id));
 
     // Espelha storage.createUser (server/storage/users.storage.ts:92-98),
-    // email canonicalizado incluído.
+    // email canonicalizado incluído. `emailDoAdminDaDemo` (não mais o literal
+    // inline) porque este e-mail agora é o SEGUNDO sinal de identidade do
+    // sandbox — ver o comentário dela, logo antes de `sandboxesExpirados`.
     const [user] = await tx.insert(users).values({
-      email: emailCanonico(`${subdomain}@demo.consultaisp.com.br`),
+      email: emailDoAdminDaDemo(subdomain),
       password: senhaHash,
       name: "Administrador da Demonstração",
       role: "admin",
@@ -823,23 +835,90 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
 }
 
 /**
- * Todos os `providers.id` cujo sandbox já passou de `VIDA_DO_SANDBOX_MS`.
- * Identidade por convenção (`subdomain` começando por `sandbox-`) — sem
- * migração, sem coluna nova. Um `SELECT *` seguido de filtro em JS: a
- * cardinalidade é baixa (~200 sandboxes no máximo, ver `SANDBOXES_EM_RODIZIO`),
- * então não vale a complexidade de um `LIKE` no SQL.
+ * O e-mail determinístico do administrador que `tentarCriarSandbox` grava —
+ * o SEGUNDO sinal de identidade do sandbox (rodada de correção, 12/09/2026;
+ * ver `temSegundoSinal`, logo abaixo). Extraído para função só para o
+ * ESCRITOR (`tentarCriarSandbox`) e os DOIS LEITORES (`sandboxesExpirados`,
+ * `apagarSandbox`) nunca divergirem no formato do e-mail.
+ */
+function emailDoAdminDaDemo(subdomain: string): string {
+  return emailCanonico(`${subdomain}@demo.consultaisp.com.br`);
+}
+
+/**
+ * Identidade do sandbox, DUAS provas (rodada de correção, 12/09/2026) — ver o
+ * comentário grande no teste "apagar exige o segundo sinal, nao so o prefixo
+ * do subdominio" (`sandbox.service.test.ts`) para o raciocínio completo.
+ *
+ * Até esta correção, "é um sandbox descartável" era UMA string só: `subdomain`
+ * começando por `sandbox-`. A reserva do namespace no cadastro (Tarefa 6)
+ * fecha as portas que existem HOJE, mas esse prefixo sozinho continuava sendo
+ * a ÚNICA coisa entre um provedor pagante e a exclusão TOTAL e silenciosa da
+ * conta dele — qualquer caminho futuro (script, migração, rota nova, UPDATE na
+ * mão) que esqueça de reservar o prefixo reabre o buraco inteiro.
+ *
+ * Agora a identidade exige as DUAS provas que só `tentarCriarSandbox` grava
+ * JUNTAS, na MESMA transação: o prefixo do subdomínio E o administrador
+ * determinístico (`emailDoAdminDaDemo`). `adminsDoProvider` é a lista de
+ * e-mails de TODOS os usuários do provider (nunca só "o primeiro que a query
+ * devolveu") — um sandbox nunca deveria ganhar um segundo usuário, mas nada
+ * impede um visitante de criar um pela própria tela de gestão dentro das 24h,
+ * e o admin de verdade pode estar em qualquer posição do array.
+ */
+function temSegundoSinal(subdomain: string | null | undefined, adminsDoProvider: readonly string[]): boolean {
+  if (!subdomain || !subdomain.startsWith(PREFIXO_SANDBOX)) return false;
+  return adminsDoProvider.includes(emailDoAdminDaDemo(subdomain));
+}
+
+/**
+ * Todos os `providers.id` cujo sandbox já passou de `VIDA_DO_SANDBOX_MS` E tem
+ * os DOIS sinais de identidade (`temSegundoSinal`, acima) — sem migração, sem
+ * coluna nova. Um `SELECT *` seguido de filtro em JS: a cardinalidade é baixa
+ * (~200 sandboxes no máximo, ver `SANDBOXES_EM_RODIZIO`), então não vale a
+ * complexidade de um `LIKE`/`JOIN` no SQL.
+ *
+ * Um candidato que bate prefixo+idade mas falha o segundo sinal NÃO entra no
+ * resultado — mas também nunca deveria desaparecer em silêncio: sem o
+ * `logger.warn` abaixo, um sandbox cujo administrador sumiu por qualquer
+ * motivo vira um vazamento permanente e invisível (ninguém mais o vê em
+ * lugar nenhum, `limparSandboxesExpirados` nem chega a saber que ele existe).
+ * O log é o que transforma essa guarda de segurança em algo observável, em
+ * vez de um "some sem avisar".
  */
 export async function sandboxesExpirados(agora: Date = new Date()): Promise<number[]> {
   const todos = await db.select({ id: providers.id, subdomain: providers.subdomain, createdAt: providers.createdAt }).from(providers);
   const limite = agora.getTime() - VIDA_DO_SANDBOX_MS;
 
-  return todos
+  const candidatosPorPrefixoEIdade = todos
     .filter((p) => (p.subdomain ?? "").startsWith(PREFIXO_SANDBOX))
     .filter((p) => {
       const criadoEm = p.createdAt ? new Date(p.createdAt).getTime() : 0;
       return criadoEm <= limite;
-    })
-    .map((p) => p.id);
+    });
+  if (candidatosPorPrefixoEIdade.length === 0) return [];
+
+  const idsCandidatos = candidatosPorPrefixoEIdade.map((p) => p.id);
+  const usuarios = await db.select({ providerId: users.providerId, email: users.email }).from(users).where(inArray(users.providerId, idsCandidatos));
+  const emailsPorProvider = new Map<number, string[]>();
+  for (const u of usuarios) {
+    if (u.providerId == null) continue;
+    const lista = emailsPorProvider.get(u.providerId) ?? [];
+    lista.push(u.email);
+    emailsPorProvider.set(u.providerId, lista);
+  }
+
+  const confirmados: number[] = [];
+  for (const p of candidatosPorPrefixoEIdade) {
+    if (temSegundoSinal(p.subdomain, emailsPorProvider.get(p.id) ?? [])) {
+      confirmados.push(p.id);
+    } else {
+      logger.warn(
+        { providerId: p.id, subdomain: p.subdomain },
+        "demo: provider parece sandbox expirado (prefixo+idade) mas SEM o segundo sinal (administrador da demo) — nao apagado; investigar manualmente",
+      );
+    }
+  }
+  return confirmados;
 }
 
 /**
@@ -920,11 +999,28 @@ export async function contarSandboxesVivos(agora: Date = new Date()): Promise<nu
  * chamado pela limpeza automática (Tarefa 7) a partir de ids que ELA leu de
  * `sandboxesExpirados()`, mas um id errado em qualquer outro chamador futuro
  * não pode virar exclusão de um provedor de verdade.
+ *
+ * Rodada de correção (12/09/2026): a checagem agora exige os DOIS sinais de
+ * identidade (`temSegundoSinal`) — prefixo do subdomínio E o administrador
+ * determinístico da demo —, não só o prefixo. A CHAMADA DIRETA recusa
+ * (lança), nunca apenas ignora: um id que chegue aqui por qualquer caminho
+ * que não seja `sandboxesExpirados()` (ela mesma já filtra pelo segundo
+ * sinal) tem que ser barrado com um erro que o chamador não pode deixar de
+ * notar — silenciosamente "não fazer nada" seria a mesma armadilha de novo.
  */
 export async function apagarSandbox(providerId: number): Promise<void> {
   const [provider] = await db.select({ subdomain: providers.subdomain }).from(providers).where(eq(providers.id, providerId));
-  if (!provider || !(provider.subdomain ?? "").startsWith(PREFIXO_SANDBOX)) {
+  const subdomain = provider?.subdomain ?? "";
+  if (!subdomain.startsWith(PREFIXO_SANDBOX)) {
     throw new Error(`apagarSandbox recusado: provider ${providerId} nao tem subdomain de sandbox`);
+  }
+
+  const usuariosDoProvider = await db.select({ email: users.email }).from(users).where(eq(users.providerId, providerId));
+  if (!temSegundoSinal(subdomain, usuariosDoProvider.map((u) => u.email))) {
+    throw new Error(
+      `apagarSandbox recusado: provider ${providerId} (${subdomain}) tem o prefixo de sandbox mas NAO o segundo sinal ` +
+      `— nenhum usuario com o e-mail administrador da demo (${emailDoAdminDaDemo(subdomain)})`,
+    );
   }
 
   await db.transaction(async (tx) => {
