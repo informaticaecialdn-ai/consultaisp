@@ -47,12 +47,32 @@ function nomesDeColuna(textoDeColunas: string): string[] {
   });
 }
 
-/** Linhas (objeto, chave camelCase) -> array-of-arrays na ordem das colunas pedidas — o formato que o pg-proxy espera de volta. */
+/**
+ * Linhas (objeto, chave camelCase) -> array-of-arrays na ordem das colunas
+ * pedidas — o formato que o pg-proxy espera de volta.
+ *
+ * `PgTimestamp.mapFromDriverValue` (para uma coluna sem `withTimezone`, o
+ * caso de `invoices.dueDate`) monta a data como `valor + "+0000"` — ele
+ * espera de volta o que um driver real de Postgres devolveria para
+ * "timestamp without time zone": uma STRING sem sufixo de fuso. As fixtures
+ * deste arquivo (`linhaFatura`) gravam um objeto `Date` cru direto em
+ * `banco.linhas`, sem passar por INSERT/`mapToDriverValue` — sem esta
+ * conversão, `dataObjeto + "+0000"` cai na coerção padrão do JS
+ * (`Date.prototype.toString()`, ex. "Wed Sep 02 2026 00:34:13
+ * GMT-0300 (Horário Padrão de Brasília)+0000"), que `new Date(...)`
+ * reconstrói como um instante ATÉ 3 horas deslocado — perto da meia-noite
+ * local isso empurra o dia para o calendário ERRADO e `maxDaysOverdue` sai
+ * errado por 1 (achado ao investigar uma falha real deste teste; confirmado
+ * por reprodução isolada contra o drizzle-orm antes de escrever isto).
+ */
 function projetar(tabela: string, linhas: Record<string, unknown>[], textoDeColunas: string): unknown[][] {
   const mapa = chavePorColuna.get(tabela);
   if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
   const colunas = nomesDeColuna(textoDeColunas);
-  return linhas.map((linha) => colunas.map((c) => (mapa.get(c) ? (linha[mapa.get(c)!] ?? null) : null)));
+  return linhas.map((linha) => colunas.map((c) => {
+    const valor = mapa.get(c) ? (linha[mapa.get(c)!] ?? null) : null;
+    return valor instanceof Date ? valor.toISOString().slice(0, -1) : valor;
+  }));
 }
 
 /** `select <cols> from "t" [where "t"."col" = $1 [and ...]]` — so igualdade, e tudo que o conector emite. */
