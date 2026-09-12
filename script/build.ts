@@ -3,35 +3,13 @@ import { build as viteBuild } from "vite";
 import { rm, readFile, mkdir, readdir, copyFile, stat, unlink } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
+import { PACOTES_EMBUTIDOS } from "./pacotes-embutidos";
 
-// server deps to bundle to reduce openat(2) syscalls
-// which helps cold start times
-const allowlist = [
-  "@google/generative-ai",
-  "axios",
-  "connect-pg-simple",
-  "cors",
-  "date-fns",
-  "drizzle-orm",
-  "drizzle-zod",
-  "express",
-  "express-rate-limit",
-  "express-session",
-  "jsonwebtoken",
-  "multer",
-  "nanoid",
-  "nodemailer",
-  "openai",
-  "passport",
-  "passport-local",
-  "pg",
-  "stripe",
-  "uuid",
-  "ws",
-  "xlsx",
-  "zod",
-  "zod-validation-error",
-];
+// server deps to bundle to reduce openat(2) syscalls (which helps cold start
+// times) e, para pacote ESM puro importado com `import X from`, para o bundle
+// CJS sequer conseguir subir. A lista e o porquê de cada razão moram em
+// `script/pacotes-embutidos.ts`, que `script/pacotes-esm-externos.test.ts` lê.
+const allowlist = PACOTES_EMBUTIDOS;
 
 /**
  * Onde ficam os assets dos builds ANTERIORES.
