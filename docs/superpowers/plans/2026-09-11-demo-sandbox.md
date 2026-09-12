@@ -205,7 +205,47 @@ git commit -m "feat(demo): gente ficticia com CPF de faixa nao emitida e cidades
 - Consumes: `pessoaFicticia`, `cpfFicticio` (Tarefa 2); `storage.createProvider/createUser/createCustomer/createContract/createInvoice/createEquipment`.
 - Produces: `semearMundoBase(): Promise<{ provedores: number[]; clientes: number }>`, `PROVEDORES_DA_DEMO` (5 entradas com `nome`, `subdomain`, `cidade`), `CPFS_COMPARTILHADOS: string[]`.
 
-- [ ] **Passo 1: Teste que falha** — verifica, com storage falso, que: são 5 provedores com os subdomínios `rede-1..rede-5`; cada um recebe uma linha de `erp_integrations` com `erpSource: "demo"` e `isEnabled: true`; ~400 clientes no total; ~90 com `paymentStatus: "overdue"` e faturas vencidas de 10, 45, 120 e 300 dias; ~25 equipamentos; e que **os CPFs de `CPFS_COMPARTILHADOS` aparecem em pelo menos dois provedores** — é o que faz a rede compartilhada existir.
+- [ ] **Passo 1: Teste que falha** — com a base de teste, verifica as proporções que o dono definiu (medida de provedor real):
+
+```ts
+const PROPORCOES = { clientes: 1500, inadimplentes: 225, cancelados: 150, comEquipamento: 120, compartilhados: 150 };
+
+it("cada provedor nasce com a carteira de um provedor real", async () => {
+  await semearMundoBase();
+  for (const p of PROVEDORES_DA_DEMO) {
+    const clientes = await clientesDe(p.subdomain);
+    expect(clientes).toHaveLength(PROPORCOES.clientes);
+    expect(clientes.filter(c => c.paymentStatus === "overdue")).toHaveLength(PROPORCOES.inadimplentes);
+    expect(clientes.filter(c => c.status === "cancelled")).toHaveLength(PROPORCOES.cancelados);
+  }
+});
+
+it("as faturas vencidas cobrem as quatro idades, para a regua ter o que mostrar", async () => {
+  const idades = await idadesDeVencimento("rede-1");
+  for (const dias of [10, 45, 120, 300]) expect(idades).toContain(dias);
+});
+
+it("8% tem equipamento em comodato", async () => {
+  expect(await equipamentosDe("rede-1")).toHaveLength(PROPORCOES.comEquipamento);
+});
+
+it("10% da carteira existe em outro provedor — e o que faz a rede aparecer", async () => {
+  const compartilhados = await cpfsEmMaisDeUmProvedor();
+  expect(compartilhados.length).toBeGreaterThanOrEqual(PROPORCOES.compartilhados);
+});
+
+it("cada provedor tem integracao 'demo' habilitada, senao a consulta nunca o chama", async () => {
+  for (const p of PROVEDORES_DA_DEMO) {
+    expect(await integracaoDe(p.subdomain)).toMatchObject({ erpSource: "demo", isEnabled: true });
+  }
+});
+
+it("semear duas vezes nao duplica nada", async () => {
+  await semearMundoBase();
+  await semearMundoBase();
+  expect(await totalDeProvedores()).toBe(PROVEDORES_DA_DEMO.length);
+});
+```
 
 - [ ] **Passo 2: Rodar e ver falhar.**
 
@@ -269,11 +309,71 @@ git commit -m "feat(demo): conector de demonstracao — a consulta roda pelo cam
 - Consumes: `semearMundoBase`, `pessoaFicticia`, storage.
 - Produces: `criarSandbox(): Promise<{ providerId: number; userId: number; subdomain: string; expiraEm: Date }>`, `sandboxesExpirados(agora?: Date): Promise<number[]>`, `apagarSandbox(providerId: number): Promise<void>`, `VIDA_DO_SANDBOX_MS = 24 * 60 * 60 * 1000`, `SALDO_INICIAL = 500`.
 
-- [ ] **Passo 1: Teste que falha** — `criarSandbox` cria provedor com `subdomain` casando `/^sandbox-[a-f0-9]{16}$/`, usuário `admin` ligado a ele, saldo `500`, carteira própria (~120 clientes, ~30 vencidos, equipamentos, casos) e **parte dos CPFs vindos de `CPFS_COMPARTILHADOS`**; `sandboxesExpirados` devolve só os `sandbox-%` com mais de 24 h e **nunca** os `rede-%`; `apagarSandbox` apaga as linhas do provedor.
+- [ ] **Passo 1: Teste que falha** — `server/demo/sandbox.service.test.ts`:
+
+```ts
+it("nasce com a carteira de um provedor de verdade", async () => {
+  const s = await criarSandbox();
+  expect(s.subdomain).toMatch(/^sandbox-[a-f0-9]{16}$/);
+  const clientes = await clientesDe(s.providerId);
+  expect(clientes).toHaveLength(1500);
+  expect(clientes.filter(c => c.paymentStatus === "overdue")).toHaveLength(225);
+  expect(clientes.filter(c => c.status === "cancelled")).toHaveLength(150);
+  expect(await equipamentosDe(s.providerId)).toHaveLength(120);
+  expect(await saldoDe(s.providerId)).toBe(SALDO_INICIAL);
+});
+
+it("150 CPFs da carteira tambem existem na rede — senao a consulta so diz 'nada consta'", async () => {
+  const s = await criarSandbox();
+  expect(await cpfsTambemNaRede(s.providerId)).toHaveLength(150);
+});
+
+it("todo cliente ja nasce com coordenada — o mapa de calor nao espera geocodificacao", async () => {
+  const s = await criarSandbox();
+  const semCoordenada = (await clientesDe(s.providerId)).filter(c => !c.latitude || !c.longitude);
+  expect(semCoordenada).toHaveLength(0);
+});
+
+it("tres CPFs de exemplo, um de cada situacao, para a tela sugerir o que testar", async () => {
+  const s = await criarSandbox();
+  const exemplos = await cpfsDeExemplo(s.providerId);
+  expect(exemplos.map(e => e.situacao).sort()).toEqual(["devendo_na_rede", "limpo", "migrador_serial"]);
+});
+
+it("expira so o sandbox, nunca o mundo base", async () => {
+  const velho = await criarSandbox();
+  await envelhecer(velho.providerId, 25 * 60 * 60 * 1000);
+  const ids = await sandboxesExpirados();
+  expect(ids).toContain(velho.providerId);
+  for (const p of PROVEDORES_DA_DEMO) expect(ids).not.toContain(await idDe(p.subdomain));
+});
+
+it("apagar leva junto as linhas do provedor", async () => {
+  const s = await criarSandbox();
+  await apagarSandbox(s.providerId);
+  expect(await clientesDe(s.providerId)).toHaveLength(0);
+});
+```
 
 - [ ] **Passo 2: Rodar e ver falhar.**
 
-- [ ] **Passo 3: Implementar.** Nome do provedor: `Provedor Demonstração`. A carteira é gerada, não copiada linha a linha, para o sandbox não depender de um provedor molde vivo.
+```bash
+npx vitest run server/demo/sandbox.service.test.ts
+```
+
+- [ ] **Passo 3: Implementar.** Nome do provedor: `Provedor Demonstração`. Três exigências que vêm do volume (1.500 clientes por visitante, proporções do dono: 15% inadimplentes, 10% cancelados, 8% com equipamento):
+
+1. **Inserção em lote.** `db.insert(customers).values(bloco)` em blocos de 500 — nunca `storage.createCustomer` por linha. São ~5 mil linhas por sandbox; uma chamada por registro transformaria a porta da demonstração em tela de espera.
+2. **Coordenadas escritas direto**, derivadas do bairro da pessoa fictícia. O mapa de calor lê `latitude`/`longitude` de `customers`; nada de geocodificação sob demanda.
+3. **A carteira é gerada, não copiada** de um provedor molde — o sandbox não depende de nenhuma linha viva além do mundo base.
+
+- [ ] **Passo 3b: Medir a criação.** Depois de verde, rode uma vez e registre o tempo no relatório:
+
+```bash
+npx tsx -e "import('./server/demo/sandbox.service').then(async m => { const t = Date.now(); const s = await m.criarSandbox(); console.log('sandbox em', Date.now() - t, 'ms'); await m.apagarSandbox(s.providerId); })"
+```
+
+**Regra do dono:** se passar de **3 segundos**, o volume cai de 1.500 para 500 clientes (ele já autorizou a alternativa) — e o número medido vai no relatório, para a decisão ser tomada com medida e não com palpite.
 
 - [ ] **Passo 4: Rodar e ver passar.**
 

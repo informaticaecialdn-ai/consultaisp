@@ -66,13 +66,17 @@ Cinco provedores fictícios, criados pelo gerador e **nunca apagados**:
 
 Cada um com integração de ERP `demo` habilitada, para responder à varredura ao vivo.
 
-Volume do mundo base: ~400 clientes, ~90 inadimplentes com faturas de idades variadas (10, 45, 120, 300 dias), ~25 equipamentos retidos, ex-clientes com contrato encerrado, e **~30 CPFs presentes em dois ou três provedores** — é o que faz a consulta mostrar "Provedor Parceiro ISP-XXX-XXX" de verdade.
+**Volume — as proporções são as do dono (11/09/2026), medida de provedor real:** cada provedor tem **1.500 clientes**, dos quais **15% inadimplentes** (225, com faturas de 10, 45, 120 e 300 dias), **10% cancelados** (150 ex-clientes) e **8% com equipamento** em comodato (120, parte deles retidos). Cinco provedores = 7.500 clientes no mundo base, semeados uma vez.
+
+**A sobreposição é o que prova a rede:** 10% da carteira de cada provedor (150 CPFs) também existe em um ou dois vizinhos. É o que faz a consulta devolver "Provedor Parceiro ISP-XXX-XXX" de verdade, em vez de sempre "nada consta".
 
 **Identidade dos fictícios:** nomes brasileiros comuns; CPFs com dígito verificador válido gerados a partir de uma base `999.xxx.xxx` (faixa não emitida pela Receita), documentada no gerador. Endereços reais de bairro/cidade, sem número existente.
 
 ### 3.3 O sandbox do visitante
 
-- `GET /demo` (só no host da demo) cria: um provedor `Provedor Demonstração`, `subdomain = sandbox-<token>`, um usuário admin, e a **carteira dele** — cópia de um molde (~120 clientes, ~30 inadimplentes, equipamentos, casos de cobrança em todas as etapas do kanban, ex-clientes), com parte dos CPFs coincidindo com os provedores do mundo base.
+- `GET /demo` (só no host da demo) cria: um provedor `Provedor Demonstração`, `subdomain = sandbox-<token>`, um usuário admin, e a **carteira dele** — 1.500 clientes nas mesmas proporções (225 inadimplentes, 150 cancelados, 120 com equipamento), casos de cobrança em todas as etapas do kanban, e 150 CPFs que também existem nos provedores do mundo base.
+- **Semeadura em lote, não linha a linha.** 1.500 clientes com faturas e equipamentos por visitante são milhares de linhas: a criação usa `insert().values([...])` em blocos, não uma chamada de storage por registro. Um sandbox precisa nascer em segundos, senão a porta da demonstração vira tela de espera — que é exatamente o que ela existe para evitar.
+- **A tela sugere o que testar.** A consulta na demo mostra três CPFs de exemplo com um clique: um limpo, um devendo em dois provedores, e um migrador serial (ex-cliente que saiu devendo e foi consultado de novo). Sem isso o visitante digita um CPF qualquer, cai em "nada consta" e conclui que o produto não faz nada.
 - A sessão é criada no servidor e o visitante cai logado em `/`. Um clique, sem formulário.
 - **Nenhuma migração:** a identidade do sandbox é convenção — `subdomain LIKE 'sandbox-%'` + `createdAt`. Nada muda em `shared/schema.ts`.
 - Saldo: 500 créditos.
