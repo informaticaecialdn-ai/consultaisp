@@ -272,7 +272,11 @@ comando abaixo deveria rodar contra uma configuração que nem carrega.
 
 ```bash
 cd /var/www/consulta-isp-demo
-pm2 start ecosystem.demo.config.cjs
+# API primeiro: no primeiro boot ela aplica TODAS as migrações, e o worker que
+# subisse junto conferiria o schema no meio disso (ver o Passo 10).
+pm2 start ecosystem.demo.config.cjs --only consulta-isp-demo
+until curl -sf -o /dev/null http://127.0.0.1:5001/api/health; do sleep 2; done
+pm2 start ecosystem.demo.config.cjs --only consulta-isp-demo-worker
 pm2 save
 ```
 
@@ -441,7 +445,11 @@ npm run build
 node -e "require('./ecosystem.demo.config.cjs')" && echo BOOT-CONFIG-OK
 
 pm2 delete consulta-isp-demo consulta-isp-demo-worker
-pm2 start ecosystem.demo.config.cjs
+# API primeiro: é ela que aplica as migrações pendentes no boot.
+pm2 start ecosystem.demo.config.cjs --only consulta-isp-demo
+# Espere a API responder antes de subir o worker (ver o parágrafo das migrações, abaixo).
+until curl -sf -o /dev/null http://127.0.0.1:5001/api/health; do sleep 2; done
+pm2 start ecosystem.demo.config.cjs --only consulta-isp-demo-worker
 pm2 save
 ```
 
@@ -466,8 +474,14 @@ que este arquivo acabou de fixar — traz o que quer que estivesse salvo antes
 (inclusive nada, se nunca houve um `save` anterior para este par).
 
 Migrações novas (arquivos `.sql` adicionados a `migrations/` desde o último
-deploy) aplicam sozinhas no boot do passo acima, do mesmo jeito que no Passo
-4 — não é preciso nenhum comando extra.
+deploy) aplicam sozinhas no boot da API, do mesmo jeito que no Passo 4 — não é
+preciso nenhum comando extra.
+
+**Por isso a API sobe antes do worker.** O worker confere o schema ao subir; se
+subir junto com uma API que ainda está aplicando migração, encontra coluna
+faltando, sai, e o pm2 o religa. Foi o que aconteceu no primeiro deploy (um
+reinício do worker, com `missing critical columns` no log). Com a API primeiro
+e o worker só depois de `/api/health` responder, os dois sobem com zero.
 
 ---
 
@@ -484,6 +498,44 @@ A produção não é tocada em nenhum destes comandos — outro banco, outro
 processo, outro domínio. O banco `consultaispdemo` e o checkout
 `/var/www/consulta-isp-demo` podem ficar parados indefinidamente sem custo
 (nenhum processo os lê); apague-os só se quiser recuperar o espaço em disco.
+
+---
+
+## 12. O que o primeiro deploy revelou (12/09/2026)
+
+Nada disto apareceu no build nem na suíte — só no ambiente de verdade. Fica
+aqui para quem subir a próxima instância do zero.
+
+| Sintoma | Causa | Conserto | Trava |
+|---|---|---|---|
+| pm2 em ciclo de reinício: `TypeError: (0 , Are.default) is not a function` | `p-limit` é ESM puro, estava fora do bundle CJS e era importado com `import X from` | entrou em `PACOTES_EMBUTIDOS` (`script/pacotes-embutidos.ts`) | `script/pacotes-esm-externos.test.ts` |
+| Migração 0008 falha num banco novo: `column "bigdata_credits" does not exist` | quatro tabelas e dez colunas de `shared/schema.ts`, e as onze tabelas do CRM, só existiam em produção — criadas por `drizzle-kit push`, nunca por migração | `migrations/0007b_schema_do_push.sql` e `0038_crm_do_push.sql`, provadas sem efeito num clone do schema de produção | `server/migracoes-cobrem-o-schema.test.ts` |
+| Worker com um reinício no primeiro boot | conferiu o schema enquanto a API ainda aplicava migrações | API primeiro, worker depois (Passo 10) | — |
+| Painel com 1.000 créditos, Consulta ISP com 500 | o sandbox semeava `isp_credits` e `spc_credits`; o painel soma os dois bolsos | `spc_credits` nasce em zero | `server/demo/sandbox.service.test.ts` |
+| "Provedores parceiros: 1" num mundo de cinco | a conta incluía o próprio provedor, e `mesorregioes` estava vazio em todos | o card desconta o próprio; sandbox e rede nascem com a mesorregião; a busca regional exclui sandbox de outro visitante | `server/services/regional.service.test.ts`, `server/demo/mundo-base.test.ts` |
+
+**Recriar o banco da demo.** Foi o que se fez depois do conserto de saldo e de
+região, porque o mundo base já semeado não se reconcilia sozinho —
+`semearMundoBase()` é idempotente e não reescreve provedor que já existe. O
+banco só tem dado fictício, mas confira antes quantos `sandbox-%` existem:
+visitante de verdade é motivo para esperar as 24h de expiração.
+
+```bash
+pm2 delete consulta-isp-demo consulta-isp-demo-worker
+su postgres -c "psql -c 'DROP DATABASE consultaispdemo WITH (FORCE)'"
+su postgres -c "psql -c 'CREATE DATABASE consultaispdemo OWNER consultaispdemo'"
+pm2 start ecosystem.demo.config.cjs --only consulta-isp-demo
+until curl -sf -o /dev/null http://127.0.0.1:5001/api/health; do sleep 2; done
+# Passo 8 inteiro (semear o mundo base), e só então:
+pm2 start ecosystem.demo.config.cjs --only consulta-isp-demo-worker
+pm2 save
+```
+
+**Divergência conhecida e aceita.** Num banco criado pelas migrações, as chaves
+estrangeiras se chamam `..._fkey` e os uniques `..._key`; no de produção (push)
+são `..._fk` e `..._unique`. São 51 constraints, iguais em tudo menos no nome, e
+nenhum código depende dele — mas migração nova que referenciar constraint
+antiga pelo nome precisa tratar os dois.
 
 ---
 
