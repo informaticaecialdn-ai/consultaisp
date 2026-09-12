@@ -450,6 +450,21 @@ describe("mundo base da demonstracao", () => {
     }
   });
 
+  it("cada provedor da rede nasce na regiao do mundo ficticio, e com o saldo num bolso so", () => {
+    // Sem mesorregiao nenhum provedor da rede estava na regiao de ninguem, e o
+    // benchmark e o card "Provedores parceiros" do sandbox mostravam zero
+    // (medido no ar, 12/09/2026). O pg-proxy guarda o literal de array do
+    // Postgres, como no teste de cidadesAtendidas de sandbox.service.test.ts.
+    const linhas = banco.linhas.get("providers") ?? [];
+    for (const p of PROVEDORES_DA_DEMO) {
+      const linha = linhas.find((l) => l.subdomain === p.subdomain);
+      expect(linha, `${p.subdomain} nao semeado`).toBeTruthy();
+      expect(String(linha!.mesorregioes), p.subdomain).toContain("Norte Central Paranaense");
+      // Credito unico: o painel soma os dois bolsos, e nenhuma consulta gasta spc_credits.
+      expect(linha!.spcCredits, p.subdomain).toBe(0);
+    }
+  });
+
   it("nenhum cliente fica sem coordenada — o mapa de calor le latitude/longitude direto da coluna", async () => {
     for (const p of PROVEDORES_DA_DEMO) {
       const clientes = await clientesDe(p.subdomain);

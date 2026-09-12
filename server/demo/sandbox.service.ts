@@ -67,7 +67,7 @@ import { storage } from "../storage";
 import { emailCanonico } from "../storage/users.storage";
 import { hashPassword } from "../password";
 import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
-import { PROVEDORES_DA_DEMO, INDICES_COMPARTILHADOS, semearMundoBase, linhaDaIntegracao } from "./mundo-base";
+import { PROVEDORES_DA_DEMO, INDICES_COMPARTILHADOS, MESORREGIAO_DO_MUNDO_BASE, semearMundoBase, linhaDaIntegracao } from "./mundo-base";
 import { STATUS_DE_CASO, type StatusDeCaso } from "@shared/cobranca/estados";
 import type { EtapaId } from "@shared/cobranca/regua";
 import { severidadeDoAlerta } from "@shared/antifraude-avaliacao";
@@ -106,12 +106,16 @@ export const PREFIXO_SANDBOX = "sandbox-";
 export const VIDA_DO_SANDBOX_MS = 24 * 60 * 60 * 1000;
 
 /**
- * `providers` não tem uma coluna "saldo": tem `ispCredits` e `spcCredits`,
- * separadas (`shared/schema.ts:167-168`). Hoje só `isp_credits` é lido ou
- * debitado por qualquer caminho de consumo real (a consulta SPC também
- * desconta de `isp_credits` — ver `server/routes/consultas.routes.ts:1023`).
- * Mesmo assim, semeamos os DOIS campos: não custa nada e cobre qualquer
- * leitura direta de `spcCredits` que exista fora do caminho de consumo.
+ * O saldo do visitante mora TODO em `isp_credits`; `spc_credits` nasce em
+ * zero. `providers` ainda tem os dois campos (`shared/schema.ts`), mas desde o
+ * crédito único (`migrations/0008_credito_unico.sql`) nenhum caminho de
+ * consumo debita `spc_credits` — o saldo que se gasta é um só.
+ *
+ * Até 12/09/2026 o sandbox semeava OS DOIS com este valor, "porque não custava
+ * nada". Custava: o dashboard soma os dois bolsos
+ * (`server/storage/dashboard.storage.ts`), e o visitante via 1.000 créditos no
+ * painel e 500 na tela de consulta — dois saldos diferentes na primeira tela
+ * de quem entrou justamente para entender o produto.
  */
 export const SALDO_INICIAL = 500;
 
@@ -789,11 +793,17 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
       status: "active",
       verificationStatus: "approved",
       ispCredits: SALDO_INICIAL,
-      spcCredits: SALDO_INICIAL,
+      // Zero, e não SALDO_INICIAL: o painel soma os dois bolsos — ver o
+      // comentário de `SALDO_INICIAL`.
+      spcCredits: 0,
       // Rodada de correção (Tarefa 6): sem isto o modo "Rede" do mapa de
       // calor manda o visitante configurar as próprias cidades antes de
       // mostrar qualquer coisa — numa demonstração sem tela para isso.
       cidadesAtendidas: CIDADES_DO_MUNDO_BASE,
+      // A chave da busca regional (`getProvidersByMesoregion`). Sem ela o
+      // sandbox não estava na região de ninguém, e o card "Provedores
+      // parceiros" do painel mostrava zero — medido no ar em 12/09/2026.
+      mesorregioes: [MESORREGIAO_DO_MUNDO_BASE],
       addressState: "PR",
     }).returning();
 

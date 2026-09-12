@@ -44,6 +44,38 @@ export function sobreposicaoDeCidades(cidades: string[]) {
   return arrayOverlaps(providers.cidadesAtendidas, cidades);
 }
 
+/**
+ * O padrão SQL de sandbox de demonstração: `PREFIXO_SANDBOX`
+ * (`server/demo/sandbox.service.ts`) seguido de `%`.
+ *
+ * Escrito aqui como texto, e não importado de lá, de propósito: este serviço é
+ * núcleo (benchmark, rota regional, superadmin), e o módulo do sandbox arrasta
+ * meio schema e o gerador do mundo fictício junto. A igualdade com o prefixo de
+ * verdade está presa em teste (`server/demo/sandbox.service.test.ts`).
+ */
+export const PADRAO_DE_SANDBOX_NO_SQL = "sandbox-%";
+
+/**
+ * "Não é o sandbox de OUTRO visitante" — em SQL.
+ *
+ * Achado ao pôr a demonstração no ar (12/09/2026): a busca regional casava
+ * qualquer provedor ativo da mesma região, e todo sandbox nasce na MESMA
+ * região do mundo fictício. Com a região preenchida, cada visitante veria os
+ * outros visitantes como "provedores parceiros", e o benchmark regional
+ * misturaria a atividade deles. A consulta na rede já fazia essa exclusão
+ * (`server/routes/consultas.routes.ts`); aqui ela passa a valer para toda
+ * busca regional, na query, e não em cada rota que a chama. O próprio
+ * provedor já sai pelo `id != ...` de cada busca.
+ *
+ * `subdomain` aceita nulo, e `NULL NOT LIKE ...` dá NULL — que o WHERE trata
+ * como falso. Sem o `IS NULL OR`, todo provedor sem subdomínio sumiria da
+ * região. Em produção não existe sandbox (o cadastro recusa o prefixo), então
+ * lá o efeito é nenhum.
+ */
+export function foraDeSandboxAlheio() {
+  return sql`(${providers.subdomain} IS NULL OR ${providers.subdomain} NOT LIKE ${PADRAO_DE_SANDBOX_NO_SQL})`;
+}
+
 export async function getRegionalProviders(providerId: number) {
   const [provider] = await db.select({
     id: providers.id,
@@ -61,7 +93,8 @@ export async function getRegionalProviders(providerId: number) {
     and(
       ne(providers.id, providerId),
       eq(providers.status, "active"),
-      sobreposicaoDeCidades(provider.cidadesAtendidas)
+      sobreposicaoDeCidades(provider.cidadesAtendidas),
+      foraDeSandboxAlheio(),
     )
   );
 
@@ -84,12 +117,16 @@ export async function getProvidersByMesoregion(providerId: number) {
 
   if (!provider?.mesorregioes?.length) return [];
 
-  // Use raw SQL with proper array parameter to avoid Drizzle type issues
+  // Use raw SQL with proper array parameter to avoid Drizzle type issues.
+  // A ultima linha e a mesma exclusao de `foraDeSandboxAlheio`, acima, escrita
+  // no SQL cru desta funcao — com o `IS NULL OR` pelo mesmo motivo. E esta a
+  // busca do benchmark regional e do card "Provedores parceiros" do painel.
   const { rows: regional } = await pool.query(
     `SELECT id, name, mesorregioes FROM providers
      WHERE id != $1 AND status = 'active'
-     AND mesorregioes && $2::text[]`,
-    [providerId, provider.mesorregioes]
+     AND mesorregioes && $2::text[]
+     AND (subdomain IS NULL OR subdomain NOT LIKE $3)`,
+    [providerId, provider.mesorregioes, PADRAO_DE_SANDBOX_NO_SQL]
   );
 
   return regional;

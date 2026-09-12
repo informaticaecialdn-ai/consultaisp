@@ -476,6 +476,19 @@ export function cnpjFicticio(indiceProvedor: number): string {
 }
 
 /**
+ * A mesorregião IBGE das quatro cidades do mundo fictício: Londrina, Ibiporã,
+ * Cambé e Apucarana são todas do Norte Central Paranaense — conferido contra
+ * `shared/data/cidades-brasil.json` em `sandbox.service.test.ts`, e não
+ * digitado de memória.
+ *
+ * É a chave da busca regional (`getProvidersByMesoregion`, em
+ * `server/services/regional.service.ts`). Sem ela, nem os cinco provedores da
+ * rede nem o sandbox estavam na região de ninguém, e o painel do visitante
+ * mostrava zero provedores parceiros — medido no ar em 12/09/2026.
+ */
+export const MESORREGIAO_DO_MUNDO_BASE = "Norte Central Paranaense";
+
+/**
  * `typeof providers.$inferInsert`, e não `InsertProvider` (`shared/schema.ts`):
  * aquele tipo vem de `createInsertSchema(providers).omit({id: true, createdAt: true})`
  * — OMITE `created_at` de propósito, para a ROTA de cadastro nunca aceitar um
@@ -493,9 +506,18 @@ function linhaDoProvedor(indice: number, p: ProvedorDaDemo, agora: Date): typeof
     status: "active",
     verificationStatus: "approved",
     ispCredits: 999_999,
-    spcCredits: 999_999,
+    // Crédito único (`migrations/0008_credito_unico.sql`): nenhum caminho de
+    // consumo debita `spc_credits`, e o painel soma os dois bolsos.
+    spcCredits: 0,
     addressCity: p.cidade,
     addressState: "PR",
+    // SÓ a mesorregião, de propósito: é ela que o benchmark regional e o card
+    // "Provedores parceiros" cruzam (`getProvidersByMesoregion`). As cidades
+    // atendidas alimentam outra busca, a da tela de Regionalização, que hoje
+    // mostra o NOME de cada provedor vizinho — o contrário do código de
+    // parceiro que o resto do produto usa. Enquanto aquela tela mostrar nome, a
+    // demonstração não a povoa com a rede.
+    mesorregioes: [MESORREGIAO_DO_MUNDO_BASE],
     contactEmail: `contato@${p.subdomain}.demo.consultaisp.com.br`,
     // Explícito, e não o `defaultNow()` do schema: esta coluna dobra como a
     // ÂNCORA do relógio do mundo fictício (ver `atualizarRelogioDoMundoBaseSePreciso`

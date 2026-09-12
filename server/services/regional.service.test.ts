@@ -54,3 +54,67 @@ describe("sobreposicaoDeCidades", () => {
     expect(JSON.stringify(q.params)).toContain("Embu-Guacu - SP");
   });
 });
+
+/**
+ * A busca regional nao devolve o sandbox de OUTRO visitante — senao, na
+ * demonstracao, cada visitante veria os outros como "provedores parceiros"
+ * (achado no ar, 12/09/2026). Preso no SQL que sai, pelo mesmo motivo dos
+ * testes acima: com e sem a exclusao, as duas versoes quase nao se distinguem
+ * na leitura.
+ */
+describe("busca regional exclui sandboxes", () => {
+  it("o predicado aceita subdominio nulo, recusa o padrao e o liga como parametro", async () => {
+    const { foraDeSandboxAlheio, PADRAO_DE_SANDBOX_NO_SQL } = await import("./regional.service");
+    const q = new PgDialect().sqlToQuery(foraDeSandboxAlheio() as any);
+    expect(q.sql).toContain("subdomain");
+    // Sem o IS NULL, provedor sem subdominio sumiria da regiao: NULL NOT LIKE da NULL.
+    expect(q.sql.toLowerCase()).toContain("is null or");
+    expect(q.sql.toLowerCase()).toContain("not like");
+    expect(q.params).toEqual([PADRAO_DE_SANDBOX_NO_SQL]);
+    expect(q.sql).not.toContain("sandbox-");
+  });
+
+  it("getRegionalProviders poe a exclusao no WHERE da busca", async () => {
+    const { db } = (await import("../db")) as any;
+    const { getRegionalProviders, PADRAO_DE_SANDBOX_NO_SQL } = await import("./regional.service");
+    const condicoes: unknown[] = [];
+    let chamada = 0;
+    db.select = () => ({
+      from: () => ({
+        where: async (condicao: unknown) => {
+          chamada++;
+          // 1a: o proprio provedor (as cidades dele); 2a: a busca regional.
+          if (chamada === 1) return [{ id: 6, cidadesAtendidas: ["Londrina"] }];
+          condicoes.push(condicao);
+          return [];
+        },
+      }),
+    });
+
+    await getRegionalProviders(6);
+
+    expect(condicoes).toHaveLength(1);
+    const q = new PgDialect().sqlToQuery(condicoes[0] as any);
+    expect(q.sql.toLowerCase()).toContain("not like");
+    expect(q.params).toContain(PADRAO_DE_SANDBOX_NO_SQL);
+  });
+
+  it("getProvidersByMesoregion manda a exclusao no SQL cru, com o padrao ligado", async () => {
+    const { db, pool } = (await import("../db")) as any;
+    const { getProvidersByMesoregion, PADRAO_DE_SANDBOX_NO_SQL } = await import("./regional.service");
+    db.select = () => ({
+      from: () => ({ where: async () => [{ id: 6, mesorregioes: ["Norte Central Paranaense"] }] }),
+    });
+    const chamadas: Array<{ texto: string; valores: unknown[] }> = [];
+    pool.query = async (texto: string, valores: unknown[]) => {
+      chamadas.push({ texto, valores });
+      return { rows: [] };
+    };
+
+    await getProvidersByMesoregion(6);
+
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0].texto).toMatch(/subdomain IS NULL OR subdomain NOT LIKE \$3/);
+    expect(chamadas[0].valores).toEqual([6, ["Norte Central Paranaense"], PADRAO_DE_SANDBOX_NO_SQL]);
+  });
+});

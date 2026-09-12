@@ -32,7 +32,11 @@ export default function DashboardPage() {
   const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
 
   const { data: benchmarkData } = useQuery<any>({ queryKey: ["/api/isp-consultations/benchmark"], staleTime: 5 * 60 * 1000 });
-  const provedoresParceiros = benchmarkData?.providersInRegion ?? 0;
+  // `providersInRegion` conta o PRÓPRIO provedor — a rota monta
+  // `[providerId, ...regionais]` —, e o card diz "parceiros". Até 12/09/2026 um
+  // provedor sozinho na região lia "1 provedor parceiro compartilhando dados":
+  // era ele mesmo.
+  const provedoresParceiros = Math.max(0, (benchmarkData?.providersInRegion ?? 1) - 1);
 
   const creditos = stats?.ispCredits ?? 0;
   const consultasHoje = stats?.consultationsToday ?? 0;

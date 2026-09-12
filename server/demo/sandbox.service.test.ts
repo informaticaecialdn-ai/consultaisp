@@ -470,11 +470,13 @@ describe("sandbox do visitante", () => {
     expect(clientes.filter((c) => c.paymentStatus === "overdue")).toHaveLength(225);
     expect(clientes.filter((c) => c.status === "cancelled")).toHaveLength(150);
     expect(await equipamentosDe(s.providerId)).toHaveLength(120);
-    // Nao existe coluna "saldo" — providers tem ispCredits e spcCredits,
-    // separadas (shared/schema.ts:167-168). Os dois nascem em SALDO_INICIAL.
+    // O saldo do visitante mora todo em ispCredits; spcCredits nasce em zero.
+    // O dashboard SOMA os dois bolsos (server/storage/dashboard.storage.ts), e
+    // ate 12/09/2026 os dois nasciam em SALDO_INICIAL: o visitante via 1.000
+    // creditos no painel e 500 na tela de consulta, que le so ispCredits.
     const provider = await providerDe(s.providerId);
     expect(provider.ispCredits).toBe(SALDO_INICIAL);
-    expect(provider.spcCredits).toBe(SALDO_INICIAL);
+    expect(provider.spcCredits, "o painel somaria um saldo que nenhuma consulta gasta").toBe(0);
   });
 
   it("150 CPFs da carteira tambem existem na rede — senao a consulta so diz 'nada consta'", async () => {
@@ -700,6 +702,28 @@ describe("sandbox do visitante", () => {
     for (const cidade of ["Londrina", "Ibiporã", "Cambé", "Apucarana"]) {
       expect(cidades, cidades).toContain(cidade);
     }
+
+    // Sem mesorregiao o sandbox fica fora de toda busca regional
+    // (`getProvidersByMesoregion` devolve vazio) e o card "Provedores
+    // parceiros" do painel mostrava zero — medido no ar em 12/09/2026. Mesmo
+    // formato de literal de array que `cidadesAtendidas`, acima.
+    const mesos = provider.mesorregioes as string;
+    expect(mesos, "mesorregioes vazio ou nulo").toBeTruthy();
+    expect(mesos).toContain("Norte Central Paranaense");
+
+    // E e a mesorregiao de VERDADE dessas cidades, na tabela do IBGE que a tela
+    // de regionalizacao usa — nao um nome digitado que so parece certo.
+    const { cidadesDasMesorregioes } = await import("../services/area-atendida");
+    const doIbge = cidadesDasMesorregioes(["Norte Central Paranaense"]);
+    for (const cidade of ["Londrina", "Ibiporã", "Cambé", "Apucarana"]) {
+      expect(doIbge, `${cidade} fora do Norte Central Paranaense`).toContain(cidade);
+    }
+
+    // O sandbox de OUTRO visitante nunca e parceiro: a busca regional exclui o
+    // padrao de sandbox no SQL, e esse padrao tem que ser o prefixo de verdade.
+    const { PADRAO_DE_SANDBOX_NO_SQL } = await import("../services/regional.service");
+    const { PREFIXO_SANDBOX } = await import("./sandbox.service");
+    expect(PADRAO_DE_SANDBOX_NO_SQL).toBe(`${PREFIXO_SANDBOX}%`);
   });
 
   it("o sandbox tem integracao 'demo' habilitada — sem ela a consulta ao vivo nunca alcanca o conector, nem para a PROPRIA carteira do sandbox", async () => {
