@@ -323,11 +323,93 @@ git commit -m "feat(demo): um clique entra na demonstracao, com sessao propria"
 **Interfaces:**
 - Produces: `iniciarLimpezaDaDemo()` / `pararLimpezaDaDemo()`, de hora em hora, só quando `emModoDemo()`.
 
-- [ ] **Passo 1: Teste que falha** — apaga os expirados, não toca nos `rede-%`, não roda fora de `DEMO_MODE`, e uma passada em voo não se sobrepõe à seguinte.
+- [ ] **Passo 1: Teste que falha** — `server/demo/limpeza.service.test.ts`:
+
+```ts
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+const fake = vi.hoisted(() => ({ expirados: vi.fn(), apagar: vi.fn() }));
+vi.mock("./sandbox.service", () => ({
+  sandboxesExpirados: fake.expirados,
+  apagarSandbox: fake.apagar,
+}));
+import { limparSandboxesExpirados } from "./limpeza.service";
+
+describe("limpeza da demo", () => {
+  beforeEach(() => { vi.clearAllMocks(); process.env.DEMO_MODE = "true"; fake.apagar.mockResolvedValue(undefined); });
+  afterEach(() => { delete process.env.DEMO_MODE; });
+
+  it("apaga cada sandbox expirado", async () => {
+    fake.expirados.mockResolvedValue([11, 12]);
+    await expect(limparSandboxesExpirados()).resolves.toEqual({ apagados: 2 });
+    expect(fake.apagar).toHaveBeenCalledWith(11);
+    expect(fake.apagar).toHaveBeenCalledWith(12);
+  });
+
+  it("fora do modo demo nao apaga nada — producao nunca perde provedor", async () => {
+    delete process.env.DEMO_MODE;
+    await expect(limparSandboxesExpirados()).resolves.toEqual({ apagados: 0 });
+    expect(fake.expirados).not.toHaveBeenCalled();
+  });
+
+  it("um sandbox que falha nao impede os outros", async () => {
+    fake.expirados.mockResolvedValue([11, 12]);
+    fake.apagar.mockRejectedValueOnce(new Error("fk"));
+    await expect(limparSandboxesExpirados()).resolves.toEqual({ apagados: 1 });
+    expect(fake.apagar).toHaveBeenCalledTimes(2);
+  });
+});
+```
+
 - [ ] **Passo 2: Rodar e ver falhar.**
-- [ ] **Passo 3: Implementar** no molde da sentinela (`chat-sentinela.service.ts`): guarda de dupla partida, `timer.unref()`, parada ordenada.
-- [ ] **Passo 4: Rodar e ver passar.**
-- [ ] **Passo 5: Commit.**
+
+```bash
+npx vitest run server/demo/limpeza.service.test.ts
+```
+
+Esperado: FAIL — `limparSandboxesExpirados` não existe.
+
+- [ ] **Passo 3: Implementar** — `server/demo/limpeza.service.ts`, no molde da sentinela (`server/services/chat/chat-sentinela.service.ts`): guarda de dupla partida, `passada` em voo que impede sobreposição, `timer.unref()` e parada ordenada.
+
+```ts
+export async function limparSandboxesExpirados(agora = new Date()): Promise<{ apagados: number }> {
+  if (!emModoDemo()) return { apagados: 0 };
+  const ids = await sandboxesExpirados(agora);
+  let apagados = 0;
+  for (const id of ids) {
+    try { await apagarSandbox(id); apagados++; }
+    catch (err) { logger.warn({ providerId: id, err }, "demo: sandbox nao apagado"); }
+  }
+  return { apagados };
+}
+
+export function iniciarLimpezaDaDemo(): void { /* setInterval de 1 h + unref, guarda de dupla partida */ }
+export function pararLimpezaDaDemo(): Promise<void> { /* limpa o timer e espera a passada em voo */ }
+```
+
+- [ ] **Passo 4: Ligar no worker** — em `server/worker.ts`, junto das outras agendas:
+
+```ts
+  const { iniciarLimpezaDaDemo } = await import("./demo/limpeza.service");
+  iniciarLimpezaDaDemo();
+```
+
+e `pararLimpezaDaDemo()` no encerramento, como as vizinhas.
+
+- [ ] **Passo 5: Rodar e ver passar.**
+
+```bash
+npx vitest run server/demo && npx vitest run && npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error TS"
+```
+
+Esperado: PASS, saída 0 e **57**.
+
+- [ ] **Passo 6: Commit.**
+
+```bash
+git add server/demo/limpeza.service.ts server/demo/limpeza.service.test.ts server/worker.ts
+git commit -m "feat(demo): o worker da demo apaga sandbox vencido, e so o da demo"
+```
 
 ---
 
@@ -341,11 +423,72 @@ git commit -m "feat(demo): um clique entra na demonstracao, com sessao propria"
 **Interfaces:**
 - Produces: `spcSimulado(documento)`, `cadastralSimulado(documento)`, ambos determinísticos pelo documento e com `simulado: true` no retorno.
 
-- [ ] **Passo 1: Teste que falha** — o mesmo CPF devolve sempre o mesmo resultado; CPFs diferentes produzem situações diferentes (limpo, com restrição, com score alto e baixo); em `DEMO_MODE` **nenhuma** chamada de rede acontece; fora de `DEMO_MODE` nada muda.
+- [ ] **Passo 1: Teste que falha** — `server/demo/bureaus-simulados.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { spcSimulado, cadastralSimulado } from "./bureaus-simulados";
+
+describe("bureaus simulados", () => {
+  it("o mesmo documento devolve sempre o mesmo resultado", () => {
+    expect(spcSimulado("99912345607")).toEqual(spcSimulado("99912345607"));
+    expect(cadastralSimulado("99912345607")).toEqual(cadastralSimulado("99912345607"));
+  });
+
+  it("documentos diferentes produzem situacoes diferentes", () => {
+    const varios = ["99900000019", "99911111150", "99922222291", "99933333332"].map(spcSimulado);
+    expect(new Set(varios.map(r => r.temRestricao)).size).toBeGreaterThan(1);
+    expect(new Set(varios.map(r => r.score)).size).toBeGreaterThan(1);
+  });
+
+  it("todo resultado vem marcado como simulado — a tela precisa poder avisar", () => {
+    expect(spcSimulado("99912345607").simulado).toBe(true);
+    expect(cadastralSimulado("99912345607").simulado).toBe(true);
+  });
+
+  it("score fica na faixa do produto (0 a 1000)", () => {
+    for (let i = 0; i < 50; i++) {
+      const r = spcSimulado(`999${String(i).padStart(8, "0")}`);
+      expect(r.score).toBeGreaterThanOrEqual(0);
+      expect(r.score).toBeLessThanOrEqual(1000);
+    }
+  });
+});
+```
+
 - [ ] **Passo 2: Rodar e ver falhar.**
-- [ ] **Passo 3: Implementar** o desvio na primeira linha de cada entrada: `if (emModoDemo()) return spcSimulado(documento);`.
-- [ ] **Passo 4: Rodar e ver passar.**
-- [ ] **Passo 5: Commit.**
+
+```bash
+npx vitest run server/demo/bureaus-simulados.test.ts
+```
+
+Esperado: FAIL — o módulo não existe.
+
+- [ ] **Passo 3: Implementar** `server/demo/bureaus-simulados.ts`: um hash determinístico do documento escolhe a situação (limpo, uma restrição, várias), o score e as datas. Sem `Math.random`, sem `new Date()` sem argumento — a demonstração precisa ser reproduzível.
+
+- [ ] **Passo 4: Desviar as duas entradas.** Primeira linha de `consultarSpc` (`server/services/spc/spc.service.ts:222`) e de `consultarCpf` (`server/services/bigdata.service.ts:1260`):
+
+```ts
+  if (emModoDemo()) return spcSimulado(documento);      // em consultarSpc
+  if (emModoDemo()) return cadastralSimulado(documento); // em consultarCpf
+```
+
+- [ ] **Passo 5: Teste de que nada sai pela rede** — acrescente ao arquivo de teste um caso que liga `DEMO_MODE`, espiona `global.fetch` e chama as duas entradas: `expect(fetch).not.toHaveBeenCalled()`.
+
+- [ ] **Passo 6: Rodar e ver passar.**
+
+```bash
+npx vitest run server/demo server/services/spc && npx vitest run && npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error TS"
+```
+
+Esperado: PASS, saída 0 e **57**.
+
+- [ ] **Passo 7: Commit.**
+
+```bash
+git add server/demo/bureaus-simulados.ts server/demo/bureaus-simulados.test.ts server/services/spc/spc.service.ts server/services/bigdata.service.ts
+git commit -m "feat(demo): SPC e cadastral simulados, iguais para o mesmo CPF e sem tocar a rede"
+```
 
 ---
 
@@ -360,11 +503,73 @@ git commit -m "feat(demo): um clique entra na demonstracao, com sessao propria"
 - Consumes: `GET /api/auth/me` (já traz o provedor da sessão).
 - Produces: `FaixaDemonstracao`, `SeloSimulado`.
 
-- [ ] **Passo 1: Teste de fonte que falha** — a faixa traz o texto exato `Demonstração — dados fictícios`, mostra quanto falta para expirar, tem o botão "Quero no meu provedor" apontando para `https://consultaisp.com.br/login?mode=register`, usa só tokens (`var(--…)`) e não usa `rounded-full` nem classe de paleta default.
+- [ ] **Passo 1: Teste de fonte que falha** — `client/src/components/faixa-demonstracao.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const RAIZ = resolve(__dirname, "../../..");
+const ler = (rel: string) => readFileSync(join(RAIZ, rel), "utf8").replace(/\r\n/g, "\n");
+const faixa = ler("client/src/components/FaixaDemonstracao.tsx");
+const app = ler("client/src/App.tsx");
+
+describe("faixa de demonstracao", () => {
+  it("diz que o dado e ficticio, com essas palavras", () => {
+    expect(faixa).toContain("Demonstração — dados fictícios");
+  });
+
+  it("mostra quanto falta para o sandbox expirar", () => {
+    expect(faixa).toMatch(/expira em/i);
+  });
+
+  it("leva ao cadastro do site real", () => {
+    expect(faixa).toContain("https://consultaisp.com.br/login?mode=register");
+    expect(faixa).toContain("Quero no meu provedor");
+  });
+
+  it("so tokens do design system — nada de paleta default nem pill", () => {
+    expect(faixa).not.toMatch(/\b(bg|text|border)-(slate|gray|blue|emerald|red|amber|zinc)-\d{2,3}\b/);
+    expect(faixa).not.toContain("rounded-full");
+    expect(faixa).toMatch(/var\(--/);
+  });
+
+  it("monta na coluna de conteudo, junto da faixa de suporte", () => {
+    expect(app).toContain("<FaixaDemonstracao />");
+    expect(app.indexOf("<FaixaDemonstracao />")).toBeGreaterThan(app.indexOf("<FaixaSuporte />") - 400);
+  });
+});
+```
+
 - [ ] **Passo 2: Rodar e ver falhar.**
-- [ ] **Passo 3: Implementar**, montando ao lado de `<FaixaSuporte />` — que é a primeira linha da coluna de conteúdo pela razão estrutural documentada no próprio `App.tsx`.
-- [ ] **Passo 4: Rodar e ver passar.**
-- [ ] **Passo 5: Commit.**
+
+```bash
+npx vitest run client/src/components/faixa-demonstracao.test.ts
+```
+
+Esperado: FAIL — o componente não existe.
+
+- [ ] **Passo 3: Implementar** `FaixaDemonstracao.tsx`: lê o provedor da sessão (`GET /api/auth/me`, TanStack Query como o resto do client), só renderiza quando o subdomínio casa `^sandbox-`, calcula as horas restantes a partir da criação e mostra o CTA. Tokens do `DESIGN_SYSTEM.md`, faixa retangular (raio ≤ 8px).
+
+- [ ] **Passo 4: Montar no shell** — em `client/src/App.tsx`, logo abaixo de `<FaixaSuporte />` (a razão estrutural daquele lugar está comentada ali mesmo).
+
+- [ ] **Passo 5: Selo do dado simulado** — em `client/src/components/consulta/report-ui.tsx`, um `SeloSimulado` reaproveitando a primitiva de selo de proveniência já existente, exibido quando o resultado vier com `simulado: true`.
+
+- [ ] **Passo 6: Rodar e ver passar.**
+
+```bash
+npx vitest run client/src/components && npx vitest run && npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error TS"
+```
+
+Esperado: PASS, saída 0 e **57**.
+
+- [ ] **Passo 7: Commit.**
+
+```bash
+git add client/src/components/FaixaDemonstracao.tsx client/src/components/faixa-demonstracao.test.ts client/src/App.tsx client/src/components/consulta/report-ui.tsx
+git commit -m "feat(demo): a tela inteira avisa que e demonstracao, e o relatorio simulado leva selo"
+```
 
 ---
 
@@ -374,11 +579,56 @@ git commit -m "feat(demo): um clique entra na demonstracao, com sessao propria"
 - Modify: `client/src/pages/public/landingpage.tsx` (herói ~246, CTA final ~912)
 - Modify: `client/src/pages/public/landingpage.test.ts`
 
-- [ ] **Passo 1: Teste que falha** — a landing tem um `<a>` para `https://demo.consultaisp.com.br/demo` com o texto `Ver demonstração`, nos dois blocos, e o botão de cadastro continua existindo.
+- [ ] **Passo 1: Teste que falha** — acrescente a `client/src/pages/public/landingpage.test.ts`:
+
+```ts
+describe("porta da demonstração", () => {
+  it("leva ao demo, nos dois blocos de CTA", () => {
+    const ocorrencias = fonte.match(/https:\/\/demo\.consultaisp\.com\.br\/demo/g) ?? [];
+    expect(ocorrencias.length).toBeGreaterThanOrEqual(2);
+    expect(fonte).toContain("Ver demonstração");
+  });
+
+  it("abre em outra aba, sem entregar a sessao da landing", () => {
+    expect(fonte).toMatch(/demo\.consultaisp\.com\.br\/demo"[^>]*target="_blank"[^>]*rel="noopener"/s);
+  });
+
+  it("o cadastro continua sendo a acao principal", () => {
+    expect(fonte).toContain("Criar conta grátis");
+  });
+});
+```
+
+(`fonte` é a leitura do arquivo que o teste já faz no topo.)
+
 - [ ] **Passo 2: Rodar e ver falhar.**
-- [ ] **Passo 3: Implementar** no mesmo padrão dos CTAs atuais (`className="btn btn-secondary on-dark btn-lg"`, `target="_blank" rel="noopener"`).
+
+```bash
+npx vitest run client/src/pages/public/landingpage.test.ts
+```
+
+Esperado: FAIL — nenhum link para o demo.
+
+- [ ] **Passo 3: Implementar** — no herói (junto de "Criar conta grátis") e no CTA final:
+
+```tsx
+<a href="https://demo.consultaisp.com.br/demo" target="_blank" rel="noopener" className="btn btn-secondary on-dark btn-lg">Ver demonstração</a>
+```
+
 - [ ] **Passo 4: Rodar e ver passar.**
+
+```bash
+npx vitest run client/src/pages/public && npx vitest run && npx tsc --noEmit -p tsconfig.json 2>&1 | grep -c "error TS"
+```
+
+Esperado: PASS, saída 0 e **57**.
+
 - [ ] **Passo 5: Commit.**
+
+```bash
+git add client/src/pages/public/landingpage.tsx client/src/pages/public/landingpage.test.ts
+git commit -m "feat(demo): a landing tem porta para a demonstracao, ao lado do cadastro"
+```
 
 ---
 
@@ -388,9 +638,98 @@ git commit -m "feat(demo): um clique entra na demonstracao, com sessao propria"
 - Create: `ecosystem.demo.config.cjs`
 - Create: `docs/demo-instancia.md`
 
-- [ ] **Passo 1: `ecosystem.demo.config.cjs`** — cópia do atual com `name: "consulta-isp-demo"` / `"consulta-isp-demo-worker"`, `dotenv.config({ path: ".env.demo" })`, `max_memory_restart: "512M"` no worker da demo (ele não carrega CNEFE) e logs próprios.
-- [ ] **Passo 2: `docs/demo-instancia.md`** — banco `consultaispdemo` e role `demo`, `.env.demo` (com `DEMO_MODE=true`, `PORT=5001` e as obrigatórias do `validateEnv`), site nginx `demo-consultaisp` com `X-Robots-Tag: noindex, nofollow`, semeadura do mundo base, e como se reverte (parar o par da demo; produção não é tocada).
-- [ ] **Passo 3: Gates e commit.**
+> **Quem executa:** o controlador, não um subagente — é operação de produção por ssh (banco, nginx, pm2), como a Tarefa 9 da etapa do WhatsApp. Os dois arquivos abaixo são versionados antes de qualquer comando na VPS.
+
+- [ ] **Passo 1: `ecosystem.demo.config.cjs`** — cópia do atual com quatro mudanças:
+
+```js
+const dotenv = require("dotenv");
+// O par da demo le o .env DELA. Sem o path explicito o pm2 leria o .env de
+// producao e a demo subiria apontando para o banco real — exatamente o que a
+// instancia separada existe para impedir.
+const env = dotenv.config({ path: ".env.demo" }).parsed || {};
+
+module.exports = {
+  apps: [
+    {
+      name: "consulta-isp-demo",
+      script: "dist/index.cjs",
+      exec_mode: "fork",
+      max_memory_restart: "512M",
+      kill_timeout: 35000,
+      env: { ...env, NODE_ENV: "production" },
+      error_file: "/root/.pm2/logs/consulta-isp-demo-error.log",
+      out_file: "/root/.pm2/logs/consulta-isp-demo-out.log",
+      merge_logs: true,
+      time: true,
+    },
+    {
+      name: "consulta-isp-demo-worker",
+      script: "dist/worker.cjs",
+      exec_mode: "fork",
+      // 512M, nao 4G: o worker da demo so roda a limpeza de sandbox e a regua.
+      // Ele nao carrega o CNEFE, que e o que obriga producao a ter 4G.
+      max_memory_restart: "512M",
+      kill_timeout: 35000,
+      restart_delay: 10000,
+      min_uptime: "60s",
+      max_restarts: 5,
+      env: { ...env, NODE_ENV: "production" },
+      error_file: "/root/.pm2/logs/consulta-isp-demo-worker-error.log",
+      out_file: "/root/.pm2/logs/consulta-isp-demo-worker-out.log",
+      merge_logs: true,
+      time: true,
+    },
+  ],
+};
+```
+
+- [ ] **Passo 2: `docs/demo-instancia.md`** — o roteiro completo, com os comandos reais:
+
+```bash
+# banco e role proprios (padrao do chatbullq)
+su postgres -c "psql -c \"CREATE ROLE demo LOGIN PASSWORD '<gerada na VPS>'\""
+su postgres -c "psql -c 'CREATE DATABASE consultaispdemo OWNER demo'"
+
+# checkout proprio, mesma branch de producao
+git clone /var/www/consulta-isp /var/www/consulta-isp-demo
+cd /var/www/consulta-isp-demo && git remote set-url origin <remote de producao> && git checkout feat/localizacao
+
+# .env.demo (600): DEMO_MODE=true, PORT=5001, DATABASE_URL do consultaispdemo,
+# SESSION_SECRET propria, e as obrigatorias do validateEnv (LGPD_CNPJ, LGPD_EMPRESA,
+# MAIN_DOMAIN). SEM Resend, WhatsApp, ZapSign, Asaas, SPC e BigDataCorp.
+
+npm install && npm run build
+pm2 start ecosystem.demo.config.cjs && pm2 save
+npx tsx script/semear-demo.ts        # semeia o mundo base uma vez
+```
+
+nginx `demo-consultaisp`, com a linha que mantém a demo fora da busca:
+
+```nginx
+server {
+  server_name demo.consultaisp.com.br;
+  add_header X-Robots-Tag "noindex, nofollow" always;
+  location / { proxy_pass http://127.0.0.1:5001; proxy_set_header Host $host; }
+}
+```
+
+E como se reverte: `pm2 delete consulta-isp-demo consulta-isp-demo-worker`. Produção não é tocada em nenhum passo — outro banco, outro processo, outro domínio.
+
+- [ ] **Passo 3: Conferir no ar.**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://demo.consultaisp.com.br/demo     # 302 para /
+curl -sI https://demo.consultaisp.com.br/ | grep -i x-robots-tag                  # noindex
+curl -s -o /dev/null -w '%{http_code}\n' https://consultaisp.com.br/api/health    # 200 — producao intacta
+```
+
+- [ ] **Passo 4: Commit dos dois arquivos.**
+
+```bash
+git add ecosystem.demo.config.cjs docs/demo-instancia.md
+git commit -m "chore(demo): par de processos e roteiro da instancia de demonstracao"
+```
 
 ---
 
