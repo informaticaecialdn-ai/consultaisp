@@ -9,10 +9,16 @@
  * módulo: nada daqui importa `fetch`, XML, SOAP ou credencial.
  *
  * Determinismo é o requisito do produto: o mesmo documento tem que devolver
- * sempre o mesmo resultado, para uma demonstração poder ser repetida e um
- * print de tela continuar batendo meses depois. Por isso tudo sai de um hash
- * puro do documento — nunca `Math.random`, nunca `new Date()` sem argumento
- * (a "âncora" abaixo é uma data FIXA, só para formatar deslocamentos em dias).
+ * sempre a mesma HISTÓRIA, para uma demonstração poder ser repetida e um
+ * print de tela continuar batendo meses depois. Por isso nunca há
+ * `Math.random` — mas a história é feita de DESLOCAMENTOS em dias a partir de
+ * hoje ("dívida registrada há 47 dias"), nunca de datas absolutas: um
+ * deslocamento fixo preso a um calendário fixo envelheceria (a demonstração
+ * diria para sempre "01/09/2026", cada vez mais distante do dia real). A data
+ * desta consulta (`consultadoEm` e as demais datas "de hoje") usa o relógio
+ * real — a consulta está de fato acontecendo agora —, e cada dia-de-hoje é
+ * lido só UMA vez por chamada (`hojeUtcMs()`) para toda a história daquele
+ * documento sair consistente entre si.
  *
  * Identidade (nome, endereço, telefone, nascimento) é a MESMA para os dois
  * bureaus quando o documento é o mesmo — um visitante que consulta o mesmo
@@ -93,14 +99,20 @@ function semAcento(txt: string): string {
 }
 
 /**
- * Âncora FIXA (2026-09-01, UTC) — nunca `Date.now()`. Todas as datas do módulo
- * são essa âncora menos um número de dias derivado do hash, para o resultado
- * nunca mudar de um dia para o outro.
+ * Meia-noite UTC do dia real de hoje — a ÚNICA leitura do relógio deste
+ * módulo, uma vez por chamada de `spcSimulado`/`cadastralSimulado`. Toda data
+ * "de hoje" (`dataIso(hojeMs, 0)`) e todo deslocamento ("há N dias") partem
+ * daqui: o deslocamento é fixo por documento (determinismo), mas a
+ * data-calendário que ele resolve anda com o dia real — nunca fica presa no
+ * dia em que este código foi escrito.
  */
-const ANCORA_MS = Date.UTC(2026, 8, 1);
+function hojeUtcMs(): number {
+  const agora = new Date();
+  return Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate());
+}
 
-function dataIso(diasAntesDaAncora: number): string {
-  return new Date(ANCORA_MS - diasAntesDaAncora * 86_400_000).toISOString().slice(0, 10);
+function dataIso(hojeMs: number, diasAntesDeHoje: number): string {
+  return new Date(hojeMs - diasAntesDeHoje * 86_400_000).toISOString().slice(0, 10);
 }
 
 // ── Mundo fictício compartilhado pelos dois bureaus ─────────────────────────
@@ -151,7 +163,7 @@ interface PessoaSimulada {
  * crédito/cadastro diverge entre eles (cada bureau usa um `base` salgado
  * diferente para isso, calculado por quem chama).
  */
-function pessoaSimulada(base: number): PessoaSimulada {
+function pessoaSimulada(base: number, hojeMs: number): PessoaSimulada {
   const feminino = chance(base, 1, 50);
   const prenome = feminino ? escolher(PRENOMES_FEM, base, 2) : escolher(PRENOMES_MASC, base, 2);
   const sobrenome1 = escolher(SOBRENOMES, base, 3);
@@ -167,7 +179,7 @@ function pessoaSimulada(base: number): PessoaSimulada {
     nomeCompleto: `${prenome} ${sobrenome1} ${sobrenome2}`,
     nomeMae, nomePai,
     genero: feminino ? "F" : "M",
-    nascimentoIso: dataIso(idade * 365 + intEntre(base, 13, 0, 364)),
+    nascimentoIso: dataIso(hojeMs, idade * 365 + intEntre(base, 13, 0, 364)),
     idade,
     telefoneDdd: DDD_DA_REGIAO,
     telefoneNumero: `9${linha.slice(0, 4)}-${linha.slice(4)}`,
@@ -221,11 +233,11 @@ function descricaoRestricao(tipo: Restricao["type"]): string {
   }
 }
 
-function restricaoFicticia(base: number, indice: number): Restricao {
+function restricaoFicticia(base: number, indice: number, hojeMs: number): Restricao {
   const sal = 600 + indice * 10;
   const tipo = escolher(TIPOS_RESTRICAO, base, sal + 1);
   const valor = intEntre(base, sal + 2, 90, 3400);
-  const dt = dataIso(intEntre(base, sal + 3, 10, 900));
+  const dt = dataIso(hojeMs, intEntre(base, sal + 3, 10, 900));
   const credor = escolher(CREDORES_FICTICIOS, base, sal + 4);
   const origin = `${escolher(CIDADES_DEMO, base, sal + 5).nome} / PR`;
   return {
@@ -245,10 +257,10 @@ function restricaoFicticia(base: number, indice: number): Restricao {
   };
 }
 
-function restricoesFicticiasSpc(base: number, situacao: Situacao): Restricao[] {
+function restricoesFicticiasSpc(base: number, situacao: Situacao, hojeMs: number): Restricao[] {
   const n = quantidadeRestricoesSpc(base, situacao);
   const restricoes: Restricao[] = [];
-  for (let i = 0; i < n; i++) restricoes.push(restricaoFicticia(base, i));
+  for (let i = 0; i < n; i++) restricoes.push(restricaoFicticia(base, i, hojeMs));
   return restricoes.sort((a, b) => b.date.localeCompare(a.date));
 }
 
@@ -274,14 +286,14 @@ function resumoFicticioSpc(restricoes: Restricao[]): SpcResult["resumo"] {
   };
 }
 
-function consultasAnterioresFicticias(base: number, n: number): SpcResult["previousConsultations"] {
+function consultasAnterioresFicticias(base: number, n: number, hojeMs: number): SpcResult["previousConsultations"] {
   const lista: ConsultaAnteriorSpc[] = [];
   for (let i = 0; i < n; i++) {
     lista.push({
       associado: escolher(CREDORES_FICTICIOS, base, 700 + i),
       cidade: escolher(CIDADES_DEMO, base, 710 + i).nome,
       uf: "PR",
-      data: dataIso(intEntre(base, 720 + i, 1, 89)),
+      data: dataIso(hojeMs, intEntre(base, 720 + i, 1, 89)),
     });
   }
   return { total: n, last90Days: n, diasConsiderados: 90, bySegment: {}, lista };
@@ -304,14 +316,14 @@ function vereditoSpc(score: number, restricao: boolean): Pick<SpcResult, "riskLe
   return { riskLevel: "very_high", riskLabel: "Risco muito alto", recommendation: "Recusar" };
 }
 
-function cadastralDataSpc(doc: string, pessoa: PessoaSimulada, identidadeBase: number): SpcResult["cadastralData"] {
+function cadastralDataSpc(doc: string, pessoa: PessoaSimulada, identidadeBase: number, hojeMs: number): SpcResult["cadastralData"] {
   if (doc.length === 14) {
     const cidade = escolher(CIDADES_DEMO, identidadeBase, 20);
     return {
       tipo: "PJ",
       nome: escolher(RAZOES_SOCIAIS_FICTICIAS, identidadeBase, 21),
       cpfCnpj: doc,
-      dataFundacao: dataIso(intEntre(identidadeBase, 22, 500, 9000)),
+      dataFundacao: dataIso(hojeMs, intEntre(identidadeBase, 22, 500, 9000)),
       situacaoRf: "ATIVA",
       obitoRegistrado: false,
       naturezaJuridica: "Sociedade Empresária Limitada",
@@ -344,10 +356,11 @@ export function spcSimulado(documento: string): SpcResult {
   const doc = normalizarDocumento(documento);
   const identidadeBase = hashBase(doc);
   const spcBase = hashBase(`${doc}:spc`);
-  const pessoa = pessoaSimulada(identidadeBase);
+  const hojeMs = hojeUtcMs();
+  const pessoa = pessoaSimulada(identidadeBase, hojeMs);
 
   const situacao = situacaoDe(spcBase);
-  const restrictions = restricoesFicticiasSpc(spcBase, situacao);
+  const restrictions = restricoesFicticiasSpc(spcBase, situacao, hojeMs);
   const restricao = restrictions.length > 0;
   const score = scoreSpc(spcBase, situacao);
   const nConsultasAnteriores = intEntre(spcBase, 503, 0, 3);
@@ -355,9 +368,11 @@ export function spcSimulado(documento: string): SpcResult {
   return {
     cpfCnpj: doc,
     protocolo: `${intEntre(spcBase, 504, 100_000, 999_999)}-${intEntre(spcBase, 505, 0, 9)}`,
-    consultadoEm: dataIso(0),
+    // A consulta está acontecendo AGORA — data real de hoje, não presa a um
+    // calendário fixo (ver o comentário de `hojeUtcMs`).
+    consultadoEm: dataIso(hojeMs, 0),
     restricao,
-    cadastralData: cadastralDataSpc(doc, pessoa, identidadeBase),
+    cadastralData: cadastralDataSpc(doc, pessoa, identidadeBase, hojeMs),
     score,
     scoreFonte: "spc-score-12-meses",
     ...vereditoSpc(score, restricao),
@@ -366,7 +381,7 @@ export function spcSimulado(documento: string): SpcResult {
     totalRestrictions: arredondar(restrictions.reduce((s, r) => s + parseFloat(r.value), 0)),
     resumo: resumoFicticioSpc(restrictions),
     pendenciasFinanceiras: [],
-    previousConsultations: consultasAnterioresFicticias(spcBase, nConsultasAnteriores),
+    previousConsultations: consultasAnterioresFicticias(spcBase, nConsultasAnteriores, hojeMs),
     alerts: [],
     // Insumos opcionais (renda presumida, limite sugerido) só vêm quando
     // comprados à parte (SPC_INSUMOS_OPCIONAIS) — a simulação não inventa o
@@ -417,6 +432,32 @@ function contadoresBigData(base: number, situacao: Situacao): ContadoresBigData 
 }
 
 /**
+ * Score 0-1000, MAIOR é MELHOR (bigdata.service.ts:928) — tem que concordar
+ * com `situacao`/`contadoresBigData`, nunca contradizer `emCobrancaAgora`,
+ * `temExecucao` ou `dividaAtiva`. Mesma ideia de `scoreSpc()`, faixada pela
+ * MESMA `situacao` que decide os contadores — nunca um hash independente:
+ * foi assim, independente, que um score de "risco baixo" saiu ao lado de
+ * dívida em cobrança com execução judicial (13 em 2.000 documentos medidos).
+ */
+function scoreBigData(base: number, situacao: Situacao): number {
+  if (situacao === "limpo") return intEntre(base, 58, 700, 1000);
+  if (situacao === "uma") return intEntre(base, 58, 350, 750);
+  return intEntre(base, 58, 0, 450);
+}
+
+/** A-H, A é a melhor faixa — a mesma leitura de "maior é melhor" do score. */
+function nivelDoScore(score: number): string {
+  if (score >= 850) return "A";
+  if (score >= 700) return "B";
+  if (score >= 550) return "C";
+  if (score >= 400) return "D";
+  if (score >= 250) return "E";
+  if (score >= 150) return "F";
+  if (score >= 50) return "G";
+  return "H";
+}
+
+/**
  * Resultado fictício da consulta cadastral (BigDataCorp), determinístico pelo
  * documento. Nunca toca rede — chamado no lugar de `consultarCpf` quando
  * `emModoDemo()`.
@@ -431,11 +472,33 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
   const doc = normalizarDocumento(cpf);
   const identidadeBase = hashBase(doc);
   const bdcBase = hashBase(`${doc}:bdc`);
-  const pessoa = pessoaSimulada(identidadeBase);
+  const hojeMs = hojeUtcMs();
+  const pessoa = pessoaSimulada(identidadeBase, hojeMs);
   const faixaRenda = escolher(FAIXAS_RENDA, bdcBase, 46);
 
   const situacao = situacaoDe(bdcBase);
   const c = contadoresBigData(bdcBase, situacao);
+  // Risco pessoal tem que concordar com os contadores acima — ver o
+  // comentário de `scoreBigData`.
+  const riscoScore = scoreBigData(bdcBase, situacao);
+
+  // Calculado ANTES de `dados`, de propósito: no serviço real os dois campos
+  // abaixo são o MESMO valor escrito duas vezes (bigdata.service.ts:1396 e
+  // :1425 leem os dois de `dfb?.CreditSeeker`, e :1427 copia
+  // `dados.consultas30d` de `rastro.consultas30d` literalmente) — aqui
+  // `dados` COPIA de `rastro`, nunca sorteia por conta própria.
+  const rastro: ResultadoConsulta["rastro"] = {
+    consultas30d: intEntre(bdcBase, 66, 0, 5),
+    consultas365d: intEntre(bdcBase, 67, 0, 20),
+    passagensRuins: 0,
+    primeiraPassagem: dataIso(hojeMs, intEntre(bdcBase, 68, 1000, 6000)),
+    ultimaPassagem: dataIso(hojeMs, intEntre(bdcBase, 69, 5, 200)),
+    buscaCredito: escolher(NIVEIS_LETRA, bdcBase, 70),
+    usoCartao: escolher(NIVEIS_LETRA, bdcBase, 71),
+    usoBancoDigital: escolher(NIVEIS_LETRA, bdcBase, 72),
+    mudancasNome: 0,
+    mudancasStatus: 0,
+  };
 
   return {
     dados: {
@@ -444,7 +507,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       temObito: false,
       nascimentoValidadoNaReceita: true,
       homonimos: intEntre(bdcBase, 47, 0, 3),
-      enderecos: [{ ratificado: true, ativo: true, ultimaPassagem: dataIso(intEntre(bdcBase, 48, 5, 200)) }],
+      enderecos: [{ ratificado: true, ativo: true, ultimaPassagem: dataIso(hojeMs, intEntre(bdcBase, 48, 5, 200)) }],
       badAddressPassages: 0,
       faixaRenda,
       emCobrancaAgora: c.emCobranca,
@@ -454,9 +517,11 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       processos365d: c.processos365d,
       temExecucao: c.temExecucao,
       dividaAtiva: c.dividaAtiva,
-      buscaCredito: escolher(NIVEIS_LETRA, bdcBase, 49),
-      mudancasNome: 0,
-      consultas30d: intEntre(bdcBase, 50, 0, 4),
+      // Copiado de `rastro` — não é um campo parecido, é o MESMO sinal
+      // escrito duas vezes (ver o comentário acima de `rastro`).
+      buscaCredito: rastro.buscaCredito,
+      mudancasNome: rastro.mudancasNome,
+      consultas30d: rastro.consultas30d,
       trocasEmprego10Anos: intEntre(bdcBase, 51, 0, 4),
       mediaAnosPorVinculo: intEntre(bdcBase, 52, 1, 6),
     },
@@ -468,7 +533,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       nomePai: pessoa.nomePai,
       genero: pessoa.genero,
       situacaoReceita: "REGULAR",
-      dataSituacao: dataIso(intEntre(identidadeBase, 53, 30, 2000)),
+      dataSituacao: dataIso(hojeMs, intEntre(identidadeBase, 53, 30, 2000)),
     },
     enderecos: [{
       logradouro: pessoa.logradouro,
@@ -481,7 +546,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       ativo: true,
       principal: true,
       naReceita: true,
-      ultimaPassagem: dataIso(intEntre(bdcBase, 54, 5, 200)),
+      ultimaPassagem: dataIso(hojeMs, intEntre(bdcBase, 54, 5, 200)),
       passagens: intEntre(bdcBase, 55, 1, 6),
       passagensRuins: 0,
     }],
@@ -494,7 +559,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       principal: true,
       prioridade: 1,
       naoPerturbe: false,
-      ultimaPassagem: dataIso(intEntre(bdcBase, 57, 5, 200)),
+      ultimaPassagem: dataIso(hojeMs, intEntre(bdcBase, 57, 5, 200)),
       passagensRuins: 0,
     }],
     // `emails_extended` não está no combo hoje — uma consulta real também
@@ -510,19 +575,21 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       temSegmentoVip: false,
     },
     risco: {
-      score: intEntre(bdcBase, 58, 0, 1000),
-      nivel: escolher(NIVEIS_LETRA, bdcBase, 59),
+      // Mesma faixa de `situacao` que decide `c` (contadoresBigData) — nunca
+      // um hash independente. Ver o comentário de `scoreBigData`.
+      score: riscoScore,
+      nivel: nivelDoScore(riscoScore),
       empregado: chance(bdcBase, 60, 60),
       socio: chance(bdcBase, 61, 10),
       recebendoAuxilio: chance(bdcBase, 62, 15),
-      inicioUltimaOcupacao: dataIso(intEntre(bdcBase, 63, 30, 3000)),
+      inicioUltimaOcupacao: dataIso(hojeMs, intEntre(bdcBase, 63, 30, 3000)),
     },
     inadimplencia: {
       emCobrancaAgora: c.emCobranca,
       cobrancas365d: c.cobrancas365d,
       credores365d: c.credores365d,
       mesesConsecutivos: c.emCobranca ? intEntre(bdcBase, 64, 1, 6) : 0,
-      ultimaCobranca: c.emCobranca ? dataIso(intEntre(bdcBase, 65, 5, 300)) : undefined,
+      ultimaCobranca: c.emCobranca ? dataIso(hojeMs, intEntre(bdcBase, 65, 5, 300)) : undefined,
       processosTotal: c.processosComoReu,
       processosComoReu: c.processosComoReu,
       processos365d: c.processos365d,
@@ -530,18 +597,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       naturezas: c.processosComoReu > 0 ? ["Execução de título extrajudicial"] : [],
       dividaAtiva: c.dividaAtiva,
     },
-    rastro: {
-      consultas30d: intEntre(bdcBase, 66, 0, 5),
-      consultas365d: intEntre(bdcBase, 67, 0, 20),
-      passagensRuins: 0,
-      primeiraPassagem: dataIso(intEntre(bdcBase, 68, 1000, 6000)),
-      ultimaPassagem: dataIso(intEntre(bdcBase, 69, 5, 200)),
-      buscaCredito: escolher(NIVEIS_LETRA, bdcBase, 70),
-      usoCartao: escolher(NIVEIS_LETRA, bdcBase, 71),
-      usoBancoDigital: escolher(NIVEIS_LETRA, bdcBase, 72),
-      mudancasNome: 0,
-      mudancasStatus: 0,
-    },
+    rastro,
     ocupacao: {
       empregadoAgora: chance(bdcBase, 73, 60),
       empreendedor: chance(bdcBase, 74, 10),
@@ -602,7 +658,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
     validacaoTelefone: null,
     imovel: null,
     processos: c.processosComoReu > 0 ? [{
-      data: dataIso(intEntre(bdcBase, 92, 30, 900)),
+      data: dataIso(hojeMs, intEntre(bdcBase, 92, 30, 900)),
       tipo: "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL",
       assunto: "DIREITO DO CONSUMIDOR",
       tribunal: "TJPR",

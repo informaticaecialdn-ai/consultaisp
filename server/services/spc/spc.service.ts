@@ -242,13 +242,15 @@ export async function consultarSpc(
     consultaId?: string;
   } = {},
 ): Promise<SpcResult> {
-  // Instância de demonstração: nunca gasta a consulta paga do SPC nem toca a
-  // rede — ver server/demo/bureaus-simulados.ts.
-  if (emModoDemo()) return spcSimulado(documento);
   const doc = documento.replace(/\D/g, "");
   if (doc.length !== 11 && doc.length !== 14) {
     throw new SpcError("Documento precisa ser CPF (11 dígitos) ou CNPJ (14)", "DOCUMENTO", "documento");
   }
+  // Instância de demonstração: nunca gasta a consulta paga do SPC nem toca a
+  // rede — ver server/demo/bureaus-simulados.ts. Depois da validação de
+  // propósito: fora do DEMO_MODE o binário é idêntico até aqui, só o DADO
+  // muda dali em diante, nunca o caminho.
+  if (emModoDemo()) return spcSimulado(documento);
   const produto = opcoes.codigoProduto ?? config().produto;
   const insumos = opcoes.insumosOpcionais ?? insumosOpcionaisPadrao();
   const consultaId = opcoes.consultaId;
