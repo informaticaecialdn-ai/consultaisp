@@ -72,8 +72,21 @@ import type { EtapaId } from "@shared/cobranca/regua";
 /** O que uma transação de verdade e o `pg-proxy` de teste têm em comum. Ver o mesmo tipo em `mundo-base.ts`. */
 type Executor = Pick<typeof db, "insert" | "select" | "delete">;
 
-/** Toda identidade de sandbox é esta convenção — sem coluna nova, sem migração (ver CLAUDE.md/regras do plano). */
-const PREFIXO_SANDBOX = "sandbox-";
+/**
+ * Toda identidade de sandbox é esta convenção — sem coluna nova, sem migração
+ * (ver CLAUDE.md/regras do plano).
+ *
+ * Exportado (rodada de correção, Tarefa 6) porque a convenção sozinha não
+ * reserva nada: `registerSchema.subdomain` (shared/schema.ts) só exige
+ * `/^[a-z0-9-]+$/`, e nem `/api/auth/register` nem `/api/auth/check-subdomain`
+ * recusavam um provedor pagante escolhendo `sandbox-alguma-coisa`. Isso
+ * importa porque a limpeza da demonstração (`sandboxesExpirados`, acima)
+ * identifica o que apagar POR ESTE PREFIXO — sem a reserva, um provedor de
+ * verdade cadastrado assim seria apagado pela varredura da demo, sem
+ * esbarrar em nenhuma guarda de LGPD. `auth.routes.ts` importa esta mesma
+ * constante em vez de repetir o literal.
+ */
+export const PREFIXO_SANDBOX = "sandbox-";
 
 /** 24 horas — um sandbox mais velho que isso é candidato a `apagarSandbox()` (Tarefa 7 faz a limpeza periódica). */
 export const VIDA_DO_SANDBOX_MS = 24 * 60 * 60 * 1000;

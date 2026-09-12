@@ -11,6 +11,7 @@ import { hostPertenceAoProvider, hostPertenceAMarca, resolverMarcaPorId, urlDeEn
 import { MENSAGEM_PROVEDOR_SUSPENSO, encerrarPersonificacao, duracaoDaSessao } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import { cnpjCru } from "@shared/cnpj";
+import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
 import crypto from "crypto";
 import { z } from "zod";
 
@@ -306,6 +307,13 @@ export function registerAuthRoutes(): Router {
   router.get("/api/auth/check-subdomain", subdomainLimiter, async (req, res) => {
     const { subdomain } = req.query as { subdomain?: string };
     if (!subdomain) return res.status(400).json({ message: "Subdominio obrigatorio" });
+    // Namespace reservado para os sandboxes da demonstracao publica — ver o
+    // comentario de `PREFIXO_SANDBOX` em server/demo/sandbox.service.ts.
+    // Reportado como indisponivel, no mesmo formato de uma colisao real: a
+    // tela so precisa saber que precisa escolher outro nome.
+    if (subdomain.toLowerCase().startsWith(PREFIXO_SANDBOX)) {
+      return res.json({ available: false });
+    }
     const existing = await storage.getProviderBySubdomain(subdomain);
     return res.json({ available: !existing });
   });
@@ -375,6 +383,17 @@ export function registerAuthRoutes(): Router {
       const existingProvider = await storage.getProviderByCnpj(cnpjCanonico);
       if (existingProvider) {
         return res.status(409).json({ message: "Dados ja cadastrados. Verifique email, telefone, CNPJ ou subdominio." });
+      }
+
+      // Namespace reservado para os sandboxes da demonstracao publica (rodada
+      // de correcao da Tarefa 6): sem esta trava, um provedor pagante podia se
+      // cadastrar como "sandbox-alguma-coisa", e a limpeza da demo — que
+      // identifica o que apagar SO pelo prefixo (`sandboxesExpirados`,
+      // server/demo/sandbox.service.ts) — apagaria a conta dele sem esbarrar
+      // em nenhuma guarda de LGPD. 400, e nao o 409 generico de duplicidade:
+      // nao ha dado colidindo com uma conta existente, e uma politica de nome.
+      if (subdomain.toLowerCase().startsWith(PREFIXO_SANDBOX)) {
+        return res.status(400).json({ message: "Subdominio reservado. Escolha outro." });
       }
 
       const existingSubdomain = await storage.getProviderBySubdomain(subdomain);

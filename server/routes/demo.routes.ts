@@ -4,6 +4,7 @@ import { emModoDemo } from "../demo/modo-demo";
 import { normalizarHost } from "../tenant";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { storage } from "../storage";
 
 /**
  * A PORTA da demonstracao publica: um clique em "Ver demonstracao" cai aqui e
@@ -21,10 +22,15 @@ import { getSafeErrorMessage } from "../utils/safe-error";
 export function registerDemoRoutes(): Router {
   const router = Router();
 
-  // 5 por IP a cada 10 min: criar um sandbox grava a carteira inteira (provedor,
-  // usuario administrador, 1.500 clientes, faturas, equipamentos, casos de
-  // cobranca — ~5 mil linhas). Sem limite, a porta vira gerador de lixo no banco.
-  const limiteDemo = createRateLimiter({ windowMs: 600_000, maxRequests: 5 });
+  // 2 por IP a cada 10 min — nao 5. Criar um sandbox grava a carteira inteira
+  // (provedor, usuario administrador, 1.500 clientes, faturas, equipamentos,
+  // casos de cobranca — ~5 mil linhas), e duas requisicoes CONCORRENTES (duplo
+  // clique, prefetch do navegador) chegam sem cookie nenhum — cada uma cria o
+  // seu proprio sandbox antes do primeiro Set-Cookie valer. O teto baixo limita
+  // quantos sandboxes um unico visitante consegue gerar nessa janela de corrida;
+  // travar por chave de idempotencia eliminaria a corrida de vez, mas e
+  // maquinaria demais para o ganho (decisao do revisor, rodada de correcao).
+  const limiteDemo = createRateLimiter({ windowMs: 600_000, maxRequests: 2 });
 
   router.get("/demo", limiteDemo, async (req, res) => {
     if (!emModoDemo()) {
@@ -33,9 +39,21 @@ export function registerDemoRoutes(): Router {
 
     try {
       // Sessao ja aberta por uma visita anterior a esta mesma porta: reaproveita
-      // o sandbox que ja existe em vez de fabricar outro a cada acesso.
+      // o sandbox que ja existe em vez de fabricar outro a cada acesso — MAS so
+      // depois de confirmar no banco que ele ainda existe. O cookie sozinho nao
+      // prova isso: ele sobrevive ate 24h (ver o comentario sobre `cookie.maxAge`
+      // abaixo), e a limpeza horaria (Tarefa 7) pode ter apagado o provedor e o
+      // usuario antes disso — um relogio de navegador atrasado, ou a limpeza
+      // atrasando por qualquer motivo, e o suficiente para o cookie "valer"
+      // depois que o sandbox já morreu. Sem esta conferencia, o reaproveitamento
+      // redirecionaria para "/" apontando para dado que nao existe mais — a
+      // exata promessa que esta rota existe para cumprir, quebrada.
       if (req.session.userId && req.session.providerId) {
-        return res.redirect("/");
+        const sandboxAindaExiste = await storage.getProvider(req.session.providerId);
+        if (sandboxAindaExiste) {
+          return res.redirect("/");
+        }
+        // Sessao orfa: cai para criar um sandbox novo abaixo, do zero.
       }
 
       const sandbox = await criarSandbox();
@@ -53,6 +71,18 @@ export function registerDemoRoutes(): Router {
       // subdominio real por visitante. `requireAuth` so cai no ramo que confere
       // este campo quando falta `hostLogin` — que aqui esta sempre presente.
       req.session.subdomain = sandbox.subdomain;
+
+      // O COOKIE NAO PODE SOBREVIVER AO SANDBOX. Sem isto, a sessao herda o
+      // padrao global (`SESSAO_PADRAO_MS`, 48h — server/auth.ts) em vez das 24h
+      // de `VIDA_DO_SANDBOX_MS`: um visitante que volta entre 25h e 48h depois
+      // apresenta um cookie que o Express ainda aceita, mas cuja limpeza horaria
+      // ja apagou o provedor e o usuario por baixo. `expiraEm` e quem manda —
+      // e o mesmo instante que `sandboxesExpirados()` usa para decidir o que
+      // apagar, entao o cookie nunca promete mais tempo de vida do que o
+      // registro no banco tem de fato.
+      if (req.session.cookie) {
+        req.session.cookie.maxAge = sandbox.expiraEm.getTime() - Date.now();
+      }
 
       await new Promise<void>((resolve, reject) => {
         req.session.save((err) => (err ? reject(err) : resolve()));
