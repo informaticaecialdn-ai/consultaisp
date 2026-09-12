@@ -43,3 +43,19 @@ describe("a landing só leva ao cadastro", () => {
     expect(landing).toMatch(/<div className="final-cta-buttons">\s*<a href=\{CADASTRO\}/);
   });
 });
+
+describe("porta da demonstração", () => {
+  it("leva ao demo, nos dois blocos de CTA", () => {
+    const ocorrencias = landing.match(/https:\/\/demo\.consultaisp\.com\.br\/demo/g) ?? [];
+    expect(ocorrencias.length).toBeGreaterThanOrEqual(2);
+    expect(landing).toContain("Ver demonstração");
+  });
+
+  it("abre em outra aba, sem entregar a sessao da landing", () => {
+    expect(landing).toMatch(/demo\.consultaisp\.com\.br\/demo"[^>]*target="_blank"[^>]*rel="noopener"/s);
+  });
+
+  it("o cadastro continua sendo a acao principal", () => {
+    expect(landing).toContain("Criar conta grátis");
+  });
+});

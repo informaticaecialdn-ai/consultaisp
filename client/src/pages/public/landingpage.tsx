@@ -244,6 +244,7 @@ export default function LandingPage() {
               </p>
               <div className="hero-ctas">
                 <a href={CADASTRO} className="btn btn-primary on-dark btn-lg" onClick={irPara(CADASTRO)}>Criar conta grátis <span className="arrow">→</span></a>
+                <a href="https://demo.consultaisp.com.br/demo" target="_blank" rel="noopener" className="btn btn-secondary on-dark btn-lg">Ver demonstração</a>
                 <a href={WHATSAPP} target="_blank" rel="noopener" className="btn btn-secondary on-dark btn-lg">Falar no WhatsApp</a>
               </div>
               <div className="hero-guarantees">
@@ -910,6 +911,7 @@ export default function LandingPage() {
             <p>Cadastro em 2 minutos e 50 créditos gratuitos para testar a rede. Consultas na sua base seguem sempre gratuitas.</p>
             <div className="final-cta-buttons">
               <a href={CADASTRO} className="btn btn-primary on-dark btn-lg" style={{ background: "#F5F3EE", color: "#0E0D0B" }} onClick={irPara(CADASTRO)}>Criar conta grátis <span className="arrow">→</span></a>
+              <a href="https://demo.consultaisp.com.br/demo" target="_blank" rel="noopener" className="btn btn-secondary on-dark btn-lg">Ver demonstração</a>
               <a href={WHATSAPP} target="_blank" rel="noopener" className="btn btn-secondary on-dark btn-lg">Tirar dúvida no WhatsApp</a>
             </div>
           </div>
