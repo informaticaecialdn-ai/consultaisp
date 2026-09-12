@@ -135,6 +135,18 @@ const PASSO_UNICO = 10_000;
 const BASE_ARESTA = 500_000;
 const PASSO_ARESTA = 1_000;
 
+/**
+ * O índice do par migrador-serial de EXEMPLO da demonstração (Tarefa 5,
+ * `.superpowers/sdd/2026-09-11-demo-sandbox/task-5-brief.md`, Passo 3.7).
+ * Fixo, reservado, fora de toda faixa já usada pelo mundo base: logo depois
+ * do fim da faixa de aresta (`BASE_ARESTA + 4*PASSO_ARESTA` = 503_999) e bem
+ * antes do início da zona reservada aos sandboxes (510_000, ver
+ * `server/demo/sandbox.service.ts`). Exportado porque o teste do sandbox
+ * precisa do MESMO valor para computar o CPF de exemplo — duas constantes
+ * divergentes aqui seriam o tipo de coisa que só um teste pega.
+ */
+export const INDICE_MIGRADOR_DE_EXEMPLO = 504_000;
+
 function indicesDaAresta(aresta: number): number[] {
   const base = BASE_ARESTA + aresta * PASSO_ARESTA;
   return Array.from({ length: COMPARTILHADOS_POR_ARESTA }, (_, k) => base + k);
@@ -224,6 +236,11 @@ function subtrairMeses(data: Date, meses: number): Date {
   const d = new Date(data.getTime());
   d.setMonth(d.getMonth() - meses);
   return d;
+}
+
+/** `data` menos `dias` dias — para o par migrador-serial, que precisa de precisão de dia, não de mês. */
+function subtrairDias(data: Date, dias: number): Date {
+  return new Date(data.getTime() - dias * 86_400_000);
 }
 
 /** `YYYY-MM-DD` local — `customers.contractStartDate` é DATE, e o driver do Drizzle não converte: lê e grava texto cru. */
@@ -524,6 +541,80 @@ async function semearUmProvedor(tx: Executor, indice: number, agora: Date): Prom
 }
 
 /**
+ * O par migrador-serial de EXEMPLO da demonstração (Tarefa 5, Passo 3.7):
+ * um CPF cancelado HÁ POUCO em `rede-1`, com dívida ativa em `rede-2` — o
+ * cruzamento que `detectMigrator` (`server/services/migrator-detection.service.ts`)
+ * exige para marcar `detected`. Vive no MUNDO BASE, nunca no sandbox: quem
+ * consulta é sempre o sandbox do visitante, e `detectMigrator` pula
+ * `erp.providerId === consultingProviderId` — colocar o par no próprio
+ * sandbox nunca dispararia nada.
+ *
+ * `contractStartDate` de `rede-1` é sobrescrito para ~45 dias atrás — não o
+ * `cortadoEm − tenureMeses` que `linhaDoCliente` calcularia (quase sempre
+ * mais de 90 dias no passado, fora da janela de 90 dias que
+ * `isRecentCancellation` exige). `rede-2` carrega o MESMO CPF com uma fatura
+ * vencida há mais de 15 dias e valor acima de R$ 50 — é dela que o conector
+ * "demo" deriva `totalOverdueAmount`/`maxDaysOverdue` (nunca das colunas
+ * agregadas de `customers`).
+ *
+ * Chamada de dentro da transação de `semearMundoBase()`, coberta pelo MESMO
+ * guard de idempotência (se `rede-1` já existe, esta função nunca roda de
+ * novo) — nenhum guard próprio necessário.
+ */
+async function semearParMigradorDeExemplo(tx: Executor, providerIdRede1: number, providerIdRede2: number, agora: Date): Promise<void> {
+  const cpf = cpfFicticio(INDICE_MIGRADOR_DE_EXEMPLO);
+  const pessoa = pessoaFicticia(INDICE_MIGRADOR_DE_EXEMPLO);
+  const contractStartDateRecente = paraDataSemHora(subtrairDias(agora, 45));
+  const cortadoEmRede1 = subtrairDias(agora, 10);
+
+  const enderecoComum = {
+    name: pessoa.nome,
+    cpfCnpj: cpf,
+    email: pessoa.email,
+    phone: pessoa.telefone,
+    address: pessoa.logradouro,
+    addressNumber: pessoa.numero,
+    neighborhood: pessoa.bairro,
+    city: pessoa.cidade,
+    state: pessoa.uf,
+    cep: pessoa.cep,
+    latitude: pessoa.latitude,
+    longitude: pessoa.longitude,
+    equipmentCount: 0,
+    equipmentEstimatedValue: "0.00",
+  };
+
+  await tx.insert(customers).values({
+    ...enderecoComum,
+    providerId: providerIdRede1,
+    status: "cancelled",
+    paymentStatus: "current",
+    totalOverdueAmount: "0.00",
+    maxDaysOverdue: 0,
+    contractStartDate: contractStartDateRecente,
+    cortadoEm: cortadoEmRede1,
+  });
+
+  const [clienteRede2] = await tx.insert(customers).values({
+    ...enderecoComum,
+    providerId: providerIdRede2,
+    status: "active",
+    paymentStatus: "overdue",
+    totalOverdueAmount: "80.00",
+    maxDaysOverdue: 20,
+    contractStartDate: paraDataSemHora(subtrairMeses(agora, 24)),
+  }).returning({ id: customers.id });
+
+  await tx.insert(invoices).values({
+    customerId: clienteRede2.id,
+    providerId: providerIdRede2,
+    value: "80.00",
+    dueDate: subtrairDias(agora, 20),
+    status: "overdue",
+  });
+}
+
+/**
  * Semeia os cinco provedores da demonstração, a carteira de cada um e a
  * sobreposição de CPFs entre vizinhos. Idempotente: se "rede-1" já existe,
  * não grava nada de novo — só devolve o estado atual. Tudo o que grava (do
@@ -555,6 +646,10 @@ export async function semearMundoBase(agora: Date = new Date()): Promise<{ prove
       idsDosProvedores.push(providerId);
       totalDeClientes += clientes;
     }
+
+    // O par migrador-serial de exemplo (Tarefa 5) — sempre em rede-1/rede-2,
+    // dentro da MESMA transação e do MESMO guard de idempotência do mundo base.
+    await semearParMigradorDeExemplo(tx, idsDosProvedores[0], idsDosProvedores[1], agora);
 
     return { provedores: idsDosProvedores, clientes: totalDeClientes };
   });

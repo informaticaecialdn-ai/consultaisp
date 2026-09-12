@@ -44,7 +44,8 @@ import { providers, customers, invoices, equipment, erpIntegrations } from "@sha
 import { validarCNPJ } from "../utils/cpf-cnpj-validator";
 import { parcelasDaDescricao } from "@shared/cobranca/multa";
 import { decryptField } from "../utils/crypto";
-import { PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase, cnpjFicticio } from "./mundo-base";
+import { PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase, cnpjFicticio, INDICE_MIGRADOR_DE_EXEMPLO } from "./mundo-base";
+import { cpfFicticio } from "./pessoas-ficticias";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
 import { getConnector } from "../erp/registry";
@@ -225,6 +226,16 @@ async function totalDeProvedores(): Promise<number> {
 describe("mundo base da demonstracao", () => {
   const PROPORCOES = { clientes: 1500, inadimplentes: 225, cancelados: 150, comEquipamento: 120, compartilhados: 150 };
 
+  /**
+   * O CPF do par migrador-serial de exemplo (Tarefa 5, Passo 3.7): uma linha
+   * extra em rede-1 (cancelado) e rede-2 (inadimplente), fora da forma
+   * "1.500 por provedor" que este describe testa. Os testes abaixo excluem
+   * este CPF de propósito — ele prova outra coisa (ver
+   * `server/demo/sandbox.service.test.ts`), e misturá-lo aqui só faria a
+   * contagem exata desviar por 1 sem nenhum ganho de cobertura.
+   */
+  const CPF_DO_MIGRADOR_DE_EXEMPLO = cpfFicticio(INDICE_MIGRADOR_DE_EXEMPLO);
+
   it("cada provedor nasce com a carteira de um provedor real", async () => {
     const inicio = performance.now();
     const resultado = await semearMundoBase();
@@ -234,7 +245,7 @@ describe("mundo base da demonstracao", () => {
         `(${resultado.provedores.length} provedores, ${resultado.clientes} clientes)`,
     );
     for (const p of PROVEDORES_DA_DEMO) {
-      const clientes = await clientesDe(p.subdomain);
+      const clientes = (await clientesDe(p.subdomain)).filter((c) => c.cpfCnpj !== CPF_DO_MIGRADOR_DE_EXEMPLO);
       expect(clientes, p.subdomain).toHaveLength(PROPORCOES.clientes);
       expect(clientes.filter((c) => c.paymentStatus === "overdue"), p.subdomain).toHaveLength(PROPORCOES.inadimplentes);
       expect(clientes.filter((c) => c.status === "cancelled"), p.subdomain).toHaveLength(PROPORCOES.cancelados);
@@ -305,7 +316,11 @@ describe("mundo base da demonstracao", () => {
 
   describe("faturas de saida do ex-cliente — rodada de correcao (11/09/2026)", () => {
     it("todo cancelado tem UMA fatura de saida, com cortadoEm gravado", async () => {
-      const clientes = (await clientesDe("rede-1")).filter((c) => c.status === "cancelled");
+      // Exclui o cancelado de exemplo do migrador-serial: ele existe para
+      // provar outro sinal (detectMigrator via contractStartDate), nunca
+      // ganhou fatura de saida de propósito, e não faz parte da forma
+      // "todo cancelado tem uma fatura de saida" que este teste verifica.
+      const clientes = (await clientesDe("rede-1")).filter((c) => c.status === "cancelled" && c.cpfCnpj !== CPF_DO_MIGRADOR_DE_EXEMPLO);
       expect(clientes).toHaveLength(PROPORCOES.cancelados);
       for (const c of clientes) expect(c.cortadoEm, JSON.stringify(c)).not.toBeNull();
 
@@ -440,6 +455,9 @@ describe("mundo base da demonstracao", () => {
     await semearMundoBase();
     await semearMundoBase();
     expect(await totalDeProvedores()).toBe(PROVEDORES_DA_DEMO.length);
-    expect((await clientesDe("rede-1"))).toHaveLength(PROPORCOES.clientes);
+    // +1: o cliente cancelado do par migrador-serial de exemplo (Passo 3.7),
+    // que a idempotencia de semearMundoBase() tambem cobre — nao duplica em
+    // uma segunda chamada, mas continua ali desde a primeira.
+    expect((await clientesDe("rede-1"))).toHaveLength(PROPORCOES.clientes + 1);
   });
 });
