@@ -156,6 +156,8 @@ export interface SpcResult {
   limiteCreditoSugerido: number | null;
   basesInoperantes: string[];
   rawXml?: string;
+  /** true só na instância de demonstração — a tela usa para mostrar o selo "dado simulado". */
+  simulado?: boolean;
 }
 
 export interface ProdutoSpc {

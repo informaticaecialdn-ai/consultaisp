@@ -16,6 +16,8 @@
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { logger } from "../logger";
 import { CircuitBreaker, withResilience } from "../erp/resilience";
+import { emModoDemo } from "../demo/modo-demo";
+import { cadastralSimulado } from "../demo/bureaus-simulados";
 import { faixaRendaEmReais, type DadosCadastrais, type EnderecoCadastral } from "./bigdata-veredito";
 import { cruzarDomicilio, type CruzamentoDomicilio } from "./bigdata-domicilio";
 import type { EnderecoBruto } from "./endereco-chave";
@@ -1255,6 +1257,8 @@ export interface ResultadoConsulta {
   /** Datasets que voltaram com Code != 0 — falha parcial nao invalida o resto. */
   datasetsComFalha: string[];
   latenciaMs: number;
+  /** true só na instância de demonstração — a tela usa para mostrar o selo "dado simulado". */
+  simulado?: boolean;
 }
 
 export async function consultarCpf(
@@ -1268,6 +1272,9 @@ export async function consultarCpf(
    */
   enderecoInstalacao: EnderecoBruto | null = null,
 ): Promise<ResultadoConsulta> {
+  // Instância de demonstração: nunca gasta a consulta cadastral (R$ 0,72 na
+  // BigDataCorp) nem toca a rede — ver server/demo/bureaus-simulados.ts.
+  if (emModoDemo()) return cadastralSimulado(cpf);
   const t0 = Date.now();
   const datasets = NIVEIS[nivel].datasets;
   // Dataset de parceiro NAO responde no /pessoas: la ele devolve -109 mesmo

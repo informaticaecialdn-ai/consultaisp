@@ -21,6 +21,8 @@
  */
 import { logger } from "../../logger";
 import { CircuitBreaker, CircuitOpenError, withResilience } from "../../erp/resilience";
+import { emModoDemo } from "../../demo/modo-demo";
+import { spcSimulado } from "../../demo/bureaus-simulados";
 import {
   parseRespostaConsulta, parseProdutos, SpcError,
   type SpcResult, type ProdutoSpc,
@@ -240,6 +242,9 @@ export async function consultarSpc(
     consultaId?: string;
   } = {},
 ): Promise<SpcResult> {
+  // Instância de demonstração: nunca gasta a consulta paga do SPC nem toca a
+  // rede — ver server/demo/bureaus-simulados.ts.
+  if (emModoDemo()) return spcSimulado(documento);
   const doc = documento.replace(/\D/g, "");
   if (doc.length !== 11 && doc.length !== 14) {
     throw new SpcError("Documento precisa ser CPF (11 dígitos) ou CNPJ (14)", "DOCUMENTO", "documento");
