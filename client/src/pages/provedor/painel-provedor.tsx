@@ -529,8 +529,12 @@ export default function PainelProvedorPage() {
     queryKey: ["/api/provider/users"],
   });
   const { data: dashStats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
-  const { data: ispConsultations = [] } = useQuery<any[]>({ queryKey: ["/api/isp-consultations"] });
-  const { data: spcConsultations = [] } = useQuery<any[]>({ queryKey: ["/api/spc-consultations"] });
+  /* Os dois GETs devolvem OBJETO, nao lista (server/routes/consultas.routes.ts).
+     Lidos como `any[]`, o `.length` dava `undefined` e os cartoes de consultas
+     ficavam em branco para todo provedor que ja tinha consultado. E os formatos
+     diferem: ISP e paginada e traz `total`; SPC vem inteira e sem `total`. */
+  const { data: ispConsultations } = useQuery<{ consultations: any[]; total: number }>({ queryKey: ["/api/isp-consultations"] });
+  const { data: spcConsultations } = useQuery<{ consultations: any[] }>({ queryKey: ["/api/spc-consultations"] });
 
   const partners: any[] = profileData?.partners || [];
   const documents: any[] = profileData?.documents || [];
@@ -902,8 +906,10 @@ export default function PainelProvedorPage() {
             {[
               { label: "Clientes", value: dashStats?.totalCustomers ?? "-", icon: Users, color: "bg-blue-500" },
               { label: "Inadimplentes", value: dashStats?.defaulters ?? "-", icon: AlertTriangle, color: "bg-red-500" },
-              { label: "Consultas ISP", value: ispConsultations.length, icon: Search, color: "bg-indigo-500" },
-              { label: "Consultas SPC", value: spcConsultations.length, icon: BarChart3, color: "bg-purple-500" },
+              // `total`, e nao o tamanho da lista: a lista ISP e so a 1a pagina (50).
+              // Sem resposta, "-" como os vizinhos — "0" diria que nunca consultou.
+              { label: "Consultas ISP", value: ispConsultations?.total ?? "-", icon: Search, color: "bg-indigo-500" },
+              { label: "Consultas SPC", value: spcConsultations?.consultations?.length ?? "-", icon: BarChart3, color: "bg-purple-500" },
             ].map((s) => (
               <Card key={s.label} className="p-5">
                 <div className="flex items-center gap-3">
