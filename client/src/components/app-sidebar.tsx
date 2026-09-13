@@ -17,7 +17,6 @@ import {
   Shield,
   LogOut,
   Building2,
-  Crown,
   Activity,
   FileText,
   MessageSquare,
@@ -238,19 +237,14 @@ function RodapeSidebar({
   titulo,
   subtitulo,
   logout,
-  children,
 }: {
   inicial: string;
   titulo: React.ReactNode;
   subtitulo: React.ReactNode;
   logout: () => void;
-  /** Slot acima do bloco de usuario (o aviso de trial, no provedor). */
-  children?: React.ReactNode;
 }) {
   return (
     <div className="border-t border-[var(--border)] px-4 py-[14px] flex flex-col gap-[10px]">
-      {children}
-
       <div className="flex items-center gap-[10px]">
         <div className="w-[30px] h-[30px] rounded-full bg-[var(--brand-soft)] text-[var(--brand-ink)] grid place-items-center text-[12px] font-bold flex-none">
           {inicial}
@@ -307,21 +301,11 @@ function CascaSidebar({
 /* Avisos                                                               */
 /* ==================================================================== */
 
-function TrialBanner() {
-  const { data } = useQuery<any>({ queryKey: ["/api/provider/trial-status"], staleTime: 5 * 60 * 1000 });
-  if (!data?.trial_ativo) return null;
-  return (
-    <div className="bg-[var(--gated-bg)] rounded-lg p-2.5 text-xs" data-testid="trial-banner">
-      <div className="flex items-center gap-1.5 font-semibold text-[var(--gated)] mb-0.5">
-        <Crown className="w-3 h-3" />
-        Trial — {data.dias_restantes} dia{data.dias_restantes !== 1 ? "s" : ""} restante{data.dias_restantes !== 1 ? "s" : ""}
-      </div>
-      <p className="text-[var(--gated)] leading-relaxed">
-        Aproveite todos os recursos. Assine para continuar após o período de avaliação.
-      </p>
-    </div>
-  );
-}
+/* O aviso de trial morava aqui e saiu em 12/09/2026: consultava
+   GET /api/provider/trial-status, que nunca teve rota, coluna nem trial no
+   servidor. Em toda tela o client levava 404 (em dev, o HTML do Vite), a query
+   falhava calada e o banner nunca aparecia. Se trial virar produto, o aviso
+   volta junto com a rota — nao antes. Trava: app-sidebar-consultas.test.ts. */
 
 /**
  * Alertas de fuga em aberto, ao lado do item Anti-Fraude.
@@ -704,8 +688,7 @@ export function AppSidebar() {
    * logo por `<img src=/api/marca/:id/logo>` e o `/me` nao carrega imagem de
    * proposito. Nos dois casos que existem hoje e a mesma marca.
    *
-   * SEM TrialBanner (trial e do provedor; a rota nem existe no servidor), SEM
-   * ContadorDeAlertas (anti-fraude e do provedor, e o revendedor nunca ve
+   * SEM ContadorDeAlertas (anti-fraude e do provedor, e o revendedor nunca ve
    * cliente de ninguem) e SEM ChatWidget — este ultimo fica em App.tsx/chat-widget.
    */
   if (user?.role === "revendedor") {
@@ -788,9 +771,7 @@ export function AppSidebar() {
           titulo={user?.name}
           subtitulo={(provider as any)?.tradeName || provider?.name}
           logout={logout}
-        >
-          <TrialBanner />
-        </RodapeSidebar>
+        />
       }
     >
       {NAV_PROVEDOR.map(({ grupo, itens }) => (

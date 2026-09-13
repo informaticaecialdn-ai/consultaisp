@@ -588,8 +588,9 @@ GET/PATCH provider/profile, provider/settings, provider/notification-settings
 GET/POST/DELETE provider/users, provider/partners, provider/documents
 GET/PATCH provider/webhook-config
 // NAO existe provider/trial-status: nao ha rota, nao ha coluna, nao ha trial.
-// O client ainda consulta esse endereco a cada 5 min e recebe 404 em silencio
-// (client/src/components/app-sidebar.tsx).
+// O client tambem nao consulta mais: o TrialBanner da sidebar, que batia nesse
+// endereco em toda tela e levava 404 calado, saiu em 12/09/2026. Trava em
+// client/src/components/app-sidebar-consultas.test.ts.
 
 ### ERP Integration
 **Quem configura é o superadmin, não o provedor** (decisão do dono, 03/09/2026). O
