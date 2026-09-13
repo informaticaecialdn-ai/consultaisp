@@ -513,7 +513,9 @@ export default function ConsultaCadastralPage() {
                             </span>
                           </td>
                           <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--text-muted)]">
-                            {c.datasets?.length ?? 0}
+                            {/* A rota não manda datasets[] ao navegador (origem do dado fica
+                                no servidor); publica só a contagem em consultasRealizadas. */}
+                            {c.consultasRealizadas ?? 0}
                           </td>
                         </tr>
                       );
