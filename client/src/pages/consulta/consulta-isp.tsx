@@ -72,8 +72,6 @@ export default function ConsultaISPPage() {
   // Queries
   const { data } = useQuery<any>({ queryKey: ["/api/isp-consultations"] });
   const consultations = data?.consultations || [];
-  const approvedCount = consultations.filter((c: any) => c.approved).length;
-  const rejectedCount = consultations.filter((c: any) => !c.approved).length;
   const avgScore = consultations.length > 0
     ? Math.round(consultations.reduce((acc: number, c: any) => acc + (c.score || 0), 0) / consultations.length)
     : 0;
@@ -354,7 +352,7 @@ export default function ConsultaISPPage() {
           setActiveTab("nova");
         }} /></div>}
         {activeTab === "timeline" && <div role="tabpanel" id="painel-timeline" aria-labelledby="aba-timeline"><TimelineTab timelineData={timelineData} cpfCnpj={timelineCpf} isLoading={timelineLoading} /></div>}
-        {activeTab === "relatorios" && <div role="tabpanel" id="painel-relatorios" aria-labelledby="aba-relatorios"><ConsultaReportsTab consultations={consultations} approvedCount={approvedCount} rejectedCount={rejectedCount} avgScore={avgScore} /></div>}
+        {activeTab === "relatorios" && <div role="tabpanel" id="painel-relatorios" aria-labelledby="aba-relatorios"><ConsultaReportsTab consultations={consultations} avgScore={avgScore} /></div>}
         {activeTab === "info" && <div role="tabpanel" id="painel-info" aria-labelledby="aba-info"><ConsultaInfoTab /></div>}
 
         <LgpdDisclaimerModal
