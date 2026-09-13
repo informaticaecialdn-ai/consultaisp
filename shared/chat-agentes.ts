@@ -72,10 +72,15 @@ export interface AgenteImportavel { id: string; nome: string; modelo: string }
  * isso a origem viaja com o modelo até o `<select>`: o padrão oferecido é o que
  * o serviço conectado confirmou; o id OpenAI só é seguro onde o fork foi
  * patchado para OpenAI.
+ *
+ * Os TEXTOS abaixo vão para a tela do provedor (legenda e `<select>`), então
+ * falam a língua de quem opera cobrança: o aviso é o mesmo, sem fork, patch,
+ * nome de servidor nem código HTTP — isso fica neste comentário. As CHAVES não
+ * mudam: o cliente e o serviço comparam `openai_vps`.
  */
 export const ORIGENS_DE_MODELO = {
   chat_bullq: "confirmado ao vivo pela credencial deste Chat BullQ",
-  openai_vps: "conhecido só do fork patchado para OpenAI (a VPS); a linhagem dos patches 000+001+002 recusa openai/* com 400",
+  openai_vps: "não confirmado pelo serviço conectado: só funciona se o seu Chat BullQ aceitar modelos OpenAI; senão, a criação do agente é recusada",
 } as const;
 export type OrigemDoModelo = keyof typeof ORIGENS_DE_MODELO;
 export interface ModeloDoAgente { id: string; origem?: OrigemDoModelo }

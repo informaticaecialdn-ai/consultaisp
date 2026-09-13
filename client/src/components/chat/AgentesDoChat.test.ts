@@ -43,13 +43,20 @@ describe("AgentesDoChat — campos do perfil", () => {
     expect(fonte).toContain("BOTAO_MARCA");
     expect(fonte).toContain("CONTROLE_CAMPO");
   });
-  it("mostra a origem de cada modelo — credencial do Chat BullQ ou id que só a VPS aceita", () => {
+  it("mostra a origem de cada modelo — credencial do Chat BullQ ou OpenAI não confirmado", () => {
     expect(fonte).toContain("ORIGENS_DE_MODELO");
     expect(fonte).toContain('chat_bullq: "credencial do Chat BullQ"');
-    expect(fonte).toContain('openai_vps: "OpenAI · só na VPS"');
+    expect(fonte).toContain('openai_vps: "OpenAI · não confirmado"');
     expect(fonte).toContain('data-testid="chat-origens-modelos"');
-    // O id que só a VPS aceita fica em destaque de atenção quando é o escolhido — a linhagem do repositório o recusa com 400.
+    // O id OpenAI que o serviço conectado não confirmou fica em destaque de atenção quando é o escolhido.
     expect(fonte).toContain('origemDoModelo === "openai_vps" ? "text-[var(--gated)]"');
+  });
+  it("o rótulo da origem, que vai ao <select> e à legenda do provedor, não cita a nossa infraestrutura", () => {
+    // Só os TEXTOS: a chave `openai_vps` continua sendo o contrato com o serviço.
+    const rotulos = fonte.match(/const ROTULO_DA_ORIGEM = \{([^}]*)\}/)?.[1] ?? "";
+    const textos = Array.from(rotulos.matchAll(/:\s*"([^"]*)"/g), m => m[1]);
+    expect(textos).toHaveLength(2);
+    for (const texto of textos) expect(texto).not.toMatch(/VPS|fork|patch/i);
   });
   it("credencial de IA ausente bloqueia aplicar e testar, com o motivo no title", () => {
     expect(fonte).toContain("credencialAusente={modelos.data ? !modelos.data.configured : false}");

@@ -70,11 +70,17 @@ describe("catálogo de modelos — de onde vem cada um", () => {
     expect(MODELOS_OPENAI_DA_VPS.map(m => m.id)).toEqual(["openai/gpt-4o-mini", "openai/gpt-4o"]);
     for (const m of MODELOS_OPENAI_DA_VPS) expect(PADRAO_DE_MODELO_DO_FORK.test(m.id)).toBe(true);
   });
-  it("o rótulo da origem local avisa que a linhagem distribuída no repositório recusa openai/*", () => {
+  it("o rótulo da origem local avisa que o modelo não foi confirmado pelo serviço conectado", () => {
     expect(ORIGENS_DE_MODELO.chat_bullq).toMatch(/confirmado ao vivo/i);
-    expect(ORIGENS_DE_MODELO.openai_vps).toMatch(/VPS/);
-    expect(ORIGENS_DE_MODELO.openai_vps).toMatch(/000\+001\+002/);
-    expect(ORIGENS_DE_MODELO.openai_vps).toMatch(/400/);
+    expect(ORIGENS_DE_MODELO.openai_vps).toMatch(/não confirmado/i);
+    expect(ORIGENS_DE_MODELO.openai_vps).toMatch(/OpenAI/);
+  });
+  it("nenhum texto de origem exibido ao provedor cita a nossa infraestrutura (fork, patch, VPS, código HTTP)", () => {
+    // O texto vai para o <select> e para a legenda do modelo na tela do provedor:
+    // quem opera cobrança não sabe o que é fork nem patch, e o nome do servidor é detalhe nosso.
+    for (const [origem, texto] of Object.entries(ORIGENS_DE_MODELO)) {
+      expect(texto, origem).not.toMatch(/fork|patch|vps|000\+001\+002|\b400\b/i);
+    }
   });
 });
 

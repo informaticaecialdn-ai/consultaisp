@@ -168,7 +168,7 @@ describe("catálogo de modelos oferecido ao provedor", () => {
     const c = await modelosDosAgentesDoChat(6);
     expect(c.configured).toBe(true);
     expect(c.models).toEqual([{ id: "sakana/modelo-real", origem: "chat_bullq" }, { id: "openai/gpt-4o-mini", origem: "openai_vps" }, { id: "openai/gpt-4o", origem: "openai_vps" }]);
-    expect(c.origens?.openai_vps).toMatch(/VPS/);
+    expect(c.origens?.openai_vps).toMatch(/não confirmado/i);
   });
   it("Chat BullQ sem credencial de IA: `configured` continua falso e nada é provisionado", async () => {
     fake.modelos = { ok: true, valor: { configured: false, models: [] } };

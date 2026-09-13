@@ -10,7 +10,8 @@ import { ConfiguracaoDeAgenteSchema, LIMITES_DO_AGENTE, ORIGENS_DE_MODELO, type 
 
 const API = "/api/chat-bullq/integracao/agentes";
 const ESTADOS = { nao_configurado: "aguardando configuração", configurado: "aguardando provisionamento", criando: "criando no Chat BullQ", criado: "finalizando vínculos", pronto: "pronto para preparar", erro: "precisa de atenção" };
-const ROTULO_DA_ORIGEM = { chat_bullq: "credencial do Chat BullQ", openai_vps: "OpenAI · só na VPS" } as const;
+/** Vai ao `<select>` e à legenda do provedor: sem nome da nossa infraestrutura (a chave `openai_vps` é só contrato com o serviço). */
+const ROTULO_DA_ORIGEM = { chat_bullq: "credencial do Chat BullQ", openai_vps: "OpenAI · não confirmado" } as const;
 const CONTADOR = "font-mono text-[10px] tabular-nums text-[var(--text-faint)]";
 const SEM_CREDENCIAL = "O Chat BullQ respondeu que está sem credencial de IA configurada. Configure a credencial no serviço antes de aplicar ou testar.";
 /** Campo numérico vazio é “não definido”, nunca 0: `Number("")` daria 0 e gravaria temperatura zero em silêncio. */
