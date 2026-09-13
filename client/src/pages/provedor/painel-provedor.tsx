@@ -339,6 +339,32 @@ export function avisoEquipeBloqueadaNoSandbox(
   return ehInstanciaDeDemonstracao(demoMode, subdomain) ? MENSAGEM_EQUIPE_BLOQUEADA_SANDBOX : null;
 }
 
+/**
+ * O porquê de o subdomínio do sandbox não ter "Abrir" nem "Copiar". O sandbox
+ * ganha `sandbox-<hex>` como todo provedor ganha o seu, mas nenhum DNS aponta
+ * para ele: o link levava o visitante a um endereço que não existe.
+ */
+const AVISO_SUBDOMINIO_DEMONSTRACAO =
+  "Na demonstração este endereço não abre: o sandbox é temporário e não tem DNS próprio. Cada provedor de verdade recebe o seu subdomínio, que abre com o login da equipe.";
+
+/**
+ * Os 8 dígitos que o CEP da ficha manda ao ViaCEP — ou null, quando não manda.
+ *
+ * Na demonstração pública nada sai para a rede de terceiros (regra 1 da spec
+ * da demo), e o CEP da ficha perguntava ao viacep.com.br pelo navegador a cada
+ * dígito. A ficha semeada já vem com o endereço do cadastro simulado; quem
+ * digitar outro CEP ali completa a rua à mão.
+ *
+ * Só `demoMode`, e não o par de `ehInstanciaDeDemonstracao`: a regra é da
+ * INSTÂNCIA — nenhuma sessão dela fala com terceiros, seja qual for o
+ * subdomínio. Fora da demonstração, o de sempre: 8 dígitos buscam.
+ */
+export function cepParaViaCep(demoMode: boolean | undefined, cep: string): string | null {
+  if (demoMode === true) return null;
+  const clean = cep.replace(/\D/g, "");
+  return clean.length === 8 ? clean : null;
+}
+
 function relDate(d: string | null): string {
   if (!d) return "Nunca";
   const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
@@ -528,6 +554,10 @@ export default function PainelProvedorPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const subdomainUrl = provider?.subdomain ? `https://${provider.subdomain}.${MAIN_DOMAIN}` : null;
+  /* Sandbox da demonstração: o subdomínio aparece, mas sem link, sem copiar e
+     sem o card de DNS — ver `AVISO_SUBDOMINIO_DEMONSTRACAO`. Mesmo par de sinais
+     da faixa de demonstração. */
+  const subdominioSemEndereco = ehInstanciaDeDemonstracao(demoMode, provider?.subdomain);
 
   const { data: providerUsers = [], isLoading: usersLoading } = useQuery<any[]>({
     queryKey: ["/api/provider/users"],
@@ -810,8 +840,8 @@ export default function PainelProvedorPage() {
   };
 
   const handleCepLookup = async (cep: string) => {
-    const clean = cep.replace(/\D/g, "");
-    if (clean.length !== 8) return;
+    const clean = cepParaViaCep(demoMode, cep);
+    if (!clean) return;
     try {
       const resp = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
       const data = await resp.json();
@@ -890,10 +920,18 @@ export default function PainelProvedorPage() {
             <span className="text-sm font-mono text-blue-700 dark:text-blue-400" data-testid="text-subdomain-url">
               {provider?.subdomain}.{MAIN_DOMAIN}
             </span>
-            <CopyButton text={subdomainUrl} />
-            <a href={subdomainUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-            </a>
+            {subdominioSemEndereco ? (
+              <span className="text-xs text-muted-foreground" title={AVISO_SUBDOMINIO_DEMONSTRACAO}>
+                não abre na demonstração
+              </span>
+            ) : (
+              <>
+                <CopyButton text={subdomainUrl} />
+                <a href={subdomainUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                </a>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1622,14 +1660,20 @@ export default function PainelProvedorPage() {
                           </span>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <CopyButton text={`https://${provider.subdomain}.${MAIN_DOMAIN}`} />
-                        <a href={`https://${provider.subdomain}.${MAIN_DOMAIN}`} target="_blank" rel="noopener noreferrer" data-testid="link-open-subdomain">
-                          <Button variant="outline" size="sm" className="gap-1.5">
-                            <ExternalLink className="w-4 h-4" />Abrir
-                          </Button>
-                        </a>
-                      </div>
+                      {subdominioSemEndereco ? (
+                        <p className="text-sm text-muted-foreground max-w-sm" data-testid="aviso-subdominio-demonstracao">
+                          {AVISO_SUBDOMINIO_DEMONSTRACAO}
+                        </p>
+                      ) : (
+                        <div className="flex gap-2">
+                          <CopyButton text={`https://${provider.subdomain}.${MAIN_DOMAIN}`} />
+                          <a href={`https://${provider.subdomain}.${MAIN_DOMAIN}`} target="_blank" rel="noopener noreferrer" data-testid="link-open-subdomain">
+                            <Button variant="outline" size="sm" className="gap-1.5">
+                              <ExternalLink className="w-4 h-4" />Abrir
+                            </Button>
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="grid md:grid-cols-2 gap-4">
@@ -1664,6 +1708,8 @@ export default function PainelProvedorPage() {
                 </div>
               )}
             </Card>
+            {/* Instrução de infraestrutura: não é assunto do visitante da demonstração. */}
+            {!subdominioSemEndereco && (
             <Card className="p-6 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
               <h3 className="font-semibold mb-2 flex items-center gap-2 text-[var(--color-gold)]">
                 <Settings className="w-4 h-4" />DNS e Configuracao de Producao
@@ -1684,6 +1730,7 @@ export default function PainelProvedorPage() {
                 </div>
               </div>
             </Card>
+            )}
           </div>
         </TabsContent>
 

@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { emitirNfse, consultarNfse, cancelarNfse, isFocusNfeConfigured, getFocusNfeEnv } from "../services/focusnfe";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { emModoDemo } from "../demo/modo-demo";
+import { configNfseDaDemo, notasFiscaisDaDemo } from "../demo/semeadura-ficha";
 
 /**
  * A instância de demonstração não tem token da Focus NFe, e nunca pode ter:
@@ -23,10 +24,26 @@ export function registerNfseRoutes(): Router {
   const router = Router();
 
   // Status da integracao
-  router.get("/api/nfse/config", requireAuth, requireProvider, async (_req, res) => {
+  router.get("/api/nfse/config", requireAuth, requireProvider, async (req, res) => {
+    // Na demonstracao o prestador e o PROPRIO sandbox (CNPJ gravado dele, em
+    // Londrina): o CNPJ da plataforma em Sao Paulo, fixo abaixo, fazia a nota
+    // simulada de um provedor de Londrina sair por uma empresa de SP.
+    if (emModoDemo()) {
+      try {
+        const provider = await storage.getProvider(req.session.providerId!);
+        if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+        return res.json(configNfseDaDemo(provider.cnpj));
+      } catch (error: any) {
+        return res.status(500).json({ message: getSafeErrorMessage(error) });
+      }
+    }
+    // AIDEV-QUESTION: fora da demonstracao o prestador e o CNPJ da plataforma e o
+    // municipio e Sao Paulo, fixos — a nota da licenca SaaS que a plataforma emite
+    // PARA o provedor, ou deveria ser a nota do provedor para os clientes dele?
+    // Decisao de produto pendente; esta resposta segue identica.
     return res.json({
       configured: focusNfeDisponivel(),
-      environment: emModoDemo() ? "demonstracao" : getFocusNfeEnv(),
+      environment: getFocusNfeEnv(),
       cnpjPrestador: "64199963000149",
       inscricaoMunicipal: "", // Precisa ser preenchido
       codigoMunicipio: "3550308", // Sao Paulo
@@ -85,6 +102,31 @@ export function registerNfseRoutes(): Router {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
+
+  /**
+   * Historico de notas — SO na demonstracao. Fora dela esta rota nao existe (as
+   * notas emitidas vivem so na memoria da tela), e o primeiro handler manda o
+   * pedido adiante com `next("route")` ANTES da autenticacao, para a resposta
+   * continuar exatamente a de quando nao havia rota nenhuma aqui.
+   *
+   * Registrada antes de `/api/nfse/:ref` de proposito, para a ordem nunca
+   * depender de `:ref` exigir um segmento a mais.
+   */
+  router.get(
+    "/api/nfse",
+    (_req, _res, next) => (emModoDemo() ? next() : next("route")),
+    requireAuth,
+    requireProvider,
+    async (req, res) => {
+      try {
+        const provider = await storage.getProvider(req.session.providerId!);
+        if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+        return res.json(notasFiscaisDaDemo(req.session.providerId!, provider.createdAt ?? new Date()));
+      } catch (error: any) {
+        return res.status(500).json({ message: getSafeErrorMessage(error) });
+      }
+    },
+  );
 
   // Consultar status de NFS-e
   router.get("/api/nfse/:ref", requireAuth, requireProvider, async (req, res) => {

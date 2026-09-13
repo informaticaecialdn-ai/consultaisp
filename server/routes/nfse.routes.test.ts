@@ -12,7 +12,9 @@ import express from "express";
 import type { Server } from "node:http";
 
 const storageMock = vi.hoisted(() => ({
-  getProvider: vi.fn(async (_id: number): Promise<any> => ({ id: 42, name: "Provedor Teste", cnpj: "12345678000190" })),
+  getProvider: vi.fn(async (_id: number): Promise<any> => ({
+    id: 42, name: "Provedor Teste", cnpj: "12345678000190", createdAt: new Date("2026-09-12T15:00:00.000Z"),
+  })),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 
@@ -92,9 +94,63 @@ describe("NFS-e com DEMO_MODE ligado (e sem token da Focus)", () => {
 
     expect(saida).not.toHaveBeenCalled();
   });
+
+  /**
+   * O prestador era o CNPJ da PLATAFORMA e o município São Paulo, para um
+   * provedor fictício de Londrina. Na demonstração a nota é do próprio sandbox.
+   */
+  it("config do sandbox: CNPJ do provedor da sessão, Londrina 4113700 e serviço de internet", async () => {
+    const texto = await (await http(`${base}/api/nfse/config`)).text();
+    expect(JSON.parse(texto)).toMatchObject({
+      cnpjPrestador: "12345678000190",
+      codigoMunicipio: "4113700",
+      municipio: "Londrina",
+      uf: "PR",
+      descricaoPadrao: expect.stringMatching(/internet/i),
+    });
+    expect(texto).not.toContain("64199963000149");
+    expect(texto).not.toContain("3550308");
+    expect(storageMock.getProvider).toHaveBeenCalledWith(42);
+  });
+
+  it("GET /api/nfse lista 5 a 8 notas simuladas, iguais a cada chamada e sem rede", async () => {
+    const res = await http(`${base}/api/nfse`);
+    expect(res.status).toBe(200);
+    const notas = await res.json();
+    expect(Array.isArray(notas)).toBe(true);
+    expect(notas.length).toBeGreaterThanOrEqual(5);
+    expect(notas.length).toBeLessThanOrEqual(8);
+    expect(await (await http(`${base}/api/nfse`)).json()).toEqual(notas);
+    for (const n of notas) expect(n.ref).toMatch(/^demo-42-\d+$/);
+    expect(notas.some((n: any) => n.status === "processing")).toBe(true);
+    expect(saida).not.toHaveBeenCalled();
+  });
+
+  it("a lista e a consulta falam da mesma nota: mesmo número pela mesma referência", async () => {
+    const notas = await (await http(`${base}/api/nfse`)).json();
+    const autorizada = notas.find((n: any) => n.status === "authorized");
+    const consulta = await (await http(`${base}/api/nfse/${autorizada.ref}`)).json();
+    expect(consulta).toMatchObject({ ref: autorizada.ref, numero: autorizada.numero });
+  });
 });
 
 describe("NFS-e com DEMO_MODE desligado", () => {
+  it("config byte a byte a de antes, sem ler o provedor", async () => {
+    const texto = await (await http(`${base}/api/nfse/config`)).text();
+    expect(texto).toBe(
+      '{"configured":false,"environment":"homologacao","cnpjPrestador":"64199963000149","inscricaoMunicipal":"",' +
+      '"codigoMunicipio":"3550308","aliquotaIss":2.9,"codigoServico":"01.07",' +
+      '"descricaoPadrao":"Licenciamento de uso de software SaaS - Consulta ISP - Analise de credito para provedores de internet"}',
+    );
+    expect(storageMock.getProvider).not.toHaveBeenCalled();
+  });
+
+  it("GET /api/nfse continua sem rota: cai adiante (404 aqui) sem tocar o banco", async () => {
+    const res = await http(`${base}/api/nfse`);
+    expect(res.status).toBe(404);
+    expect(storageMock.getProvider).not.toHaveBeenCalled();
+  });
+
   it("sem token: configured false e emitir recusa com 400, como antes", async () => {
     const config = await (await http(`${base}/api/nfse/config`)).json();
     expect(config).toMatchObject({ configured: false, environment: "homologacao" });

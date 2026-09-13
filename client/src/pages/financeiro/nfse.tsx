@@ -18,6 +18,11 @@ interface NfseConfig {
   aliquotaIss: number;
   codigoServico: string;
   descricaoPadrao: string;
+  /** Só a demonstração manda os quatro abaixo (nfse.routes.ts). */
+  codigoMunicipio?: string;
+  municipio?: string;
+  uf?: string;
+  razaoSocialPrestador?: string;
 }
 
 interface NfseResult {
@@ -27,6 +32,10 @@ interface NfseResult {
   linkNfse?: string;
   mensagem?: string;
   erros?: Array<{ mensagem: string }>;
+  /** Só as notas do histórico simulado da demonstração (GET /api/nfse) trazem estes. */
+  tomadorNome?: string;
+  valor?: number;
+  emitidaEm?: string;
 }
 
 /**
@@ -39,13 +48,42 @@ export function seloDoAmbienteNfse(environment: string | null | undefined): { ro
   return { rotulo: environment === "producao" ? "PRODUCAO" : "HOMOLOGACAO", simulado: false };
 }
 
+/**
+ * O município da nota, lido da config. A tela tinha "Prefeitura de Sao Paulo"
+ * e "Sao Paulo - SP" escritos à mão — e na demonstração o prestador é um
+ * provedor de Londrina. Fora da demonstração o servidor não manda município, e
+ * a tela segue com o texto de antes.
+ */
+export function municipioDaNfse(config: Pick<NfseConfig, "municipio" | "uf"> | null | undefined): { nome: string; uf: string } {
+  if (config?.municipio && config.uf) return { nome: config.municipio, uf: config.uf };
+  return { nome: "Sao Paulo", uf: "SP" };
+}
+
+/** "RAZAO SOCIAL · CNPJ 00.000.000/0000-00" — ou null, quando a config não diz quem é o prestador. */
+export function prestadorDaNfse(config: Pick<NfseConfig, "razaoSocialPrestador" | "cnpjPrestador"> | null | undefined): string | null {
+  if (!config?.razaoSocialPrestador) return null;
+  const cnpj = String(config.cnpjPrestador ?? "").replace(/\D/g, "")
+    .replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+  return `${config.razaoSocialPrestador} · CNPJ ${cnpj}`;
+}
+
 export default function NfsePage() {
-  const { provider } = useAuth();
+  const { provider, demoMode } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
 
   const { data: config } = useQuery<NfseConfig>({
     queryKey: ["/api/nfse/config"],
+  });
+  const municipio = municipioDaNfse(config);
+  const prestador = prestadorDaNfse(config);
+
+  /* Histórico de notas: só a demonstração tem a rota (GET /api/nfse, simulada).
+     Fora dela a query nem nasce — seria um pedido para rota que não existe —, e
+     o que houver no cache é ignorado. */
+  const { data: historicoDaDemo } = useQuery<NfseResult[]>({
+    queryKey: ["/api/nfse"],
+    enabled: demoMode === true,
   });
 
   const [form, setForm] = useState({
@@ -68,6 +106,10 @@ export default function NfsePage() {
 
   const [emittedNotes, setEmittedNotes] = useState<NfseResult[]>([]);
   const [checkingRef, setCheckingRef] = useState<string | null>(null);
+  /* As emitidas nesta visita primeiro; depois o histórico, sem repetir a mesma referência. */
+  const notas = demoMode === true
+    ? [...emittedNotes, ...(historicoDaDemo ?? []).filter(h => !emittedNotes.some(n => n.ref === h.ref))]
+    : emittedNotes;
 
   const emitMutation = useMutation({
     mutationFn: async () => {
@@ -82,8 +124,8 @@ export default function NfsePage() {
           complemento: form.complemento,
           bairro: form.bairro,
           cep: form.cep,
-          uf: form.uf || "SP",
-          codigoMunicipio: form.codigoMunicipio || "3550308",
+          uf: form.uf || config?.uf || "SP",
+          codigoMunicipio: form.codigoMunicipio || config?.codigoMunicipio || "3550308",
         },
         descricao: form.descricao || config?.descricaoPadrao || "Licenciamento SaaS - Consulta ISP",
         valor: parseFloat(form.valor),
@@ -108,7 +150,11 @@ export default function NfsePage() {
       const res = await apiRequest("GET", `/api/nfse/${ref}`, undefined);
       if (!res.ok) throw new Error((await res.json()).message);
       const result = await res.json() as NfseResult;
-      setEmittedNotes(prev => prev.map(n => n.ref === ref ? result : n));
+      // Nota do histórico da demonstração ainda não está em `emittedNotes`: entra
+      // no topo, com tomador e valor preservados.
+      setEmittedNotes(prev => prev.some(n => n.ref === ref)
+        ? prev.map(n => n.ref === ref ? result : n)
+        : [{ ...historicoDaDemo?.find(n => n.ref === ref), ...result }, ...prev]);
       if (result.status === "authorized") {
         toast({ title: "NFS-e autorizada!", description: `Numero: ${result.numero}` });
       }
@@ -147,13 +193,16 @@ export default function NfsePage() {
         <div>
           <h1 className="text-xl font-bold text-[var(--color-ink)]">Notas Fiscais de Servico</h1>
           <p className="text-sm text-[var(--color-muted)]">
-            Emissao de NFS-e via Focus NFe — Prefeitura de Sao Paulo
+            Emissao de NFS-e via Focus NFe — Prefeitura de {municipio.nome}
             {config && (
               <span className="ml-2 text-xs font-bold px-1.5 py-0.5 rounded bg-[var(--color-tag-bg)]">
                 {seloDoAmbienteNfse(config.environment).rotulo}
               </span>
             )}
           </p>
+          {prestador && (
+            <p className="text-xs text-[var(--color-muted)] mt-1" data-testid="nfse-prestador">Prestador: {prestador}</p>
+          )}
           {config && seloDoAmbienteNfse(config.environment).simulado && (
             <p className="text-xs text-[var(--color-muted)] mt-1" data-testid="nfse-aviso-demonstracao">
               Ambiente de demonstração: as notas emitidas aqui são simuladas — nada vai para a Focus NFe nem para a prefeitura.
@@ -228,11 +277,11 @@ export default function NfsePage() {
               </div>
               <div>
                 <Label className="text-xs">UF</Label>
-                <Input value={form.uf} onChange={e => setForm(f => ({ ...f, uf: e.target.value }))} placeholder="SP" />
+                <Input value={form.uf} onChange={e => setForm(f => ({ ...f, uf: e.target.value }))} placeholder={municipio.uf} />
               </div>
               <div>
                 <Label className="text-xs">Cod. Municipio</Label>
-                <Input value={form.codigoMunicipio} onChange={e => setForm(f => ({ ...f, codigoMunicipio: e.target.value }))} placeholder="3550308" />
+                <Input value={form.codigoMunicipio} onChange={e => setForm(f => ({ ...f, codigoMunicipio: e.target.value }))} placeholder={config?.codigoMunicipio || "3550308"} />
               </div>
             </div>
           </div>
@@ -256,7 +305,7 @@ export default function NfsePage() {
             <div className="mt-2 flex items-center gap-4 text-xs text-[var(--color-muted)]">
               <span>Codigo ISS: <strong>{config?.codigoServico || "01.07"}</strong></span>
               <span>Aliquota: <strong>{config?.aliquotaIss || 2.90}%</strong></span>
-              <span>Municipio: <strong>Sao Paulo - SP</strong></span>
+              <span>Municipio: <strong>{municipio.nome} - {municipio.uf}</strong></span>
             </div>
           </div>
 
@@ -272,16 +321,16 @@ export default function NfsePage() {
       </div>
 
       {/* Notas Emitidas */}
-      {emittedNotes.length > 0 && (
+      {notas.length > 0 && (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
           <div className="px-5 py-3 border-b border-[var(--color-border)] flex items-center gap-2">
             <FileText className="w-4 h-4 text-[var(--color-muted)]" />
             <span className="text-sm font-bold uppercase tracking-wider text-[var(--color-ink)]">Notas Emitidas</span>
-            <span className="text-xs text-[var(--color-muted)] ml-auto">{emittedNotes.length} nota(s)</span>
+            <span className="text-xs text-[var(--color-muted)] ml-auto">{notas.length} nota(s)</span>
           </div>
 
           <div className="divide-y divide-[var(--color-border)]">
-            {emittedNotes.map(note => (
+            {notas.map(note => (
               <div key={note.ref} className="px-5 py-3 flex items-center gap-3">
                 {statusIcon(note.status)}
                 <div className="flex-1 min-w-0">
@@ -297,6 +346,15 @@ export default function NfsePage() {
                       {statusLabel(note.status)}
                     </span>
                   </div>
+                  {(note.tomadorNome || note.valor != null) && (
+                    <p className="text-xs text-[var(--color-ink)]">
+                      {[
+                        note.tomadorNome,
+                        note.valor != null ? note.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : null,
+                        note.emitidaEm ? new Date(note.emitidaEm).toLocaleDateString("pt-BR") : null,
+                      ].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
                   {note.mensagem && <p className="text-xs text-[var(--color-muted)]">{note.mensagem}</p>}
                   {note.erros && note.erros.length > 0 && (
                     <p className="text-xs text-[var(--color-danger)]">{note.erros.map(e => e.mensagem).join(", ")}</p>

@@ -9,8 +9,15 @@
  *
  * Aqui a resposta é local e fixa, coerente com o sandbox: o mesmo nome do
  * provedor que `tentarCriarSandbox` grava, na cidade-sede do mundo base
- * (Londrina/PR), com o CNPJ que foi pedido. Sem telefone e sem sócio com
- * documento: nada que pareça dado de uma pessoa ou empresa real.
+ * (Londrina/PR), com o CNPJ que foi pedido. Sem telefone: nada que pareça
+ * contato de uma empresa real.
+ *
+ * Os sócios existem desde a rodada 2 da demo (13/09/2026): sem eles o
+ * importador de QSA da ficha nunca aparecia, e a ficha semeada do sandbox
+ * (`sociosDaDemo`, semeadura-ficha.ts) passou a ter dois — que são estes, lidos
+ * daqui, para "buscar na Receita" e a ficha nunca discordarem. Nome fictício e
+ * CPF mascarado do jeito que a própria Receita publica o QSA: nenhum documento
+ * inteiro existe para ser confundido com o de alguém.
  */
 import type { EmpresaPublica } from "../services/cnpj-publico.service";
 
@@ -32,7 +39,10 @@ export function empresaPublicaSimulada(cnpj: string): EmpresaPublica {
     cidade: "LONDRINA",
     uf: "PR",
     situacao: "ATIVA",
-    socios: [],
+    socios: [
+      { nome: "MARINA DEMONSTRACAO ALVES", qualificacao: "Sócio-Administrador", cpf: "***.318.604-**" },
+      { nome: "CARLOS EXEMPLO FERREIRA", qualificacao: "Sócio", cpf: "***.527.913-**" },
+    ],
     fonte: "demonstracao",
   };
 }
