@@ -10,7 +10,39 @@ import { montarRegras, desmontarRegras, regrasAntiFraudeSchema } from "@shared/a
 import { isZapiConfigured } from "../services/crm/zapi";
 import { z } from "zod";
 import { anonymizeProvider } from "../utils/provider-anonymizer";
-import { validarWebhookExterno } from "../utils/webhook-validador";
+import { enderecoIpEhPrivado, MOTIVO_WEBHOOK_INVALIDO, validarWebhookExterno } from "../utils/webhook-validador";
+import { ehEnderecoPrivado } from "@shared/chat-console";
+import { emModoDemo } from "../demo/modo-demo";
+
+/**
+ * A FORMA do webhook, sem resolver nome nenhum: o que a demonstração pública
+ * consegue conferir sem tráfego saindo dela.
+ *
+ * Fora da demo quem decide é `validarWebhookExterno`, que resolve o host e
+ * confere cada endereço devolvido. Na demo essa consulta de DNS já seria
+ * tráfego para o domínio que o VISITANTE digitou, e as rotas irmãs de
+ * `provider.routes.ts` (alert-settings) já não resolvem. O disparo é suprimido
+ * na demo antes de qualquer rede (`enviarWebhookDoAlerta`), então gravar sem
+ * resolver não abre nada. A forma continua exigida para a tela responder a um
+ * http:// ou a um host interno digitado como responde em produção.
+ *
+ * `ehEnderecoPrivado` julga o hostname por texto. Um IPv4 literal passa também
+ * por `enderecoIpEhPrivado`, que conhece faixas que ela não conhece
+ * (benchmark 198.18/15, multicast, classe E).
+ */
+function formaDoWebhookAceita(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:") return false;
+  const host = u.hostname.toLowerCase();
+  if (ehEnderecoPrivado(host)) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) && enderecoIpEhPrivado(host)) return false;
+  return true;
+}
 
 export function registerAntiFraudeRoutes(): Router {
   const router = Router();
@@ -81,8 +113,15 @@ export function registerAntiFraudeRoutes(): Router {
       // pode deixar a tela num estado onde as regras já mudaram, mas o canal
       // não foi salvo (nem confirmado, nem recusado com clareza).
       if (parsed.data.canais?.webhookUrl) {
-        const veredito = await validarWebhookExterno(parsed.data.canais.webhookUrl);
-        if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
+        if (emModoDemo()) {
+          // Na demonstração pública, só a forma — sem DNS. Ver `formaDoWebhookAceita`.
+          if (!formaDoWebhookAceita(parsed.data.canais.webhookUrl)) {
+            return res.status(400).json({ message: MOTIVO_WEBHOOK_INVALIDO });
+          }
+        } else {
+          const veredito = await validarWebhookExterno(parsed.data.canais.webhookUrl);
+          if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
+        }
       }
       await storage.saveAntiFraudRules(providerId, desmontarRegras(parsed.data.regras));
       if (parsed.data.canais) {

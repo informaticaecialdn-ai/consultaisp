@@ -11,6 +11,9 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { ChatDaRecuperacao } from "@/components/chat/ChatDaRecuperacao";
+import { rotaChat } from "@/components/chat/tipos";
+import { WhatsappDaDemonstracao } from "@/components/cobranca/ui";
+import { useAuth } from "@/lib/auth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CalendarClock, History, MessageCircle, PackageCheck, PackageX, ShieldAlert, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -86,6 +89,16 @@ export function DrawerCaso({ card, aberto, onFechar, responsaveis, onContato, on
   const { data: eventos = [], isLoading: carregandoEventos } = useQuery<EventoCaso[]>({
     queryKey: [`/api/equipment/recovery-cases/${caseId}/events`],
     enabled: aberto && caseId !== null,
+  });
+
+  // Na demonstração pública o WhatsApp do cliente não sai para o wa.me: leva à
+  // conversa simulada da retirada, quando ela existe. A chave é a MESMA do
+  // `ChatDaRecuperacao` logo abaixo — cache compartilhado, nenhuma requisição a
+  // mais. Fora da demo a consulta nem liga e o link é o de sempre.
+  const { demoMode } = useAuth();
+  const { data: conversaDaRetirada } = useQuery<{ conversationId: string; status: string } | null>({
+    queryKey: [`/api/chat-bullq/recuperacao/${caseId}/conversa`],
+    enabled: demoMode && aberto && caseId !== null,
   });
 
   const salvar = useMutation({
@@ -165,11 +178,19 @@ export function DrawerCaso({ card, aberto, onFechar, responsaveis, onContato, on
                 <Linha rotulo="telefone">
                   <span className="inline-flex items-center gap-2">
                     <span style={MONO}>{card.cliente.telefone ?? TRACO}</span>
-                    {card.cliente.whatsapp && (
+                    {card.cliente.whatsapp && (demoMode ? (
+                      <WhatsappDaDemonstracao
+                        nome={card.cliente.nome}
+                        rotaDaConversa={conversaDaRetirada ? rotaChat("equipamentos", conversaDaRetirada.conversationId) : null}
+                        className="inline-flex min-h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[var(--ok)] hover:bg-[var(--ok-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--brand)]"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" aria-hidden /> WhatsApp
+                      </WhatsappDaDemonstracao>
+                    ) : (
                       <a href={`https://wa.me/${card.cliente.whatsapp}`} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[var(--ok)] hover:bg-[var(--ok-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--brand)]">
                         <MessageCircle className="h-3.5 w-3.5" aria-hidden /> WhatsApp
                       </a>
-                    )}
+                    ))}
                   </span>
                 </Linha>
                 <Linha rotulo="endereço">{[card.cliente.endereco, card.cliente.bairro, card.cliente.cidade && (card.cliente.uf ? `${card.cliente.cidade}/${card.cliente.uf}` : card.cliente.cidade)].filter(Boolean).join(" · ") || TRACO}</Linha>

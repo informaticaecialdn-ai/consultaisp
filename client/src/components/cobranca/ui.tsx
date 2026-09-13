@@ -14,6 +14,9 @@
 // traço em SSR) o esbuild compila JSX para `React.createElement`.
 import * as React from "react";
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "wouter";
+import { useAuth } from "@/lib/auth";
+import { toast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
@@ -353,8 +356,81 @@ export function BarraDeScore({ score, cor }: { score: number | null; cor: string
   );
 }
 
-/** Link do WhatsApp — o ícone verde ao lado do telefone, como no card de recuperação. */
-export function LinkWhatsapp({ whatsapp, nome, children }: { whatsapp: string; nome: string; children: ReactNode }) {
+/**
+ * Por que o WhatsApp não abre na demonstração pública — uma frase só para as
+ * telas que mostram o ícone (Painel do caso, Cliente 360, kanban de recuperação).
+ */
+export const AVISO_WHATSAPP_SIMULADO =
+  "Na demonstração o WhatsApp é simulado: nenhuma conversa é aberta com o número do cliente.";
+
+/**
+ * O lugar do link do WhatsApp na demonstração pública.
+ *
+ * O telefone do cliente do sandbox é fictício, mas plausível: `wa.me/55…`
+ * abriria conversa com quem tiver aquele número de verdade, e o clique já é
+ * tráfego saindo da demonstração. O ícone fica onde o operador espera, só não
+ * sai: com conversa simulada, leva ao atendimento dentro do sistema; sem ela,
+ * vira botão que diz por quê — no título para quem passa o mouse e num aviso
+ * para quem toca.
+ *
+ * Quem decide se é demonstração é quem monta (`useAuth().demoMode`); aqui é só
+ * apresentação.
+ */
+export function WhatsappDaDemonstracao({ nome, rotaDaConversa, className, children }: {
+  nome: string;
+  /** Rota interna da conversa simulada, quando quem monta a conhece. */
+  rotaDaConversa?: string | null;
+  className: string;
+  children: ReactNode;
+}) {
+  if (rotaDaConversa) {
+    return (
+      <Link
+        href={rotaDaConversa}
+        aria-label={`Abrir o atendimento simulado de ${nome}`}
+        title="Abrir o atendimento simulado"
+        className={className}
+        onClick={e => e.stopPropagation()}
+      >
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <button
+      type="button"
+      aria-label={`WhatsApp de ${nome}: simulado na demonstração`}
+      title={AVISO_WHATSAPP_SIMULADO}
+      className={className}
+      onClick={e => {
+        e.stopPropagation();
+        toast({ title: "WhatsApp simulado", description: AVISO_WHATSAPP_SIMULADO });
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Link do WhatsApp — o ícone verde ao lado do telefone, como no card de recuperação.
+ *
+ * Lê `demoMode` de `useAuth` (o mesmo sinal da faixa de demonstração): na
+ * demonstração pública não sai para o `wa.me` e vira `WhatsappDaDemonstracao`,
+ * que leva a `rotaDaConversa` quando quem monta conhece a conversa simulada.
+ * Fora da demo a rota é ignorada e o `<a>` é o de sempre.
+ */
+export function LinkWhatsapp({ whatsapp, nome, rotaDaConversa, children }: {
+  whatsapp: string;
+  nome: string;
+  rotaDaConversa?: string | null;
+  children: ReactNode;
+}) {
+  const { demoMode } = useAuth();
+  const classe = cn("inline-flex min-h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[var(--ok)] hover:bg-[var(--ok-bg)]", FOCO);
+  if (demoMode) {
+    return <WhatsappDaDemonstracao nome={nome} rotaDaConversa={rotaDaConversa} className={classe}>{children}</WhatsappDaDemonstracao>;
+  }
   return (
     <a
       href={`https://wa.me/${whatsapp}`}
@@ -362,7 +438,7 @@ export function LinkWhatsapp({ whatsapp, nome, children }: { whatsapp: string; n
       rel="noreferrer noopener"
       aria-label={`Abrir WhatsApp de ${nome}`}
       title="Abrir conversa no WhatsApp"
-      className={cn("inline-flex min-h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-[var(--ok)] hover:bg-[var(--ok-bg)]", FOCO)}
+      className={classe}
       onClick={e => e.stopPropagation()}
     >
       {children}

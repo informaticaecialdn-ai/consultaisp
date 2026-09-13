@@ -1,7 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect, vi } from 'vitest';
 import express from 'express';
+import dns from 'node:dns';
 import type { Server } from 'node:http';
 import { maskAlertForProvider } from '../utils/mask-alert';
+import { MOTIVO_WEBHOOK_INVALIDO } from '../utils/webhook-validador';
 
 // A chave dos codigos e lazy e vem do ambiente — o teste nao depende do .env.
 beforeAll(() => { process.env.PARTNER_CODE_SECRET = 'p'.repeat(64); });
@@ -137,6 +139,104 @@ describe('PUT /api/anti-fraud/rules — SSRF no webhook (a tela de verdade)', ()
     const res = await salvarCanais('https://203.0.113.10/abc123');
 
     expect(res.status).toBe(403);
+    expect(storageMock.updateProviderProfile).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Na demonstração pública o webhook não é resolvido no DNS.
+ *
+ * Resolver o domínio que o VISITANTE digitou já é tráfego saindo da
+ * demonstração — a consulta DNS vai para fora antes de qualquer `fetch`. As
+ * rotas irmãs (`PUT /api/providers/alert-settings`, `POST .../test-webhook`)
+ * já tinham a guarda; esta, que é a da tela, não. Na demo fica só a FORMA
+ * (https, host que não é interno pelo texto) e a gravação: o disparo já é
+ * suprimido na demo antes de qualquer rede.
+ *
+ * O `dns.lookup` é espiado com uma resposta fixa: nenhum teste daqui consulta
+ * DNS de verdade, nos dois lados.
+ */
+describe('PUT /api/anti-fraud/rules — webhook na demonstração pública, sem DNS', () => {
+  const demoAntes = process.env.DEMO_MODE;
+  let lookup: ReturnType<typeof vi.spyOn>;
+  let resolve: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    // Se a rota resolver o nome, a resposta fixa é "não existe" — assim, na
+    // demo, resolver faz o teste falhar pelo espião E pela recusa.
+    lookup = vi.spyOn(dns, 'lookup').mockImplementation(((_host: string, _opcoes: unknown, cb: (err: Error | null, enderecos?: unknown) => void) => {
+      cb(Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' }));
+    }) as any);
+    resolve = vi.spyOn(dns, 'resolve').mockImplementation((() => { throw new Error('resolve nao pode ser chamado'); }) as any);
+  });
+
+  afterEach(() => {
+    lookup.mockRestore();
+    resolve.mockRestore();
+    if (demoAntes === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = demoAntes;
+  });
+
+  it('DEMO ligado: grava o https:// do visitante sem consultar DNS nenhum', async () => {
+    process.env.DEMO_MODE = 'true';
+
+    const res = await salvarCanais('https://webhook.visitante-da-demo.com.br/alerta');
+
+    expect(res.status).toBe(200);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+    expect(storageMock.updateProviderProfile).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ proactiveAlertWebhookUrl: 'https://webhook.visitante-da-demo.com.br/alerta' }),
+    );
+  });
+
+  it('DEMO desligado: o mesmo endereço passa pelo DNS, como sempre', async () => {
+    delete process.env.DEMO_MODE;
+    lookup.mockImplementation(((_host: string, _opcoes: unknown, cb: (err: Error | null, enderecos?: unknown) => void) => {
+      cb(null, [{ address: '203.0.113.10', family: 4 }]);
+    }) as any);
+
+    const res = await salvarCanais('https://webhook.visitante-da-demo.com.br/alerta');
+
+    expect(lookup).toHaveBeenCalled();
+    expect(res.status).toBe(200);
+  });
+
+  it('http:// é recusado com a demo ligada e desligada, sem gravar nada', async () => {
+    for (const demo of [true, false]) {
+      vi.clearAllMocks();
+      if (demo) process.env.DEMO_MODE = 'true';
+      else delete process.env.DEMO_MODE;
+
+      const res = await salvarCanais('http://webhook.visitante-da-demo.com.br/alerta');
+
+      expect(res.status).toBe(400);
+      expect(storageMock.saveAntiFraudRules).not.toHaveBeenCalled();
+      expect(storageMock.updateProviderProfile).not.toHaveBeenCalled();
+    }
+  });
+
+  it('DEMO ligado: host interno pelo texto é recusado sem DNS, com a mesma frase de fora da demo', async () => {
+    process.env.DEMO_MODE = 'true';
+    const internos = [
+      'https://127.0.0.1/x',
+      'https://localhost/x',
+      'https://169.254.169.254/latest/meta-data/',
+      'https://10.0.0.5/x',
+      // Faixas que só `enderecoIpEhPrivado` conhece (benchmark e classe E).
+      'https://198.18.0.1/x',
+      'https://250.1.2.3/x',
+      'https://[::1]/x',
+      'https://intranet/x',
+    ];
+    for (const url of internos) {
+      const res = await salvarCanais(url);
+      expect(res.status, url).toBe(400);
+      expect((await res.json()).message).toBe(MOTIVO_WEBHOOK_INVALIDO);
+    }
+    expect(lookup).not.toHaveBeenCalled();
+    expect(storageMock.saveAntiFraudRules).not.toHaveBeenCalled();
     expect(storageMock.updateProviderProfile).not.toHaveBeenCalled();
   });
 });

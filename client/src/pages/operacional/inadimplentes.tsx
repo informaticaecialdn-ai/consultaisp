@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -146,10 +147,68 @@ const ERPS_OFERECIDOS = ["ixc", "mk", "sgp", "hubsoft", "voalle", "rbx"];
  *  ela nao pode ser contada como Manual numa lista que promete ser de Manual. */
 const ORIGEM_NAO_IDENTIFICADA = "Origem não identificada";
 
+/** A origem que o sandbox da demonstracao publica grava em `customers.erp_source`
+ *  (`FONTE_ERP_DEMO`, server/erp/fonte-demo.ts — o client nao importa do server,
+ *  entao a chave e repetida aqui). Sem ela, a base inteira do visitante lia
+ *  "Origem nao identificada" e o filtro nao tinha como separa-la.
+ *
+ *  So vale com `demoMode` (sinal do servidor, o mesmo da faixa de demonstracao):
+ *  fora da demo, uma linha com essa chave e tao desconhecida quanto qualquer
+ *  outra, e a tela diz isso, como sempre disse. Por isso fica fora de
+ *  `ERP_CONFIG`, que e incondicional. */
+const ORIGEM_DA_DEMONSTRACAO = { chave: "demo", label: "Demonstração" };
+
 /** Chave gravada -> nome de gente. Aceita a coluna nula, que cai no mesmo ramo
  *  da chave desconhecida — nenhuma entrada de `ERP_CONFIG` responde por "". */
-const rotuloErp = (source?: string | null) =>
-  ERP_CONFIG[source ?? ""]?.label ?? ORIGEM_NAO_IDENTIFICADA;
+export const rotuloErp = (source?: string | null, demoMode = false) =>
+  demoMode && source === ORIGEM_DA_DEMONSTRACAO.chave
+    ? ORIGEM_DA_DEMONSTRACAO.label
+    : ERP_CONFIG[source ?? ""]?.label ?? ORIGEM_NAO_IDENTIFICADA;
+
+/** O que o filtro "ERP Origem" oferece: o que sincroniza, as origens que nao
+ *  sao ERP e, so na demonstracao, a origem do sandbox. */
+export const origensDoFiltro = (demoMode: boolean) => [
+  ...ERPS_OFERECIDOS,
+  ...Object.keys(ORIGENS_SEM_ERP),
+  ...(demoMode ? [ORIGEM_DA_DEMONSTRACAO.chave] : []),
+];
+
+/** Para onde leva cada botao de contato de uma linha. */
+export type AcaoDeContato =
+  | { tipo: "externo"; url: string }
+  | { tipo: "interno"; rota: string }
+  | { tipo: "indisponivel"; motivo: string };
+
+/** A frase do "Ligar" desabilitado na demonstracao. */
+const MOTIVO_SEM_LIGACAO_NA_DEMO = "Na demonstração não há ligação: o telefone do cliente é fictício.";
+
+/** A frase do WhatsApp da demonstracao, que abre a ficha em vez do wa.me. */
+const TITULO_WHATSAPP_NA_DEMO = "Na demonstração o WhatsApp é simulado: abre a ficha do cliente, de onde sai a conversa.";
+
+/** Ligar e WhatsApp de uma linha — o UNICO lugar da tela que monta destino de contato.
+ *
+ *  Na demonstracao publica o telefone do sandbox e ficticio, mas plausivel:
+ *  `tel:` discaria para o numero de alguem de verdade e `wa.me/55…` abriria
+ *  conversa com essa pessoa. Entao "Ligar" fica indisponivel com o motivo e
+ *  "WhatsApp" leva a ficha do cliente (`/cobranca/cliente/:id`), onde a
+ *  conversa simulada e iniciada ("Enviar para o chat") — a lista nao sabe se
+ *  ja existe conversa, a ficha sabe. Fora da demo, as mesmas duas URLs de
+ *  sempre. */
+export function acoesDeContato(
+  linha: { id: number; phone?: string | null },
+  demoMode: boolean,
+): { ligar: AcaoDeContato; whatsapp: AcaoDeContato } {
+  if (demoMode) {
+    return {
+      ligar: { tipo: "indisponivel", motivo: MOTIVO_SEM_LIGACAO_NA_DEMO },
+      whatsapp: { tipo: "interno", rota: `/cobranca/cliente/${linha.id}` },
+    };
+  }
+  return {
+    ligar: { tipo: "externo", url: `tel:${linha.phone}` },
+    whatsapp: { tipo: "externo", url: `https://wa.me/55${linha.phone?.replace(/\D/g, "")}` },
+  };
+}
 
 const RISK_CONFIG: Record<string, { label: string; badge: string }> = {
   critical: { label: "Critico",  badge: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
@@ -186,13 +245,80 @@ const relativeDate = (d: string | null) => {
  *  em `VisaoGeralTab`), com o dot categorico por cima: o mesmo dado tem que ter
  *  a mesma cara nos dois paineis. O `rounded-full` aqui e do DOT, que e um
  *  ponto e nao um badge — badge de estado continua retangular. */
-function ErpBadge({ source }: { source?: string | null }) {
+function ErpBadge({ source, demoMode = false }: { source?: string | null; demoMode?: boolean }) {
   const dot = ERP_CONFIG[source ?? ""]?.dot ?? "bg-[var(--text-faint)]";
   return (
     <Selo tom="neutro">
       <span className={`w-1.5 h-1.5 rounded-full flex-none ${dot}`} aria-hidden />
-      {rotuloErp(source)}
+      {rotuloErp(source, demoMode)}
     </Selo>
+  );
+}
+
+/** Os dois botoes de contato da linha. O destino sai de `acoesDeContato`;
+ *  fora da demo o HTML e o mesmo dos dois botoes que ficavam soltos na celula. */
+function BotoesDeContato({ id, phone, demoMode }: { id: number; phone: string; demoMode: boolean }) {
+  const { ligar, whatsapp } = acoesDeContato({ id, phone }, demoMode);
+  return (
+    <>
+      {ligar.tipo === "externo" ? (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7"
+          title={`Ligar: ${phone}`}
+          aria-label={`Ligar para ${phone}`}
+          data-testid={`btn-phone-${id}`}
+          onClick={() => window.open(ligar.url)}
+        >
+          <Phone className="w-3.5 h-3.5" />
+        </Button>
+      ) : ligar.tipo === "indisponivel" ? (
+        // O title fica no invólucro: o Button desabilitado não recebe o
+        // ponteiro (`disabled:pointer-events-none`), e o motivo sumiria.
+        <span className="inline-flex" title={ligar.motivo}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            disabled
+            aria-label={`Ligar para ${phone}: indisponível na demonstração`}
+            data-testid={`btn-phone-${id}`}
+          >
+            <Phone className="w-3.5 h-3.5" />
+          </Button>
+        </span>
+      ) : null}
+      {whatsapp.tipo === "externo" ? (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+          title="WhatsApp"
+          aria-label="Enviar WhatsApp"
+          data-testid={`btn-whatsapp-${id}`}
+          onClick={() => window.open(whatsapp.url)}
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+        </Button>
+      ) : whatsapp.tipo === "interno" ? (
+        <Button
+          asChild
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+        >
+          <Link
+            href={whatsapp.rota}
+            title={TITULO_WHATSAPP_NA_DEMO}
+            aria-label="Abrir a ficha do cliente para a conversa simulada"
+            data-testid={`btn-whatsapp-${id}`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+          </Link>
+        </Button>
+      ) : null}
+    </>
   );
 }
 
@@ -237,7 +363,7 @@ function DaysBadge({ days }: { days: number }) {
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function InadimplentesPage() {
-  const { provider } = useAuth();
+  const { provider, demoMode } = useAuth();
   const [search, setSearch] = useState("");
   const [filterErp, setFilterErp] = useState("all");
   const [filterRisk, setFilterRisk] = useState("all");
@@ -269,7 +395,7 @@ export default function InadimplentesPage() {
       ["Nome", "CPF/CNPJ", "Cidade", "UF", "ERP", "Valor em Aberto", "Dias Atraso", "Risco", "Equipamentos", "Ultimo Sync"],
       ...filtered.map(d => [
         d.name, d.cpfCnpj, d.city ?? "", d.state ?? "",
-        rotuloErp(d.erpSource),
+        rotuloErp(d.erpSource, demoMode),
         Number(d.totalOverdueAmount || 0).toFixed(2),
         d.maxDaysOverdue ?? 0,
         RISK_CONFIG[d.riskTier ?? "low"]?.label ?? "Baixo",
@@ -412,8 +538,8 @@ export default function InadimplentesPage() {
                   origem mais comum de todas em quem ainda nao ligou o ERP, e
                   ate aqui o chip existia na tabela sem nenhum jeito de filtrar
                   por ele. */}
-              {[...ERPS_OFERECIDOS, ...Object.keys(ORIGENS_SEM_ERP)].map(key => (
-                <SelectItem key={key} value={key}>{rotuloErp(key)}</SelectItem>
+              {origensDoFiltro(demoMode).map(key => (
+                <SelectItem key={key} value={key}>{rotuloErp(key, demoMode)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -515,7 +641,7 @@ export default function InadimplentesPage() {
 
                     {/* ERP */}
                     <TableCell>
-                      <ErpBadge source={d.erpSource} />
+                      <ErpBadge source={d.erpSource} demoMode={demoMode} />
                     </TableCell>
 
                     {/* Localidade */}
@@ -579,32 +705,7 @@ export default function InadimplentesPage() {
                     {/* Ações */}
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
-                        {d.phone && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            title={`Ligar: ${d.phone}`}
-                            aria-label={`Ligar para ${d.phone}`}
-                            data-testid={`btn-phone-${d.id}`}
-                            onClick={() => window.open(`tel:${d.phone}`)}
-                          >
-                            <Phone className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
-                        {d.phone && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
-                            title="WhatsApp"
-                            aria-label="Enviar WhatsApp"
-                            data-testid={`btn-whatsapp-${d.id}`}
-                            onClick={() => window.open(`https://wa.me/55${d.phone?.replace(/\D/g, "")}`)}
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
+                        {d.phone && <BotoesDeContato id={d.id} phone={d.phone} demoMode={demoMode} />}
                         {/* AIDEV-QUESTION: aqui havia mais dois botoes, "Notificar LGPD/CDC"
                             e "Ver historico na rede", e os dois chamavam rota que o servidor
                             nao tem — `POST /api/inadimplentes/:id/notificar-lgpd` e

@@ -16,9 +16,20 @@
  * regressao e a proxima — qualquer chamada nova para rota inexistente fica
  * vermelha aqui, sem ninguem precisar lembrar de acrescentar o nome dela.
  */
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Router } from "wouter";
+
+// `useAuth` controlado: o AuthProvider real so preenche `demoMode` por fetch
+// num efeito, que o SSR nao roda.
+const auth = vi.hoisted(() => ({ demoMode: false, provider: { name: "Provedor Demo" } }));
+vi.mock("@/lib/auth", () => ({ useAuth: () => auth }));
+
+import InadimplentesPage, { acoesDeContato, origensDoFiltro, rotuloErp } from "./inadimplentes";
 
 const raiz = join(__dirname, "..", "..");
 const pastaRotas = join(raiz, "..", "..", "server", "routes");
@@ -88,5 +99,100 @@ describe("a tela so chama rota que existe", () => {
   it("as duas decisoes pendentes ficam registradas na tela, nao somem com o botao", () => {
     expect(fonteBruta).toMatch(/AIDEV-QUESTION[\s\S]*notificar-lgpd/);
     expect(fonteBruta).toMatch(/AIDEV-QUESTION[\s\S]*historico-rede/);
+  });
+});
+
+/**
+ * Na demonstracao publica nenhum contato sai da tela.
+ *
+ * O telefone do sandbox e ficticio, mas plausivel: `tel:` discaria para o
+ * numero de alguem de verdade e `wa.me/55…` abriria conversa com essa pessoa.
+ * Na demo, "Ligar" fica desabilitado com o motivo e "WhatsApp" leva para a
+ * ficha do cliente, de onde sai a conversa simulada. Fora da demo, o mesmo
+ * `tel:` e o mesmo `wa.me` de sempre.
+ *
+ * E a origem: o sandbox grava `erp_source = "demo"` (`FONTE_ERP_DEMO`,
+ * server/erp/fonte-demo.ts). Sem rotulo, a tela escrevia "Origem nao
+ * identificada" para a base inteira do visitante e o filtro nao a oferecia.
+ * O rotulo "Demonstração" so existe na demo — fora dela a chave continua
+ * desconhecida, como qualquer outra.
+ */
+describe("contato e origem na demonstracao", () => {
+  const LINHA = { id: 1, phone: "(43) 99999-0000" };
+
+  it("fora da demo: tel: e wa.me exatamente como antes", () => {
+    expect(acoesDeContato(LINHA, false)).toEqual({
+      ligar: { tipo: "externo", url: "tel:(43) 99999-0000" },
+      whatsapp: { tipo: "externo", url: "https://wa.me/5543999990000" },
+    });
+  });
+
+  it("na demo: nada de tel: nem wa.me — ligar indisponivel, WhatsApp leva a ficha do cliente", () => {
+    const acoes = acoesDeContato(LINHA, true);
+    expect(JSON.stringify(acoes)).not.toMatch(/tel:|wa\.me/);
+    expect(acoes.ligar).toMatchObject({ tipo: "indisponivel" });
+    expect(acoes.whatsapp).toEqual({ tipo: "interno", rota: "/cobranca/cliente/1" });
+  });
+
+  it("rotulo Demonstração para a origem demo so na demo", () => {
+    expect(rotuloErp("demo", true)).toBe("Demonstração");
+    expect(rotuloErp("demo", false)).toBe("Origem não identificada");
+    expect(rotuloErp("demo")).toBe("Origem não identificada");
+    expect(rotuloErp("mk", true)).toBe(rotuloErp("mk", false));
+  });
+
+  it("o filtro oferece a origem demo so na demo", () => {
+    expect(origensDoFiltro(true)).toContain("demo");
+    expect(origensDoFiltro(false)).not.toContain("demo");
+    expect(origensDoFiltro(true).filter((o) => o !== "demo")).toEqual(origensDoFiltro(false));
+  });
+
+  it("nenhum tel: nem wa.me fica fora de acoesDeContato — a tela nao monta link por conta propria", () => {
+    const corpo = fonte.slice(fonte.indexOf("export default function InadimplentesPage"));
+    expect(corpo).not.toMatch(/tel:|wa\.me/);
+  });
+
+  describe("a tela renderizada", () => {
+    const LINHAS = [
+      { id: 1, name: "Ana Silva", cpfCnpj: "00000000000", phone: "(43) 99999-0000", city: "Londrina", state: "PR", totalOverdueAmount: "120.00", maxDaysOverdue: 40, overdueInvoicesCount: 2, riskTier: "high", status: "active", erpSource: "demo", lastSyncAt: null, unreturnedEquipmentCount: 1 },
+      { id: 2, name: "Bruno Lima", cpfCnpj: "11111111111", phone: null, city: "Ibiporã", state: "PR", totalOverdueAmount: "80.00", maxDaysOverdue: 10, overdueInvoicesCount: 1, riskTier: "low", status: "cancelled", erpSource: "mk", lastSyncAt: null, unreturnedEquipmentCount: 0 },
+    ];
+    const renderizar = () => {
+      const qc = new QueryClient({ defaultOptions: { queries: { enabled: false, retry: false } } });
+      qc.setQueryData(["/api/dashboard/stats"], {});
+      qc.setQueryData(["/api/inadimplentes"], LINHAS);
+      // O `Link` do wouter lê `location` fora de um Router; no SSR o caminho vem de `ssrPath`.
+      const html = renderToStaticMarkup(
+        createElement(QueryClientProvider, { client: qc },
+          createElement(Router, { ssrPath: "/inadimplentes" }, createElement(InadimplentesPage))),
+      );
+      qc.clear();
+      return html;
+    };
+    /** O elemento inteiro que carrega um data-testid (abre ate o fim da tag). */
+    const tag = (html: string, testId: string) => html.match(new RegExp(`<(a|button)[^>]*data-testid="${testId}"[^>]*>`))?.[0] ?? "";
+
+    beforeEach(() => { auth.demoMode = false; });
+
+    it("fora da demo: Ligar habilitado, WhatsApp e botao, origem nao identificada", () => {
+      const html = renderizar();
+      expect(tag(html, "btn-phone-1")).toMatch(/^<button/);
+      // O atributo, nao a classe: o Button do shadcn sempre traz `disabled:pointer-events-none`.
+      expect(tag(html, "btn-phone-1")).not.toMatch(/\sdisabled=""/);
+      expect(tag(html, "btn-whatsapp-1")).toMatch(/^<button/);
+      expect(html).toContain("Origem não identificada");
+      expect(html).not.toContain("Demonstração");
+    });
+
+    it("na demo: Ligar desabilitado com o motivo, WhatsApp e link interno, origem Demonstração", () => {
+      auth.demoMode = true;
+      const html = renderizar();
+      expect(tag(html, "btn-phone-1")).toContain("disabled");
+      expect(html).toMatch(/title="Na demonstração[^"]*"/);
+      expect(tag(html, "btn-whatsapp-1")).toMatch(/^<a[^>]*href="\/cobranca\/cliente\/1"/);
+      expect(html).not.toMatch(/tel:|wa\.me/);
+      expect(html).toContain("Demonstração");
+      expect(html).not.toContain("Origem não identificada");
+    });
   });
 });

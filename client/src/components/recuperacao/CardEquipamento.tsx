@@ -15,7 +15,9 @@ import { useDraggable, type DraggableAttributes, type DraggableSyntheticListener
 import type { CSSProperties, ReactNode } from "react";
 import { CalendarClock, GripVertical, History, MessageCircle, ShieldAlert, ShieldCheck, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { WhatsappDaDemonstracao } from "@/components/cobranca/ui";
 import { brl, MONO } from "@/components/localizacao/ui";
+import { useAuth } from "@/lib/auth";
 import { dataCurta, dataHoraCurta as dataHora } from "./datas";
 import { faixaDosDias, textoPrazo, type FaixaIdade } from "./movimentos";
 import {
@@ -105,6 +107,7 @@ interface CardEquipamentoProps {
 }
 
 export function CardEquipamento({ card, acoes, ocupado, overlay, alca }: CardEquipamentoProps) {
+  const { demoMode } = useAuth();
   const { equipamento, cliente, caso } = card;
   const faixa = caso ? faixaDosDias(caso.diasRetido) : null;
   const encerrado = card.coluna === "recuperado" || card.coluna === "baixado";
@@ -157,7 +160,18 @@ export function CardEquipamento({ card, acoes, ocupado, overlay, alca }: CardEqu
           {cliente.telefone && (
             <span className="inline-flex items-center gap-1" style={MONO}>
               {cliente.telefone}
-              {cliente.whatsapp && !overlay && (
+              {/* Na demonstração pública o número é fictício e o wa.me abriria
+                  conversa com quem tiver aquele número de verdade. O card não
+                  sabe se a retirada já tem conversa (o drawer sabe), então vira
+                  botão que explica; a conversa simulada sai de "Chat" ou do drawer. */}
+              {cliente.whatsapp && !overlay && (demoMode ? (
+                <WhatsappDaDemonstracao
+                  nome={cliente.nome}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--ok)] hover:bg-[var(--ok-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--brand)]"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                </WhatsappDaDemonstracao>
+              ) : (
                 <a
                   href={`https://wa.me/${cliente.whatsapp}`}
                   target="_blank"
@@ -168,7 +182,7 @@ export function CardEquipamento({ card, acoes, ocupado, overlay, alca }: CardEqu
                 >
                   <MessageCircle className="h-3.5 w-3.5" />
                 </a>
-              )}
+              ))}
             </span>
           )}
           {enderecoCurto && <span className="truncate text-[var(--text-muted)]">{enderecoCurto}</span>}
