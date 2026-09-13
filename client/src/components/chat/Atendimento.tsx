@@ -421,14 +421,20 @@ export function Atendimento({
   // A política é lida sempre, não só ao parcelar: o rodapé do compositor anuncia
   // a janela de contato do provedor, e ela vem daqui. Sem resposta, o rodapé
   // mostra traço com o motivo — nunca as 8–20h "de fábrica" como se fossem dele.
-  const politica = useQuery({
+  // Fetcher padrão e conversão FORA do cache, como no 360, no kanban e na aba
+  // Cobrança: a chave é a mesma, então o cache guarda um formato só — a resposta
+  // crua. Com `queryFn` convertendo aqui, quem lia primeiro decidia o formato, e
+  // o 360 de um cliente com conversa entregava a crua ao diálogo de negociação.
+  const politica = useQuery<unknown>({
     queryKey: [API_POLITICA],
-    queryFn: async () =>
-      lerPolitica(await (await apiRequest("GET", API_POLITICA)).json()),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
-  const faixaDeHorario = faixaDeContato(politica.data?.janelaContato);
+  const politicaLida = useMemo(
+    () => (politica.data === undefined ? null : lerPolitica(politica.data)),
+    [politica.data],
+  );
+  const faixaDeHorario = faixaDeContato(politicaLida?.janelaContato);
   // Sem estado (rota ausente, fila sem migração) o botão de devolver fica desligado — nunca finge.
   const autonomia = useQuery<EstadoAutonomiaChat>({
     queryKey: [API_AUTONOMIA],
@@ -1114,7 +1120,7 @@ export function Atendimento({
       <DialogoNegociacao
         alvo={alvoNegociacao}
         aberto={negociar && politica.isSuccess}
-        politica={politica.data ?? null}
+        politica={politicaLida}
         tipoInicial="parcelamento"
         onFechar={() => {
           setNegociar(false);

@@ -204,7 +204,9 @@ describe("balões de mensageiro", () => {
 describe("rodapé honesto do compositor", () => {
   it("a janela de contato vem da política; sem política é traço com motivo", () => {
     expect(fonte).toContain('data-testid="chat-rodape-politica"');
-    expect(fonte).toContain("const faixaDeHorario = faixaDeContato(politica.data?.janelaContato)");
+    // Lida da política JÁ convertida: o cache guarda a resposta crua do GET (a mesma
+    // chave do 360, do kanban e da aba Cobrança) — ver atendimento-politica.test.ts.
+    expect(fonte).toContain("const faixaDeHorario = faixaDeContato(politicaLida?.janelaContato)");
     expect(fonte).toMatch(/faixaDeHorario \? \([\s\S]*?\) : \(\s*<Traco titulo=\{MOTIVO_SEM_JANELA_DE_CONTATO\} \/>/);
     expect(fonte).toContain("title={AVISO_CDC_42}");
     expect(fonte).toContain("CDC 42");
