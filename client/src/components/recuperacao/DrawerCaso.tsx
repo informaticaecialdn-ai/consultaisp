@@ -140,7 +140,7 @@ export function DrawerCaso({ card, aberto, onFechar, responsaveis, onContato, on
                 </div>
               )}
             </SheetHeader>
-            {caseId && <div className="px-5 pt-4"><ChatDaRecuperacao key={caseId} casoId={caseId} /></div>}
+            {caseId && <div className="px-5 pt-4"><ChatDaRecuperacao key={caseId} casoId={caseId} encerrado={encerrado} /></div>}
 
             {/* Equipamento */}
             <section className="border-b border-[var(--border)] px-5 py-4">
