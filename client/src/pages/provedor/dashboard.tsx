@@ -128,7 +128,10 @@ export default function DashboardPage() {
 const FUNCIONALIDADES: Array<{ url: string; titulo: string; desc: string; Icone: any }> = [
   { url: "/consulta-isp",  titulo: "Consulta ISP",  Icone: ScanSearch,  desc: "Score de risco e histórico do CPF em toda a rede de provedores" },
   { url: "/consulta-spc",  titulo: "Consulta SPC",  Icone: BarChart3,   desc: "Consulta oficial no SPC Brasil, com restrições e protestos" },
-  { url: "/anti-fraude",   titulo: "Anti-Fraude",   Icone: ShieldAlert, desc: "Alertas de migração e ranking de clientes em risco" },
+  /* Ate 12/09/2026 prometia "ranking de clientes em risco", que /anti-fraude
+     nao tem: a tela so lista os alertas, e ranking nenhum consome
+     /api/anti-fraud/customer-risk. O texto diz o que a tela entrega. */
+  { url: "/anti-fraude",   titulo: "Anti-Fraude",   Icone: ShieldAlert, desc: "Alertas quando outro provedor consulta um cliente da sua carteira" },
   { url: "/inadimplentes", titulo: "Inadimplentes", Icone: Users,       desc: "Sua carteira de inadimplentes sincronizada do ERP" },
   { url: "/localizacao",   titulo: "Localização",   Icone: MapPin,      desc: "Mapa da carteira, concentração de inadimplência e ranking de bairros" },
   { url: "/equipamentos", titulo: "Equipamentos", Icone: Package, desc: "Comodato, recuperação após rescisão e ocorrências validadas" },
