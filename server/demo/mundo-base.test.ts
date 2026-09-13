@@ -27,17 +27,25 @@ vi.hoisted(() => {
  * `mundo-base.ts` só inseria; agora `atualizarRelogioDoMundoBaseSePreciso`
  * atualiza `providers.created_at` (checagem otimista) e desloca
  * `contract_start_date`/`cortado_em`/`due_date`/`paid_date` em massa quando o
- * mundo fica velho demais. `processarUpdate` reconhece só as DUAS formas que
- * aquele arquivo emite — um parâmetro cru, ou a própria coluna somada a
- * `$N * interval '1 day'` — não um interpretador de SQL genérico.
+ * mundo fica velho demais. `processarUpdate` reconhece só as formas que
+ * aquele arquivo emite — um parâmetro cru, a própria coluna somada a
+ * `$N * interval '1 day'`, e (desde o complemento de 13/09/2026) o
+ * `update ... from (values ...)` da reescrita da carteira — não um
+ * interpretador de SQL genérico.
  *
- * Sem `beforeEach` limpando `banco.linhas`: os `it()` abaixo são
+ * Sem `beforeEach` limpando `banco.linhas`: os `it()` do primeiro describe são
  * deliberadamente sequenciais (o primeiro semeia, os do meio leem, o último
- * semeia de novo para provar idempotência) — igual ao brief da Tarefa 3.
+ * semeia de novo para provar idempotência) — igual ao brief da Tarefa 3. Os
+ * describes do complemento (13/09/2026) começam cada um de um banco zerado
+ * (`zerarBanco`), porque comparam mundos inteiros entre si.
  */
 const banco = vi.hoisted(() => ({
   linhas: new Map<string, Record<string, unknown>[]>(),
   proximoId: new Map<string, number>(),
+  /** Todo SQL que chegou ao banco de mentira, na ordem — para provar ONDE o lock entra. */
+  sqlExecutado: [] as string[],
+  /** A fila do `pg_advisory_xact_lock` de mentira: cada transação que pede o lock espera a anterior terminar. */
+  filaDoLock: Promise.resolve() as Promise<void>,
   db: null as any,
 }));
 
@@ -48,20 +56,27 @@ vi.mock("../db", () => ({
 
 import { getTableColumns, getTableName, is, SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
-import { providers, customers, invoices, equipment, erpIntegrations } from "@shared/schema";
+import { providers, customers, invoices, equipment, erpIntegrations, users, ispConsultations } from "@shared/schema";
 import { validarCNPJ } from "../utils/cpf-cnpj-validator";
 import { parcelasDaDescricao } from "@shared/cobranca/multa";
+import { normalizarMotivoCorte } from "@shared/motivo-corte";
 import { decryptField } from "../utils/crypto";
-import { PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase, cnpjFicticio, INDICE_MIGRADOR_DE_EXEMPLO } from "./mundo-base";
+import {
+  PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase, complementarMundoBase, cnpjFicticio, INDICE_MIGRADOR_DE_EXEMPLO,
+} from "./mundo-base";
 import { cpfFicticio } from "./pessoas-ficticias";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
 import { getConnector } from "../erp/registry";
 import { detectMigrator } from "../services/migrator-detection.service";
+import { agregarRede, MIN_POR_BAIRRO } from "../services/rede-regional.service";
+import { agregarBenchmarkCidade, chaveCidadeBenchmark, resumirBenchmark } from "../services/benchmark-bairro.service";
+import { normalizarCidade } from "../services/area-atendida";
+import { normalizarLocalidade } from "../services/localidade";
 // Efeito colateral: com DEMO_MODE=true (acima), registra o conector no registry.
 import "../erp/connectors/demo";
 
-const TABELAS = [providers, customers, invoices, equipment, erpIntegrations];
+const TABELAS = [providers, customers, invoices, equipment, erpIntegrations, users, ispConsultations];
 /** tabela (nome real do banco) -> (coluna do banco -> chave camelCase que o Drizzle usa em JS). */
 const chavePorColuna = new Map(
   TABELAS.map((t) => [
@@ -209,7 +224,7 @@ function avaliarCondicoes(whereTexto: string, mapa: Map<string, string>, params:
   return true;
 }
 
-/** `select <cols> from "t" [where ...]` — igualdade ou `in`, ver `avaliarCondicoes`. */
+/** `select <cols> from "t" [where ...]` — igualdade ou `in`, ver `avaliarCondicoes`. `limit` e `for update` passam pelo WHERE sem efeito. */
 function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
   const m = sqlTexto.match(/^select (.+) from "(\w+)"(?: where (.+))?$/s);
   if (!m) throw new Error(`SELECT nao reconhecido pelo banco de mentira: ${sqlTexto}`);
@@ -219,6 +234,8 @@ function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
     const mapa = chavePorColuna.get(tabela)!;
     linhas = linhas.filter((linha) => avaliarCondicoes(whereTexto, mapa, params, linha));
   }
+  const limite = whereTexto?.match(/ limit \$(\d+)/);
+  if (limite) linhas = linhas.slice(0, Number(params[Number(limite[1]) - 1]));
   return projetar(tabela, linhas, textoDeColunas);
 }
 
@@ -252,13 +269,46 @@ function somarDias(valorAtual: unknown, dias: number, comoData: boolean): unknow
 }
 
 /**
+ * `update "t" set "a" = "v"."a"::tipo, ... from (values ($1, $2, ...), ...) as "v"("id", "a", ...) where "t"."id" = "v"."id"::integer`
+ * — a reescrita em massa da carteira que `complementarMundoBase` emite. O
+ * valor vai como veio no parâmetro: o complemento já passa cada coluna no
+ * formato que o INSERT gravaria (texto ISO para timestamp, "AAAA-MM-DD" para
+ * date, número para integer), e é isso que permite comparar um mundo
+ * complementado com um semeado do zero campo a campo.
+ */
+function processarAtualizacaoEmMassa(sqlTexto: string, params: unknown[]): void {
+  const m = sqlTexto.match(/^update "(\w+)" set (.+?) from \(values (.+)\) as "v"\(([^)]*)\) where "\w+"\."id" = "v"\."id"::integer$/s);
+  if (!m) throw new Error(`UPDATE em massa nao reconhecido pelo banco de mentira: ${sqlTexto}`);
+  const [, tabela, setTexto, valuesTexto, colunasTexto] = m;
+  const mapa = chavePorColuna.get(tabela);
+  if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+  const colunasDoValues = colunasTexto.split(", ").map((c) => c.replace(/"/g, ""));
+  const atribuicoes = setTexto.split(", ").map((parte) => {
+    const am = parte.match(/^"(\w+)" = "v"\."(\w+)"::\w+$/);
+    if (!am) throw new Error(`Atribuicao de UPDATE em massa nao reconhecida: ${parte}`);
+    return { chave: mapa.get(am[1])!, origem: am[2] };
+  });
+  const porId = new Map((banco.linhas.get(tabela) ?? []).map((l) => [l.id, l]));
+  for (const tupla of Array.from(valuesTexto.matchAll(/\(([^()]*)\)/g))) {
+    const valores = new Map(tupla[1].split(", ").map((ref, i) => {
+      const r = ref.match(/^\$(\d+)$/);
+      if (!r) throw new Error(`Valor inesperado no VALUES: ${ref}`);
+      return [colunasDoValues[i], params[Number(r[1]) - 1]] as const;
+    }));
+    const linha = porId.get(Number(valores.get("id")));
+    if (!linha) continue; // como no Postgres: tupla sem linha casada não atualiza nada
+    for (const { chave, origem } of atribuicoes) linha[chave] = valores.get(origem);
+  }
+}
+
+/**
  * `update "t" set "col" = <expr>[, ...] where <condicoes> [returning <cols>]`
- * — as DUAS únicas formas de `<expr>` que `mundo-base.ts` emite:
+ * — as DUAS formas simples de `<expr>` que `mundo-base.ts` emite:
  *   1. um parâmetro cru (`$N`) — `atualizarRelogioDoMundoBaseSePreciso`
- *      escrevendo `providers.created_at`;
+ *      escrevendo `providers.created_at`, e o status do equipamento no complemento;
  *   2. a PRÓPRIA coluna somada a `$N * interval '1 day'`, com `::date`
  *      opcional no fim — `deslocarDatasDoMundoBase` deslocando
- *      `contract_start_date`/`cortado_em`/`due_date`/`paid_date`.
+ *      `contract_start_date`/`cortado_em`/`due_date`/`paid_date`/`created_at`.
  * Não é um interpretador de SQL genérico — assim como `processarInsert` só
  * reconhece o INSERT que este arquivo gera.
  */
@@ -301,8 +351,25 @@ function processarUpdate(sqlTexto: string, params: unknown[]): { tabela: string;
   return { tabela, linhasAfetadas: linhas };
 }
 
-beforeAll(() => {
-  const proxy = drizzle(async (sqlTexto: string, params: unknown[]) => {
+/**
+ * Um cliente de pg-proxy. `transacao` (quando dentro de `db.transaction`) é
+ * onde o `pg_advisory_xact_lock` de mentira guarda a função que o solta: o lock
+ * de verdade só é liberado no fim da transação, e é esse comportamento — não um
+ * `return []` — que o teste de duas aplicações simultâneas precisa para provar
+ * alguma coisa.
+ */
+function criarCliente(transacao?: { soltarLock?: () => void }) {
+  return drizzle(async (sqlTexto: string, params: unknown[]) => {
+    banco.sqlExecutado.push(sqlTexto);
+    if (sqlTexto.startsWith("select pg_advisory_xact_lock(")) {
+      if (!transacao) throw new Error("pg_advisory_xact_lock fora de transacao nao solta nunca");
+      const anterior = banco.filaDoLock;
+      let soltar!: () => void;
+      banco.filaDoLock = new Promise<void>((r) => { soltar = r; });
+      await anterior;
+      transacao.soltarLock = soltar;
+      return { rows: [] };
+    }
     if (sqlTexto.startsWith("insert into")) {
       const retorno = sqlTexto.match(/ returning (.+)$/s);
       const { tabela, linhasCriadas } = processarInsert(sqlTexto, params);
@@ -311,6 +378,10 @@ beforeAll(() => {
     if (sqlTexto.startsWith("select")) {
       return { rows: processarSelect(sqlTexto, params) };
     }
+    if (sqlTexto.startsWith("update") && sqlTexto.includes(" from (values ")) {
+      processarAtualizacaoEmMassa(sqlTexto, params);
+      return { rows: [] };
+    }
     if (sqlTexto.startsWith("update")) {
       const retorno = sqlTexto.match(/ returning (.+)$/s);
       const { tabela, linhasAfetadas } = processarUpdate(sqlTexto, params);
@@ -318,18 +389,44 @@ beforeAll(() => {
     }
     throw new Error(`SQL nao suportado pelo banco de mentira: ${sqlTexto}`);
   });
+}
+
+beforeAll(() => {
   // O `pg-proxy` de verdade RECUSA transação ("Transactions are not supported").
-  // `mundo-base.ts` agora semeia tudo dentro de `db.transaction(...)` (rodada
-  // de correção, 11/09/2026) — sem este substituto, todo teste abaixo
-  // quebraria na primeira chamada. Mesmo padrão de
-  // `server/storage/cobranca.storage.test.ts`: chama o callback com o MESMO
-  // proxy, o que basta para provar que as escritas acontecem "dentro".
-  banco.db = Object.assign(proxy, {
-    transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(proxy),
+  // `mundo-base.ts` semeia tudo dentro de `db.transaction(...)` (rodada de
+  // correção, 11/09/2026) — sem este substituto, todo teste abaixo quebraria
+  // na primeira chamada. Cada transação ganha o próprio cliente, para o lock
+  // de mentira saber quando soltar (ver `criarCliente`). Sem rollback: nenhum
+  // teste daqui depende de desfazer escrita.
+  banco.db = Object.assign(criarCliente(), {
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const transacao: { soltarLock?: () => void } = {};
+      try {
+        return await fn(criarCliente(transacao));
+      } finally {
+        transacao.soltarLock?.();
+      }
+    },
   });
 });
 
 // ── Leituras diretas do banco de mentira (o que a semeadura realmente gravou) ──
+
+const DIA_MS = 86_400_000;
+const CPF_DO_MIGRADOR = cpfFicticio(INDICE_MIGRADOR_DE_EXEMPLO);
+
+function zerarBanco(): void {
+  banco.linhas.clear();
+  banco.proximoId.clear();
+  banco.sqlExecutado.length = 0;
+}
+
+function linhasDe(tabela: string): Record<string, unknown>[] {
+  return banco.linhas.get(tabela) ?? [];
+}
+
+/** Timestamp gravado (ISO string no banco de mentira, ou Date) -> ms. */
+const ms = (valor: unknown): number => new Date(valor as string | Date).getTime();
 
 function idDoProvedor(subdomain: string): number {
   const linha = (banco.linhas.get("providers") ?? []).find((p) => p.subdomain === subdomain);
@@ -387,17 +484,40 @@ async function totalDeProvedores(): Promise<number> {
   return (banco.linhas.get("providers") ?? []).length;
 }
 
+/** O cliente do par migrador-serial em um provedor da rede. */
+function migradorEm(subdomain: string): Record<string, unknown> {
+  const providerId = idDoProvedor(subdomain);
+  const linha = linhasDe("customers").find((c) => c.providerId === providerId && c.cpfCnpj === CPF_DO_MIGRADOR);
+  if (!linha) throw new Error(`migrador nao semeado em ${subdomain}`);
+  return linha;
+}
+
+/** Dias inteiros de um "AAAA-MM-DD" (coluna DATE) até hoje. */
+function diasDesdeAData(dataSemHora: unknown): number {
+  const [ano, mes, dia] = String(dataSemHora).split("-").map(Number);
+  return Math.floor((Date.now() - new Date(ano, mes - 1, dia).getTime()) / DIA_MS);
+}
+
+/** Provedores DISTINTOS que consultaram o CPF nos últimos `dias` dias — a conta de `consultas30d` em consultas.routes.ts. */
+function provedoresQueConsultaram(cpf: string, dias: number): Set<number> {
+  const desde = Date.now() - dias * DIA_MS;
+  return new Set(linhasDe("isp_consultations")
+    .filter((c) => c.cpfCnpj === cpf && ms(c.createdAt) >= desde)
+    .map((c) => c.providerId as number));
+}
+
 /**
  * Simula `dias` dias se passando desde a última ancoragem do mundo, sem
  * esperar de verdade — anda `providers.created_at` de "rede-1" (a âncora)
  * para trás e desloca toda data que a semeadura gravou
- * (`contractStartDate`/`cortadoEm`/`dueDate`/`paidDate`) dos CINCO provedores
- * da rede pela MESMA quantidade, na direção OPOSTA de
- * `deslocarDatasDoMundoBase`. Mutação direta de `banco.linhas`, no mesmo
- * espírito do `envelhecer()` de `sandbox.service.test.ts` — mas precisa
- * mover TAMBÉM as datas de negócio (não só `created_at`), senão "a âncora
- * diz 50 dias" e "a fatura vence daqui a X dias calculados agora mesmo"
- * ficam inconsistentes, e o teste não provaria nada sobre o REFRESH em si.
+ * (`contractStartDate`/`cortadoEm`/`dueDate`/`paidDate` e, desde 13/09/2026,
+ * o `createdAt` das consultas da rede) dos CINCO provedores da rede pela MESMA
+ * quantidade, na direção OPOSTA de `deslocarDatasDoMundoBase`. Mutação direta
+ * de `banco.linhas`, no mesmo espírito do `envelhecer()` de
+ * `sandbox.service.test.ts` — mas precisa mover TAMBÉM as datas de negócio
+ * (não só `created_at`), senão "a âncora diz 50 dias" e "a fatura vence daqui
+ * a X dias calculados agora mesmo" ficam inconsistentes, e o teste não
+ * provaria nada sobre o REFRESH em si.
  */
 function envelhecerMundoEm(dias: number): void {
   const idsDaRede = new Set(PROVEDORES_DA_DEMO.map((p) => idDoProvedor(p.subdomain)));
@@ -419,20 +539,27 @@ function envelhecerMundoEm(dias: number): void {
     if (f.dueDate != null) f.dueDate = somarDias(f.dueDate, -dias, false);
     if (f.paidDate != null) f.paidDate = somarDias(f.paidDate, -dias, false);
   }
+  for (const c of banco.linhas.get("isp_consultations") ?? []) {
+    if (!idsDaRede.has(c.providerId as number)) continue;
+    if (c.createdAt != null) c.createdAt = somarDias(c.createdAt, -dias, false);
+  }
 }
 
+/** Quatro cidades do mundo, no formato "Cidade - UF" que a área declarada usa. */
+const CIDADES_DA_REDE = ["Londrina - PR", "Ibiporã - PR", "Cambé - PR", "Apucarana - PR"];
+
 describe("mundo base da demonstracao", () => {
-  const PROPORCOES = { clientes: 1500, inadimplentes: 225, cancelados: 150, comEquipamento: 120, compartilhados: 150 };
+  const PROPORCOES = { clientes: 1500, inadimplentes: 225, cancelados: 150, comEquipamento: 135, compartilhados: 150 };
 
   /**
    * O CPF do par migrador-serial de exemplo (Tarefa 5, Passo 3.7): uma linha
-   * extra em rede-1 (cancelado) e rede-2 (inadimplente), fora da forma
+   * extra em rede-1 (cancelado) e rede-2 (contrato novo), fora da forma
    * "1.500 por provedor" que este describe testa. Os testes abaixo excluem
-   * este CPF de propósito — ele prova outra coisa (ver
-   * `server/demo/sandbox.service.test.ts`), e misturá-lo aqui só faria a
+   * este CPF de propósito — ele prova outra coisa (ver o describe do migrador
+   * e `server/demo/sandbox.service.test.ts`), e misturá-lo aqui só faria a
    * contagem exata desviar por 1 sem nenhum ganho de cobertura.
    */
-  const CPF_DO_MIGRADOR_DE_EXEMPLO = cpfFicticio(INDICE_MIGRADOR_DE_EXEMPLO);
+  const CPF_DO_MIGRADOR_DE_EXEMPLO = CPF_DO_MIGRADOR;
 
   it("cada provedor nasce com a carteira de um provedor real", async () => {
     const inicio = performance.now();
@@ -445,7 +572,9 @@ describe("mundo base da demonstracao", () => {
     for (const p of PROVEDORES_DA_DEMO) {
       const clientes = (await clientesDe(p.subdomain)).filter((c) => c.cpfCnpj !== CPF_DO_MIGRADOR_DE_EXEMPLO);
       expect(clientes, p.subdomain).toHaveLength(PROPORCOES.clientes);
-      expect(clientes.filter((c) => c.paymentStatus === "overdue"), p.subdomain).toHaveLength(PROPORCOES.inadimplentes);
+      // Inadimplente = contrato ATIVO devendo. O ex-cliente que saiu devendo
+      // também é `overdue` (a regra do sync), mas é outra carteira.
+      expect(clientes.filter((c) => c.status === "active" && c.paymentStatus === "overdue"), p.subdomain).toHaveLength(PROPORCOES.inadimplentes);
       expect(clientes.filter((c) => c.status === "cancelled"), p.subdomain).toHaveLength(PROPORCOES.cancelados);
     }
   });
@@ -475,8 +604,22 @@ describe("mundo base da demonstracao", () => {
     }
   });
 
+  it("toda coordenada da rede diz de onde veio ('erp') — sem procedencia o mapa da Rede nao desenha bolha nem ponto", () => {
+    // PRECISAO_CONFIAVEL (rede-regional.service.ts) exclui geo_precisao nulo:
+    // medido no banco local em 12/09/2026, as bolhas da Rede saíam com lat/lon
+    // null e o mapa ficava vazio com "43 casos em 12 bairros" no painel.
+    const idsDaRede = new Set(PROVEDORES_DA_DEMO.map((p) => idDoProvedor(p.subdomain)));
+    const daRede = linhasDe("customers").filter((c) => idsDaRede.has(c.providerId as number));
+    expect(daRede.length).toBeGreaterThan(0);
+    for (const c of daRede) {
+      if (c.latitude != null && c.longitude != null) expect(c.geoPrecisao, JSON.stringify(c)).toBe("erp");
+    }
+  });
+
   it("todo cliente tem contractStartDate — sem ela o quadrante DNA e a Economia ficam sem tempo de casa", async () => {
-    const clientes = await clientesDe("rede-1");
+    // O contrato ANTIGO do migrador fica sem data de proposito (o ERP nao
+    // informou) — ver o describe do migrador e `linhaDoMigradorDeExemplo`.
+    const clientes = (await clientesDe("rede-1")).filter((c) => c.cpfCnpj !== CPF_DO_MIGRADOR_DE_EXEMPLO);
     for (const c of clientes) expect(c.contractStartDate, JSON.stringify(c)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
@@ -501,7 +644,7 @@ describe("mundo base da demonstracao", () => {
    * assim ficaria fora de `mensalidadesDoProvedor`.
    */
   it("faturas e clientes saem marcados como vindos do ERP demo — sem isto a carteira/mes e a Economia ficam sem nada para contar", async () => {
-    const clientes = (await clientesDe("rede-1")).filter((c) => c.cpfCnpj !== CPF_DO_MIGRADOR_DE_EXEMPLO);
+    const clientes = await clientesDe("rede-1");
     for (const c of clientes) expect(c.erpSource, JSON.stringify(c)).toBe(FONTE_ERP_DEMO);
 
     const faturas = await faturasDe("rede-1");
@@ -516,29 +659,67 @@ describe("mundo base da demonstracao", () => {
     expect(new Set(refs).size, "erpRef duplicado dentro do mesmo provedor").toBe(refs.length);
   });
 
-  describe("equipamento — rodada de correcao (11/09/2026): comodato no ativo, retido no cancelado", () => {
-    it("8% do total, mas nao tudo retido: comodato normal em ativo + retido em cancelado", async () => {
+  it("inadimplente conta a propria fatura vencida — overdueInvoicesCount 1, nunca o default 0", async () => {
+    const inadimplentes = (await clientesDe("rede-3")).filter((c) => c.status === "active" && c.paymentStatus === "overdue");
+    expect(inadimplentes).toHaveLength(PROPORCOES.inadimplentes);
+    for (const c of inadimplentes) expect(c.overdueInvoicesCount, JSON.stringify(c)).toBe(1);
+  });
+
+  it("score e faixa de risco contam a historia da conta — nenhuma linha fica no par de default 100/'low'", async () => {
+    // A mesma regra de `server/demo/sandbox.service.ts` (`scoreDaEntrada`,
+    // `faixaDeRiscoDoAtraso`): em dia alto, inadimplente cai com a idade,
+    // ex-cliente que saiu devendo abaixo de quem pagou a saída.
+    const faixaEsperada = (dias: number) => (dias > 180 ? "critical" : dias > 90 ? "high" : dias > 60 ? "medium" : "low");
+    for (const p of PROVEDORES_DA_DEMO) {
+      for (const c of await clientesDe(p.subdomain)) {
+        expect(c.ispScore === 100 && c.riskTier === "low", `${p.subdomain}: ${JSON.stringify(c)}`).toBe(false);
+        expect(c.riskTier, JSON.stringify(c)).toBe(faixaEsperada(c.maxDaysOverdue as number));
+        const score = c.ispScore as number;
+        if (c.status === "active" && c.paymentStatus === "current") expect(score, JSON.stringify(c)).toBeGreaterThanOrEqual(650);
+        if (Number(c.totalOverdueAmount) > 0) expect(score, JSON.stringify(c)).toBeLessThan(650);
+      }
+    }
+  });
+
+  describe("equipamento — comodato no ativo (em dia E inadimplente), retido no cancelado", () => {
+    it("135 por provedor: comodato normal em ativo + retido em cancelado", async () => {
       const equipamentos = await equipamentosDe("rede-1");
       expect(equipamentos).toHaveLength(PROPORCOES.comEquipamento);
 
       const comodato = equipamentos.filter((e) => e.status === "em_comodato");
       const retido = equipamentos.filter((e) => e.status !== "em_comodato");
-      expect(comodato).toHaveLength(90);
+      expect(comodato).toHaveLength(105);
       expect(retido).toHaveLength(30);
     });
 
-    it("o comodato normal esta em cliente ATIVO; o retido, em CANCELADO", async () => {
+    it("so o vocabulario atual — retirada_pendente e nao_localizado, nunca retido/not_returned/em_cobranca", async () => {
+      // O vocabulário legado (mundo-base.ts:118 até 13/09/2026) passava pelo
+      // conector e pelo selo do 360 como estados que o módulo de recuperação
+      // não escreve mais.
+      for (const p of PROVEDORES_DA_DEMO) {
+        const status = new Set((await equipamentosDe(p.subdomain)).map((e) => e.status as string));
+        for (const s of status) expect(["em_comodato", "retirada_pendente", "nao_localizado"], p.subdomain).toContain(s);
+        expect(status.has("retirada_pendente") && status.has("nao_localizado"), p.subdomain).toBe(true);
+      }
+    });
+
+    it("o comodato normal esta em cliente ATIVO — em dia e tambem inadimplente; o retido, em CANCELADO", async () => {
       const equipamentos = await equipamentosDe("rede-1");
       const clientes = new Map((await clientesDe("rede-1")).map((c) => [c.id as number, c]));
 
+      let comodatoDeInadimplente = 0;
       for (const e of equipamentos) {
         const cliente = clientes.get(e.customerId as number)!;
         if (e.status === "em_comodato") {
           expect(cliente.status, JSON.stringify(e)).toBe("active");
+          if (cliente.paymentStatus === "overdue") comodatoDeInadimplente++;
         } else {
           expect(cliente.status, JSON.stringify(e)).toBe("cancelled");
         }
       }
+      // Inadimplente ativo também tem ONU instalada — antes só o em dia tinha,
+      // e a consulta de um devedor da rede nunca mostrava aparelho em comodato.
+      expect(comodatoDeInadimplente).toBe(15);
     });
 
     it("equipmentCount/equipmentEstimatedValue (o que o anti-fraude le) so contam o RETIDO", async () => {
@@ -560,10 +741,9 @@ describe("mundo base da demonstracao", () => {
 
   describe("faturas de saida do ex-cliente — rodada de correcao (11/09/2026)", () => {
     it("todo cancelado tem UMA fatura de saida, com cortadoEm gravado", async () => {
-      // Exclui o cancelado de exemplo do migrador-serial: ele existe para
-      // provar outro sinal (detectMigrator via contractStartDate), nunca
-      // ganhou fatura de saida de propósito, e não faz parte da forma
-      // "todo cancelado tem uma fatura de saida" que este teste verifica.
+      // Exclui o cancelado de exemplo do migrador-serial: ele prova outro
+      // sinal (ver o describe do migrador) e não faz parte da forma "150
+      // cancelados por provedor" que este teste verifica.
       const clientes = (await clientesDe("rede-1")).filter((c) => c.status === "cancelled" && c.cpfCnpj !== CPF_DO_MIGRADOR_DE_EXEMPLO);
       expect(clientes).toHaveLength(PROPORCOES.cancelados);
       for (const c of clientes) expect(c.cortadoEm, JSON.stringify(c)).not.toBeNull();
@@ -609,6 +789,93 @@ describe("mundo base da demonstracao", () => {
       // "overdue" sair da lista, este teste quebra ANTES da tela ficar vazia.
       const STATUS_FATURA_ABERTA_ESPERADO = ["aberta", "pending", "overdue"];
       expect(STATUS_FATURA_ABERTA_ESPERADO).toContain("overdue");
+    });
+  });
+
+  describe("ex-clientes com divida na rede — o que o geomarketing, o benchmark e o mapa da Rede leem", () => {
+    it("metade dos cancelados de cada provedor saiu devendo: a divida do cliente e exatamente a fatura de saida vencida", async () => {
+      // Medido no banco local (12/09/2026): rede-1..5 com 150 cancelados cada e
+      // ZERO com total_overdue_amount > 0 — a tela de ex-clientes comparava os
+      // 39-62% do visitante contra 0% da rede.
+      // A âncora do relógio do mundo: o `agora` com que toda data foi gravada.
+      const ancora = ms(linhasDe("providers").find((x) => x.subdomain === PROVEDORES_DA_DEMO[0].subdomain)!.createdAt);
+      for (const p of PROVEDORES_DA_DEMO) {
+        const cancelados = (await clientesDe(p.subdomain)).filter((c) => c.status === "cancelled" && c.cpfCnpj !== CPF_DO_MIGRADOR);
+        const saidas = new Map((await faturasDe(p.subdomain))
+          .filter((f) => String(f.erpRef).startsWith("demo-saida-"))
+          .map((f) => [f.customerId as number, f]));
+        const devedores = cancelados.filter((c) => Number(c.totalOverdueAmount) > 0);
+        expect(devedores, p.subdomain).toHaveLength(75);
+
+        for (const c of cancelados) {
+          const saida = saidas.get(c.id as number)!;
+          if (saida.status === "overdue") {
+            expect(c.totalOverdueAmount, JSON.stringify(c)).toBe(saida.value);
+            expect(c.paymentStatus, JSON.stringify(c)).toBe("overdue");
+            expect(c.overdueInvoicesCount, JSON.stringify(c)).toBe(1);
+            expect(c.maxDaysOverdue, JSON.stringify(c)).toBe(Math.floor((ancora - ms(c.cortadoEm)) / DIA_MS));
+          } else {
+            expect(c.totalOverdueAmount, JSON.stringify(c)).toBe("0.00");
+            expect(c.paymentStatus, JSON.stringify(c)).toBe("current");
+            expect(c.overdueInvoicesCount, JSON.stringify(c)).toBe(0);
+          }
+        }
+      }
+    });
+
+    it("todo cancelado tem motivo_corte, e o motivo concorda com a saida: devedor e financeiro, quem pagou e administrativo", async () => {
+      for (const p of PROVEDORES_DA_DEMO) {
+        const cancelados = (await clientesDe(p.subdomain)).filter((c) => c.status === "cancelled");
+        for (const c of cancelados) {
+          const familia = normalizarMotivoCorte(c.motivoCorte as string | null);
+          expect(familia, JSON.stringify(c)).toBe(Number(c.totalOverdueAmount) > 0 ? "financeiro" : "administrativo");
+        }
+        for (const c of (await clientesDe(p.subdomain)).filter((x) => x.status === "active")) {
+          expect(c.motivoCorte ?? null, JSON.stringify(c)).toBeNull();
+        }
+      }
+    });
+
+    it("o mapa da Rede (agregarRede, a funcao real) desenha as quatro cidades: todo bairro passa o piso e toda bolha tem posicao", () => {
+      const linhas = linhasDe("customers")
+        .filter((c) => ["cancelled", "inactive"].includes(c.status as string) && Number(c.totalOverdueAmount) > 0 && c.neighborhood)
+        .map((c) => ({
+          id: c.id as number, providerId: c.providerId as number, latitude: c.latitude as string, longitude: c.longitude as string,
+          city: c.city as string, neighborhood: c.neighborhood as string, geoPrecisao: c.geoPrecisao as string | null,
+        }));
+      // Observador que não é da rede: o visitante do sandbox, com zero casos próprios.
+      const rede = agregarRede(linhas, CIDADES_DA_REDE, new Map(), 999_999);
+
+      expect(rede.ocultas, "bairro abaixo do piso de MIN_POR_BAIRRO some do mapa").toBe(0);
+      for (const cidade of rede.cidades) expect(cidade.ocorrencias, cidade.cidade).toBeGreaterThanOrEqual(5 * MIN_POR_BAIRRO);
+      expect(new Set(rede.bairros.map((b) => b.cidade)).size).toBe(4);
+      for (const b of rede.bairros) {
+        expect(b.ocorrencias).toBeGreaterThanOrEqual(MIN_POR_BAIRRO);
+        expect(b.lat, JSON.stringify(b)).not.toBeNull();
+        expect(b.lon, JSON.stringify(b)).not.toBeNull();
+      }
+      expect(rede.semPonto).toBe(0);
+      expect(rede.pontos.length).toBe(rede.bairros.reduce((s, b) => s + b.ocorrencias, 0));
+    });
+
+    it("o benchmark de ex-clientes (agregarBenchmarkCidade + resumirBenchmark) sai com os cinco provedores e percentual acima de zero", () => {
+      const grupos = new Map<string, { providerId: number; state: string | null; city: string | null; neighborhood: string | null; clientes: number; inadimplentes: number }>();
+      for (const c of linhasDe("customers")) {
+        if (!["cancelled", "inactive"].includes(c.status as string)) continue;
+        const chave = [c.providerId, c.state, c.city, c.neighborhood].join("|");
+        const g = grupos.get(chave) ?? { providerId: c.providerId as number, state: c.state as string, city: c.city as string, neighborhood: c.neighborhood as string, clientes: 0, inadimplentes: 0 };
+        g.clientes++;
+        if (Number(c.totalOverdueAmount) > 0) g.inadimplentes++;
+        grupos.set(chave, g);
+      }
+      const pedidos = ["Londrina", "Ibiporã", "Cambé", "Apucarana"].map((cidade) => ({ cidadeNorm: normalizarLocalidade(normalizarCidade(cidade)), uf: "PR" }));
+      const porCidade = agregarBenchmarkCidade([...grupos.values()], pedidos);
+      for (const p of pedidos) {
+        const resumo = resumirBenchmark(porCidade.get(chaveCidadeBenchmark(p.uf, p.cidadeNorm)), 999_999);
+        expect(resumo, p.cidadeNorm).not.toBeNull();
+        expect(resumo!.provedores, p.cidadeNorm).toBe(5);
+        expect(resumo!.pct, p.cidadeNorm).toBeGreaterThan(0);
+      }
     });
   });
 
@@ -706,80 +973,377 @@ describe("mundo base da demonstracao", () => {
   });
 });
 
+/** `detectMigrator` pelo caminho real — mesmo molde da prova em sandbox.service.test.ts. */
+async function migradorDetectado(): Promise<boolean> {
+  const conector = getConnector(FONTE_ERP_DEMO)!;
+  const erpResults = await Promise.all(
+    PROVEDORES_DA_DEMO.map(async (p) => {
+      const providerId = idDoProvedor(p.subdomain);
+      const integracao = (await integracaoDe(p.subdomain))!;
+      const config = buildConnectorConfig({
+        apiUrl: integracao.apiUrl as string,
+        apiToken: decryptField(integracao.apiToken as string | null),
+        apiUser: null, clientId: null, clientSecret: null, mkContraSenha: null, extraConfig: null,
+      });
+      config.extra = { ...config.extra, providerId: String(providerId) };
+      const r = await conector.fetchCustomerByCpf!(config, CPF_DO_MIGRADOR);
+      return {
+        providerId, providerName: p.nome, erpSource: FONTE_ERP_DEMO, ok: r.ok,
+        customers: r.customers.map((c) => ({
+          ...c,
+          // Mesmo operador de normalizeCustomer (server/services/realtime-query.service.ts):
+          // `||`, nao `??`.
+          status: c.contractStatus || (c as any).status,
+          registrationDate: c.contractStartDate || (c as any).registrationDate,
+        })),
+      };
+    }),
+  );
+  const resultado = detectMigrator({
+    cpfCnpj: CPF_DO_MIGRADOR,
+    consultingProviderId: 999_999, // nenhum dos 5 da rede — so precisa ser diferente deles
+    consultingProviderName: "Consulente de teste",
+    erpResults: erpResults as any,
+    recentConsultationsByDistinctProviders: provedoresQueConsultaram(CPF_DO_MIGRADOR, 30).size,
+  });
+  return resultado?.detected === true;
+}
+
+/**
+ * O par migrador-serial de exemplo, refeito em 13/09/2026: o chip prometia
+ * "saiu devendo de um provedor e contratou outro há pouco tempo", e a base
+ * mostrava o contrário — a dívida no provedor NOVO, o contrato antigo sem
+ * dívida e nenhuma consulta recente de ninguém.
+ */
+describe("o migrador serial de exemplo conta a historia do chip", () => {
+  beforeAll(async () => {
+    zerarBanco();
+    await semearMundoBase();
+    await complementarMundoBase();
+  }, 60_000);
+
+  it("rede-1: contrato cancelado, com a fatura de saida vencida ha mais de 90 dias e motivo financeiro", async () => {
+    const antigo = migradorEm("rede-1");
+    expect(antigo.status).toBe("cancelled");
+    expect(normalizarMotivoCorte(antigo.motivoCorte as string)).toBe("financeiro");
+    const saida = (await faturasDe("rede-1")).find((f) => f.customerId === antigo.id)!;
+    expect(saida, "o contrato antigo precisa da fatura de saida").toBeTruthy();
+    expect(saida.status).toBe("overdue");
+    expect(Math.floor((Date.now() - ms(saida.dueDate)) / DIA_MS)).toBeGreaterThan(90);
+    expect(antigo.totalOverdueAmount).toBe(saida.value);
+    expect(parcelasDaDescricao(saida.descricao as string, Number(saida.value)).indeterminada).toBe(false);
+  });
+
+  it("rede-2: contrato novo, ativo, em dia, ha no maximo 60 dias — sem nenhuma fatura vencida", async () => {
+    const novo = migradorEm("rede-2");
+    expect(novo.status).toBe("active");
+    expect(novo.paymentStatus).toBe("current");
+    expect(novo.totalOverdueAmount).toBe("0.00");
+    expect(diasDesdeAData(novo.contractStartDate)).toBeLessThanOrEqual(60);
+    const faturas = (await faturasDe("rede-2")).filter((f) => f.customerId === novo.id);
+    expect(faturas.length).toBeGreaterThan(0);
+    expect(faturas.filter((f) => f.status === "overdue")).toHaveLength(0);
+  });
+
+  it("2 a 3 provedores diferentes consultaram o CPF nos ultimos 30 dias — nenhum deles o dono da divida", () => {
+    const recentes = provedoresQueConsultaram(CPF_DO_MIGRADOR, 30);
+    expect(recentes.size).toBeGreaterThanOrEqual(2);
+    expect(recentes.size).toBeLessThanOrEqual(3);
+    expect(recentes.has(idDoProvedor("rede-1"))).toBe(false);
+  });
+
+  it("e detectado pelo caminho real (conector demo + detectMigrator)", async () => {
+    expect(await migradorDetectado()).toBe(true);
+  });
+});
+
+/**
+ * O que um mundo base novo precisa ter além da carteira (13/09/2026): as
+ * consultas cruzadas que a linha do tempo da Consulta ISP, o sinal
+ * `consultasRecentes30d` do score e a coluna "Rede colaborativa" do Cliente
+ * 360 leem — no banco inteiro da demonstração não havia UMA `isp_consultations`.
+ */
+describe("consultas cruzadas da rede (complementarMundoBase sobre um mundo novo)", () => {
+  let resultado: Awaited<ReturnType<typeof complementarMundoBase>>;
+
+  beforeAll(async () => {
+    zerarBanco();
+    await semearMundoBase();
+    resultado = await complementarMundoBase();
+  }, 60_000);
+
+  it("num mundo recem-semeado a carteira ja nasce certa: o complemento so acrescenta as consultas", () => {
+    expect(resultado).toEqual({ carteira: false, consultas: true });
+  });
+
+  it("so provedores da rede consultam, e so CPFs que a rede compartilha (ou o do migrador) — nunca um CPF exclusivo de sandbox", () => {
+    const idsDaRede = new Set(PROVEDORES_DA_DEMO.map((p) => idDoProvedor(p.subdomain)));
+    const permitidos = new Set([...CPFS_COMPARTILHADOS, CPF_DO_MIGRADOR]);
+    const consultas = linhasDe("isp_consultations");
+    expect(consultas.length).toBeGreaterThan(600);
+    for (const c of consultas) {
+      expect(idsDaRede.has(c.providerId as number), JSON.stringify(c)).toBe(true);
+      expect(permitidos.has(c.cpfCnpj as string), JSON.stringify(c)).toBe(true);
+    }
+    // Os cinco provedores aparecem como consulente.
+    expect(new Set(consultas.map((c) => c.providerId)).size).toBe(5);
+  });
+
+  it("espalhadas nos ultimos 90 dias, nunca no futuro, com scores e decisoes variados e coerentes com o score", () => {
+    const consultas = linhasDe("isp_consultations");
+    const agora = Date.now();
+    for (const c of consultas) {
+      expect(ms(c.createdAt), JSON.stringify(c)).toBeLessThanOrEqual(agora);
+      expect(agora - ms(c.createdAt), JSON.stringify(c)).toBeLessThan(90 * DIA_MS);
+      const score = c.score as number;
+      // As réguas de `calcularScoreISP` (server/utils/isp-score.ts) e do INSERT
+      // da rota (consultas.routes.ts): >= 701 aprova, <= 300 rejeita, o meio é
+      // análise; `approved` é score >= 500.
+      expect(c.decisionReco, JSON.stringify(c)).toBe(score >= 701 ? "Accept" : score <= 300 ? "Reject" : "Review");
+      expect(c.approved, JSON.stringify(c)).toBe(score >= 500);
+      expect(c.searchType).toBe("cpf");
+      expect(c.cost).toBe(1);
+    }
+    expect(new Set(consultas.map((c) => c.score)).size).toBeGreaterThan(50);
+    expect(new Set(consultas.map((c) => c.decisionReco))).toEqual(new Set(["Accept", "Review", "Reject"]));
+    // A data se espalha, não se amontoa num dia.
+    expect(new Set(consultas.map((c) => Math.floor((agora - ms(c.createdAt)) / DIA_MS))).size).toBeGreaterThan(60);
+  });
+
+  it("todo cliente compartilhado do sandbox tem ao menos uma consulta de outro provedor em 90 dias — a 'Rede colaborativa' do 360 deixa de dizer zero", () => {
+    // O sandbox reaproveita CPFS_COMPARTILHADOS[0..149] (sandbox.service.ts, `INDICES_COMPARTILHADOS[k]`).
+    for (const cpf of CPFS_COMPARTILHADOS.slice(0, 150)) {
+      expect(provedoresQueConsultaram(cpf, 90).size, cpf).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("toda consulta pertence a um usuario do proprio provedor — um analista por provedor da rede, sem acesso de login", () => {
+    const analistas = linhasDe("users");
+    expect(analistas).toHaveLength(5);
+    const porId = new Map(analistas.map((u) => [u.id, u]));
+    for (const u of analistas) {
+      expect(u.role).toBe("user");
+      expect(String(u.password)).toMatch(/^[0-9a-f]{32}:[0-9a-f]{128}$/);
+    }
+    for (const c of linhasDe("isp_consultations")) {
+      expect(porId.get(c.userId)?.providerId, JSON.stringify(c)).toBe(c.providerId);
+    }
+  });
+
+  it("a consulta do migrador feita no passado marca o alerta de migrador — a linha do tempo mostra 'Migrador detectado'", () => {
+    const doMigrador = linhasDe("isp_consultations").filter((c) => c.cpfCnpj === CPF_DO_MIGRADOR);
+    expect(doMigrador.length).toBeGreaterThanOrEqual(2);
+    for (const c of doMigrador) {
+      const result = typeof c.result === "string" ? JSON.parse(c.result) : c.result;
+      expect(result?.migratorAlert?.detected, JSON.stringify(c)).toBe(true);
+    }
+  });
+
+  it("aplicar de novo nao duplica nada", async () => {
+    const antes = { consultas: linhasDe("isp_consultations").length, usuarios: linhasDe("users").length, clientes: linhasDe("customers").length, faturas: linhasDe("invoices").length, equipamentos: linhasDe("equipment").length };
+    expect(await complementarMundoBase()).toEqual({ carteira: false, consultas: false });
+    expect(await complementarMundoBase()).toEqual({ carteira: false, consultas: false });
+    expect({ consultas: linhasDe("isp_consultations").length, usuarios: linhasDe("users").length, clientes: linhasDe("customers").length, faturas: linhasDe("invoices").length, equipamentos: linhasDe("equipment").length }).toEqual(antes);
+  });
+
+  it("sem mundo base semeado, nao faz nada", async () => {
+    zerarBanco();
+    expect(await complementarMundoBase()).toEqual({ carteira: false, consultas: false });
+    expect(banco.sqlExecutado.some((s) => /^(insert|update)/.test(s))).toBe(false);
+  });
+});
+
+/**
+ * O mundo base no FORMATO ANTIGO — o que está gravado no banco da demonstração
+ * publicada, semeado pelo `mundo-base.ts` de a5be66c. Cada regra abaixo
+ * reproduz um fato medido por SELECT (só leitura) no banco local
+ * consultaisp_demo_local, que nasceu do mesmo código, em 13/09/2026:
+ *
+ *   - cancelados 150 por provedor, todos `payment_status 'current'` e
+ *     `total_overdue_amount 0`; nenhum `geo_precisao`, nenhum `motivo_corte`;
+ *   - `isp_score`/`risk_tier` no default do schema (100/'low') e
+ *     `overdue_invoices_count` no default (0), inclusive nos 225 inadimplentes;
+ *   - equipamento: 450 em_comodato (90 por provedor, só em dia) e 30 de cada
+ *     um de retido, retirada_pendente, nao_localizado, em_cobranca, not_returned;
+ *   - migrador: rede-1 cancelado HÁ 10 DIAS sem fatura e contrato de 45 dias;
+ *     rede-2 ativo devendo R$ 80,00 há 20 dias, contrato de 24 meses (a rede-2
+ *     medida tem 226 inadimplentes: 225 + ele);
+ *   - nenhum usuário nos provedores da rede e nenhuma `isp_consultations`.
+ *
+ * Parte de um mundo NOVO e desfaz o que mudou, em vez de copiar o semeador
+ * antigo inteiro para dentro do teste: as linhas que não mudaram de formato
+ * (nome, endereço, plano, faturas dos inadimplentes) continuam idênticas por
+ * construção.
+ */
+function regredirParaOFormatoAntigo(agora: Date): void {
+  const idsDaRede = new Set(PROVEDORES_DA_DEMO.map((p) => idDoProvedor(p.subdomain)));
+  const dataLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const menosDias = (dias: number) => new Date(agora.getTime() - dias * DIA_MS);
+
+  const antigo = migradorEm("rede-1");
+  const novo = migradorEm("rede-2");
+
+  for (const c of linhasDe("customers")) {
+    if (!idsDaRede.has(c.providerId as number)) continue;
+    c.geoPrecisao = null;
+    c.motivoCorte = null;
+    c.ispScore = 100;
+    c.riskTier = "low";
+    c.overdueInvoicesCount = 0;
+    if (c.status === "cancelled") {
+      c.paymentStatus = "current";
+      c.totalOverdueAmount = "0.00";
+      c.maxDaysOverdue = 0;
+    }
+  }
+  Object.assign(antigo, { contractStartDate: dataLocal(menosDias(45)), cortadoEm: menosDias(10).toISOString() });
+  const vinteQuatroMeses = new Date(agora.getTime());
+  vinteQuatroMeses.setMonth(vinteQuatroMeses.getMonth() - 24);
+  Object.assign(novo, { paymentStatus: "overdue", totalOverdueAmount: "80.00", maxDaysOverdue: 20, contractStartDate: dataLocal(vinteQuatroMeses) });
+
+  banco.linhas.set("invoices", linhasDe("invoices").filter((f) => f.erpRef !== `demo-saida-${antigo.id}`));
+  const faturaDoNovo = linhasDe("invoices").find((f) => f.erpRef === `demo-fatura-${novo.id}`)!;
+  Object.assign(faturaDoNovo, { value: "80.00", dueDate: menosDias(20).toISOString(), status: "overdue", paidDate: null, paidValue: null, descricao: null });
+
+  const clientesPorId = new Map(linhasDe("customers").map((c) => [c.id, c]));
+  banco.linhas.set("equipment", linhasDe("equipment").filter((e) => {
+    const dono = clientesPorId.get(e.customerId)!;
+    return !(e.status === "em_comodato" && dono.paymentStatus === "overdue");
+  }));
+  const LEGADO = ["retido", "retirada_pendente", "nao_localizado", "em_cobranca", "not_returned"];
+  const porProvedor = new Map<unknown, number>();
+  for (const e of linhasDe("equipment")) {
+    if (e.status === "em_comodato") continue;
+    const n = porProvedor.get(e.providerId) ?? 0;
+    e.status = LEGADO[n % LEGADO.length];
+    porProvedor.set(e.providerId, n + 1);
+  }
+
+  banco.linhas.set("users", linhasDe("users").filter((u) => !idsDaRede.has(u.providerId as number)));
+  banco.linhas.set("isp_consultations", []);
+}
+
+/** O que o complemento precisa deixar igual a um mundo semeado do zero — por chave de negócio, nunca por id de linha nova. */
+function fotografiaDaRede(): Record<string, unknown> {
+  const subdominio = new Map(linhasDe("providers").map((p) => [p.id, p.subdomain as string]));
+  const cpfDoCliente = new Map(linhasDe("customers").map((c) => [c.id, c.cpfCnpj]));
+  const ordenar = (linhas: string[]) => [...linhas].sort();
+  const campos = (linha: Record<string, unknown>, nomes: string[]) => JSON.stringify(nomes.map((n) => linha[n] ?? null));
+  return {
+    clientes: ordenar(linhasDe("customers").map((c) => `${subdominio.get(c.providerId)}|${c.cpfCnpj}|${campos(c, [
+      "name", "status", "paymentStatus", "totalOverdueAmount", "maxDaysOverdue", "overdueInvoicesCount", "geoPrecisao",
+      "motivoCorte", "ispScore", "riskTier", "cortadoEm", "contractStartDate", "contractPlan", "equipmentCount", "equipmentEstimatedValue",
+    ])}`)),
+    faturas: ordenar(linhasDe("invoices").map((f) => `${subdominio.get(f.providerId)}|${cpfDoCliente.get(f.customerId)}|${campos(f, [
+      "erpRef", "value", "dueDate", "status", "paidDate", "paidValue", "descricao", "erpSource",
+    ])}`)),
+    equipamentos: ordenar(linhasDe("equipment").map((e) => `${subdominio.get(e.providerId)}|${cpfDoCliente.get(e.customerId)}|${campos(e, [
+      "serialNumber", "status", "value", "brand", "model", "type",
+    ])}`)),
+    usuarios: ordenar(linhasDe("users").map((u) => `${subdominio.get(u.providerId)}|${campos(u, ["email", "name", "role"])}`)),
+    consultas: ordenar(linhasDe("isp_consultations").map((c) => `${subdominio.get(c.providerId)}|${campos(c, [
+      "cpfCnpj", "createdAt", "score", "decisionReco", "approved", "searchType", "cost", "result",
+    ])}`)),
+  };
+}
+
+describe("complemento sobre o mundo base no FORMATO ANTIGO (o banco da demo publicada)", () => {
+  const agora = new Date();
+  let mundoNovo: Record<string, unknown>;
+
+  beforeAll(async () => {
+    zerarBanco();
+    await semearMundoBase(agora);
+    await complementarMundoBase();
+    mundoNovo = fotografiaDaRede();
+  }, 60_000);
+
+  it("a fixture reproduz o formato antigo medido — sem ex-devedor, sem geo, sem motivo, vocabulario legado, migrador antigo, sem consulta", async () => {
+    zerarBanco();
+    await semearMundoBase(agora);
+    regredirParaOFormatoAntigo(agora);
+    for (const p of PROVEDORES_DA_DEMO) {
+      const clientes = await clientesDe(p.subdomain);
+      expect(clientes.filter((c) => c.status === "cancelled" && Number(c.totalOverdueAmount) > 0), p.subdomain).toHaveLength(0);
+      expect(clientes.filter((c) => c.geoPrecisao != null || c.motivoCorte != null), p.subdomain).toHaveLength(0);
+    }
+    expect((await clientesDe("rede-2")).filter((c) => c.paymentStatus === "overdue")).toHaveLength(226);
+    expect(new Set(linhasDe("equipment").map((e) => e.status))).toEqual(new Set(["em_comodato", "retido", "retirada_pendente", "nao_localizado", "em_cobranca", "not_returned"]));
+    expect(linhasDe("equipment")).toHaveLength(600);
+    expect(linhasDe("isp_consultations")).toHaveLength(0);
+    expect(migradorEm("rede-2").totalOverdueAmount).toBe("80.00");
+  });
+
+  it("o complemento leva o formato antigo exatamente ao mundo novo — carteira, faturas, equipamentos, usuarios e consultas", async () => {
+    expect(await complementarMundoBase()).toEqual({ carteira: true, consultas: true });
+    const complementado = fotografiaDaRede();
+    for (const parte of Object.keys(mundoNovo)) {
+      expect(complementado[parte], parte).toEqual(mundoNovo[parte]);
+    }
+  });
+
+  it("aplicar de novo nao muda nem duplica nada", async () => {
+    const antes = fotografiaDaRede();
+    expect(await complementarMundoBase()).toEqual({ carteira: false, consultas: false });
+    expect(fotografiaDaRede()).toEqual(antes);
+  });
+
+  it("escreve so depois de pg_advisory_xact_lock e confere de novo depois do lock: duas criacoes simultaneas aplicam uma vez so", async () => {
+    zerarBanco();
+    await semearMundoBase(agora);
+    regredirParaOFormatoAntigo(agora);
+    banco.sqlExecutado.length = 0;
+
+    const resultados = await Promise.all([complementarMundoBase(), complementarMundoBase()]);
+
+    expect(resultados).toContainEqual({ carteira: true, consultas: true });
+    expect(resultados).toContainEqual({ carteira: false, consultas: false });
+    const lock = banco.sqlExecutado.findIndex((s) => s.startsWith("select pg_advisory_xact_lock("));
+    const primeiraEscrita = banco.sqlExecutado.findIndex((s) => /^(insert|update)/.test(s));
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(primeiraEscrita).toBeGreaterThan(lock);
+    expect(fotografiaDaRede()).toEqual(mundoNovo);
+  });
+});
+
 /**
  * Tarefa 5 (rodada de correção, 11/09/2026): o mundo base é semeado UMA VEZ e
- * fica no ar indefinidamente — sem isto, o par migrador-serial de exemplo
- * (`contractStartDate` fixo a 45 dias do `agora` da semeadura ORIGINAL) sai
- * da janela de 90 dias que `isRecentCancellation`
- * (`server/services/migrator-detection.service.ts`) exige conforme o relógio
- * de verdade anda — não por nada que a demonstração faça.
+ * fica no ar indefinidamente. O relógio desloca toda data que a semeadura
+ * gravou quando o mundo passa de uma semana sem atualizar.
  *
- * Os dois testes abaixo provam pelo CAMINHO REAL (conector "demo" +
- * `detectMigrator`, mesmo molde de `server/demo/sandbox.service.test.ts`),
- * não por uma coluna inspecionada isoladamente: o que importa é o que a
- * TELA mostraria, e a tela chama exatamente este caminho.
+ * Desde 13/09/2026 o que envelhece de verdade é outro par: o contrato NOVO do
+ * migrador (que o chip promete ter no máximo 60 dias) e as consultas
+ * recentes (a janela de 30 dias do score e do alerta). As consultas são
+ * datas semeadas como as outras, e o relógio precisa levá-las junto.
  */
 describe("o mundo envelhece: o relogio se autoatualiza quando fica velho demais", () => {
-  const CPF_MIGRADOR = cpfFicticio(INDICE_MIGRADOR_DE_EXEMPLO);
-
-  /** `detectMigrator` pelo caminho real — mesmo molde da prova em sandbox.service.test.ts. */
-  async function migradorDetectado(): Promise<boolean> {
-    const conector = getConnector(FONTE_ERP_DEMO)!;
-    const erpResults = await Promise.all(
-      PROVEDORES_DA_DEMO.map(async (p) => {
-        const providerId = idDoProvedor(p.subdomain);
-        const integracao = (await integracaoDe(p.subdomain))!;
-        const config = buildConnectorConfig({
-          apiUrl: integracao.apiUrl as string,
-          apiToken: decryptField(integracao.apiToken as string | null),
-          apiUser: null, clientId: null, clientSecret: null, mkContraSenha: null, extraConfig: null,
-        });
-        config.extra = { ...config.extra, providerId: String(providerId) };
-        const r = await conector.fetchCustomerByCpf!(config, CPF_MIGRADOR);
-        return {
-          providerId, providerName: p.nome, erpSource: FONTE_ERP_DEMO, ok: r.ok,
-          customers: r.customers.map((c) => ({
-            ...c,
-            // Mesmo operador de normalizeCustomer (server/services/realtime-query.service.ts):
-            // `||`, nao `??`.
-            status: c.contractStatus || (c as any).status,
-            registrationDate: c.contractStartDate || (c as any).registrationDate,
-          })),
-        };
-      }),
-    );
-    const resultado = detectMigrator({
-      cpfCnpj: CPF_MIGRADOR,
-      consultingProviderId: 999_999, // nenhum dos 5 da rede — so precisa ser diferente deles
-      consultingProviderName: "Consulente de teste",
-      erpResults: erpResults as any,
-      recentConsultationsByDistinctProviders: 1,
-    });
-    return resultado?.detected === true;
-  }
+  beforeAll(async () => {
+    zerarBanco();
+    await semearMundoBase();
+    await complementarMundoBase();
+  }, 60_000);
 
   it("mundo fresco: semear de novo nao desloca nenhuma data (o cheque e barato e nao mexe em nada por engano)", async () => {
     expect(await migradorDetectado(), "invariante do mundo fresco quebrou antes mesmo deste teste rodar").toBe(true);
-    const antes = (await clientesDe("rede-1")).find((c) => c.cpfCnpj === CPF_MIGRADOR)!.contractStartDate;
+    const antes = migradorEm("rede-2").contractStartDate;
+    const consultasAntes = linhasDe("isp_consultations").map((c) => c.createdAt);
 
     await semearMundoBase();
 
-    const depois = (await clientesDe("rede-1")).find((c) => c.cpfCnpj === CPF_MIGRADOR)!.contractStartDate;
-    expect(depois, "mundo fresco (poucos ms de idade) nao deveria ter suas datas tocadas").toBe(antes);
+    expect(migradorEm("rede-2").contractStartDate, "mundo fresco (poucos ms de idade) nao deveria ter suas datas tocadas").toBe(antes);
+    expect(linhasDe("isp_consultations").map((c) => c.createdAt)).toEqual(consultasAntes);
   });
 
-  it("mundo com 50 dias sem atualizar: o exemplo de migrador para de ser detectado, e semearMundoBase() o traz de volta", async () => {
+  it("mundo com 50 dias sem atualizar: contrato novo passa de 60 dias e as consultas saem da janela de 30; semearMundoBase() traz os dois de volta", async () => {
     envelhecerMundoEm(50);
-    expect(
-      await migradorDetectado(),
-      "50 dias sem refresh deveria ultrapassar a janela de 90 dias de isRecentCancellation (medido por execucao: quebra entre o dia 44 e o 45)",
-    ).toBe(false);
+    expect(diasDesdeAData(migradorEm("rede-2").contractStartDate)).toBeGreaterThan(60);
+    expect(provedoresQueConsultaram(CPF_DO_MIGRADOR, 30).size).toBe(0);
 
     await semearMundoBase();
 
-    expect(
-      await migradorDetectado(),
-      "semearMundoBase() deveria ter deslocado as datas do mundo e trazido o exemplo de volta para dentro da janela",
-    ).toBe(true);
+    expect(diasDesdeAData(migradorEm("rede-2").contractStartDate)).toBeLessThanOrEqual(60);
+    expect(provedoresQueConsultaram(CPF_DO_MIGRADOR, 30).size).toBeGreaterThanOrEqual(2);
+    for (const c of linhasDe("isp_consultations")) expect(ms(c.createdAt), JSON.stringify(c)).toBeLessThanOrEqual(Date.now());
+    expect(await migradorDetectado()).toBe(true);
   });
 });
