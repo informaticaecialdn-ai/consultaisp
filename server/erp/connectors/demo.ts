@@ -42,6 +42,9 @@ import { db } from "../../db";
 import { customers, invoices, equipment } from "@shared/schema";
 import type { Customer } from "@shared/schema";
 import { emModoDemo } from "../../demo/modo-demo";
+import { equipamentoTemRetiradaPendente } from "../../services/equipment-recovery-rules";
+import { normalizarMac, type AutenticacaoCliente } from "@shared/equipamentos/identificacao";
+import { normalizarPagamento, type PagamentoDoChat } from "@shared/cobranca/pagamento-chat";
 import type {
   ErpConnector,
   ErpConfigField,
@@ -56,6 +59,15 @@ import { registerConnector } from "../registry.js";
 import { FONTE_ERP_DEMO } from "../fonte-demo.js";
 
 type EquipamentoNormalizado = NonNullable<NormalizedErpCustomer["equipmentDetails"]>[number];
+type LinhaDeEquipamento = typeof equipment.$inferSelect;
+
+/**
+ * Status de `invoices` que ainda são fatura A PAGAR — a mesma lista que
+ * `contextoFinanceiroDoChat` (server/storage/chat-bullq.storage.ts) usa para
+ * montar as faturas do painel do chat. Segunda via de fatura paga ou baixada
+ * não existe.
+ */
+const STATUS_DE_FATURA_ABERTA = new Set(["aberta", "pending", "overdue"]);
 
 /**
  * `config.extra.providerId` -> numero, ou `null` quando ausente/invalido.
@@ -89,8 +101,20 @@ function paraFaturaAberta(fatura: typeof invoices.$inferSelect): FaturaAbertaDoE
   };
 }
 
-/** Uma linha de `equipment` -> o formato normalizado que o restante do arquivo consome. */
-function paraEquipamentoNormalizado(item: typeof equipment.$inferSelect): EquipamentoNormalizado {
+/**
+ * Uma linha de `equipment` -> o formato normalizado que o restante do arquivo consome.
+ *
+ * `equipmentDetails` e o INVENTARIO do cliente, nao a lista de pendencias: a
+ * base semeada tem ONU `em_comodato` (instalada, funcionando), `retirada_pendente`
+ * e as ja resolvidas (`recuperado_triagem`, `baixado`). Quem diz o que esta
+ * pendente e `hasUnreturnedEquipment`, em `paraClienteNormalizado`.
+ *
+ * `inRecoveryProcess` segue a coluna que a recuperacao grava
+ * (`equipment.in_recovery_process`, ligada pelo sandbox nas recuperacoes
+ * ABERTAS); `em_cobranca` continua contando porque e o status legado que ja
+ * nasce em recuperacao, no mesmo sentido dos conectores reais (ixc.ts, rbx.ts).
+ */
+function paraEquipamentoNormalizado(item: LinhaDeEquipamento): EquipamentoNormalizado {
   return {
     type: item.type,
     brand: item.brand ?? "",
@@ -98,13 +122,81 @@ function paraEquipamentoNormalizado(item: typeof equipment.$inferSelect): Equipa
     serialNumber: item.serialNumber ?? "",
     mac: item.mac ?? undefined,
     value: item.value ?? "290.00",
-    // Todo status seedado por mundo-base.ts (retido, retirada_pendente,
-    // nao_localizado, em_cobranca, not_returned) e "nao devolvido" — nenhum
-    // representa equipamento ja recuperado. "em_cobranca" e o unico que
-    // tambem marca o processo de recuperacao em curso, no mesmo sentido que
-    // os conectores reais usam para este campo (ver ixc.ts, rbx.ts).
-    inRecoveryProcess: item.status === "em_cobranca",
+    inRecoveryProcess: item.inRecoveryProcess === true || item.status === "em_cobranca",
   };
+}
+
+/** IP da faixa de CGNAT (100.64.0.0/10), derivado do id: o mesmo cliente tem sempre o mesmo IP. */
+function ipDaConexao(customerId: number): string {
+  return `100.64.${Math.floor(customerId / 254) % 256}.${(customerId % 254) + 1}`;
+}
+
+/**
+ * A autenticacao PPPoE do cliente, no formato que o bloco "Conexao" do
+ * Cliente 360 e o painel do chat leem (`AutenticacaoCliente`). Sem ela os dois
+ * mostravam "o ERP nao devolveu login, MAC nem serial" na demonstracao inteira.
+ *
+ * Tudo deterministico — duas leituras do mesmo cliente devolvem a mesma
+ * conexao. MAC e serial vem do aparelho que a PROPRIA base tem para o cliente
+ * (o de menor id), para o cruzamento com o inventario casar; sem aparelho, os
+ * dois ficam nulos em vez de inventados.
+ *
+ * Estado, pelas mesmas regras do produto:
+ * - `online` so para contrato ativo sem fatura vencida nesta leitura;
+ * - `bloqueada` e decisao de CONTRATO: o MK so bloqueia a conexao de quem esta
+ *   suspenso (ativo + bloqueada vira `suspended`, mk.ts), e a base da demo nao
+ *   tem suspenso — ativo sai liberado, cancelado sai bloqueado;
+ * - sem sessao nao ha IP.
+ */
+function autenticacoesDoCliente(cliente: Customer, emAtraso: boolean, aparelhos: LinhaDeEquipamento[]): AutenticacaoCliente[] {
+  const onu = aparelhos.reduce<LinhaDeEquipamento | null>((menor, e) => (menor === null || e.id < menor.id ? e : menor), null);
+  const ativo = cliente.status === "active";
+  const online = ativo && !emAtraso;
+  return [{
+    login: `cliente${cliente.id}@demonstracao`,
+    mac: normalizarMac(onu?.mac),
+    serial: onu?.serialNumber || null,
+    ip: online ? ipDaConexao(cliente.id) : null,
+    contrato: String(cliente.id),
+    online,
+    bloqueada: ativo ? false : cliente.status === "cancelled" ? true : null,
+    fonte: FONTE_ERP_DEMO,
+  }];
+}
+
+/**
+ * Linha digitavel FICTICIA: 47 digitos no desenho de um boleto, com o banco
+ * "000", que nao existe — nenhum aplicativo de banco paga esta linha. A fatura
+ * e o valor entram nos campos livres so para cada fatura ter a sua.
+ */
+function linhaDigitavelFicticia(faturaId: number, valor: number): string {
+  const id = String(faturaId).padStart(10, "0").slice(-10);
+  const centavos = String(Math.round(valor * 100)).padStart(10, "0").slice(-10);
+  return `00090.00000 ${id.slice(0, 5)}.${id.slice(5)}0 00000.000000 0 0000${centavos}`;
+}
+
+/** Um campo TLV do BR Code (id de 2 digitos + tamanho de 2 digitos + valor). */
+const campoPix = (id: string, valor: string) => `${id}${String(valor.length).padStart(2, "0")}${valor}`;
+
+/**
+ * PIX copia-e-cola FICTICIO: o desenho do BR Code, com chave num dominio
+ * `.invalid` (que nunca resolve) e o CRC final escrito "DEMO" — que nao e
+ * hexadecimal, entao qualquer aplicativo recusa o codigo antes de procurar a
+ * chave.
+ */
+function pixCopiaEColaFicticio(faturaId: number, valor: number): string {
+  const conta = campoPix("00", "br.gov.bcb.pix") + campoPix("01", "cobranca@demonstracao.invalid");
+  return [
+    campoPix("00", "01"),
+    campoPix("26", conta),
+    campoPix("52", "0000"),
+    campoPix("53", "986"),
+    campoPix("54", valor.toFixed(2)),
+    campoPix("58", "BR"),
+    campoPix("59", "DEMONSTRACAO"),
+    campoPix("60", "LONDRINA"),
+    campoPix("62", campoPix("05", `DEMO${faturaId}`)),
+  ].join("") + "6304DEMO";
 }
 
 /**
@@ -133,14 +225,14 @@ async function faturasAbertasPorCliente(providerId: number): Promise<Map<number,
 }
 
 /** O comodato de todos os clientes do provedor, agrupado por `customerId`. Usado por `buscarClientes`. */
-async function equipamentosPorCliente(providerId: number): Promise<Map<number, EquipamentoNormalizado[]>> {
+async function equipamentosPorCliente(providerId: number): Promise<Map<number, LinhaDeEquipamento[]>> {
   const linhas = await db.select().from(equipment).where(eq(equipment.providerId, providerId));
 
-  const mapa = new Map<number, EquipamentoNormalizado[]>();
+  const mapa = new Map<number, LinhaDeEquipamento[]>();
   for (const item of linhas) {
     if (item.customerId === null) continue;
     const lista = mapa.get(item.customerId) ?? [];
-    lista.push(paraEquipamentoNormalizado(item));
+    lista.push(item);
     mapa.set(item.customerId, lista);
   }
   return mapa;
@@ -165,23 +257,27 @@ async function faturasAbertasDoCliente(providerId: number, customerId: number): 
 }
 
 /** O comodato de UM SO cliente — ver `faturasAbertasDoCliente`. */
-async function equipamentosDoCliente(providerId: number, customerId: number): Promise<EquipamentoNormalizado[]> {
-  const linhas = await db
+async function equipamentosDoCliente(providerId: number, customerId: number): Promise<LinhaDeEquipamento[]> {
+  return db
     .select()
     .from(equipment)
     .where(and(eq(equipment.providerId, providerId), eq(equipment.customerId, customerId)));
-  return linhas.map(paraEquipamentoNormalizado);
 }
 
 function paraClienteNormalizado(
   cliente: Customer,
   faturas: FaturaAbertaDoErp[] | undefined,
-  equipamentos: EquipamentoNormalizado[] | undefined,
+  equipamentos: LinhaDeEquipamento[] | undefined,
 ): NormalizedErpCustomer {
   const abertas = faturas ?? [];
   const totalOverdueAmount = abertas.reduce((soma, f) => soma + f.valor, 0);
   const maxDaysOverdue = abertas.reduce((max, f) => Math.max(max, calculateDaysOverdue(f.vencimento)), 0);
-  const temEquipamento = (equipamentos?.length ?? 0) > 0;
+  const aparelhos = equipamentos ?? [];
+  // "Nao devolvido" pelo MESMO criterio que o painel, o anti-fraude e o
+  // agregado do cliente usam (`equipamentoTemRetiradaPendente`), como o MK usa
+  // `retidos > 0`. Contar todo aparelho fazia a ONU em comodato de quem esta em
+  // dia virar pendencia na consulta — teto de 400, "Analisar" no chip limpo.
+  const pendentes = aparelhos.filter((e) => equipamentoTemRetiradaPendente(e.status)).length;
 
   return {
     cpfCnpj: cliente.cpfCnpj,
@@ -204,10 +300,17 @@ function paraClienteNormalizado(
     // SEMPRE le fatura a fatura. Ausente so quando o cliente nem aparece no
     // mapa — o que aqui nunca acontece, pois o mapa cobre o provedor inteiro.
     faturasAbertas: faturas ?? [],
-    hasUnreturnedEquipment: temEquipamento,
-    unreturnedEquipmentCount: equipamentos?.length ?? 0,
-    equipmentDetails: temEquipamento ? equipamentos : undefined,
+    hasUnreturnedEquipment: pendentes > 0,
+    unreturnedEquipmentCount: pendentes,
+    equipmentDetails: aparelhos.length > 0 ? aparelhos.map(paraEquipamentoNormalizado) : undefined,
+    autenticacoes: autenticacoesDoCliente(cliente, abertas.length > 0, aparelhos),
     contractStatus: cliente.status === "cancelled" ? "cancelled" : cliente.status === "active" ? "active" : undefined,
+    // Motivo e data do corte como a base guarda — a ficha 360 e o historico de
+    // execucao leem os dois da leitura ao vivo. `cortado_em` e TIMESTAMP; o
+    // ERP informa o dia, entao sai AAAA-MM-DD, o mesmo recorte que a rota do
+    // 360 faz para a base (cobranca.routes.ts).
+    motivoCorte: cliente.motivoCorte ?? undefined,
+    cortadoEm: cliente.cortadoEm ? cliente.cortadoEm.toISOString().slice(0, 10) : undefined,
     // Sem estes dois o anti-fraude (contrato_novo) e a Economia do 360 nao tem
     // como ler tempo de casa nem plano na demonstracao — ver ixc.ts/sgp.ts para
     // o mesmo par nos conectores reais. `cliente` e uma linha tipada do Drizzle
@@ -275,6 +378,46 @@ class DemoConnector implements ErpConnector {
       message: "Cliente encontrado na base de demonstracao",
       customers: [paraClienteNormalizado(cliente, faturas, equipamentos)],
     };
+  }
+
+  /**
+   * A segunda via da fatura, sem sair do processo: linha digitavel e PIX
+   * copia-e-cola FICTICIOS (ver `linhaDigitavelFicticia` e
+   * `pixCopiaEColaFicticio`) e nenhum link — a demonstracao nao manda o
+   * visitante para fora dela. Sem este metodo toda fatura do painel do chat
+   * saia `consultavel: false` e a acao de segunda via nao tinha o que mostrar.
+   *
+   * So para fatura ABERTA do PROPRIO cliente, deste provedor: a referencia e o
+   * `invoices.id` que `paraFaturaAberta` devolveu, e qualquer outra coisa
+   * (fatura de outro CPF, paga, de outro provedor, id que nao e numero) e
+   * `null` — o mesmo "nao ha instrumento" que o chat ja trata.
+   */
+  async fetchSegundaVia(config: ErpConnectionConfig, documento: string, referencia: string): Promise<PagamentoDoChat | null> {
+    const providerId = resolverProviderId(config);
+    const doc = cleanCpfCnpj(documento);
+    // Ate 9 digitos: cabe em `invoices.id` (integer) sem estourar no banco.
+    if (providerId === null || !doc || !/^\d{1,9}$/.test(referencia)) return null;
+
+    const [cliente] = await db
+      .select()
+      .from(customers)
+      .where(and(eq(customers.providerId, providerId), eq(customers.cpfCnpj, doc)));
+    if (!cliente) return null;
+
+    const [fatura] = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.providerId, providerId), eq(invoices.customerId, cliente.id), eq(invoices.id, Number(referencia))));
+    if (!fatura || !STATUS_DE_FATURA_ABERTA.has(fatura.status)) return null;
+
+    const valor = Number(fatura.value);
+    return normalizarPagamento({
+      link: null,
+      linhaDigitavel: linhaDigitavelFicticia(fatura.id, valor),
+      pix: pixCopiaEColaFicticio(fatura.id, valor),
+      valor: fatura.value,
+      vencimento: vencimentoIso(fatura.dueDate),
+    });
   }
 
   private async buscarClientes(

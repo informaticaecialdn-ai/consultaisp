@@ -145,6 +145,15 @@ export async function contextoDoAtendimento(
       statusContrato: vivo?.statusContrato ?? c.statusContrato,
       clienteDesde: vivo?.contractStartDate ?? c.clienteDesde,
       plano: vivo?.plano ?? base.contrato?.plano ?? null,
+      // AIDEV-QUESTION: `base.contrato` vem da tabela `contracts`
+      // (contextoFinanceiroDoChat), que so `financial.storage.ts` escreve — o
+      // caminho do import CSV, que nao existe mais. Nenhum sync de ERP e nenhuma
+      // semeadura da demo grava `contracts`, entao a mensalidade do painel do
+      // chat sai null para toda carteira vinda de ERP, na demo e fora dela; as
+      // faturas pagas (P4) nao mudam isso. Cair para o preco do plano da
+      // politica (`precoPorPlano`), como a Economia do 360 ja faz, ou para a
+      // mensalidade observada (`mensalidadeDoCliente`)? Decisao de produto,
+      // nao da demo — sem mudanca de comportamento ate o Arquiteto decidir.
       mensalidade:
         base.contrato && (!vivo?.plano || vivo.plano === base.contrato.plano)
           ? numero(base.contrato.mensalidade)
