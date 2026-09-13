@@ -188,6 +188,66 @@ describe("municipioDaCidade", () => {
     expect(query.mock.calls[0][0]).not.toMatch(/upper\(uf\)/);
     expect(query.mock.calls[0][0]).toMatch(/ORDER BY municipio_ibge/);
   });
+
+  /*
+   * Sem geo_hps_bairro carregada, Londrina e Ibiporã respondiam 404 "Sem base
+   * para esta cidade" com os .bin commitados em server/data/territorio. O
+   * código IBGE não depende de base carregada: está na lista oficial.
+   */
+  it("banco vazio: resolve pela lista oficial e a camada do .bin abre", async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    const municipio = await municipioDaCidade("Londrina - PR", "PR");
+    expect(municipio).toBe("4113700");
+
+    // O mesmo encadeamento da rota: código → pontos do .bin do repositório.
+    const r = await pontosDoTerritorio("cnefe", municipio!);
+    expect(r).not.toBeNull();
+    expect(r!.origem).toBe("bin");
+    expect(r!.pontos.length).toBeGreaterThan(0);
+  });
+
+  it("geo_hps_bairro inexistente (42P01): Ibiporã com UF PR resolve e a camada ANEEL abre", async () => {
+    query.mockRejectedValueOnce(Object.assign(new Error("relation does not exist"), { code: "42P01" }));
+    const municipio = await municipioDaCidade("IBIPORA", "PR");
+    expect(municipio).toBe("4109807");
+
+    const r = await pontosDoTerritorio("aneel", municipio!);
+    expect(r!.origem).toBe("bin");
+  });
+
+  it("pela lista, UF que não bate não resolve — não troca de estado", async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    expect(await municipioDaCidade("Londrina", "SP")).toBeNull();
+  });
+
+  it("pela lista, nome único no país resolve sem UF", async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    expect(await municipioDaCidade("Ibiporã")).toBe("4109807");
+  });
+
+  it("homônima sem UF e sem banco: null, a lista não escolhe um estado", async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    expect(await municipioDaCidade("Bom Jesus")).toBeNull();
+  });
+
+  it("acerto pela lista fica em cache como o do banco", async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    expect(await municipioDaCidade("Londrina", "PR")).toBe("4113700");
+    expect(await municipioDaCidade("Londrina", "PR")).toBe("4113700");
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("quando o banco resolve, o banco vence a lista", async () => {
+    // Código propositalmente diferente do da lista (4113700), para provar de
+    // onde a resposta saiu.
+    query.mockResolvedValueOnce({ rows: [{ municipio_ibge: "4113799" }] });
+    expect(await municipioDaCidade("Londrina", "PR")).toBe("4113799");
+  });
+
+  it("erro de banco que não é tabela ausente continua subindo, sem cair na lista", async () => {
+    query.mockRejectedValueOnce(new Error("connection refused"));
+    await expect(municipioDaCidade("Londrina", "PR")).rejects.toThrow("connection refused");
+  });
 });
 
 describe("ehCamadaTerritorio", () => {

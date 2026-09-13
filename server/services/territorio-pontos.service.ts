@@ -33,6 +33,7 @@ import path from "path";
 import { createHash } from "crypto";
 import { pool } from "../db";
 import { normalizarCidade } from "./area-atendida";
+import { municipioUnicoNoPais, resolverMunicipioDaCidade } from "./municipio.service";
 import { logger } from "../logger";
 
 export type CamadaTerritorio = "cnefe" | "aneel";
@@ -190,6 +191,16 @@ export function pontosDoTerritorio(
  * município para o nome, devolve null em vez de escolher um: o resultado fica
  * em cache pelo processo inteiro e o navegador prende por 7 dias — um mapa
  * com os endereços de outro estado por baixo da carteira não é dado real.
+ *
+ * Quando o banco não sabe (nenhuma linha, ou a tabela nem existe), a resposta
+ * sai da lista oficial de municípios. Sem isso, Londrina e Ibiporã davam 404
+ * "Sem base para esta cidade" com os .bin commitados no repositório: o código
+ * IBGE não depende de base carregada, e era só ele que faltava. A lista usa a
+ * resolução ESTRITA de `municipio.service` (nome exato ou colado, sem
+ * expansão por prefixo) e a mesma régua de homônimas: com UF, só o município
+ * daquela UF; sem UF, só se o nome for único no país. O banco vence quando
+ * responde — e mais de uma linha no banco é homônima, que a lista também não
+ * desempataria.
  */
 export function municipioDaCidade(cidade: string, uf?: string | null): Promise<string | null> {
   const nome = normalizarCidade(cidade);
@@ -201,27 +212,34 @@ export function municipioDaCidade(cidade: string, uf?: string | null): Promise<s
   if (emCache) return emCache;
 
   const p = (async (): Promise<string | null> => {
+    let rows: Array<{ municipio_ibge: string }> = [];
     try {
       const params: string[] = [nome, nome.toUpperCase()];
       if (ufNorm) params.push(ufNorm);
-      const { rows } = await pool.query(
+      ({ rows } = await pool.query(
         `SELECT DISTINCT municipio_ibge FROM geo_hps_bairro
           WHERE (lower(cidade_norm) = $1 OR cidade_norm = $2)${ufNorm ? " AND upper(uf) = $3" : ""}
           ORDER BY municipio_ibge`,
         params,
-      );
-      if (rows.length > 1) {
-        logger.warn(
-          { cidade: nome, uf: ufNorm, municipios: rows.map((r: any) => r.municipio_ibge) },
-          "Cidade com mais de um município na base — informe a UF para desempatar",
-        );
-        return null;
-      }
-      return rows[0]?.municipio_ibge ?? null;
+      ));
     } catch (err: any) {
-      if (err?.code === "42P01") return null;
-      throw err;
+      // Tabela ausente é "o banco não sabe", não erro: segue para a lista.
+      if (err?.code !== "42P01") throw err;
     }
+    if (rows.length > 1) {
+      logger.warn(
+        { cidade: nome, uf: ufNorm, municipios: rows.map(r => r.municipio_ibge) },
+        "Cidade com mais de um município na base — informe a UF para desempatar",
+      );
+      return null;
+    }
+    if (rows.length === 1) return rows[0].municipio_ibge;
+
+    // O índice da lista é montado uma vez, na primeira chamada, dentro de municipio.service.
+    const daLista = ufNorm
+      ? resolverMunicipioDaCidade(cidade, ufNorm, { estrito: true })
+      : municipioUnicoNoPais(cidade);
+    return daLista?.ibge ?? null;
   })();
 
   cacheMunicipio.set(chave, p);
