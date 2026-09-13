@@ -8,6 +8,8 @@ import {
   type Provider,
   type ProactiveAlert, type InsertProactiveAlert,
 } from "@shared/schema";
+import { emModoDemo } from "../demo/modo-demo";
+import { doProvedorForaDeSandboxAlheio } from "../utils/fora-de-sandbox";
 
 /**
  * `RETURNING *` via db.execute vem em snake_case (isp_credits); quem le e a
@@ -77,11 +79,24 @@ export class ConsultationsStorage {
     return result[0]?.count || 0;
   }
 
-  async getRecentConsultationsForDocument(cpfCnpj: string, days: number): Promise<IspConsultation[]> {
+  /**
+   * Quem consultou o documento nos últimos `days` dias — o score ao vivo conta
+   * os provedores distintos daqui, e o migrador, o alerta de consultas
+   * repetidas e a "Rede colaborativa" do 360 também.
+   *
+   * Na demonstração, a consulta feita pelo sandbox de OUTRO visitante não
+   * conta (`observadorId` é quem lê): cada sandbox nasce com consultas de custo
+   * 1 sobre CPFs da rede, e sem o filtro o score ao vivo desses CPFs mudava com
+   * o número de visitantes (revisão da fase B, 13/09/2026). Fora da
+   * demonstração a query é a de sempre.
+   */
+  async getRecentConsultationsForDocument(cpfCnpj: string, days: number, observadorId?: number): Promise<IspConsultation[]> {
     const since = new Date();
     since.setDate(since.getDate() - days);
+    const condicoes = [eq(ispConsultations.cpfCnpj, cpfCnpj), gte(ispConsultations.createdAt, since)];
+    if (emModoDemo()) condicoes.push(doProvedorForaDeSandboxAlheio(ispConsultations.providerId, observadorId));
     return db.select().from(ispConsultations)
-      .where(and(eq(ispConsultations.cpfCnpj, cpfCnpj), gte(ispConsultations.createdAt, since)));
+      .where(and(...condicoes));
   }
 
   async getConsultationsByCepPrefix(cepPrefix: string, limitDays = 90): Promise<IspConsultation[]> {

@@ -423,7 +423,7 @@ export function registerConsultasRoutes(): Router {
         }
 
         // Recent consultations for F4 (padrao de consultas) — single DB call for 90d, filter 30d in code
-        const recentConsultations90 = await storage.getRecentConsultationsForDocument(cleaned, 90);
+        const recentConsultations90 = await storage.getRecentConsultationsForDocument(cleaned, 90, providerId);
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const recentConsultations = recentConsultations90.filter(c => c.createdAt >= thirtyDaysAgo);
@@ -885,7 +885,7 @@ export function registerConsultasRoutes(): Router {
       if (searchType === "cpf" || searchType === "cnpj") {
         setImmediate(async () => {
           try {
-            const recentes = await storage.getRecentConsultationsForDocument(cleaned, 30);
+            const recentes = await storage.getRecentConsultationsForDocument(cleaned, 30, providerId);
             const provedoresConsultando = Array.from(new Set([providerId, ...recentes.map(c => c.providerId)]));
             await notifyOwnerProviders(cleaned, [], providerId, new Set(), provedoresConsultando);
           } catch (err) {

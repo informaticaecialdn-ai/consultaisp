@@ -158,7 +158,7 @@ export interface IStorage {
   createIspConsultation(consultation: InsertIspConsultation): Promise<IspConsultation>;
   getIspConsultationCountToday(providerId: number): Promise<number>;
   getIspConsultationCountMonth(providerId: number): Promise<number>;
-  getRecentConsultationsForDocument(cpfCnpj: string, days: number): Promise<IspConsultation[]>;
+  getRecentConsultationsForDocument(cpfCnpj: string, days: number, observadorId?: number): Promise<IspConsultation[]>;
   getConsultationsByCepPrefix(cepPrefix: string, limitDays?: number): Promise<IspConsultation[]>;
   getConsultationTimeline(cpfCnpj: string, providerIds: number[], limit?: number): Promise<IspConsultation[]>;
   getRegionalScoreStats(providerIds: number[], days: number): Promise<{ avgScore: number; totalConsultations: number; belowThresholdCount: number }>;
@@ -504,7 +504,7 @@ class DatabaseStorage implements IStorage {
   createIspConsultation = (consultation: InsertIspConsultation) => this._consultations.createIspConsultation(consultation);
   getIspConsultationCountToday = (providerId: number) => this._consultations.getIspConsultationCountToday(providerId);
   getIspConsultationCountMonth = (providerId: number) => this._consultations.getIspConsultationCountMonth(providerId);
-  getRecentConsultationsForDocument = (cpfCnpj: string, days: number) => this._consultations.getRecentConsultationsForDocument(cpfCnpj, days);
+  getRecentConsultationsForDocument = (cpfCnpj: string, days: number, observadorId?: number) => this._consultations.getRecentConsultationsForDocument(cpfCnpj, days, observadorId);
   getConsultationsByCepPrefix = (cepPrefix: string, limitDays?: number) => this._consultations.getConsultationsByCepPrefix(cepPrefix, limitDays);
   getConsultationTimeline = (cpfCnpj: string, providerIds: number[], limit?: number) => this._consultations.getConsultationTimeline(cpfCnpj, providerIds, limit);
   getRegionalScoreStats = (providerIds: number[], days: number) => this._consultations.getRegionalScoreStats(providerIds, days);

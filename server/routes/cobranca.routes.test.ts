@@ -901,7 +901,8 @@ describe("GET /api/cobranca/clientes/:customerId/360", () => {
     const res = await json("GET", "/api/cobranca/clientes/1/360");
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(storageMock.getRecentConsultationsForDocument).toHaveBeenCalledWith("12345678901", 90);
+    // O observador vai junto: na demonstração, o sandbox de outro visitante não entra na conta.
+    expect(storageMock.getRecentConsultationsForDocument).toHaveBeenCalledWith("12345678901", 90, 42);
     expect(storageMock.getAlertsByCustomer).toHaveBeenCalledWith(1);
     expect(body.rede).toMatchObject({ consultasOutros90d: 3, consultasOutros30d: 1, provedoresDistintos90d: 2 });
     expect(body.rede.ultimaConsultaEm.slice(0, 10)).toBe(new Date(agora - 3 * 86_400_000).toISOString().slice(0, 10));

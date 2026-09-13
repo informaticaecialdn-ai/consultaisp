@@ -1527,7 +1527,7 @@ export function registerCobrancaRoutes(): Router {
         // O sinal do bureau: quem mais perguntou por este documento. So
         // contagens e datas — o id e o nome de outro tenant nunca saem daqui.
         // Falha aqui nao derruba a ficha: ela abre com o que o banco tem.
-        storage.getRecentConsultationsForDocument(digitos, 90).catch(() => []),
+        storage.getRecentConsultationsForDocument(digitos, 90, providerId).catch(() => []),
         storage.getAlertsByCustomer(customerId).catch(() => []),
         // O ARPU da Economia (R24): a mensalidade que o ERP cobra deste
         // assinante, lida das faturas gravadas pela varredura. Ate 06/09/2026 o
