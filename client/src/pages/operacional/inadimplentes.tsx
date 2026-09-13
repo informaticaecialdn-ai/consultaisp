@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,14 +20,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { useState, useMemo } from "react";
 import {
   Users,
@@ -43,13 +35,8 @@ import {
   Filter,
   MapPin,
   Database,
-  Bell,
-  Network,
-  CheckCircle,
-  AlertCircle,
 } from "lucide-react";
-import { apiRequest, STALE_DASHBOARD, STALE_LISTS } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { STALE_DASHBOARD, STALE_LISTS } from "@/lib/queryClient";
 import { Selo } from "@/components/painel/ui";
 import { ERP_OPTIONS } from "@/components/admin/constants";
 
@@ -251,53 +238,15 @@ function DaysBadge({ days }: { days: number }) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function InadimplentesPage() {
   const { provider } = useAuth();
-  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [filterErp, setFilterErp] = useState("all");
   const [filterRisk, setFilterRisk] = useState("all");
-
-  const [lgpdTarget, setLgpdTarget] = useState<any | null>(null);
-  const [redeTarget, setRedeTarget] = useState<any | null>(null);
-  const [redeData, setRedeData] = useState<any | null>(null);
-  const [redeLoading, setRedeLoading] = useState(false);
 
   const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
   const { data: list = [], isLoading, refetch, isFetching } = useQuery<any[]>({
     queryKey: ["/api/inadimplentes"],
     staleTime: STALE_LISTS,
   });
-
-  const lgpdMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("POST", `/api/inadimplentes/${id}/notificar-lgpd`, { canal: "whatsapp" });
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Notificação registrada", description: "O contato LGPD/CDC foi registrado com sucesso." });
-      setLgpdTarget(null);
-    },
-    onError: async (err: any) => {
-      let msg = "Erro ao registrar notificação";
-      try { const d = await err.json?.(); msg = d?.message ?? msg; } catch {}
-      toast({ title: "Atenção", description: msg, variant: "destructive" });
-      setLgpdTarget(null);
-    },
-  });
-
-  const handleVerRede = async (customer: any) => {
-    setRedeTarget(customer);
-    setRedeData(null);
-    setRedeLoading(true);
-    try {
-      const res = await apiRequest("GET", `/api/inadimplentes/${customer.cpfCnpj}/historico-rede`);
-      const data = await res.json();
-      setRedeData(data);
-    } catch {
-      setRedeData(null);
-    } finally {
-      setRedeLoading(false);
-    }
-  };
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase();
@@ -656,28 +605,29 @@ export default function InadimplentesPage() {
                             <MessageSquare className="w-3.5 h-3.5" />
                           </Button>
                         )}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-amber-600 hover:text-[var(--color-gold)] hover:bg-amber-50 dark:hover:bg-amber-900/20"
-                          title="Notificar LGPD/CDC"
-                          aria-label="Notificar LGPD/CDC"
-                          data-testid={`btn-lgpd-${d.id}`}
-                          onClick={() => setLgpdTarget(d)}
-                        >
-                          <Bell className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                          title="Ver histórico na rede"
-                          aria-label="Ver histórico na rede"
-                          data-testid={`btn-rede-${d.id}`}
-                          onClick={() => handleVerRede(d)}
-                        >
-                          <Network className="w-3.5 h-3.5" />
-                        </Button>
+                        {/* AIDEV-QUESTION: aqui havia mais dois botoes, "Notificar LGPD/CDC"
+                            e "Ver historico na rede", e os dois chamavam rota que o servidor
+                            nao tem — `POST /api/inadimplentes/:id/notificar-lgpd` e
+                            `GET /api/inadimplentes/:cpf/historico-rede`. Os handlers nasceram
+                            no antigo `server/routes.ts` e nao vieram na divisao em
+                            `server/routes/*.ts`. Para o provedor, o primeiro pedia confirmacao
+                            e devolvia erro; o segundo dizia "Nao foi possivel carregar os dados
+                            da rede", como se fosse instabilidade e nao ausencia. Botao que so
+                            falha e promessa, no mesmo sentido do ERP que nao existe la em cima.
+
+                            Sairam em vez de ganhar rota nova porque as duas voltas sao decisao
+                            do dono, nao de quem conserta tela:
+                            1. notificar-lgpd — o que o registro significa. Grava so "notifiquei"
+                               ou dispara a mensagem? Por qual canal, com qual texto, e ele serve
+                               de prova da notificacao previa de negativacao (CDC art. 43 §2)?
+                               Onde fica gravado e por quanto tempo? Registrar um aviso que
+                               ninguem enviou seria pior do que nao ter o botao.
+                            2. historico-rede — quantas consultas e registros esse CPF/CNPJ tem
+                               nos outros provedores. Isso e, na pratica, o miolo da consulta
+                               paga; entregue de graca numa linha da lista, contorna a cobranca e
+                               expoe dado de terceiro sem a finalidade que a consulta registra
+                               (LGPD). Se voltar, precisa decidir se desconta credito e passa
+                               pelo mesmo registro de finalidade da consulta. */}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -711,113 +661,6 @@ export default function InadimplentesPage() {
           </div>
         </Card>
       )}
-
-      {/* ── LGPD Notification Modal (GAP 1) ── */}
-      <Dialog open={!!lgpdTarget} onOpenChange={(o) => { if (!o) setLgpdTarget(null); }}>
-        <DialogContent className="sm:max-w-md" data-testid="dialog-lgpd">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Bell className="w-4 h-4 text-amber-600" />
-              Registrar Notificação LGPD/CDC
-            </DialogTitle>
-            <DialogDescription>
-              Registra que este cliente foi notificado sobre a negativação conforme exigido pela LGPD e Código de Defesa do Consumidor. Pode ser reenviada após 10 dias.
-            </DialogDescription>
-          </DialogHeader>
-          {lgpdTarget && (
-            <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 text-sm">
-              <p className="font-semibold">{lgpdTarget.name}</p>
-              <p className="text-muted-foreground text-xs mt-0.5">{lgpdTarget.cpfCnpj}</p>
-            </div>
-          )}
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" size="sm" onClick={() => setLgpdTarget(null)} data-testid="btn-lgpd-cancel">Cancelar</Button>
-            <Button
-              size="sm"
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={() => lgpdTarget && lgpdMutation.mutate(lgpdTarget.id)}
-              disabled={lgpdMutation.isPending}
-              data-testid="btn-lgpd-confirm"
-            >
-              {lgpdMutation.isPending ? "Registrando..." : "Confirmar Notificação"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Historico Rede Modal (GAP 4) ── */}
-      <Dialog open={!!redeTarget} onOpenChange={(o) => { if (!o) { setRedeTarget(null); setRedeData(null); } }}>
-        <DialogContent className="sm:max-w-lg" data-testid="dialog-rede">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Network className="w-4 h-4 text-blue-600" />
-              Histórico na Rede Colaborativa
-            </DialogTitle>
-            <DialogDescription>
-              Dados de consultas e registros deste CPF/CNPJ nos últimos 90 dias entre todos os provedores da rede.
-            </DialogDescription>
-          </DialogHeader>
-          {redeTarget && (
-            <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 text-sm mb-2">
-              <p className="font-semibold">{redeTarget.name}</p>
-              <p className="text-muted-foreground text-xs mt-0.5 font-mono">{redeTarget.cpfCnpj}</p>
-            </div>
-          )}
-          {redeLoading && (
-            <div className="space-y-2 py-2">
-              <div className="h-4 bg-muted rounded animate-pulse" />
-              <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
-            </div>
-          )}
-          {!redeLoading && redeData && (
-            <div className="space-y-3" data-testid="rede-data">
-              {redeData.alerta_alta_frequencia && (
-                <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--color-gold)] dark:text-amber-400 font-medium">
-                    Alta frequência de consultas — possível tentativa de contratação simultânea em múltiplos provedores.
-                  </p>
-                </div>
-              )}
-              {!redeData.alerta_alta_frequencia && (
-                <div className="flex items-start gap-2 bg-[var(--color-success-bg)] border border-[var(--color-success)] rounded-lg p-3">
-                  <CheckCircle className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--color-success)] dark:text-emerald-400">Sem alertas de alta frequência nos últimos 90 dias.</p>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white dark:bg-slate-800 border rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-slate-800 dark:text-slate-200" data-testid="text-rede-registros">{redeData.registros_externos}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Registros externos</p>
-                </div>
-                <div className="bg-white dark:bg-slate-800 border rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-slate-800 dark:text-slate-200" data-testid="text-rede-consultas">{redeData.consultas_90d}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Consultas (90d)</p>
-                </div>
-                <div className="bg-white dark:bg-slate-800 border rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-slate-800 dark:text-slate-200">{redeData.provedores_distintos}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Provedores registradores</p>
-                </div>
-                <div className="bg-white dark:bg-slate-800 border rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-slate-800 dark:text-slate-200">{redeData.provedores_consultantes}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Provedores consultantes</p>
-                </div>
-              </div>
-              {redeData.ultima_consulta && (
-                <p className="text-xs text-muted-foreground text-center">
-                  Última consulta: {new Date(redeData.ultima_consulta).toLocaleString("pt-BR")}
-                </p>
-              )}
-            </div>
-          )}
-          {!redeLoading && !redeData && (
-            <p className="text-sm text-muted-foreground text-center py-4">Não foi possível carregar os dados da rede.</p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => { setRedeTarget(null); setRedeData(null); }} data-testid="btn-rede-fechar">Fechar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
