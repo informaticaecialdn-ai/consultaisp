@@ -20,6 +20,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { CIDADES_DA_DEMO } from "../../../../server/demo/pessoas-ficticias";
+
+// O `AuthProvider` real preenche `demoMode` por fetch num efeito; aqui o hook
+// vira um estado controlado, e o componente roda de verdade nos dois lados.
+const auth = vi.hoisted(() => ({ demoMode: false }));
+vi.mock("@/lib/auth", () => ({ useAuth: () => auth }));
+
 import ConsultaSearchBar from "./ConsultaSearchBar";
 
 const CPF = "52998224725";
@@ -30,6 +37,7 @@ const fetchEspiao = vi.fn(async (_url: string) => ({ ok: true, json: async () =>
 const chamadasAoViaCep = () => fetchEspiao.mock.calls.map(([url]) => String(url)).filter(url => url.includes("viacep"));
 
 beforeEach(() => {
+  auth.demoMode = false;
   fetchEspiao.mockClear();
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   vi.stubGlobal("fetch", fetchEspiao);
@@ -161,5 +169,70 @@ describe("ConsultaSearchBar — o ViaCEP só vê CEP", () => {
     await digitar(cepInstalacao, CEP);
     await esperarParado();
     expect(chamadasAoViaCep()).toEqual([`https://viacep.com.br/ws/${CEP}/json/`]);
+  });
+});
+
+/**
+ * Na demonstração pública nada sai para terceiros (regra 1 da spec da demo):
+ * o ViaCEP é um. O "Buscar CEP" continua funcionando, resolvido por uma tabela
+ * local das quatro cidades do mundo fictício — as mesmas de
+ * `server/demo/pessoas-ficticias.ts`, de onde vêm todos os CEPs da carteira.
+ */
+describe("ConsultaSearchBar — na demonstração, o CEP é resolvido sem rede", () => {
+  beforeEach(() => {
+    auth.demoMode = true;
+  });
+
+  it("Buscar CEP de uma cidade da demo abre o painel com a cidade e não chama fetch nenhum", async () => {
+    const campo = montar();
+    await digitar(campo, CEP); // 86200-000, Ibiporã
+    fireEvent.click(screen.getByTestId("button-consultar-isp"));
+    await esperarParado();
+    expect(fetchEspiao).not.toHaveBeenCalled();
+    expect(screen.getByTestId("cep-expanded-panel").textContent).toContain("Ibiporã/PR");
+  });
+
+  it("a consulta que sai depois leva a cidade resolvida localmente", async () => {
+    const campo = montar();
+    await digitar(campo, "86025123");
+    fireEvent.click(screen.getByTestId("button-consultar-isp"));
+    await esperarParado();
+    fireEvent.change(screen.getByTestId("input-address-number"), { target: { value: "142" } });
+    fireEvent.click(screen.getByTestId("button-consultar-isp"));
+    expect(onSearch).toHaveBeenCalledWith(expect.objectContaining({ addressCity: "Londrina", addressState: "PR", addressNumber: "142" }));
+    expect(fetchEspiao).not.toHaveBeenCalled();
+  });
+
+  it("CEP fora das cidades da demo diz que a busca cobre só elas — sem fetch", async () => {
+    const campo = montar();
+    await digitar(campo, "01310100");
+    fireEvent.click(screen.getByTestId("button-consultar-isp"));
+    await esperarParado();
+    expect(fetchEspiao).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("cep-expanded-panel")).toBeNull();
+    expect(document.body.textContent).toContain("Na demonstração, a busca de CEP cobre só Londrina, Ibiporã, Cambé e Apucarana.");
+  });
+
+  it("o CEP de instalação também é resolvido sem rede", async () => {
+    const campo = montar();
+    fireEvent.change(campo, { target: { value: CPF } });
+    fireEvent.click(screen.getByText("Verificar também por endereço de instalação"));
+    await digitar(screen.getByTestId("input-install-cep") as HTMLInputElement, "86180456");
+    await esperarParado();
+    expect(fetchEspiao).not.toHaveBeenCalled();
+    expect(screen.getByTestId("input-install-number")).toBeTruthy();
+    expect(document.body.textContent).toContain("Cambé/PR");
+  });
+
+  it("cobre exatamente as cidades do mundo fictício — cada prefixo de CEP da carteira resolve a sua cidade", async () => {
+    for (const cidade of CIDADES_DA_DEMO) {
+      cleanup();
+      const campo = montar();
+      await digitar(campo, `${cidade.cepPrefixo}999`, 10);
+      fireEvent.click(screen.getByTestId("button-consultar-isp"));
+      await esperarParado();
+      expect(screen.getByTestId("cep-expanded-panel").textContent, cidade.nome).toContain(`${cidade.nome}/${cidade.uf}`);
+    }
+    expect(fetchEspiao).not.toHaveBeenCalled();
   });
 });

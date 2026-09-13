@@ -3,6 +3,30 @@ import { Search, MapPin, FileText, Building2, ChevronDown, ChevronUp, Shield, Lo
 import type { CepData } from "./types";
 import { getDetectedType } from "./utils";
 import { Kicker } from "./report-ui";
+import { useAuth } from "@/lib/auth";
+
+/**
+ * Os CEPs da demonstração pública, resolvidos SEM rede.
+ *
+ * Na demonstração nada sai para terceiros, e o ViaCEP é um. Toda a carteira
+ * fictícia mora nas quatro cidades de `server/demo/pessoas-ficticias.ts`, com
+ * CEP "<prefixo da cidade>-NNN" — então o prefixo basta para dizer a cidade.
+ * O logradouro não se inventa: o CEP da demo não aponta rua nenhuma, e a
+ * consulta por CEP cruza por CEP e número, não pelo nome da rua. O teste trava
+ * esta tabela contra a do servidor.
+ */
+const CIDADES_DA_DEMONSTRACAO: ReadonlyArray<{ cepPrefixo: string; nome: string; uf: string }> = [
+  { cepPrefixo: "86025", nome: "Londrina", uf: "PR" },
+  { cepPrefixo: "86200", nome: "Ibiporã", uf: "PR" },
+  { cepPrefixo: "86180", nome: "Cambé", uf: "PR" },
+  { cepPrefixo: "86800", nome: "Apucarana", uf: "PR" },
+];
+const CEP_FORA_DA_DEMONSTRACAO = "Na demonstração, a busca de CEP cobre só Londrina, Ibiporã, Cambé e Apucarana.";
+
+function cepDaDemonstracao(digitos: string): CepData | null {
+  const cidade = CIDADES_DA_DEMONSTRACAO.find(c => digitos.startsWith(c.cepPrefixo));
+  return cidade ? { logradouro: "CEP da demonstração", bairro: "Centro", localidade: cidade.nome, uf: cidade.uf } : null;
+}
 
 interface SearchPayload {
   cpfCnpj: string;
@@ -98,6 +122,7 @@ export default function ConsultaSearchBar({
   notaLegal = "Consulta registrada para auditoria · LGPD art. 7º, X — proteção ao crédito",
   inputTestId = "input-isp-search",
 }: Props) {
+  const { demoMode } = useAuth();
   const [query, setQuery] = useState(initialDocument);
   const [cepData, setCepData] = useState<CepData | null>(null);
   const [cepLoading, setCepLoading] = useState(false);
@@ -151,6 +176,13 @@ export default function ConsultaSearchBar({
     const valendo = () => estaBusca === buscaDeCep.current;
     setCepData(null);
     setCepError("");
+    // Na demonstração o endereço sai da tabela local, sem chamar o ViaCEP.
+    if (demoMode) {
+      const local = cepDaDemonstracao(digits);
+      if (local) setCepData(local);
+      else setCepError(CEP_FORA_DA_DEMONSTRACAO);
+      return;
+    }
     setCepLoading(true);
     fetch(`https://viacep.com.br/ws/${digits}/json/`)
       .then(r => r.json())
@@ -170,7 +202,13 @@ export default function ConsultaSearchBar({
   useEffect(() => {
     let cancelado = false;
     const digits = installCepQuery.replace(/\D/g, "");
-    if (digits.length === 8) {
+    if (digits.length === 8 && demoMode) {
+      // Mesma tabela local da busca principal: na demonstração, sem ViaCEP.
+      const local = cepDaDemonstracao(digits);
+      setInstallCepData(local);
+      setInstallCepError(local ? "" : CEP_FORA_DA_DEMONSTRACAO);
+      setInstallCepLoading(false);
+    } else if (digits.length === 8) {
       setInstallCepData(null);
       setInstallCepError("");
       setInstallCepLoading(true);
@@ -194,7 +232,7 @@ export default function ConsultaSearchBar({
       setInstallComplement("");
     }
     return () => { cancelado = true; };
-  }, [installCepQuery]);
+  }, [installCepQuery, demoMode]);
 
   const handleSearch = () => {
     if (!query.trim()) return;

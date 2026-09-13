@@ -124,15 +124,16 @@ function semAcento(txt: string): string {
 }
 
 /**
- * Meia-noite UTC do dia real de hoje — a ÚNICA leitura do relógio deste
- * módulo, uma vez por chamada de `spcSimulado`/`cadastralSimulado`. Toda data
+ * Meia-noite UTC do dia da consulta, calculada uma vez por chamada de
+ * `spcSimulado`/`cadastralSimulado` a partir do `agora` delas. Toda data
  * "de hoje" (`dataIso(hojeMs, 0)`) e todo deslocamento ("há N dias") partem
  * daqui: o deslocamento é fixo por documento (determinismo), mas a
  * data-calendário que ele resolve anda com o dia real — nunca fica presa no
- * dia em que este código foi escrito.
+ * dia em que este código foi escrito. O `agora` é o relógio real por padrão
+ * (a consulta está acontecendo agora); a semeadura do sandbox passa o
+ * instante de uma consulta de dias atrás.
  */
-function hojeUtcMs(): number {
-  const agora = new Date();
+function hojeUtcMs(agora: Date): number {
   return Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate());
 }
 
@@ -428,11 +429,11 @@ function cadastralDataSpc(doc: string, pessoa: PessoaSimulada, identidadeBase: n
  * Resultado fictício do SPC, determinístico pelo documento. Nunca toca rede —
  * é chamado no lugar de `consultarSpc` quando `emModoDemo()`.
  */
-export function spcSimulado(documento: string): SpcResult {
+export function spcSimulado(documento: string, agora: Date = new Date()): SpcResult {
   const doc = normalizarDocumento(documento);
   const identidadeBase = hashBase(doc);
   const spcBase = hashBase(`${doc}:spc`);
-  const hojeMs = hojeUtcMs();
+  const hojeMs = hojeUtcMs(agora);
   const indiceMundo = indiceDoMundoFicticio(doc);
   const pessoaPorHash = pessoaSimulada(identidadeBase, hojeMs);
   const pessoa = indiceMundo !== null ? comIdentidadeDoMundo(pessoaPorHash, indiceMundo) : pessoaPorHash;
@@ -446,9 +447,11 @@ export function spcSimulado(documento: string): SpcResult {
   return {
     cpfCnpj: doc,
     protocolo: `${intEntre(spcBase, 504, 100_000, 999_999)}-${intEntre(spcBase, 505, 0, 9)}`,
-    // A consulta está acontecendo AGORA — data real de hoje, não presa a um
-    // calendário fixo (ver o comentário de `hojeUtcMs`).
-    consultadoEm: dataIso(hojeMs, 0),
+    // O INSTANTE da consulta, com hora — o formato do SPC real
+    // ("2024-03-13T10:54:08.080-03:00", spc-parser.test.ts). Só a data virava
+    // meia-noite UTC, e a tela, que formata com hora, mostrava a consulta de
+    // hoje como "21:00 de ontem" no fuso de Brasília.
+    consultadoEm: agora.toISOString(),
     restricao,
     cadastralData: cadastralDataSpc(doc, pessoa, identidadeBase, hojeMs),
     score,
@@ -523,6 +526,21 @@ function scoreBigData(base: number, situacao: Situacao): number {
   return intEntre(base, 58, 0, 450);
 }
 
+/**
+ * Sobra e despesa da casa DENTRO da renda. Eram sorteadas da lista de faixas,
+ * cada uma com o próprio sal, e a tela chegou a mostrar "sobra 5 A 10 SM" com
+ * renda "ATÉ 1 SM". Aqui as duas descem da faixa de renda: a despesa fica uma
+ * faixa abaixo, a sobra pelo menos duas (as duas no piso quando a renda já é o
+ * piso), e o piso das duas somado nunca passa do teto da renda.
+ */
+function capacidadeDaRenda(base: number, faixaRenda: string): { sobraMensal: string; despesaMensal: string } {
+  const renda = FAIXAS_RENDA.indexOf(faixaRenda);
+  return {
+    sobraMensal: FAIXAS_RENDA[intEntre(base, 87, 0, Math.max(0, renda - 2))],
+    despesaMensal: FAIXAS_RENDA[Math.max(0, renda - 1)],
+  };
+}
+
 /** A-H, A é a melhor faixa — a mesma leitura de "maior é melhor" do score. */
 function nivelDoScore(score: number): string {
   if (score >= 850) return "A";
@@ -546,11 +564,11 @@ function nivelDoScore(score: number): string {
  * bigdata.service.ts) — uma consulta real, no nível único que existe, também
  * devolveria os dois vazios.
  */
-export function cadastralSimulado(cpf: string): ResultadoConsulta {
+export function cadastralSimulado(cpf: string, agora: Date = new Date()): ResultadoConsulta {
   const doc = normalizarDocumento(cpf);
   const identidadeBase = hashBase(doc);
   const bdcBase = hashBase(`${doc}:bdc`);
-  const hojeMs = hojeUtcMs();
+  const hojeMs = hojeUtcMs(agora);
   const indiceMundo = indiceDoMundoFicticio(doc);
   const pessoaPorHash = pessoaSimulada(identidadeBase, hojeMs);
   const pessoa = indiceMundo !== null ? comIdentidadeDoMundo(pessoaPorHash, indiceMundo) : pessoaPorHash;
@@ -580,6 +598,25 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
     mudancasStatus: 0,
   };
 
+  // Mesma regra de `rastro`: no serviço real `dados.trocasEmprego10Anos` e
+  // `dados.mediaAnosPorVinculo` são cópia da ocupação (bigdata.service.ts), e
+  // `risco.empregado` lê o mesmo `IsCurrentlyEmployed`. Sorteados à parte, a
+  // tela dizia "5 trocas de emprego" num bloco e "1" no outro. As janelas
+  // também se contêm: 5 anos cabe em 10, e 10 cabe no total.
+  const trocas10Anos = intEntre(bdcBase, 77, 0, 5);
+  const ocupacao: ResultadoConsulta["ocupacao"] = {
+    empregadoAgora: chance(bdcBase, 73, 60),
+    empreendedor: chance(bdcBase, 74, 10),
+    trocasTotal: trocas10Anos + intEntre(bdcBase, 75, 0, 2),
+    trocas5Anos: Math.min(trocas10Anos, intEntre(bdcBase, 76, 0, 3)),
+    trocas10Anos,
+    mediaAnosPorVinculo: intEntre(bdcBase, 78, 1, 6),
+    idadePrimeiroEmprego: intEntre(bdcBase, 79, 16, 24),
+    setorPublico: chance(bdcBase, 80, 15),
+    setorPrivado: true,
+    totalEmpregadores: intEntre(bdcBase, 81, 1, 5),
+  };
+
   return {
     dados: {
       encontrado: true,
@@ -602,8 +639,9 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       buscaCredito: rastro.buscaCredito,
       mudancasNome: rastro.mudancasNome,
       consultas30d: rastro.consultas30d,
-      trocasEmprego10Anos: intEntre(bdcBase, 51, 0, 4),
-      mediaAnosPorVinculo: intEntre(bdcBase, 52, 1, 6),
+      // Copiados de `ocupacao` — ver o comentário acima dela.
+      trocasEmprego10Anos: ocupacao.trocas10Anos,
+      mediaAnosPorVinculo: ocupacao.mediaAnosPorVinculo,
     },
     identidade: {
       nome: pessoa.nomeCompleto,
@@ -659,7 +697,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       // um hash independente. Ver o comentário de `scoreBigData`.
       score: riscoScore,
       nivel: nivelDoScore(riscoScore),
-      empregado: chance(bdcBase, 60, 60),
+      empregado: ocupacao.empregadoAgora,
       socio: chance(bdcBase, 61, 10),
       recebendoAuxilio: chance(bdcBase, 62, 15),
       inicioUltimaOcupacao: dataIso(hojeMs, intEntre(bdcBase, 63, 30, 3000)),
@@ -678,18 +716,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
       dividaAtiva: c.dividaAtiva,
     },
     rastro,
-    ocupacao: {
-      empregadoAgora: chance(bdcBase, 73, 60),
-      empreendedor: chance(bdcBase, 74, 10),
-      trocasTotal: intEntre(bdcBase, 75, 0, 6),
-      trocas5Anos: intEntre(bdcBase, 76, 0, 3),
-      trocas10Anos: intEntre(bdcBase, 77, 0, 5),
-      mediaAnosPorVinculo: intEntre(bdcBase, 78, 1, 6),
-      idadePrimeiroEmprego: intEntre(bdcBase, 79, 16, 24),
-      setorPublico: chance(bdcBase, 80, 15),
-      setorPrivado: true,
-      totalEmpregadores: intEntre(bdcBase, 81, 1, 5),
-    },
+    ocupacao,
     // Vazio de propósito — ver o comentário da função.
     perfil: {},
     // Vazio de propósito — ver o comentário da função.
@@ -718,8 +745,7 @@ export function cadastralSimulado(cpf: string): ResultadoConsulta {
     // Vazio de propósito (family_financial_risk fora do combo hoje).
     riscoFamiliar: { membros: 0, empregados: 0, emCobranca: 0, ocorrencias365d: 0, distribuicao: {} },
     capacidade: {
-      sobraMensal: escolher(FAIXAS_RENDA, bdcBase, 87),
-      despesaMensal: escolher(FAIXAS_RENDA, bdcBase, 88),
+      ...capacidadeDaRenda(bdcBase, faixaRenda),
       rendaFamiliar: faixaRenda,
       dependentes: intEntre(bdcBase, 89, 0, 3),
       ehResponsavel: chance(bdcBase, 90, 70),

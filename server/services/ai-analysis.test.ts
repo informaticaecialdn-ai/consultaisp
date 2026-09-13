@@ -90,6 +90,43 @@ describe("streamConsultationAnalysis com DEMO_MODE ligado", () => {
     expect((await coletar(RESULTADO)).join("")).toBe((await coletar(RESULTADO)).join(""));
   });
 
+  it("detalhe de parceiro MASCARADO (sem dias e valor exatos) com status Inadimplente conta como divida — nunca 'Sem atraso'", () => {
+    // O formato que a rota grava para outro provedor: maskCrossProviderDetail
+    // apaga daysOverdue e overdueAmount e deixa so faixa e status. O parecer
+    // lia so os exatos e dizia "Sem atraso" ao lado de "Inadimplente".
+    const texto = parecerSimulado({
+      cpfCnpj: "99950400007",
+      notFound: false,
+      score: 450,
+      riskLabel: "RISCO ALTO",
+      decisionReco: "Review",
+      providerDetails: [{
+        customerName: "Rosana ***",
+        providerName: "Provedor Parceiro ISP-7KQ-M2D",
+        isSameProvider: false,
+        status: "Inadimplente (1-30 dias)",
+        daysOverdueRange: "1-30 dias",
+        overdueAmountRange: "R$ 100 - R$ 200",
+      }],
+    } as any);
+    expect(texto).not.toContain("Sem atraso");
+    expect(texto).toContain("1 com valor em aberto");
+    expect(texto).toContain("1-30 dias");
+    expect(texto).not.toContain("0 dia(s)");
+  });
+
+  it("parceiro 'Contrato encerrado' ou 'Em dia', sem faixa de valor, continua sem divida", () => {
+    const texto = parecerSimulado({
+      cpfCnpj: "99950400007", notFound: false, score: 700, decisionReco: "Accept",
+      providerDetails: [
+        { customerName: "Rosana ***", isSameProvider: false, status: "Contrato encerrado", daysOverdueRange: "Em dia" },
+        { customerName: "Rosana Andrade", isSameProvider: true, status: "Em dia", daysOverdue: 0 },
+      ],
+    } as any);
+    expect(texto).toContain("0 com valor em aberto");
+    expect(texto).toContain("Sem atraso registrado");
+  });
+
   it("documento sem registro na rede sai com decisao de aprovar", () => {
     const texto = parecerSimulado({ cpfCnpj: "99900000000", notFound: true, score: 100 } as any);
     expect(texto).toContain("decisão sugerida: aprovar");

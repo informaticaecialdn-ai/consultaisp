@@ -4,14 +4,17 @@ import { consultarSpc } from "../services/spc/spc.service";
 import { consultarCpf, type Credencial } from "../services/bigdata.service";
 import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
 
+/** Um instante fixo: `consultadoEm` carrega hora, e duas chamadas seguidas no relógio real diferem em milissegundos. */
+const QUANDO = new Date("2026-09-10T15:00:00.000Z");
+
 describe("bureaus simulados", () => {
   it("o mesmo documento devolve sempre o mesmo resultado", () => {
-    expect(spcSimulado("99912345607")).toEqual(spcSimulado("99912345607"));
-    expect(cadastralSimulado("99912345607")).toEqual(cadastralSimulado("99912345607"));
+    expect(spcSimulado("99912345607", QUANDO)).toEqual(spcSimulado("99912345607", QUANDO));
+    expect(cadastralSimulado("99912345607", QUANDO)).toEqual(cadastralSimulado("99912345607", QUANDO));
   });
 
   it("documentos diferentes produzem situacoes diferentes", () => {
-    const varios = ["99900000019", "99911111150", "99922222291", "99933333332"].map(spcSimulado);
+    const varios = ["99900000019", "99911111150", "99922222291", "99933333332"].map(doc => spcSimulado(doc));
     expect(new Set(varios.map(r => r.restricao)).size).toBeGreaterThan(1);
     expect(new Set(varios.map(r => r.score)).size).toBeGreaterThan(1);
   });
@@ -88,9 +91,10 @@ describe("bureaus simulados", () => {
       const spcDia2 = spcSimulado(doc);
       const bdcDia2 = cadastralSimulado(doc);
 
-      // ── Frescor: o carimbo da consulta É o "hoje" mockado em cada execução.
-      expect(spcDia1.consultadoEm).toBe("2026-01-10");
-      expect(spcDia2.consultadoEm).toBe("2026-01-17");
+      // ── Frescor: o carimbo da consulta É o instante mockado em cada execução
+      // — com hora, como o SPC real devolve (ver o bloco "consultadoEm" abaixo).
+      expect(spcDia1.consultadoEm).toBe("2026-01-10T12:00:00.000Z");
+      expect(spcDia2.consultadoEm).toBe("2026-01-17T12:00:00.000Z");
 
       // ── Frescor: datas internas do histórico deslocam os MESMOS 7 dias.
       expect(spcDia1.cadastralData.dataNascimento).toBeTruthy();
@@ -190,8 +194,8 @@ describe("bureaus simulados", () => {
 
     it("um documento FORA do mundo ficticio continua determinístico por hash — nada quebra sem pessoaFicticia para consultar", () => {
       const cpf = "12345678900"; // nunca produzido por cpfFicticio (nao tem o nucleo "999" valido)
-      expect(spcSimulado(cpf)).toEqual(spcSimulado(cpf));
-      expect(cadastralSimulado(cpf)).toEqual(cadastralSimulado(cpf));
+      expect(spcSimulado(cpf, QUANDO)).toEqual(spcSimulado(cpf, QUANDO));
+      expect(cadastralSimulado(cpf, QUANDO)).toEqual(cadastralSimulado(cpf, QUANDO));
     });
 
     it("mae, pai, genero, nascimento e idade continuam vindo do hash — pessoaFicticia nao os rastreia", () => {
@@ -204,6 +208,82 @@ describe("bureaus simulados", () => {
       expect(cadastral.identidade.nomePai).toBeTruthy();
       expect(["M", "F"]).toContain(cadastral.identidade.genero);
       expect(cadastral.identidade.nascimento).toBeTruthy();
+    });
+  });
+
+  /**
+   * Rodada 2 da auditoria de telas (13/09/2026): a cadastral simulada dizia
+   * "Sobra por mês 5 A 10 SM" ao lado de "renda ATÉ 1 SM" — sobra e despesa
+   * eram sorteadas da lista de faixas, cada uma com o próprio sal, sem olhar a
+   * renda. E a ocupação contradizia os próprios dados: `dados.trocasEmprego10Anos`
+   * e `ocupacao.trocas10Anos` saíam de hashes diferentes, quando no serviço real
+   * (bigdata.service.ts) um é cópia do outro.
+   */
+  describe("capacidade e ocupação coerentes com a renda e com os dados", () => {
+    const FAIXAS = ["ATÉ 1 SM", "1 A 2 SM", "2 A 3 SM", "3 A 5 SM", "5 A 10 SM"];
+    const PISO_SM = [0, 1, 2, 3, 5];
+    const TETO_SM = [1, 2, 3, 5, 10];
+    const documentos = Array.from({ length: 200 }, (_, i) => cpfFicticio(510_000 + i));
+
+    it("em 200 CPFs: despesa nunca acima da renda, sobra abaixo dela, e as duas juntas cabem no teto da renda", () => {
+      const contraditorios: string[] = [];
+      for (const doc of documentos) {
+        const { capacidade, renda } = cadastralSimulado(doc);
+        const r = FAIXAS.indexOf(renda.faixa!);
+        const s = FAIXAS.indexOf(capacidade.sobraMensal!);
+        const d = FAIXAS.indexOf(capacidade.despesaMensal!);
+        expect([r, s, d], doc).not.toContain(-1);
+        const sobraAbaixo = s < r || r === 0; // abaixo de "ATÉ 1 SM" não há faixa
+        if (d > r || !sobraAbaixo || PISO_SM[s] + PISO_SM[d] > TETO_SM[r]) {
+          contraditorios.push(`${doc}: renda ${renda.faixa}, despesa ${capacidade.despesaMensal}, sobra ${capacidade.sobraMensal}`);
+        }
+      }
+      expect(contraditorios, contraditorios.slice(0, 5).join("; ")).toHaveLength(0);
+    });
+
+    it("em 200 CPFs: a ocupação diz o mesmo que dados e risco", () => {
+      for (const doc of documentos) {
+        const r = cadastralSimulado(doc);
+        expect(r.dados.trocasEmprego10Anos, doc).toBe(r.ocupacao.trocas10Anos);
+        expect(r.dados.mediaAnosPorVinculo, doc).toBe(r.ocupacao.mediaAnosPorVinculo);
+        expect(r.risco.empregado, doc).toBe(r.ocupacao.empregadoAgora);
+        expect(r.ocupacao.trocas5Anos, doc).toBeLessThanOrEqual(r.ocupacao.trocas10Anos);
+        expect(r.ocupacao.trocas10Anos, doc).toBeLessThanOrEqual(r.ocupacao.trocasTotal);
+      }
+    });
+  });
+
+  /**
+   * `consultadoEm` saía só com a data ("2026-09-13"). A tela do SPC formata com
+   * hora (`toLocaleString`), e uma data sem hora vira meia-noite UTC: no
+   * Brasil, "12/09 21:00" — dia e hora errados para uma consulta de agora. O
+   * SPC real devolve instante completo com fuso (spc-parser.test.ts).
+   */
+  describe("consultadoEm do SPC", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("é o instante completo da consulta, e em Brasília cai no dia em que ela aconteceu", () => {
+      vi.useFakeTimers();
+      // 23h30 de 12/09 em Brasília = 02h30 de 13/09 em UTC.
+      vi.setSystemTime(new Date("2026-09-13T02:30:00.000Z"));
+      const { consultadoEm } = spcSimulado("99912345607");
+      expect(consultadoEm).toBe("2026-09-13T02:30:00.000Z");
+      const emBrasilia = new Date(consultadoEm!).toLocaleString("pt-BR", {
+        timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+      });
+      expect(emBrasilia).toBe("12/09, 23:30");
+    });
+
+    it("aceita o instante da consulta como parâmetro — a semeadura grava consulta de dias atrás", () => {
+      const quando = new Date("2026-09-02T14:05:00.000Z");
+      const r = spcSimulado("99912345607", quando);
+      expect(r.consultadoEm).toBe(quando.toISOString());
+      // O conteúdo não muda com o instante; só as datas deslocam.
+      expect(r.score).toBe(spcSimulado("99912345607").score);
+      expect(cadastralSimulado("99912345607", quando).identidade.dataSituacao)
+        .not.toBe(cadastralSimulado("99912345607", new Date("2026-09-12T14:05:00.000Z")).identidade.dataSituacao);
     });
   });
 });

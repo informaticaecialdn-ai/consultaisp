@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 
 /**
  * O tipo do resultado mora em `cadastral-tipos.ts`, nao aqui.
@@ -188,8 +189,13 @@ function Linha({ rotulo, valor, alerta }: { rotulo: string; valor: React.ReactNo
 type Nivel = { id: string; rotulo: string; descricao: string; creditos: number };
 
 
-function Configuracao({ integracao }: { integracao?: Integracao }) {
+export function Configuracao({ integracao }: { integracao?: Integracao }) {
   const { toast } = useToast();
+  // Na demonstração pública o servidor recusa com 403 qualquer credencial (a
+  // BigDataCorp nunca é chamada por um visitante) e a cadastral responde
+  // simulada. O formulário editável levava o visitante a digitar, salvar e
+  // ler "Erro": lá ele fica só para leitura, dizendo por quê.
+  const { demoMode } = useAuth();
   const [login, setLogin] = useState(integracao?.login ?? "");
   const [password, setPassword] = useState("");
 
@@ -220,31 +226,41 @@ function Configuracao({ integracao }: { integracao?: Integracao }) {
       </div>
       <form
         className="px-4 py-4 space-y-3"
-        onSubmit={e => { e.preventDefault(); salvar.mutate(); }}
+        onSubmit={e => { e.preventDefault(); if (!demoMode) salvar.mutate(); }}
       >
-        <p className="text-[13px] text-[var(--text-muted)]">
-          Credencial de integração própria do seu provedor. Assim o consumo e o
-          custo ficam separados por provedor.
-        </p>
+        {demoMode ? (
+          <p className="text-[13px] text-[var(--text-muted)]" data-testid="aviso-credencial-demo">
+            <strong className="font-medium text-[var(--text)]">Credencial da demonstração.</strong>{" "}
+            Aqui a consulta cadastral responde com dados fictícios e não usa
+            credencial do bureau, por isso os campos ficam só para leitura.
+          </p>
+        ) : (
+          <p className="text-[13px] text-[var(--text-muted)]">
+            Credencial de integração própria do seu provedor. Assim o consumo e o
+            custo ficam separados por provedor.
+          </p>
+        )}
         <div>
           <Label htmlFor="login">Usuário</Label>
           <Input id="login" value={login} onChange={e => setLogin(e.target.value)}
-            autoComplete="off" required data-testid="campo-login" />
+            autoComplete="off" required disabled={demoMode} data-testid="campo-login" />
         </div>
         <div>
           <Label htmlFor="password">Senha</Label>
           <Input id="password" type="password" value={password}
             onChange={e => setPassword(e.target.value)} autoComplete="new-password"
-            required placeholder={integracao?.senhaMascarada ?? ""} data-testid="campo-senha" />
+            required disabled={demoMode} placeholder={integracao?.senhaMascarada ?? ""} data-testid="campo-senha" />
         </div>
         {integracao?.lastCheckStatus && (
           <p className={`text-[12px] ${integracao.isEnabled ? "text-[var(--ok)]" : "text-[var(--danger)]"}`}>
             {integracao.lastCheckStatus}
           </p>
         )}
-        <Button type="submit" disabled={salvar.isPending} data-testid="botao-salvar-credencial">
-          {salvar.isPending ? "Validando…" : "Salvar e validar"}
-        </Button>
+        {!demoMode && (
+          <Button type="submit" disabled={salvar.isPending} data-testid="botao-salvar-credencial">
+            {salvar.isPending ? "Validando…" : "Salvar e validar"}
+          </Button>
+        )}
       </form>
     </div>
   );

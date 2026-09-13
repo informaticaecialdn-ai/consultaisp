@@ -2,6 +2,33 @@ import { useEffect, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { useAuth } from "@/lib/auth";
+
+/**
+ * Centro das quatro cidades da demonstração pública — os mesmos de
+ * `server/demo/pessoas-ficticias.ts`, onde mora toda a carteira fictícia (o
+ * teste trava as duas tabelas juntas).
+ *
+ * Na demonstração o Nominatim, um terceiro, não pode receber o endereço do
+ * consultado. Sem coordenada do ERP, o marcador vai para o centro da cidade:
+ * menos preciso, e honesto sobre isso — nunca um ponto de rua inventado.
+ */
+const CIDADES_DA_DEMONSTRACAO: ReadonlyArray<{ nome: string; cepPrefixo: string; latitude: number; longitude: number }> = [
+  { nome: "Londrina", cepPrefixo: "86025", latitude: -23.31, longitude: -51.1628 },
+  { nome: "Ibiporã", cepPrefixo: "86200", latitude: -23.2694, longitude: -51.0436 },
+  { nome: "Cambé", cepPrefixo: "86180", latitude: -23.2758, longitude: -51.2778 },
+  { nome: "Apucarana", cepPrefixo: "86800", latitude: -23.5508, longitude: -51.4608 },
+];
+
+const semAcento = (texto: string) => texto.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+
+/** [lng, lat] da cidade da demo pelo nome, ou pelo prefixo do CEP; null fora das quatro. */
+function coordenadaDaDemonstracao(city?: string, cep?: string): [number, number] | null {
+  const digitos = (cep ?? "").replace(/\D/g, "");
+  const cidade = (city ? CIDADES_DA_DEMONSTRACAO.find(c => semAcento(c.nome) === semAcento(city)) : undefined)
+    ?? CIDADES_DA_DEMONSTRACAO.find(c => digitos.startsWith(c.cepPrefixo));
+  return cidade ? [cidade.longitude, cidade.latitude] : null;
+}
 
 interface AddressMapMiniProps {
   cep?: string;
@@ -15,6 +42,7 @@ interface AddressMapMiniProps {
 }
 
 export default function AddressMapMini({ cep, addressNumber, address, city, state, neighborhood, latitude, longitude }: AddressMapMiniProps) {
+  const { demoMode } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [coords, setCoords] = useState<[number, number] | null>(null);
@@ -50,6 +78,12 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
       return;
     }
     if (!searchQuery) { setLoading(false); return; }
+    // Na demonstração, nunca o Nominatim: a coordenada fixa da cidade da demo.
+    if (demoMode) {
+      setCoords(coordenadaDaDemonstracao(city, cep));
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     const tryGeocode = async () => {
@@ -99,7 +133,7 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
     };
 
     tryGeocode();
-  }, [searchQuery, hasErpCoords, erpLat, erpLng]);
+  }, [searchQuery, hasErpCoords, erpLat, erpLng, demoMode]);
 
   // Criar mapa quando coords resolvem
   useEffect(() => {

@@ -84,6 +84,7 @@ interface ConsultationAnalysisData {
     daysOverdue?: number;
     overdueAmount?: number;
     overdueAmountRange?: string;
+    daysOverdueRange?: string;
     overdueInvoicesCount?: number;
     contractAgeDays?: number;
     hasUnreturnedEquipment?: boolean;
@@ -246,8 +247,18 @@ Analise estes dados com foco no ciclo de migracao serial e forneca recomendacoes
 export function parecerSimulado(data: ConsultationAnalysisData): string {
   const decisao = data.decisionReco === "Accept" ? "aprovar" : data.decisionReco === "Review" ? "revisar" : "rejeitar";
   const detalhes = data.providerDetails ?? [];
-  const comDivida = detalhes.filter(d => (d.daysOverdue ?? 0) > 0 || (d.overdueAmount ?? 0) > 0);
+  // O detalhe de OUTRO provedor chega mascarado (maskCrossProviderDetail): sem
+  // `daysOverdue` nem `overdueAmount`, só o status e as faixas. Ler só os
+  // exatos fazia o parecer dizer "Sem atraso" ao lado de "Inadimplente".
+  const comDivida = detalhes.filter(d =>
+    (d.daysOverdue ?? 0) > 0 || (d.overdueAmount ?? 0) > 0
+    || /^Inadimplente/.test(d.status ?? "")
+    || (!!d.overdueAmountRange && d.overdueAmountRange !== "Sem debito")
+    || (!!d.daysOverdueRange && d.daysOverdueRange !== "Em dia"));
   const maiorAtraso = detalhes.reduce((m, d) => Math.max(m, d.daysOverdue ?? 0), 0);
+  const faixasDeAtraso = Array.from(new Set(
+    comDivida.filter(d => d.daysOverdue == null && d.daysOverdueRange).map(d => d.daysOverdueRange as string),
+  ));
   const outrosComDivida = comDivida.filter(d => !d.isSameProvider).length;
   const comEquipamento = detalhes.filter(d => d.hasUnreturnedEquipment).length;
 
@@ -291,7 +302,13 @@ export function parecerSimulado(data: ConsultationAnalysisData): string {
   if (outrosComDivida >= 2) {
     linhas.push(`Há dívida em ${outrosComDivida} outros provedores da rede: é o desenho do migrador serial, que deixa o débito para trás a cada troca.`);
   } else if (comDivida.length > 0) {
-    linhas.push(`Há valor em aberto, com maior atraso de ${maiorAtraso} dia(s).`);
+    // O número exato só existe no registro do próprio provedor; do parceiro
+    // vem a faixa, e é ela que o parecer repete.
+    const partes = [
+      ...(maiorAtraso > 0 ? [`maior atraso de ${maiorAtraso} dia(s)`] : []),
+      ...(faixasDeAtraso.length > 0 ? [`atraso na faixa de ${faixasDeAtraso.join(" e ")} em provedor parceiro`] : []),
+    ];
+    linhas.push(partes.length > 0 ? `Há valor em aberto, com ${partes.join("; ")}.` : "Há valor em aberto.");
   } else {
     linhas.push("Sem atraso registrado nos provedores consultados.");
   }
