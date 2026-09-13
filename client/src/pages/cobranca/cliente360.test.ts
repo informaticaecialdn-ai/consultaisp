@@ -463,6 +463,78 @@ describe("a mensalidade deduzida da fatura de saida tem rotulo proprio", () => {
   });
 });
 
+/* ────────────────────────────────────────────────────────────────────────
+ * O selo do "Comodato a recuperar". Ate 12/09/2026 a regra era inline e so
+ * conhecia seis status: tudo o mais caia em "em comodato" — inclusive o
+ * aparelho nao localizado, o retido, o ja recolhido para triagem e o baixado.
+ * O vocabulario vem de server/services/equipment-recovery-rules.ts
+ * (EQUIPMENT_STATUSES + STATUS_RECUPERADO + STATUS_EQUIPAMENTO_PENDENTE) e dos
+ * legados que equipamentos.tsx ainda exibe.
+ * ──────────────────────────────────────────────────────────────────────── */
+describe("o selo do comodato no 360, por status", () => {
+  const casos: Array<[string, string, string]> = [
+    // devolvido: voltou para o provedor, inclusive o que ainda esta na triagem
+    ["devolvido", "devolvido", "devolvido"],
+    ["returned", "devolvido", "devolvido"],
+    ["recuperado", "devolvido", "devolvido"],
+    ["recuperado_triagem", "devolvido", "devolvido"],
+    ["disponivel_reuso", "devolvido", "devolvido"],
+    ["avariado", "devolvido", "devolvido"],
+    ["concluido", "devolvido", "devolvido"],
+    // a recuperar: o aparelho continua fora de casa
+    ["em_cobranca", "a_recuperar", "a recuperar"],
+    ["retirada_pendente", "a_recuperar", "a recuperar"],
+    ["prazo_expirado", "a_recuperar", "a recuperar"],
+    ["nao_localizado", "a_recuperar", "a recuperar"],
+    ["retido", "a_recuperar", "a recuperar"],
+    ["not_returned", "a_recuperar", "a recuperar"],
+    // baixado: saiu da conta, nao e comodato nem cobranca
+    ["baixado", "baixado", "baixado"],
+    ["baixa", "baixado", "baixado"],
+    // em comodato: instalado e em uso
+    ["em_comodato", "em_comodato", "em comodato"],
+    ["installed", "em_comodato", "em comodato"],
+  ];
+
+  it.each(casos)("%s → %s", async (status, classe, rotulo) => {
+    const { classificarComodato } = await import("./cliente360");
+    const c = classificarComodato(status);
+    expect(c.classe).toBe(classe);
+    expect(c.rotulo).toBe(rotulo);
+  });
+
+  it("os tons: devolvido ok, a recuperar past, em comodato gated, baixado neutro", async () => {
+    const { classificarComodato } = await import("./cliente360");
+    expect(classificarComodato("recuperado_triagem").tom).toBe("ok");
+    expect(classificarComodato("nao_localizado").tom).toBe("past");
+    expect(classificarComodato("em_comodato").tom).toBe("gated");
+    expect(classificarComodato("baixado").tom).toBe("neutro");
+  });
+
+  it("caixa e espaco do ERP nao mudam a classe", async () => {
+    const { classificarComodato } = await import("./cliente360");
+    expect(classificarComodato(" NAO_LOCALIZADO ").classe).toBe("a_recuperar");
+    expect(classificarComodato("Devolvido").classe).toBe("devolvido");
+  });
+
+  it("status que nao se conhece nunca vira 'em comodato': sai o proprio status, neutro", async () => {
+    const { classificarComodato } = await import("./cliente360");
+    const furto = classificarComodato("furto_roubo_declarado");
+    expect(furto.rotulo).not.toBe("em comodato");
+    expect(furto.rotulo).toBe("furto/roubo declarado");
+    const estranho = classificarComodato("status_novo_do_erp");
+    expect(estranho.classe).toBe("desconhecido");
+    expect(estranho.rotulo).toBe("status_novo_do_erp");
+    expect(estranho.tom).toBe("neutro");
+    expect(classificarComodato("").rotulo).not.toBe("em comodato");
+  });
+
+  it("a lista do 360 usa a funcao, e a regra inline de seis status nao voltou", () => {
+    expect(pagina).toContain("classificarComodato(e.status)");
+    expect(pagina).not.toMatch(/const pendente = e\.status === "em_cobranca"/);
+  });
+});
+
 describe("o suspenso com corte e o historico parcial na tela", () => {
   it("o card R24 diz 'ate o corte' para o suspenso, e o selo distingue estimado de historico parcial", () => {
     const fonte = ler("./cliente360.tsx");

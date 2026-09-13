@@ -198,6 +198,38 @@ const formDoCaso = (caso: CasoDetalhe | null): FormDoCaso => ({
 
 /* ── Equipamento: banco ∪ ERP ao vivo ──────────────────────────────────── */
 
+/**
+ * O selo de cada aparelho no "Comodato a recuperar".
+ *
+ * Ate 12/09/2026 a regra era inline e so conhecia seis status: todo o resto
+ * caia em "em comodato" — o aparelho nao localizado, o retido, o que ja voltou
+ * para a triagem e o baixado apareciam como se estivessem instalados e em uso.
+ * Para quem cobra, isso esconde o que falta recolher e cobra de novo o que ja
+ * voltou. As listas seguem o servidor (`equipment-recovery-rules.ts`:
+ * STATUS_RECUPERADO e STATUS_EQUIPAMENTO_PENDENTE) mais os legados que ainda
+ * existem na base; `concluido` e `prazo_expirado` sao status de CASO que a
+ * regra antiga ja aceitava, e continuam aceitos.
+ */
+export type ClasseDoComodato = "devolvido" | "a_recuperar" | "baixado" | "em_comodato" | "desconhecido";
+
+const COMODATO_DEVOLVIDO: ReadonlySet<string> = new Set(["devolvido", "returned", "recuperado", "recuperado_triagem", "disponivel_reuso", "avariado", "concluido"]);
+const COMODATO_A_RECUPERAR: ReadonlySet<string> = new Set(["em_cobranca", "retirada_pendente", "prazo_expirado", "nao_localizado", "retido", "not_returned"]);
+const COMODATO_BAIXADO: ReadonlySet<string> = new Set(["baixado", "baixa"]);
+const COMODATO_EM_USO: ReadonlySet<string> = new Set(["em_comodato", "installed"]);
+
+export function classificarComodato(status: string | null | undefined): { classe: ClasseDoComodato; rotulo: string; tom: TomDeSelo } {
+  const s = (status ?? "").trim().toLowerCase();
+  if (COMODATO_DEVOLVIDO.has(s)) return { classe: "devolvido", rotulo: "devolvido", tom: "ok" };
+  if (COMODATO_A_RECUPERAR.has(s)) return { classe: "a_recuperar", rotulo: "a recuperar", tom: "past" };
+  if (COMODATO_BAIXADO.has(s)) return { classe: "baixado", rotulo: "baixado", tom: "neutro" };
+  if (COMODATO_EM_USO.has(s)) return { classe: "em_comodato", rotulo: "em comodato", tom: "gated" };
+  // AIDEV-QUESTION: `furto_roubo_declarado` e status oficial, mas ninguem decidiu se ele entra na fila "a recuperar"
+  // (o servidor nao o poe em STATUS_EQUIPAMENTO_PENDENTE nem em STATUS_RECUPERADO). Ate decidir, sai com o nome dele,
+  // neutro — assim como qualquer status que o ERP invente: afirmar "em comodato" sem saber e o que este selo fazia de errado.
+  if (s === "furto_roubo_declarado") return { classe: "desconhecido", rotulo: "furto/roubo declarado", tom: "neutro" };
+  return { classe: "desconhecido", rotulo: s || DASH, tom: "neutro" };
+}
+
 interface EquipamentoDaFicha { chave: string; tipo: string | null; marca: string | null; modelo: string | null; serie: string | null; mac: string | null; status: string; valor: number | null; fonte: "sync" | "erp ao vivo" }
 
 function unirEquipamentos(doBanco: EquipamentoDoCliente[], snapshot: SnapshotAoVivo | undefined): EquipamentoDaFicha[] {
@@ -534,13 +566,13 @@ function FichaDaCarteira() {
                 {equipamentos.length === 0 ? <span className="text-[var(--text-muted)]">nenhum equipamento registrado para este cliente (sync do ERP)</span> : (
                   <ul className="space-y-1">
                     {equipamentos.slice(0, 4).map(e => {
-                      const devolvido = e.status === "devolvido" || e.status === "recuperado" || e.status === "concluido";
-                      const pendente = e.status === "em_cobranca" || e.status === "retirada_pendente" || e.status === "prazo_expirado";
+                      const selo = classificarComodato(e.status);
                       return (
                         <li key={e.chave} className="flex flex-wrap items-center gap-1.5">
                           <b className="capitalize text-[var(--text)]">{e.tipo ?? "equipamento"}</b>{e.modelo ? ` ${e.modelo}` : e.marca ? ` ${e.marca}` : ""}
                           <span className={cn(NUM, "text-[11px] text-[var(--text-muted)]")}>· {e.mac ?? e.serie ?? DASH}</span>
-                          <Pill tone={devolvido ? "ok" : pendente ? "past" : "gold"} compact title={`fonte: ${e.fonte}`}>{devolvido ? "devolvido" : pendente ? "a recuperar" : "em comodato"}</Pill>
+                          {/* SeloCobranca direto (com as classes do Pill compacto): o "baixado" pede o tom neutro, que o Tom360 do Pill nao tem. */}
+                          <SeloCobranca tom={selo.tom} titulo={`status: ${e.status} · fonte: ${e.fonte}`} className="normal-case tracking-normal px-1.5 py-0.5">{selo.rotulo}</SeloCobranca>
                         </li>
                       );
                     })}
