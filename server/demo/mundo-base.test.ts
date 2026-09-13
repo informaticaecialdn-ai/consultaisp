@@ -65,6 +65,8 @@ import {
   PROVEDORES_DA_DEMO, CPFS_COMPARTILHADOS, semearMundoBase, complementarMundoBase, cnpjFicticio, INDICE_MIGRADOR_DE_EXEMPLO,
 } from "./mundo-base";
 import { cpfFicticio } from "./pessoas-ficticias";
+// O mundo no formato antigo mora num helper: `sandbox.service.test.ts` monta o mesmo.
+import { regredirParaOFormatoAntigo } from "./formato-antigo.fixture";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
 import { getConnector } from "../erp/registry";
@@ -1153,76 +1155,6 @@ describe("consultas cruzadas da rede (complementarMundoBase sobre um mundo novo)
   });
 });
 
-/**
- * O mundo base no FORMATO ANTIGO — o que está gravado no banco da demonstração
- * publicada, semeado pelo `mundo-base.ts` de a5be66c. Cada regra abaixo
- * reproduz um fato medido por SELECT (só leitura) no banco local
- * consultaisp_demo_local, que nasceu do mesmo código, em 13/09/2026:
- *
- *   - cancelados 150 por provedor, todos `payment_status 'current'` e
- *     `total_overdue_amount 0`; nenhum `geo_precisao`, nenhum `motivo_corte`;
- *   - `isp_score`/`risk_tier` no default do schema (100/'low') e
- *     `overdue_invoices_count` no default (0), inclusive nos 225 inadimplentes;
- *   - equipamento: 450 em_comodato (90 por provedor, só em dia) e 30 de cada
- *     um de retido, retirada_pendente, nao_localizado, em_cobranca, not_returned;
- *   - migrador: rede-1 cancelado HÁ 10 DIAS sem fatura e contrato de 45 dias;
- *     rede-2 ativo devendo R$ 80,00 há 20 dias, contrato de 24 meses (a rede-2
- *     medida tem 226 inadimplentes: 225 + ele);
- *   - nenhum usuário nos provedores da rede e nenhuma `isp_consultations`.
- *
- * Parte de um mundo NOVO e desfaz o que mudou, em vez de copiar o semeador
- * antigo inteiro para dentro do teste: as linhas que não mudaram de formato
- * (nome, endereço, plano, faturas dos inadimplentes) continuam idênticas por
- * construção.
- */
-function regredirParaOFormatoAntigo(agora: Date): void {
-  const idsDaRede = new Set(PROVEDORES_DA_DEMO.map((p) => idDoProvedor(p.subdomain)));
-  const dataLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const menosDias = (dias: number) => new Date(agora.getTime() - dias * DIA_MS);
-
-  const antigo = migradorEm("rede-1");
-  const novo = migradorEm("rede-2");
-
-  for (const c of linhasDe("customers")) {
-    if (!idsDaRede.has(c.providerId as number)) continue;
-    c.geoPrecisao = null;
-    c.motivoCorte = null;
-    c.ispScore = 100;
-    c.riskTier = "low";
-    c.overdueInvoicesCount = 0;
-    if (c.status === "cancelled") {
-      c.paymentStatus = "current";
-      c.totalOverdueAmount = "0.00";
-      c.maxDaysOverdue = 0;
-    }
-  }
-  Object.assign(antigo, { contractStartDate: dataLocal(menosDias(45)), cortadoEm: menosDias(10).toISOString() });
-  const vinteQuatroMeses = new Date(agora.getTime());
-  vinteQuatroMeses.setMonth(vinteQuatroMeses.getMonth() - 24);
-  Object.assign(novo, { paymentStatus: "overdue", totalOverdueAmount: "80.00", maxDaysOverdue: 20, contractStartDate: dataLocal(vinteQuatroMeses) });
-
-  banco.linhas.set("invoices", linhasDe("invoices").filter((f) => f.erpRef !== `demo-saida-${antigo.id}`));
-  const faturaDoNovo = linhasDe("invoices").find((f) => f.erpRef === `demo-fatura-${novo.id}`)!;
-  Object.assign(faturaDoNovo, { value: "80.00", dueDate: menosDias(20).toISOString(), status: "overdue", paidDate: null, paidValue: null, descricao: null });
-
-  const clientesPorId = new Map(linhasDe("customers").map((c) => [c.id, c]));
-  banco.linhas.set("equipment", linhasDe("equipment").filter((e) => {
-    const dono = clientesPorId.get(e.customerId)!;
-    return !(e.status === "em_comodato" && dono.paymentStatus === "overdue");
-  }));
-  const LEGADO = ["retido", "retirada_pendente", "nao_localizado", "em_cobranca", "not_returned"];
-  const porProvedor = new Map<unknown, number>();
-  for (const e of linhasDe("equipment")) {
-    if (e.status === "em_comodato") continue;
-    const n = porProvedor.get(e.providerId) ?? 0;
-    e.status = LEGADO[n % LEGADO.length];
-    porProvedor.set(e.providerId, n + 1);
-  }
-
-  banco.linhas.set("users", linhasDe("users").filter((u) => !idsDaRede.has(u.providerId as number)));
-  banco.linhas.set("isp_consultations", []);
-}
-
 /** O que o complemento precisa deixar igual a um mundo semeado do zero — por chave de negócio, nunca por id de linha nova. */
 function fotografiaDaRede(): Record<string, unknown> {
   const subdominio = new Map(linhasDe("providers").map((p) => [p.id, p.subdomain as string]));
@@ -1261,7 +1193,7 @@ describe("complemento sobre o mundo base no FORMATO ANTIGO (o banco da demo publ
   it("a fixture reproduz o formato antigo medido — sem ex-devedor, sem geo, sem motivo, vocabulario legado, migrador antigo, sem consulta", async () => {
     zerarBanco();
     await semearMundoBase(agora);
-    regredirParaOFormatoAntigo(agora);
+    regredirParaOFormatoAntigo(banco.linhas, agora);
     for (const p of PROVEDORES_DA_DEMO) {
       const clientes = await clientesDe(p.subdomain);
       expect(clientes.filter((c) => c.status === "cancelled" && Number(c.totalOverdueAmount) > 0), p.subdomain).toHaveLength(0);
@@ -1291,7 +1223,7 @@ describe("complemento sobre o mundo base no FORMATO ANTIGO (o banco da demo publ
   it("escreve so depois de pg_advisory_xact_lock e confere de novo depois do lock: duas criacoes simultaneas aplicam uma vez so", async () => {
     zerarBanco();
     await semearMundoBase(agora);
-    regredirParaOFormatoAntigo(agora);
+    regredirParaOFormatoAntigo(banco.linhas, agora);
     banco.sqlExecutado.length = 0;
 
     const resultados = await Promise.all([complementarMundoBase(), complementarMundoBase()]);

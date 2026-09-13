@@ -46,6 +46,16 @@ vi.mock("./chat-simulado", async (importOriginal) => {
   return { ...real, limparChatSimuladoDoProvedor: vi.fn(real.limparChatSimuladoDoProvedor) };
 });
 
+/**
+ * O complemento do mundo base também passa por um espião que repassa para a
+ * função real: só os testes do fim do arquivo o fazem falhar, uma vez cada,
+ * para provar que o `/demo` não cai com ele.
+ */
+vi.mock("./mundo-base", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./mundo-base")>();
+  return { ...real, complementarMundoBase: vi.fn(real.complementarMundoBase) };
+});
+
 import { readFileSync } from "node:fs";
 import { getTableColumns, getTableName, is, SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
@@ -137,7 +147,8 @@ import {
   equipamentoTemRetiradaPendente,
   validarSinalBureau,
 } from "../services/equipment-recovery-rules";
-import { PROVEDORES_DA_DEMO, INDICE_MIGRADOR_DE_EXEMPLO, CPFS_COMPARTILHADOS } from "./mundo-base";
+import { PROVEDORES_DA_DEMO, INDICE_MIGRADOR_DE_EXEMPLO, CPFS_COMPARTILHADOS, complementarMundoBase, semearMundoBase } from "./mundo-base";
+import { regredirParaOFormatoAntigo } from "./formato-antigo.fixture";
 import { limparSandboxesExpirados } from "./limpeza.service";
 import { AGENTES_DA_DEMO, agenteConfigDaDemo, limparChatSimuladoDoProvedor, roteiroDaConversa, type LinhaDaConversa } from "./chat-simulado";
 import { economiaDoCliente } from "@shared/cobranca/ficha360";
@@ -2737,4 +2748,86 @@ describe("apagar exige o segundo sinal, nao so o prefixo do subdominio", () => {
       espiao.mockRestore();
     }
   });
+});
+
+/**
+ * O `/demo` não cai pelo complemento do mundo base (13/09/2026).
+ *
+ * `criarSandbox` chama `complementarMundoBase()` logo depois de
+ * `semearMundoBase()`. Sem proteção, um complemento que lança derruba a criação
+ * e TODO visitante novo recebe a página 500 "Não foi possível abrir sua
+ * demonstração agora" até alguém corrigir a causa — e o sandbox não depende do
+ * complemento para nascer. O erro vai ao log em nível error, com evento fixo e
+ * só nome e mensagem: o erro do `pg` carrega `detail` com a linha que bateu.
+ */
+describe("o /demo nao cai pelo complemento do mundo base", () => {
+  const EVENTO = "demo.complemento_do_mundo_falhou";
+
+  /** Um erro do jeito que o `pg` entrega: `name` "error", e o `detail` com o dado da linha. */
+  function erroDoPostgres(mensagem: string, campos: Record<string, unknown> = {}): Error {
+    return Object.assign(new Error(mensagem), { name: "error", ...campos });
+  }
+
+  it("complemento lancando: o sandbox nasce e o erro vai UMA vez ao log, com o evento fixo e so nome e mensagem", async () => {
+    const emailNaLinha = "analista.rede-1@demo.consultaisp.com.br";
+    const mensagem = 'duplicate key value violates unique constraint "users_email_unique"';
+    vi.mocked(complementarMundoBase).mockRejectedValueOnce(
+      erroDoPostgres(mensagem, { code: "23505", detail: `Key (email)=(${emailNaLinha}) already exists.`, table: "users" }),
+    );
+    const espiao = vi.spyOn(logger, "error").mockImplementation((() => undefined) as any);
+    try {
+      const s = await criarSandbox();
+      expect(s.subdomain).toMatch(/^sandbox-[a-f0-9]{16}$/);
+      expect(s.providerId).toEqual(expect.any(Number));
+      expect(s.userId).toEqual(expect.any(Number));
+      expect(await clientesDe(s.providerId)).toHaveLength(1500);
+
+      expect(espiao).toHaveBeenCalledTimes(1);
+      expect(espiao.mock.calls[0][0]).toStrictEqual({ evento: EVENTO, erroNome: "error", erroMensagem: mensagem });
+      expect(JSON.stringify(espiao.mock.calls[0]), "o detail do pg (com o dado da linha) nao pode ir ao log").not.toContain(emailNaLinha);
+    } finally {
+      espiao.mockRestore();
+    }
+  });
+
+  /**
+   * O caso que importa no deploy: o banco publicado está no formato antigo, e é
+   * a primeira criação depois do deploy que paga a reescrita. Se ela falhar, o
+   * sandbox nasce sobre a rede antiga (a semeadura só acha menos consultas da
+   * rede) e a próxima criação tenta de novo.
+   *
+   * Zera só as LINHAS do banco de mentira, como o describe do formato antigo de
+   * `mundo-base.test.ts` zera o dele: os ids continuam subindo, para nenhum
+   * provedor novo herdar o id de um sandbox dos testes de cima. Por mexer no
+   * banco inteiro, fica por último no arquivo.
+   */
+  it("mundo base no FORMATO ANTIGO e o complemento falhando: o sandbox nasce, e a rede continua como estava", async () => {
+    banco.linhas.clear();
+    const agora = new Date();
+    await semearMundoBase(agora);
+    regredirParaOFormatoAntigo(banco.linhas, agora);
+    const CPF_DO_MIGRADOR = cpfFicticio(INDICE_MIGRADOR_DE_EXEMPLO);
+    const migradorDaRede2 = () => (banco.linhas.get("customers") ?? []).find((c) => c.providerId === idDe("rede-2") && c.cpfCnpj === CPF_DO_MIGRADOR);
+    expect(migradorDaRede2()?.totalOverdueAmount, "a fixture deveria deixar o migrador antigo na rede-2").toBe("80.00");
+
+    const mensagem = "canceling statement due to lock timeout";
+    vi.mocked(complementarMundoBase).mockClear();
+    vi.mocked(complementarMundoBase).mockRejectedValueOnce(erroDoPostgres(mensagem, { code: "55P03" }));
+    const espiao = vi.spyOn(logger, "error").mockImplementation((() => undefined) as any);
+    try {
+      const s = await criarSandbox();
+      expect(s.subdomain).toMatch(/^sandbox-[a-f0-9]{16}$/);
+      expect(s.providerId).toEqual(expect.any(Number));
+      expect(s.userId).toEqual(expect.any(Number));
+      expect(await clientesDe(s.providerId)).toHaveLength(1500);
+
+      expect(vi.mocked(complementarMundoBase)).toHaveBeenCalledTimes(1);
+      expect(espiao).toHaveBeenCalledTimes(1);
+      expect(espiao.mock.calls[0][0]).toStrictEqual({ evento: EVENTO, erroNome: "error", erroMensagem: mensagem });
+      // Nada do complemento foi gravado: a rede segue no formato antigo, para a próxima criação reescrever.
+      expect(migradorDaRede2()?.totalOverdueAmount).toBe("80.00");
+    } finally {
+      espiao.mockRestore();
+    }
+  }, 60_000);
 });

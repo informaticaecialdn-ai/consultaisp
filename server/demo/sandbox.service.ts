@@ -2084,7 +2084,20 @@ export async function criarSandbox(): Promise<{ providerId: number; userId: numb
   // no caminho comum são duas leituras; num mundo no formato antigo, a primeira
   // criação depois do deploy paga a reescrita, uma vez. As consultas do sandbox
   // leem a rede já no formato atual.
-  await complementarMundoBase();
+  //
+  // O /demo não cai pelo complemento: sem ele o sandbox nasce igual (rede no
+  // formato antigo), e ele é transacional e tenta de novo na próxima criação.
+  // Nível error de propósito (o deploy conta logs 50/60). Só nome e mensagem:
+  // o erro do pg traz linha de dado, e o redact censura `name` aninhado.
+  try {
+    await complementarMundoBase();
+  } catch (err) {
+    const erro = err as Error | null | undefined;
+    logger.error(
+      { evento: "demo.complemento_do_mundo_falhou", erroNome: erro?.name, erroMensagem: erro?.message },
+      "demo: complemento do mundo base falhou — sandbox criado sem ele; a proxima criacao tenta de novo",
+    );
+  }
   const agora = new Date();
 
   for (let tentativa = 1; tentativa <= TENTATIVAS_DE_CRIACAO; tentativa++) {
