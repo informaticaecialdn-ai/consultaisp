@@ -125,6 +125,11 @@ describe("metas de exibição (domain.ts)", () => {
     expect(csatClasseMeta("insatisfeito")).toEqual({ tone: "past", label: "Insatisfeito" });
     expect(bandLabel("muito_baixo_risco")).toBe("muito baixo risco");
     expect(bandLabel(null)).toBe("—");
+    // customers.risk_tier chega em inglês do sync (customers.storage) e ia cru para o selo do score.
+    expect(bandLabel("low")).toBe("risco baixo");
+    expect(bandLabel("medium")).toBe("risco médio");
+    expect(bandLabel("high")).toBe("risco alto");
+    expect(bandLabel("critical")).toBe("risco crítico");
     expect(corDaBandaDeCredito(800, "low")).toBe("success");
     expect(corDaBandaDeCredito(500, "medium")).toBe("warning");
     expect(corDaBandaDeCredito(200, "high")).toBe("danger");

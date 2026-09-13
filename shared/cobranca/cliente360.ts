@@ -191,9 +191,21 @@ export function computePropensao(i: PropensaoInput): Propensao {
 
 export const DASH = "—";
 
+/**
+ * `customers.risk_tier` chega do sync em inglês (low · medium · high · critical,
+ * customers.storage) e é a banda de crédito da ficha: sem tradução, o selo do
+ * score mostrava "high" ao provedor. As outras bandas seguem só sem o "_".
+ */
+const ROTULO_DA_FAIXA_DE_RISCO: Record<string, string> = {
+  low: "risco baixo",
+  medium: "risco médio",
+  high: "risco alto",
+  critical: "risco crítico",
+};
+
 export function bandLabel(band: string | null | undefined): string {
   if (!band) return DASH;
-  return band.replace(/_/g, " ");
+  return ROTULO_DA_FAIXA_DE_RISCO[band] ?? band.replace(/_/g, " ");
 }
 
 export function clienteStatusMeta(raw: string | null | undefined): { label: string; tone: Tom360 } | null {
