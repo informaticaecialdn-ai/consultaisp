@@ -12,11 +12,14 @@ import { BOTAO_MARCA, BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO } from "@/componen
 import { API_CHAT_BULLQ, chatProntoParaEnviar, lerIntegracaoDoChat } from "@/components/cobranca/tipos";
 import { mensagemDoErro, SeloCobranca } from "@/components/cobranca/ui";
 import { Kicker } from "@/components/localizacao/ui";
+import { useAuth } from "@/lib/auth";
 
 const CHAVE_INTEGRACAO = `${API_CHAT_BULLQ}/integracao`;
 
 export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
   const { toast } = useToast();
+  // Na demonstração o chat é o simulado: não há inbox externo, e a senha do dono é recusada com 403.
+  const { demoMode } = useAuth();
   const { data: crua, isLoading, isError, error } = useQuery<unknown>({ queryKey: [CHAVE_INTEGRACAO], staleTime: 60_000 });
   const integracao = useMemo(() => lerIntegracaoDoChat(crua), [crua]);
   const pronto = chatProntoParaEnviar(integracao);
@@ -81,7 +84,7 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
           )}
         </div>
         <p className="mt-2 text-[12.5px] leading-5 text-[var(--text-2)]">
-          Conecte o WhatsApp do provedor aos módulos de Cobrança e Equipamentos. Inicie pelo caso, acompanhe a resposta e continue o atendimento aqui. O inbox externo fica disponível para administrar canais e recursos adicionais.
+          Conecte o WhatsApp do provedor aos módulos de Cobrança e Equipamentos. Inicie pelo caso, acompanhe a resposta e continue o atendimento aqui.{demoMode ? null : " O inbox externo fica disponível para administrar canais e recursos adicionais."}
         </p>
         {aguardandoPareamento
           ? <p className="mt-2 text-[12px] leading-5 text-[var(--gated)]" data-testid="chat-aguardando-pareamento">Falta parear o número: abra <b>Conexão do número</b> e leia o QR com o WhatsApp do provedor. Até lá os botões de envio não aparecem nas telas.</p>
@@ -121,12 +124,14 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
           <details className="mt-5 border-t border-[var(--border)] pt-4"><summary className="cursor-pointer text-xs font-medium text-[var(--text-2)]">Acesso ao inbox externo</summary>
           <div className="mt-3 flex items-center gap-2"><KeyRound className="h-4 w-4 text-[var(--brand)]" aria-hidden /><h3 className="text-[14px] font-semibold text-[var(--text)]">Senha do inbox</h3></div>
           <p className="mt-1 text-[11.5px] leading-4 text-[var(--text-muted)]">
-            A equipe entra em <b>chat.consultaisp.com.br</b> com o e-mail {integracao?.ownerEmail ? <><b className="font-mono" data-testid="chat-owner-email">{integracao.ownerEmail}</b></> : "de contato do provedor"} e esta senha. Ela não fica guardada aqui: vai direto para o chat.
+            {demoMode
+              ? "O inbox externo não existe na demonstração: aqui o atendimento acontece só dentro do sistema, e nenhuma senha é gravada."
+              : <>A equipe entra em <b>chat.consultaisp.com.br</b> com o e-mail {integracao?.ownerEmail ? <><b className="font-mono" data-testid="chat-owner-email">{integracao.ownerEmail}</b></> : "de contato do provedor"} e esta senha. Ela não fica guardada aqui: vai direto para o chat.</>}
           </p>
           <form className="mt-3 grid gap-3" onSubmit={e => { e.preventDefault(); definirSenha.mutate(); }}>
-            <Campo rotulo="nova senha"><input className={CONTROLE_CAMPO} type="password" autoComplete="new-password" value={senha.senha} onChange={e => setSenha(s => ({ ...s, senha: e.target.value }))} disabled={!podeAdministrar} data-testid="chat-senha-nova" /></Campo>
-            <Campo rotulo="confirmar"><input className={CONTROLE_CAMPO} type="password" autoComplete="new-password" value={senha.confirmacao} onChange={e => setSenha(s => ({ ...s, confirmacao: e.target.value }))} disabled={!podeAdministrar} data-testid="chat-senha-confirmacao" /></Campo>
-            <div><button type="submit" className={BOTAO_SECUNDARIO} disabled={!podeAdministrar || definirSenha.isPending || senha.senha.length < 12} data-testid="chat-definir-senha">{definirSenha.isPending ? "Gravando…" : "Definir senha"}</button></div>
+            <Campo rotulo="nova senha"><input className={CONTROLE_CAMPO} type="password" autoComplete="new-password" value={senha.senha} onChange={e => setSenha(s => ({ ...s, senha: e.target.value }))} disabled={!podeAdministrar || demoMode} data-testid="chat-senha-nova" /></Campo>
+            <Campo rotulo="confirmar"><input className={CONTROLE_CAMPO} type="password" autoComplete="new-password" value={senha.confirmacao} onChange={e => setSenha(s => ({ ...s, confirmacao: e.target.value }))} disabled={!podeAdministrar || demoMode} data-testid="chat-senha-confirmacao" /></Campo>
+            <div><button type="submit" className={BOTAO_SECUNDARIO} disabled={!podeAdministrar || demoMode || definirSenha.isPending || senha.senha.length < 12} data-testid="chat-definir-senha">{definirSenha.isPending ? "Gravando…" : "Definir senha"}</button></div>
           </form>
           </details>
         </section>
