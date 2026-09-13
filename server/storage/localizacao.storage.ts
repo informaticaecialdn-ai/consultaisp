@@ -15,6 +15,8 @@ import {
 } from "../services/benchmark-bairro.service";
 import { geocodeAddress, geocodeCity } from "../services/geocoding";
 import type { GeoPrecisao } from "@shared/geo-precisao";
+import { emModoDemo } from "../demo/modo-demo";
+import { CIDADES_DA_DEMO } from "../demo/pessoas-ficticias";
 
 export type CarteiraLocalizacao = "ativo" | "ex_cliente" | "todas";
 const percentual = (parte: number, total: number) => total > 0 ? Math.round(parte / total * 1000) / 10 : 0;
@@ -178,6 +180,21 @@ export interface LocalizacaoResposta {
   sincronizadoEm: string | null;
 }
 
+/**
+ * A sede no mapa da demonstracao, sem rede.
+ *
+ * O centro da cidade vem de `CIDADES_DA_DEMO`, a mesma tabela que da coordenada
+ * aos clientes ficticios — assim o marcador da sede cai no mesmo mapa que os
+ * pontos. Cidade fora das quatro da demo (o visitante pode digitar qualquer
+ * uma na ficha) fica em Londrina, a primeira da tabela: e o centro do mundo
+ * ficticio, e um marcador ali e melhor que nenhum.
+ */
+function coordenadaDaSedeNaDemo(cidade: string): [number, number] {
+  const alvo = normalizarCidade(cidade);
+  const conhecida = CIDADES_DA_DEMO.find(c => normalizarCidade(c.nome) === alvo) ?? CIDADES_DA_DEMO[0];
+  return [conhecida.latitude, conhecida.longitude];
+}
+
 export class LocalizacaoStorage {
   /**
    * Endereco cadastrado do provedor, geocodificado. Vale a pena mesmo quando a
@@ -194,13 +211,20 @@ export class LocalizacaoStorage {
     // A sede nao e um cliente: se o endereco dela nao resolver com precisao de
     // rua, o centro da cidade serve — o marcador diz "Sede · Londrina", e e
     // isso que ele esta afirmando.
-    const coords = await geocodeAddress(
-      [p.addressStreet, p.addressNumber].filter(Boolean).join(", "),
-      p.addressCity,
-      uf || "",
-      p.addressZip || undefined,
-    ).catch(() => null)
-      ?? await geocodeCity(p.addressCity, uf || "").catch(() => null);
+    //
+    // Na demonstracao, nada de Google nem Nominatim: o endereco da sede e o que
+    // o visitante digitou na ficha do sandbox, e cada abertura do mapa viraria
+    // uma consulta de geocodificacao para fora. O centro da cidade da demo sai
+    // da tabela fixa que a semeadura ja usa (`coordenadaDaSedeNaDemo`).
+    const coords = emModoDemo()
+      ? coordenadaDaSedeNaDemo(p.addressCity)
+      : await geocodeAddress(
+        [p.addressStreet, p.addressNumber].filter(Boolean).join(", "),
+        p.addressCity,
+        uf || "",
+        p.addressZip || undefined,
+      ).catch(() => null)
+        ?? await geocodeCity(p.addressCity, uf || "").catch(() => null);
 
     const naArea = (area.cidades ?? []).some(
       c => normalizarCidade(c) === normalizarCidade(p.addressCity),

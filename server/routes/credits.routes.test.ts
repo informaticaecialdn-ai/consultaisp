@@ -232,6 +232,33 @@ describe("GET /api/credits/orders/:id/asaas/pix", () => {
     expect(res.status).toBe(404);
     expect(asaasMock.getPixQrCode).not.toHaveBeenCalled();
   });
+
+  // O portao da compra vive dentro do handler de /purchase e nao alcanca esta
+  // rota: um pedido semeado com cobranca Asaas faria o "ver PIX" da
+  // demonstracao chamar o Asaas de verdade.
+  it("em modo demo recusa com 403 sem ler o pedido nem chamar o Asaas", async () => {
+    process.env.DEMO_MODE = "true";
+    try {
+      // Sem `mockResolvedValueOnce` aqui de proposito: a rota nao le o pedido
+      // em demonstracao, e um valor "once" nao consumido vazaria para o
+      // proximo teste que chama getCreditOrder.
+      const res = await fetch(`${base}/api/credits/orders/9/asaas/pix`);
+      expect(res.status).toBe(403);
+      expect((await res.json()).message).toContain("não é processado");
+      expect(storageMock.getCreditOrder).not.toHaveBeenCalled();
+      expect(asaasMock.getPixQrCode).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
+
+  it("fora do modo demo entrega o PIX do pedido do proprio provedor, como antes", async () => {
+    storageMock.getCreditOrder.mockResolvedValueOnce({ id: 9, providerId: 42, asaasChargeId: "pay_1" } as any);
+    const res = await fetch(`${base}/api/credits/orders/9/asaas/pix`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ payload: "y" });
+    expect(asaasMock.getPixQrCode).toHaveBeenCalledWith("pay_1");
+  });
 });
 
 describe("POST /api/admin/credit-orders/:id/release", () => {

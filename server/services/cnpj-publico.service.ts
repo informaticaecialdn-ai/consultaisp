@@ -17,6 +17,8 @@
  * seria complexidade para um caminho que quase nunca repete.
  */
 import { logger } from "../logger";
+import { emModoDemo } from "../demo/modo-demo";
+import { empresaPublicaSimulada } from "../demo/cnpj-simulado";
 
 export interface SocioPublico {
   nome: string;
@@ -237,6 +239,11 @@ export function dataEmIso(bruto: string | null | undefined): string {
 export async function consultarCnpjPublico(cnpjBruto: string): Promise<EmpresaPublica | null> {
   const cnpj = normalizarCnpj(cnpjBruto);
   if (!cnpj) return null;
+
+  // Na demonstração pública o CNPJ é o inventado do sandbox: perguntar às
+  // três fontes seria tráfego para terceiros por clique de visitante, e a
+  // resposta seria sempre "recusou". O cadastro sai local, sem rede.
+  if (emModoDemo()) return empresaPublicaSimulada(cnpj);
 
   const recusas: string[] = [];
 

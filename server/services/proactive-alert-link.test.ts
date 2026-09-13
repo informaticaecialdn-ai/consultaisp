@@ -10,7 +10,7 @@
  * A regra agora e a mesma do e-mail de verificacao e do de reset: o endereco
  * vem do PROVEDOR dono do alerta (`urlDeEntrada`), nao da base da marca.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.hoisted(() => {
   delete process.env.APP_URL;
@@ -130,6 +130,47 @@ it("desligar canais mantém o aviso na tela sem enviar mensagens", async () => {
   expect(emailMock.sendProactiveAlertEmail).not.toHaveBeenCalled();
   expect(zapiMock.sendText).not.toHaveBeenCalled();
 });
+/**
+ * Na demonstração pública o telefone de contato e o webhook do provedor são
+ * o que o VISITANTE cadastrou no sandbox. O alerta continua gravado (é o que a
+ * tela lê), mas WhatsApp e webhook não saem. O e-mail já é mudo em demonstração
+ * dentro de `email.ts` — aqui ele está mockado e fica fora da conta.
+ */
+describe("alerta de fuga: canais externos na demonstracao", () => {
+  const COM_WEBHOOK = { ...PROVEDOR_DONO, proactiveAlertWebhookUrl: "https://203.0.113.10/hook" };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.DEMO_MODE;
+  });
+
+  it("DEMO ligado: grava o alerta, e nem WhatsApp nem webhook saem", async () => {
+    process.env.DEMO_MODE = "true";
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    storageMock.getProvider.mockImplementation(async (id: number) => id === DONO ? COM_WEBHOOK : { id, name: "Outro" });
+
+    await notifyOwnerProviders("12345678901", CLIENTE_AO_VIVO, CONSULENTE);
+
+    expect(storageMock.createAlert).toHaveBeenCalledOnce();
+    expect(zapiMock.sendText).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(storageMock.createProactiveAlert).toHaveBeenCalledWith(expect.objectContaining({ channel: "email" }));
+  });
+
+  it("DEMO desligado: o mesmo provedor recebe WhatsApp e webhook, como antes", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    storageMock.getProvider.mockImplementation(async (id: number) => id === DONO ? COM_WEBHOOK : { id, name: "Outro" });
+
+    await notifyOwnerProviders("12345678901", CLIENTE_AO_VIVO, CONSULENTE);
+
+    expect(zapiMock.sendText).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("https://203.0.113.10/hook", expect.objectContaining({ method: "POST" }));
+    expect(storageMock.createProactiveAlert).toHaveBeenCalledWith(expect.objectContaining({ channel: "email,zap,hook" }));
+  });
+});
+
 it("não substitui preferências por padrões quando a leitura das regras falha", async () => {
   storageMock.getAntiFraudRules.mockRejectedValueOnce(new Error("indisponível"));
   await notifyOwnerProviders("12345678901", CLIENTE_AO_VIVO, CONSULENTE);

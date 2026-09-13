@@ -185,3 +185,44 @@ describe("enviarWebhookDoAlerta", () => {
     expect(enviou).toBe(false);
   });
 });
+
+/**
+ * Na demonstração pública o endereço do webhook é cadastrado pelo VISITANTE.
+ * Nada sai: nem o POST, nem a validação (que resolve o nome no DNS). O
+ * endereço usado é o mesmo que, fora da demonstração, dispara de verdade.
+ */
+describe("enviarWebhookDoAlerta e o modo demonstracao", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.DEMO_MODE;
+  });
+
+  it("DEMO ligado: endereco externo valido NAO dispara, devolve false e o log diz que o canal foi suprimido", async () => {
+    process.env.DEMO_MODE = "true";
+    loggerMock.info.mockClear();
+    loggerMock.error.mockClear();
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const enviou = await enviarWebhookDoAlerta({ id: 7, proactiveAlertWebhookUrl: "https://203.0.113.10/hook" }, { evento: "proactive_alert" });
+
+    expect(enviou).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 7, channel: "webhook" }),
+      expect.stringMatching(/suprimido na demonstração/),
+    );
+    // A validacao nem chegou a rodar: nenhuma recusa logada.
+    expect(loggerMock.error).not.toHaveBeenCalled();
+  });
+
+  it("DEMO desligado: o mesmo endereco dispara, como antes", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const enviou = await enviarWebhookDoAlerta({ id: 7, proactiveAlertWebhookUrl: "https://203.0.113.10/hook" }, { evento: "proactive_alert" });
+
+    expect(enviou).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

@@ -18,6 +18,12 @@
  * telas: "Dados reais" SÓ quando a leitura ao vivo respondeu e encontrou este
  * cliente; senão diz "Base sincronizada" e mostra a data da varredura. Nunca
  * "dados reais" sobre base sincronizada.
+ *
+ * Na demonstração pública (`demoMode` de `useAuth`, projeção de `emModoDemo()`
+ * no servidor) o selo diz "Dados fictícios": ali a leitura "ao vivo" responde
+ * de verdade, só que pelo conector de demonstração — "Dados reais" sobre um
+ * sandbox inventado seria a mesma mentira, do outro lado. Quem decide é o
+ * sinal do servidor, nunca o `erpSource` que chegou ao client.
  */
 // `jsx: preserve` no tsconfig: fora do Vite (o vitest, que renderiza este bloco
 // em SSR para provar a regra do dado) o esbuild compila para `React.createElement`.
@@ -51,10 +57,15 @@ export function quandoBr(iso: string | null | undefined): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
+export const TITULO_DEMONSTRACAO =
+  "Demonstração pública: os clientes, valores e aparelhos desta conta são fictícios, criados para o teste. A leitura \"ao vivo\" vem do conector de demonstração, não de um ERP de provedor.";
+
 /**
  * A regra do selo de origem, isolada para poder ser provada:
  * ao vivo → "Dados reais"; varredura com data → "Base sincronizada · <data>";
  * sem data nenhuma → traço, nunca um rótulo que afirme medição.
+ * Na demonstração, qualquer um dos três vira "Dados fictícios" — a data e o
+ * `aoVivo` continuam os da regra de sempre, só o que o selo AFIRMA muda.
  */
 export function origemDoDado(entrada: {
   aoVivo: boolean;
@@ -62,10 +73,16 @@ export function origemDoDado(entrada: {
   lidoEm?: string | null;
   motivo?: string | null;
   nota?: string | null;
+  /** `demoMode` de `useAuth` — nunca deduzido do `erpSource`. */
+  demonstracao?: boolean;
 }): OrigemDoDado {
   const quando = quandoBr(entrada.lidoEm);
   const erp = entrada.erpSource ? entrada.erpSource.toUpperCase() : "ERP";
   const nota = entrada.nota ? ` ${entrada.nota}` : "";
+  if (entrada.demonstracao === true) {
+    const real = origemDoDado({ ...entrada, demonstracao: false });
+    return { ...real, rotulo: "Dados fictícios", tom: "info", titulo: `${TITULO_DEMONSTRACAO}${nota}` };
+  }
   if (entrada.aoVivo && quando) {
     return {
       aoVivo: true,
@@ -92,15 +109,16 @@ export function origemDoSnapshot(
   snapshot: SnapshotAoVivo | undefined,
   varredura?: { erpSource?: string | null; lidoEm?: string | null },
   nota?: string,
+  demonstracao?: boolean,
 ): OrigemDoDado {
   const respondeu = !!snapshot?.ok && !!snapshot.encontrado && !!snapshot.lidoEm;
-  if (respondeu) return origemDoDado({ aoVivo: true, erpSource: snapshot!.erpSource, lidoEm: snapshot!.lidoEm, nota });
+  if (respondeu) return origemDoDado({ aoVivo: true, erpSource: snapshot!.erpSource, lidoEm: snapshot!.lidoEm, nota, demonstracao });
   const motivo = !snapshot
     ? "ainda não respondeu"
     : !snapshot.ok
       ? (snapshot.erro ?? "o ERP não respondeu")
       : "o ERP respondeu, mas não encontrou este cliente";
-  return origemDoDado({ aoVivo: false, erpSource: varredura?.erpSource, lidoEm: varredura?.lidoEm, motivo, nota });
+  return origemDoDado({ aoVivo: false, erpSource: varredura?.erpSource, lidoEm: varredura?.lidoEm, motivo, nota, demonstracao });
 }
 
 export function SeloOrigem({ origem, testId }: { origem: OrigemDoDado; testId?: string }) {
@@ -285,12 +303,15 @@ export function IdentificacaoTecnica({
   equipamentos,
   varredura,
   statusContrato,
+  demonstracao,
 }: {
   snapshot?: SnapshotAoVivo;
   equipamentos: EquipamentoDoCliente[];
   /** Quando e por qual ERP a base foi varrida — é o que o selo mostra sem leitura ao vivo. */
   varredura?: { erpSource?: string | null; lidoEm?: string | null };
   statusContrato?: string | null;
+  /** `demoMode` de `useAuth`: o bloco é apresentação e não lê contexto — quem monta passa. */
+  demonstracao?: boolean;
 }) {
   const conexoes = snapshot?.cliente?.autenticacoes ?? [];
   const inventario: ItemDeInventario[] = equipamentos.map(e => ({
@@ -303,7 +324,7 @@ export function IdentificacaoTecnica({
     <BlocoConexao
       conexoes={conexoes}
       inventario={inventario}
-      origem={origemDoSnapshot(snapshot, varredura, "Serial, MAC, login e IP só existem na leitura ao vivo.")}
+      origem={origemDoSnapshot(snapshot, varredura, "Serial, MAC, login e IP só existem na leitura ao vivo.", demonstracao)}
       statusContrato={statusContrato}
       testId="identificacao-tecnica"
     />

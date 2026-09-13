@@ -27,6 +27,7 @@ import { logger } from "../logger";
 import { avaliarRiscoDeFuga, rotuloDoAlerta, severidadeDoAlerta, motivoPrincipal, type MotivoFuga } from "./antifraude-rules";
 import { montarRegras, type RegrasAntiFraude } from "@shared/antifraude-regras";
 import { validarWebhookExterno } from "../utils/webhook-validador";
+import { emModoDemo } from "../demo/modo-demo";
 
 export type StatusContrato = "active" | "cancelled" | "suspended";
 
@@ -246,6 +247,20 @@ export async function enviarWebhookDoAlerta(
   const webhookUrl = ownerProvider.proactiveAlertWebhookUrl;
   if (!webhookUrl) return false;
 
+  // Na demonstração pública o endereço é cadastrado pelo VISITANTE, na aba
+  // Anti-Fraude do sandbox dele. O desvio vem antes até da validação, porque
+  // `validarWebhookExterno` resolve o nome no DNS — e uma consulta DNS a um
+  // domínio escolhido pelo visitante já é tráfego saindo da demonstração. O
+  // alerta segue gravado (quem chama já gravou antes de chegar aqui); só o
+  // canal fica de fora, e o log diz isso.
+  if (emModoDemo()) {
+    logger.info(
+      { providerId: ownerProvider.id, channel: "webhook" },
+      "Alerta de fuga: webhook suprimido na demonstração — o alerta fica gravado, nada sai para fora",
+    );
+    return false;
+  }
+
   const veredito = await validarWebhookExterno(webhookUrl);
   if (!veredito.ok) {
     logger.error(
@@ -401,7 +416,14 @@ export async function notifyOwnerProviders(
 
       // WhatsApp pela instancia da plataforma, para o telefone de contato do
       // provedor. So quando a Z-API esta configurada — sem ela, nada a fazer.
-      if (isZapiConfigured() && ownerProvider.contactPhone) {
+      // Na demonstracao o telefone de contato e o que o visitante cadastrou no
+      // sandbox: a instancia da plataforma mandaria mensagem a qualquer numero.
+      if (emModoDemo()) {
+        logger.info(
+          { providerId: ownerProvider.id, channel: "zap" },
+          "Alerta de fuga: WhatsApp suprimido na demonstração — o alerta fica gravado, nada sai para fora",
+        );
+      } else if (isZapiConfigured() && ownerProvider.contactPhone) {
         try {
           const texto =
             `Alerta anti-fraude · ${marca.nomeProduto}\n` +

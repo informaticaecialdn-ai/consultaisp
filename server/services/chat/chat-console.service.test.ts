@@ -58,6 +58,7 @@ beforeEach(() => {
   fake.tools = [];
   fake.skills = [];
   delete process.env.CHAT_BULLQ_TOOLS_HOSTS;
+  delete process.env.DEMO_MODE;
   vi.clearAllMocks();
 });
 
@@ -159,6 +160,21 @@ describe("console de agentes · conexões (tools)", () => {
     process.env.CHAT_BULLQ_TOOLS_HOSTS = "erp-do-provedor.com.br";
     await criarToolDoConsole(7, { nome: "ERP", descricao: "API do ERP", baseUrl: "https://api.erp-do-provedor.com.br/v1" });
     expect(client.criarTool).toHaveBeenCalled();
+  });
+
+  it("na demonstração a lista do ambiente não entra: nem vira destino liberado, nem chega ao navegador do visitante", async () => {
+    process.env.CHAT_BULLQ_TOOLS_HOSTS = "erp-do-provedor.com.br";
+    process.env.DEMO_MODE = "true";
+    expect(hostsPermitidosDasTools()).not.toContain("erp-do-provedor.com.br");
+    const { hostsPermitidos } = await listarToolsDoConsole(7);
+    expect(hostsPermitidos).not.toContain("erp-do-provedor.com.br");
+    await expect(criarToolDoConsole(7, { nome: "ERP", descricao: "API do ERP", baseUrl: "https://api.erp-do-provedor.com.br/v1" }))
+      .rejects.toThrow(/não liberado/);
+    expect(client.criarTool).not.toHaveBeenCalled();
+
+    // Só a string exata "true" liga a demonstração: fora dela, a lista do superadmin continua valendo.
+    process.env.DEMO_MODE = "1";
+    expect(hostsPermitidosDasTools()).toContain("erp-do-provedor.com.br");
   });
 
   it("a conexão da cobrança não se edita nem se apaga; conexão em uso também não", async () => {

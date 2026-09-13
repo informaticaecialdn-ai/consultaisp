@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { emModoDemo } from "../demo/modo-demo";
 
 // Modelo configurável via env var. Default = DeepSeek (compatível com OpenAI SDK).
 // Override possível: AI_ANALYSIS_MODEL="gpt-4o-mini" ou "deepseek-reasoner" etc.
@@ -228,10 +229,97 @@ ${customersText || "Nenhum cliente de risco critico"}
 Analise estes dados com foco no ciclo de migracao serial e forneca recomendacoes praticas.`;
 }
 
+/**
+ * O parecer SIMULADO da demonstração pública.
+ *
+ * A instância de demonstração não pode chamar o modelo: cada parecer custa
+ * token na conta da plataforma e o visitante clica quantas vezes quiser. Mas o
+ * botão "Analisar com IA" é parte do relatório, e sumir com ele esconde o
+ * recurso. Então o parecer é MONTADO do próprio resultado da consulta — score,
+ * decisão, penalidades, alertas, atraso, equipamento, ações sugeridas —, nas
+ * mesmas quatro seções que o prompt pede ao modelo, e sai pelo MESMO stream.
+ *
+ * Determinístico de propósito: o mesmo relatório dá sempre o mesmo texto, sem
+ * relógio e sem sorteio. A primeira linha diz que é simulado — um texto de
+ * aparência de IA numa carteira fictícia, sem aviso, lê como o produto real.
+ */
+export function parecerSimulado(data: ConsultationAnalysisData): string {
+  const decisao = data.decisionReco === "Accept" ? "aprovar" : data.decisionReco === "Review" ? "revisar" : "rejeitar";
+  const detalhes = data.providerDetails ?? [];
+  const comDivida = detalhes.filter(d => (d.daysOverdue ?? 0) > 0 || (d.overdueAmount ?? 0) > 0);
+  const maiorAtraso = detalhes.reduce((m, d) => Math.max(m, d.daysOverdue ?? 0), 0);
+  const outrosComDivida = comDivida.filter(d => !d.isSameProvider).length;
+  const comEquipamento = detalhes.filter(d => d.hasUnreturnedEquipment).length;
+
+  const linhas = [
+    "Parecer simulado da demonstração: montado a partir do próprio relatório acima, sem modelo de IA.",
+    "",
+    "RESUMO EXECUTIVO",
+  ];
+
+  if (data.notFound) {
+    linhas.push(
+      `Documento sem nenhum registro na base colaborativa dos provedores. Score ${data.score}; decisão sugerida: aprovar.`,
+      "",
+      "PRINCIPAIS FATORES DE RISCO",
+      "- Nenhuma ocorrência na rede — ausência de histórico não é prova de bom pagador.",
+      "",
+      "ANÁLISE DE PADRÃO",
+      "Sem atraso, sem equipamento pendente e sem passagem por outro provedor da rede.",
+      "",
+      "CONDIÇÕES RECOMENDADAS",
+      "- Contratação nas condições padrão.",
+      "- Confirmar identidade e endereço de instalação antes do agendamento.",
+    );
+    return linhas.join("\n");
+  }
+
+  const nome = detalhes[0]?.customerName || "O cliente";
+  linhas.push(
+    `${nome} tem score ISP ${data.score}${data.riskLabel ? ` (${data.riskLabel})` : ""} e decisão sugerida: ${decisao}. `
+      + `${detalhes.length} provedor(es) com registro, ${comDivida.length} com valor em aberto.`,
+    "",
+    "PRINCIPAIS FATORES DE RISCO",
+  );
+  const fatores = [
+    ...(data.penalties ?? []).map(p => `- ${p.reason} (${p.points} pontos)`),
+    ...(data.alerts ?? []).map(a => `- ${a}`),
+  ].slice(0, 5);
+  linhas.push(...(fatores.length > 0 ? fatores : ["- Nenhum fator de risco registrado no relatório."]));
+
+  linhas.push("", "ANÁLISE DE PADRÃO");
+  if (outrosComDivida >= 2) {
+    linhas.push(`Há dívida em ${outrosComDivida} outros provedores da rede: é o desenho do migrador serial, que deixa o débito para trás a cada troca.`);
+  } else if (comDivida.length > 0) {
+    linhas.push(`Há valor em aberto, com maior atraso de ${maiorAtraso} dia(s).`);
+  } else {
+    linhas.push("Sem atraso registrado nos provedores consultados.");
+  }
+  if (comEquipamento > 0) {
+    linhas.push(`Equipamento em comodato não devolvido em ${comEquipamento} provedor(es): o prejuízo não é só a mensalidade.`);
+  }
+
+  linhas.push("", "CONDIÇÕES RECOMENDADAS");
+  const acoes = (data.recommendedActions ?? []).slice(0, 5).map(a => `- ${a}`);
+  if (acoes.length > 0) linhas.push(...acoes);
+  else if (decisao === "aprovar") linhas.push("- Contratação nas condições padrão.");
+  else if (decisao === "revisar") linhas.push("- Exigir a primeira mensalidade na instalação.", "- Confirmar identidade e endereço antes do agendamento.");
+  else linhas.push("- Não contratar enquanto houver débito em aberto na rede.");
+
+  return linhas.join("\n");
+}
+
 export async function streamConsultationAnalysis(
   consultationData: ConsultationAnalysisData,
   onChunk: (text: string) => void
 ): Promise<void> {
+  // Na demonstração o SDK nem é instanciado: o parecer sai do próprio
+  // relatório, linha a linha, pelo mesmo `onChunk` que o stream do modelo usa.
+  if (emModoDemo()) {
+    for (const linha of parecerSimulado(consultationData).split("\n")) onChunk(`${linha}\n`);
+    return;
+  }
+
   const openai = getOpenAIClient();
   const prompt = buildConsultationPrompt(consultationData);
 
@@ -256,6 +344,13 @@ export async function streamAntiFraudAnalysis(
   customers: AntiFraudCustomer[],
   onChunk: (text: string) => void
 ): Promise<void> {
+  // Nenhuma tela chama esta analise hoje, mas a rota esta no ar para qualquer
+  // provedor logado — o visitante da demonstracao incluso. Recusa sem tocar o
+  // SDK; a rota transforma o erro no `data: { error }` do stream.
+  if (emModoDemo()) {
+    throw new Error("Nesta demonstração, a análise anti-fraude por IA não é processada.");
+  }
+
   const openai = getOpenAIClient();
   const prompt = buildAntiFraudPrompt(alerts, customers);
 

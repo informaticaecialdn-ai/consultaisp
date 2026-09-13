@@ -165,9 +165,6 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   } catch (err) {
     logger.warn({ err }, "[Worker] Reconciliação de confissões failed to start");
   }
-  const { iniciarPrimeirosContatos, pararPrimeirosContatos } = await import("./services/chat/chat-primeiro-contato.service");
-  iniciarPrimeirosContatos();
-
   // A limpeza de sandboxes da demonstração pública: só faz sentido na
   // instância de demonstração, ao contrário das agendas acima (que rodam
   // sempre, produção incluída) — por isso a checagem fica na CHAMADA, não
@@ -225,6 +222,30 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
       );
     }
   }
+
+  /*
+   * Primeiros contatos e autonomia do chat NÃO rodam na demonstração (leva de
+   * 12/09/2026, Frente A). O chat simulado deixa a integração do sandbox
+   * "pronta" — canal conectado, conversas abertas —, que é justamente o estado
+   * que estes dois laços procuram para agir: sem esta guarda, um visitante que
+   * liga o envio automático em `PUT /api/chat-bullq/automacao` põe a fila para
+   * trabalhar em cima do sandbox a cada passada.
+   *
+   * Por isso a detecção de `emModoDemo`, logo acima, vem ANTES destes starts —
+   * até 12/09 ela ficava depois da linha que ligava os primeiros contatos. Os
+   * `import`s continuam incondicionais porque o `shutdown` chama
+   * `pararPrimeirosContatos()` e `pararAutonomia()` sempre, e parar o que nunca
+   * ligou é inofensivo (sem timer e sem passada em voo). Mesma leitura
+   * `?.() !== true` das outras chamadas: se a detecção falhar, os laços ligam,
+   * como em produção.
+   */
+  const { iniciarPrimeirosContatos, pararPrimeirosContatos } = await import("./services/chat/chat-primeiro-contato.service");
+  if (emModoDemo?.() !== true) {
+    iniciarPrimeirosContatos();
+  } else {
+    logger.info("[Worker] Primeiros contatos do chat: desligados na demonstração");
+  }
+
   /*
    * A autonomia do chat confere se as tabelas da 0028 existem antes de ligar o
    * laço de 3 s — `verifySchema` acima não as cobre porque o chat é opcional.
@@ -262,7 +283,12 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
     timerDaAutonomia = setTimeout(() => { void tentarLigarAutonomia(); }, ESPERA_ENTRE_TENTATIVAS_MS);
     timerDaAutonomia.unref();
   };
-  await tentarLigarAutonomia();
+  // Fora da demonstração — ver o comentário antes dos primeiros contatos.
+  if (emModoDemo?.() !== true) {
+    await tentarLigarAutonomia();
+  } else {
+    logger.info("[Worker] Autonomia do chat: desligada na demonstração");
+  }
 
   /**
    * Espera o sync em voo antes de fechar o pool.

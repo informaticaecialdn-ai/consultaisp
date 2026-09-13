@@ -36,6 +36,8 @@ import { drizzle } from "drizzle-orm/pg-proxy";
 import {
   providers, users, customers, invoices, equipment, erpIntegrations,
   cobrancaCasos, antiFraudAlerts,
+  cobrancaPolitica, cobrancaEventos, equipmentRecoveryCases, equipmentRecoveryEvents,
+  chatBullqIntegracoes, chatBullqConversas,
 } from "@shared/schema";
 import { criarSandbox } from "./sandbox.service";
 import { semearMundoBase, PROVEDORES_DA_DEMO } from "./mundo-base";
@@ -49,8 +51,16 @@ import { decryptField } from "../utils/crypto";
 // Efeito colateral: com DEMO_MODE=true (acima), registra o conector "demo" no registry.
 import "../erp/connectors/demo";
 
-/** As oito tabelas que `semearMundoBase()` + `criarSandbox()` escrevem — ver os dois arquivos. */
-const TABELAS = [providers, users, customers, invoices, equipment, erpIntegrations, cobrancaCasos, antiFraudAlerts];
+/**
+ * As tabelas que `semearMundoBase()` + `criarSandbox()` escrevem — ver os dois
+ * arquivos. As seis da segunda linha entraram com a semeadura de "todos os
+ * recursos" (política com custos, recuperações, chat): este arquivo não as lê,
+ * mas sem o mapa de colunas o INSERT delas estoura antes de o sandbox existir.
+ */
+const TABELAS = [
+  providers, users, customers, invoices, equipment, erpIntegrations, cobrancaCasos, antiFraudAlerts,
+  cobrancaPolitica, cobrancaEventos, equipmentRecoveryCases, equipmentRecoveryEvents, chatBullqIntegracoes, chatBullqConversas,
+];
 const chavePorColuna = new Map(
   TABELAS.map((t) => [
     getTableName(t),

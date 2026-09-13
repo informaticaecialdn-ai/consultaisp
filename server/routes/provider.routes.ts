@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
+import { emModoDemo } from "../demo/modo-demo";
 import { hashPassword } from "../password";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { sanitizeFilename } from "../utils/filename-sanitizer";
@@ -856,7 +857,12 @@ export function registerProviderRoutes(): Router {
       // endereço sozinho, em toda consulta que casar a regra — sem a checagem
       // aqui, o único ponto de entrada seria confiar que o teste (abaixo) foi
       // chamado antes, e nada obriga isso.
-      if (webhookUrl) {
+      //
+      // Na demonstração pública a validação fica de fora: ela resolve no DNS o
+      // domínio que o VISITANTE digitou, e essa consulta já é tráfego saindo da
+      // demonstração. Gravar sem resolver não abre nada — o disparo é suprimido
+      // em `enviarWebhookDoAlerta` antes de qualquer rede.
+      if (webhookUrl && !emModoDemo()) {
         const veredito = await validarWebhookExterno(webhookUrl);
         if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
       }
@@ -877,6 +883,13 @@ export function registerProviderRoutes(): Router {
     try {
       const { webhookUrl } = req.body;
       if (!webhookUrl) return res.status(400).json({ message: "URL do webhook obrigatoria" });
+      // O visitante da demonstração é admin do próprio sandbox, então passa
+      // pela trava acima — e esta rota faria o servidor da demo resolver e
+      // chamar um endereço escolhido por ele. A recusa vem antes da validação
+      // (que já consulta o DNS) e do fetch.
+      if (emModoDemo()) {
+        return res.status(403).json({ message: "Nesta demonstração, o teste de webhook não chama nenhum endereço externo." });
+      }
       const veredito = await validarWebhookExterno(webhookUrl);
       if (!veredito.ok) return res.status(400).json({ message: veredito.motivo });
 

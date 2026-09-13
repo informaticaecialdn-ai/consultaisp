@@ -29,6 +29,16 @@ interface NfseResult {
   erros?: Array<{ mensagem: string }>;
 }
 
+/**
+ * O selo do ambiente no cabeçalho. Na demonstração pública o servidor responde
+ * `environment: "demonstracao"` e emite nota simulada; cair no "HOMOLOGACAO"
+ * de antes faria a nota de mentira parecer homologação real da Focus.
+ */
+export function seloDoAmbienteNfse(environment: string | null | undefined): { rotulo: string; simulado: boolean } {
+  if (environment === "demonstracao") return { rotulo: "DEMONSTRACAO", simulado: true };
+  return { rotulo: environment === "producao" ? "PRODUCAO" : "HOMOLOGACAO", simulado: false };
+}
+
 export default function NfsePage() {
   const { provider } = useAuth();
   const { toast } = useToast();
@@ -140,10 +150,15 @@ export default function NfsePage() {
             Emissao de NFS-e via Focus NFe — Prefeitura de Sao Paulo
             {config && (
               <span className="ml-2 text-xs font-bold px-1.5 py-0.5 rounded bg-[var(--color-tag-bg)]">
-                {config.environment === "producao" ? "PRODUCAO" : "HOMOLOGACAO"}
+                {seloDoAmbienteNfse(config.environment).rotulo}
               </span>
             )}
           </p>
+          {config && seloDoAmbienteNfse(config.environment).simulado && (
+            <p className="text-xs text-[var(--color-muted)] mt-1" data-testid="nfse-aviso-demonstracao">
+              Ambiente de demonstração: as notas emitidas aqui são simuladas — nada vai para a Focus NFe nem para a prefeitura.
+            </p>
+          )}
         </div>
       </div>
 

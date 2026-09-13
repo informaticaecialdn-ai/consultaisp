@@ -28,6 +28,8 @@ import { storage } from "../../storage";
 import type { StatusDeIntegracaoDoChat } from "../../storage/chat-bullq.storage";
 import { ChatBullqClient, normalizarTelefoneParaChat, type Resultado } from "./chat-bullq.client";
 import { comTravaDoChat } from "./chat-trava";
+import { emModoDemo } from "../../demo/modo-demo";
+import { fetchDoChatSimulado, URL_DO_CHAT_SIMULADO } from "../../demo/chat-simulado";
 
 export const URL_DO_INBOX_PADRAO = "https://chat.consultaisp.com.br/inbox";
 
@@ -44,6 +46,14 @@ function umaOperacao<T>(chave: string, executar: () => Promise<T>): Promise<T> {
 /** O cliente HTTP, montado do ambiente uma vez. `null` = chat desligado nesta instalacao. */
 export function clienteDoChat(): ChatBullqClient | null {
   if (clienteSingleton !== undefined) return clienteSingleton;
+  // Na demonstracao publica o chat e o simulado, decidido ANTES de ler o
+  // ambiente: um CHAT_BULLQ_URL esquecido no .env da instancia de demo nao
+  // pode levar a conversa de um visitante ao fork real nem ao WhatsApp. O
+  // cliente continua o de verdade — so o `fetch` e local.
+  if (emModoDemo()) {
+    clienteSingleton = new ChatBullqClient({ baseUrl: URL_DO_CHAT_SIMULADO, platformKey: "demo", fetchImpl: fetchDoChatSimulado });
+    return clienteSingleton;
+  }
   const baseUrl = (process.env.CHAT_BULLQ_URL || "").trim();
   const platformKey = (process.env.CHAT_BULLQ_PLATFORM_KEY || "").trim();
   clienteSingleton = baseUrl && platformKey ? new ChatBullqClient({ baseUrl, platformKey }) : null;
@@ -56,6 +66,10 @@ export function _usarClienteDoChatParaTestes(c: ChatBullqClient | null | undefin
 }
 
 export function urlDoInbox(): string {
+  // Na demonstracao nao existe inbox externo: o padrao levaria o visitante ao
+  // inbox de PRODUCAO, e CHAT_BULLQ_* nao se le no caminho demo. Vazio = a tela
+  // esconde o link (ela so desenha "abrir o inbox" com URL preenchida).
+  if (emModoDemo()) return "";
   return (process.env.CHAT_BULLQ_INBOX_URL || URL_DO_INBOX_PADRAO).replace(/\/+$/, "");
 }
 
@@ -105,6 +119,9 @@ export async function estadoDaIntegracao(providerId: number): Promise<EstadoDaIn
 }
 
 function urlPublicaDoWebhookDatafy(): string | null {
+  // O mesmo CHAT_BULLQ_URL esquecido no .env da demo que `clienteDoChat` teme:
+  // na demonstracao a URL do fork real nunca vai para a tela do visitante.
+  if (emModoDemo()) return null;
   try {
     const base = new URL(process.env.CHAT_BULLQ_PUBLIC_URL || process.env.CHAT_BULLQ_URL || "");
     if (base.protocol !== "https:" || base.username || base.password) return null;
@@ -279,11 +296,17 @@ export async function definirSenhaDoInbox(providerId: number, senha: string): Pr
 
 /* ── O agente de cobranca do provedor (no Chat BullQ) ──────────────────── */
 
+// Na demonstracao as duas URLs sao fixas e inertes, no host do chat simulado
+// (`.invalid` nunca resolve), e CHAT_BULLQ_* nao se le: um valor esquecido no
+// .env da instancia de demo iria para a automacao guardada na memoria do
+// simulado e para a lista de hosts que o console mostra ao visitante.
 export function urlDaApiDoAgente(): string {
+  if (emModoDemo()) return `${URL_DO_CHAT_SIMULADO}/api/chat-bullq/agente`;
   return (process.env.CHAT_BULLQ_AGENTE_URL || "https://consultaisp.com.br/api/chat-bullq/agente").replace(/\/+$/, "");
 }
 
 export function urlDoWebhookDeVolta(): string {
+  if (emModoDemo()) return `${URL_DO_CHAT_SIMULADO}/api/webhooks/chat-bullq`;
   return (process.env.CHAT_BULLQ_WEBHOOK_URL || "https://consultaisp.com.br/api/webhooks/chat-bullq").replace(/\/+$/, "");
 }
 

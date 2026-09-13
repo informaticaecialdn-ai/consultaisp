@@ -43,10 +43,14 @@ vi.mock("../../storage", () => ({
   },
 }));
 
+import { ChatBullqClient } from "./chat-bullq.client";
+import { storage } from "../../storage";
 import {
-  _usarClienteDoChatParaTestes, configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarRecuperacaoParaChat, ErroDaPonteDoChat,
-  estadoDaIntegracao, garantirIntegracao, garantirAgenteDeCobranca, mensagemDeCobranca, mensagemDeRecuperacao,
+  _usarClienteDoChatParaTestes, clienteDoChat, configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarRecuperacaoParaChat, ErroDaPonteDoChat,
+  estadoDaIntegracao, garantirIntegracao, garantirAgenteDeCobranca, garantirTransferenciaNaResposta, mensagemDeCobranca, mensagemDeRecuperacao,
+  urlDaApiDoAgente, urlDoWebhookDeVolta,
 } from "./chat-ponte.service";
+import { limparChatSimuladoDoProvedor, URL_DO_CHAT_SIMULADO } from "../../demo/chat-simulado";
 
 function clienteFalso(sobrescritas: Record<string, any> = {}) {
   const c = {
@@ -469,5 +473,216 @@ describe("as mensagens modelo", () => {
   it("retirada: cita o equipamento quando conhecido", () => {
     expect(mensagemDeRecuperacao({ nomeCliente: "Joao P", nomeProvedor: "NsLink", equipamento: "ONU Huawei" })).toContain("retirada do ONU Huawei");
     expect(mensagemDeRecuperacao({ nomeCliente: "Joao P", nomeProvedor: "NsLink", equipamento: null })).toContain("retirada do equipamento");
+  });
+});
+
+describe("clienteDoChat e a demonstracao publica", () => {
+  const VARIAVEIS = ["DEMO_MODE", "CHAT_BULLQ_URL", "CHAT_BULLQ_PLATFORM_KEY"] as const;
+
+  /** Roda com o ambiente dado e o singleton zerado; devolve os dois como estavam, passe ou falhe. */
+  async function comAmbiente(valores: Partial<Record<(typeof VARIAVEIS)[number], string>>, executar: () => Promise<void>) {
+    const antes = Object.fromEntries(VARIAVEIS.map(v => [v, process.env[v]]));
+    for (const v of VARIAVEIS) { if (valores[v] === undefined) delete process.env[v]; else process.env[v] = valores[v]; }
+    _usarClienteDoChatParaTestes(undefined);
+    try { await executar(); } finally {
+      for (const v of VARIAVEIS) { if (antes[v] === undefined) delete process.env[v]; else process.env[v] = antes[v]; }
+      _usarClienteDoChatParaTestes(undefined);
+    }
+  }
+
+  it("com DEMO_MODE ligado: o cliente REAL com o fetch simulado, mesmo sem CHAT_BULLQ_* e mesmo com ele apontando para o fork", async () => {
+    const rede = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("a demonstracao nao pode tocar a rede"); });
+    try {
+      await comAmbiente({ DEMO_MODE: "true" }, async () => {
+        const c = clienteDoChat();
+        expect(c).toBeInstanceOf(ChatBullqClient);
+        expect(clienteDoChat()).toBe(c);
+        expect(await c!.listarCanais("demo-org-6")).toEqual({ ok: true, valor: [{ id: "demo-canal", type: "WHATSAPP_ZAPPFY", name: "WhatsApp da Demonstração", isActive: true }] });
+      });
+      await comAmbiente({ DEMO_MODE: "true", CHAT_BULLQ_URL: "https://chat-real.invalid", CHAT_BULLQ_PLATFORM_KEY: "chave-real" }, async () => {
+        expect(await clienteDoChat()!.testarCanal("demo-org-6", "demo-canal")).toEqual({ ok: true, valor: { ok: true } });
+      });
+      expect(rede).not.toHaveBeenCalled();
+    } finally {
+      rede.mockRestore();
+    }
+  });
+
+  it("com DEMO_MODE desligado: volta ao ambiente — sem variaveis e null; com elas, fala pelo fetch global com a URL configurada", async () => {
+    const rede = vi.spyOn(globalThis, "fetch").mockImplementation(async (entrada) => new Response(
+      JSON.stringify(String(entrada).includes("/token") ? { accessToken: "a", refreshToken: "r" } : []), { status: 200 },
+    ));
+    try {
+      await comAmbiente({}, async () => {
+        expect(clienteDoChat()).toBeNull();
+      });
+      await comAmbiente({ DEMO_MODE: "1", CHAT_BULLQ_URL: "https://chat-real.invalid", CHAT_BULLQ_PLATFORM_KEY: "chave-real" }, async () => {
+        const c = clienteDoChat();
+        expect(c).toBeInstanceOf(ChatBullqClient);
+        expect(await c!.listarCanais("org_1")).toEqual({ ok: true, valor: [] });
+      });
+      expect(rede.mock.calls.map(([url]) => String(url))).toEqual([
+        "https://chat-real.invalid/api/v1/platform/organizations/org_1/token",
+        "https://chat-real.invalid/api/v1/channels",
+      ]);
+    } finally {
+      rede.mockRestore();
+    }
+  });
+});
+
+/**
+ * O que a tela de integração recebe na demonstração. O visitante nunca pode
+ * ser mandado ao inbox de PRODUÇÃO nem ver a URL do fork real — mesmo com
+ * CHAT_BULLQ_* esquecido no .env da instância de demo. A senha do inbox é
+ * recusada (não existe inbox), e o Datafy, que exige template, é recusado antes
+ * de gravar qualquer coisa. Fora da demonstração, o ambiente volta a valer.
+ */
+describe("a integração do chat na demonstração não expõe o ambiente nem finge o que não existe", () => {
+  const VARIAVEIS = ["DEMO_MODE", "CHAT_BULLQ_URL", "CHAT_BULLQ_PLATFORM_KEY", "CHAT_BULLQ_INBOX_URL", "CHAT_BULLQ_PUBLIC_URL"] as const;
+  const AMBIENTE_REAL = {
+    CHAT_BULLQ_URL: "https://chat-real.invalid",
+    CHAT_BULLQ_INBOX_URL: "https://inbox-real.invalid/inbox",
+    CHAT_BULLQ_PUBLIC_URL: "https://chat-publico-real.invalid",
+  };
+
+  async function comAmbiente(valores: Partial<Record<(typeof VARIAVEIS)[number], string>>, executar: () => Promise<void>) {
+    const antes = Object.fromEntries(VARIAVEIS.map(v => [v, process.env[v]]));
+    for (const v of VARIAVEIS) { if (valores[v] === undefined) delete process.env[v]; else process.env[v] = valores[v]; }
+    _usarClienteDoChatParaTestes(undefined);
+    try { await executar(); } finally {
+      for (const v of VARIAVEIS) { if (antes[v] === undefined) delete process.env[v]; else process.env[v] = antes[v]; }
+      _usarClienteDoChatParaTestes(undefined);
+    }
+  }
+
+  const integracaoDaDemo = () => ({ id: 1, providerId: 6, organizationId: "demo-org-6", slug: "sandbox-x", ownerEmail: "sandbox-x@demo.consultaisp.com.br", canalId: "demo-canal", canalNome: "WhatsApp da Demonstração", status: "ativo", agenteConfig: { whatsapp: { provider: "DATAFY" } } });
+
+  it("DEMO_MODE: inbox e webhook Datafy vazios, e nenhum valor de CHAT_BULLQ_* sai na resposta", async () => {
+    const rede = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("a demonstracao nao pode tocar a rede"); });
+    try {
+      await comAmbiente({ DEMO_MODE: "true", ...AMBIENTE_REAL }, async () => {
+        fake.integracao = integracaoDaDemo();
+        const estado = await estadoDaIntegracao(6);
+        expect(estado.inboxUrl).toBe("");
+        expect(estado.webhookDatafyUrl).toBeNull();
+        const texto = JSON.stringify(estado);
+        for (const valor of Object.values(AMBIENTE_REAL)) expect(texto).not.toContain(new URL(valor).host);
+        expect(texto).not.toContain("chat.consultaisp.com.br");
+      });
+      expect(rede).not.toHaveBeenCalled();
+    } finally {
+      rede.mockRestore();
+    }
+  });
+
+  it("DEMO_MODE: a senha do inbox é recusada pelo simulado, sem rede", async () => {
+    const rede = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("a demonstracao nao pode tocar a rede"); });
+    try {
+      await comAmbiente({ DEMO_MODE: "true", ...AMBIENTE_REAL }, async () => {
+        fake.integracao = integracaoDaDemo();
+        await expect(definirSenhaDoInbox(6, "uma-senha-bem-comprida")).rejects.toMatchObject({ codigo: "CHAT_FALHOU", message: expect.stringMatching(/inbox externo não existe na demonstração/) });
+      });
+      expect(rede).not.toHaveBeenCalled();
+    } finally {
+      rede.mockRestore();
+    }
+  });
+
+  it("DEMO_MODE: canal Datafy (e Uazapi) recusado antes de gravar — o simulado não tem template para abrir conversa", async () => {
+    const rede = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("a demonstracao nao pode tocar a rede"); });
+    try {
+      await comAmbiente({ DEMO_MODE: "true" }, async () => {
+        fake.integracao = integracaoDaDemo();
+        await expect(configurarCanalWhatsapp(6, { provider: "DATAFY", nome: "Oficial", token: "sk_live_ficticio", phoneNumberId: "123456789", webhookSecret: "whsec_ficticio" } as never)).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE" });
+        await expect(configurarCanalWhatsapp(6, { provider: "UAZAPI", nome: "Instância", token: "token-ficticio", baseUrl: "https://uazapi.invalid" } as never)).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE" });
+        expect(storage.marcarEstadoDaIntegracaoDoChat).not.toHaveBeenCalled();
+        expect(storage.guardarAgenteDoChat).not.toHaveBeenCalled();
+      });
+      expect(rede).not.toHaveBeenCalled();
+    } finally {
+      rede.mockRestore();
+    }
+  });
+
+  it("sem DEMO_MODE: inbox e webhook Datafy saem do ambiente, como antes", async () => {
+    await comAmbiente({ DEMO_MODE: "1", ...AMBIENTE_REAL }, async () => {
+      fake.integracao = integracaoDaDemo();
+      const estado = await estadoDaIntegracao(6);
+      expect(estado.inboxUrl).toBe("https://inbox-real.invalid/inbox");
+      expect(estado.webhookDatafyUrl).toBe("https://chat-publico-real.invalid/api/v1/webhooks/WHATSAPP_OFFICIAL");
+    });
+  });
+});
+
+/**
+ * As duas URLs que a ponte grava no chat: a base da API do agente (o console
+ * libera o host dela e marca a conexao da ponte) e o webhook de volta da
+ * automacao de resposta. Na demonstracao sao fixas no host do chat simulado e
+ * CHAT_BULLQ_* nao se le — um valor esquecido no .env da demo nao chega a
+ * automacao guardada na memoria do simulado. Fora dela, vale o de antes.
+ */
+describe("URL da API do agente e do webhook de volta na demonstracao", () => {
+  const VARIAVEIS = ["DEMO_MODE", "CHAT_BULLQ_AGENTE_URL", "CHAT_BULLQ_WEBHOOK_URL"] as const;
+  const AMBIENTE_REAL = {
+    CHAT_BULLQ_AGENTE_URL: "https://agente-real.invalid/api/chat-bullq/agente/",
+    CHAT_BULLQ_WEBHOOK_URL: "https://webhook-real.invalid/api/webhooks/chat-bullq/",
+  };
+
+  async function comAmbiente(valores: Partial<Record<(typeof VARIAVEIS)[number], string>>, executar: () => Promise<void>) {
+    const antes = Object.fromEntries(VARIAVEIS.map(v => [v, process.env[v]]));
+    for (const v of VARIAVEIS) { if (valores[v] === undefined) delete process.env[v]; else process.env[v] = valores[v]; }
+    _usarClienteDoChatParaTestes(undefined);
+    try { await executar(); } finally {
+      for (const v of VARIAVEIS) { if (antes[v] === undefined) delete process.env[v]; else process.env[v] = antes[v]; }
+      _usarClienteDoChatParaTestes(undefined);
+    }
+  }
+
+  const integracaoSemAutomacao = () => ({ id: 1, providerId: 6, organizationId: "demo-org-6", slug: "sandbox-x", ownerEmail: "sandbox-x@demo.consultaisp.com.br", canalId: "demo-canal", canalNome: "WhatsApp da Demonstração", status: "ativo", webhookSecret: null, agenteConfig: {} });
+
+  it("DEMO_MODE: fixas no host do chat simulado, mesmo com CHAT_BULLQ_* apontando para fora", async () => {
+    await comAmbiente({ DEMO_MODE: "true", ...AMBIENTE_REAL }, async () => {
+      expect(urlDaApiDoAgente()).toBe(`${URL_DO_CHAT_SIMULADO}/api/chat-bullq/agente`);
+      expect(urlDoWebhookDeVolta()).toBe(`${URL_DO_CHAT_SIMULADO}/api/webhooks/chat-bullq`);
+    });
+  });
+
+  it("DEMO_MODE: a automacao de resposta guardada no simulado leva o webhook local, sem rede", async () => {
+    const rede = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("a demonstracao nao pode tocar a rede"); });
+    limparChatSimuladoDoProvedor(6);
+    try {
+      await comAmbiente({ DEMO_MODE: "true", ...AMBIENTE_REAL }, async () => {
+        fake.integracao = integracaoSemAutomacao();
+        await garantirTransferenciaNaResposta(6);
+        const automacoes = await clienteDoChat()!.listarAutomacoes("demo-org-6");
+        expect(automacoes.ok).toBe(true);
+        const guardadas = JSON.stringify(automacoes.ok ? automacoes.valor : null);
+        expect(guardadas).toContain(`"url":"${URL_DO_CHAT_SIMULADO}/api/webhooks/chat-bullq"`);
+        for (const valor of Object.values(AMBIENTE_REAL)) expect(guardadas).not.toContain(new URL(valor).host);
+        expect(guardadas).not.toContain("consultaisp.com.br/api");
+      });
+      expect(rede).not.toHaveBeenCalled();
+    } finally {
+      rede.mockRestore();
+      limparChatSimuladoDoProvedor(6);
+    }
+  });
+
+  it("sem DEMO_MODE: o ambiente vale (sem a barra final), chega a automacao, e sem ele volta o padrao de producao", async () => {
+    await comAmbiente({ DEMO_MODE: "1", ...AMBIENTE_REAL }, async () => {
+      expect(urlDaApiDoAgente()).toBe("https://agente-real.invalid/api/chat-bullq/agente");
+      expect(urlDoWebhookDeVolta()).toBe("https://webhook-real.invalid/api/webhooks/chat-bullq");
+      const c = clienteFalso();
+      fake.integracao = { ...integracaoSemAutomacao(), organizationId: "org_1" };
+      await garantirTransferenciaNaResposta(6);
+      expect(c.criarAutomacao).toHaveBeenCalledWith("org_1", expect.objectContaining({
+        actions: [{ type: "call_webhook", params: expect.objectContaining({ url: "https://webhook-real.invalid/api/webhooks/chat-bullq" }) }],
+      }));
+    });
+    await comAmbiente({}, async () => {
+      expect(urlDaApiDoAgente()).toBe("https://consultaisp.com.br/api/chat-bullq/agente");
+      expect(urlDoWebhookDeVolta()).toBe("https://consultaisp.com.br/api/webhooks/chat-bullq");
+    });
   });
 });

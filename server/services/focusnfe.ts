@@ -7,6 +7,8 @@
  * Producao: https://api.focusnfe.com.br
  */
 
+import { emModoDemo } from "../demo/modo-demo";
+
 const FOCUS_TOKEN = () => process.env.FOCUS_NFE_TOKEN || "";
 const IS_PRODUCTION = () => (process.env.FOCUS_NFE_ENV || "homologacao") === "producao";
 const BASE_URL = () => IS_PRODUCTION() ? "https://api.focusnfe.com.br" : "https://homologacao.focusnfe.com.br";
@@ -64,9 +66,45 @@ export interface NfseResult {
 }
 
 /**
+ * A NFS-e SIMULADA da demonstração pública.
+ *
+ * Uma nota emitida pela demonstração seria uma nota de verdade na prefeitura,
+ * em nome do CNPJ da plataforma, para um tomador que o visitante digitou. Por
+ * isso as três funções abaixo desviam para cá ANTES de montar URL ou header:
+ * a guarda fica no serviço, e não só na rota, porque a emissão automática
+ * (`nfse-auto.ts`) também chama estas funções.
+ *
+ * A simulação responde sucesso, e não recusa, para a tela funcionar inteira:
+ * a nota nasce autorizada, a consulta confirma e o cancelamento cancela. O
+ * número sai dos dígitos da própria referência, então consultar a mesma nota
+ * duas vezes devolve o mesmo número. Nenhum link: um "Ver NFS-e" apontando
+ * para lugar nenhum enganaria mais do que a falta do botão.
+ */
+function numeroSimulado(ref: string): string {
+  return (ref.replace(/\D/g, "").slice(-6) || "1").padStart(6, "0");
+}
+
+function nfseSimulada(ref: string, status: "authorized" | "cancelled"): NfseResult {
+  if (status === "cancelled") {
+    return { status, ref, mensagem: "NFS-e simulada cancelada — nenhuma prefeitura foi acionada nesta demonstração" };
+  }
+  const numero = numeroSimulado(ref);
+  return {
+    status,
+    ref,
+    numero,
+    codigoVerificacao: `DEMO${numero}`,
+    dataAutorizacao: new Date().toISOString(),
+    mensagem: "NFS-e simulada autorizada — nenhuma prefeitura foi acionada nesta demonstração",
+  };
+}
+
+/**
  * Emitir NFS-e via Focus NFe
  */
 export async function emitirNfse(input: NfseEmitInput): Promise<NfseResult> {
+  if (emModoDemo()) return nfseSimulada(input.ref, "authorized");
+
   const url = `${BASE_URL()}/v2/nfse?ref=${encodeURIComponent(input.ref)}`;
 
   // Montar payload no formato Focus NFe
@@ -139,6 +177,8 @@ export async function emitirNfse(input: NfseEmitInput): Promise<NfseResult> {
  * Consultar status de NFS-e
  */
 export async function consultarNfse(ref: string): Promise<NfseResult> {
+  if (emModoDemo()) return nfseSimulada(ref, "authorized");
+
   const url = `${BASE_URL()}/v2/nfse/${encodeURIComponent(ref)}`;
 
   const response = await fetch(url, {
@@ -180,6 +220,8 @@ export async function consultarNfse(ref: string): Promise<NfseResult> {
  * Cancelar NFS-e
  */
 export async function cancelarNfse(ref: string, justificativa: string = "Erro na emissao"): Promise<NfseResult> {
+  if (emModoDemo()) return nfseSimulada(ref, "cancelled");
+
   const url = `${BASE_URL()}/v2/nfse/${encodeURIComponent(ref)}`;
 
   console.log(`[FocusNFe] Cancelando NFS-e ref=${ref}`);

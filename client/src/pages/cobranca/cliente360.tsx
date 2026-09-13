@@ -229,7 +229,7 @@ function FichaDaCarteira() {
   const customerId = Number(id);
   const carteiraDeOrigem = carteiraDaNavegacao(`/cobranca/cliente/${id}`, useSearch());
   const { toast } = useToast();
-  const { user, personificando } = useAuth();
+  const { user, personificando, demoMode } = useAuth();
   const podeAdministrar = podeAdministrarCobranca(user, personificando);
   const hoje = useMemo(() => new Date(), []);
   const idValido = Number.isFinite(customerId) && customerId > 0;
@@ -364,10 +364,12 @@ function FichaDaCarteira() {
   // O selo do cabeçalho: "Dados reais" SÓ com leitura ao vivo que encontrou o
   // cliente. Sem ela, diz "Base sincronizada" com a data da varredura — e o
   // title lembra que valor e atraso vêm da varredura de qualquer jeito.
+  // Na demonstração pública (`demoMode`, sinal do servidor) diz "Dados fictícios".
   const origemDoCabecalho = origemDoSnapshot(
     snapshot,
     { erpSource: varredura?.erpSource, lidoEm: varredura?.lastSyncAt },
     "Valor em aberto e dias de atraso vêm sempre da varredura gravada em customers; a leitura ao vivo traz plano, contrato, corte e aparelhos.",
+    demoMode,
   );
   const alvoDoContato = (): AlvoDoContato | null => (caso && cliente ? { casoId: caso.id, carteira: carteiraDeOrigem, clienteNome: cliente.nome, canalSugerido: regua?.etapa?.canalSugerido ?? null } : null);
   const abrirNegociacao = () => {
@@ -487,6 +489,7 @@ function FichaDaCarteira() {
             equipamentos={data?.equipamentos ?? []}
             varredura={{ erpSource: varredura?.erpSource, lidoEm: varredura?.lastSyncAt }}
             statusContrato={vivo?.statusContrato ?? cliente.statusErp}
+            demonstracao={demoMode}
           />
 
           {/* 2–4 · Tri-horizonte */}

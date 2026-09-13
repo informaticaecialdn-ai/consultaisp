@@ -20,7 +20,8 @@ vi.mock("../storage", () => ({
   },
 }));
 
-import { emitirPasse, conferirPasse, contaDeBusca, buscaAutomaticaDisponivel, buscarBureauEmpresa, buscarResponsavel } from "./cadastro-publico.service";
+import { emitirPasse, conferirPasse, contaDeBusca, buscaAutomaticaDisponivel, buscarBureauEmpresa, buscarEmpresa, buscarResponsavel } from "./cadastro-publico.service";
+import { storage } from "../storage";
 
 const CNPJ = "33000167000101";
 const segredoOriginal = process.env.SESSION_SECRET;
@@ -35,6 +36,49 @@ afterEach(() => {
   delete process.env.BIGDATA_PLATAFORMA_LOGIN;
   delete process.env.BIGDATA_PLATAFORMA_SENHA;
   vi.useRealTimers();
+});
+
+/**
+ * A etapa 1 do cadastro na demonstração pública: o cadastro está fechado, e a
+ * rota levava o CNPJ do visitante até a BrasilAPI. Com DEMO_MODE a recusa vem
+ * antes do banco e da Receita; sem ele, o caminho de sempre emite o passe.
+ */
+describe("buscarEmpresa na demonstracao publica", () => {
+  const demoOriginal = process.env.DEMO_MODE;
+  const fetchOriginal = globalThis.fetch;
+  afterEach(() => {
+    if (demoOriginal === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = demoOriginal;
+    globalThis.fetch = fetchOriginal;
+  });
+
+  function receitaEspia() {
+    const urls: string[] = [];
+    globalThis.fetch = (async (url: string) => { urls.push(String(url)); return { ok: true, status: 200, json: async () => ({ razao_social: "EMPRESA DE TESTE LTDA", qsa: [] }) }; }) as any;
+    return urls;
+  }
+
+  it("DEMO_MODE: recusa clara, sem consultar o banco nem a Receita", async () => {
+    process.env.DEMO_MODE = "true";
+    vi.mocked(storage.getProviderByCnpj).mockClear();
+    const urls = receitaEspia();
+
+    const r = await buscarEmpresa(CNPJ);
+
+    expect(r).toMatchObject({ ok: false, motivo: "indisponivel" });
+    if (!r.ok) expect(r.mensagem).toMatch(/demonstracao/);
+    expect(urls).toHaveLength(0);
+    expect(storage.getProviderByCnpj).not.toHaveBeenCalled();
+  });
+
+  it("sem DEMO_MODE: consulta a Receita e emite o passe", async () => {
+    delete process.env.DEMO_MODE;
+    const urls = receitaEspia();
+
+    const r = await buscarEmpresa(CNPJ);
+
+    expect(r.ok).toBe(true);
+    expect(urls).toEqual([`https://brasilapi.com.br/api/cnpj/v1/${CNPJ}`]);
+  });
 });
 
 describe("passe da etapa 1", () => {

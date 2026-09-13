@@ -192,6 +192,20 @@ export function registerCreditsRoutes(): Router {
 
   router.get("/api/credits/orders/:id/asaas/pix", requireAuth, requireProvider, async (req, res) => {
     try {
+      /**
+       * O portão da compra, acima, não alcança esta rota: ele vive dentro do
+       * handler de `POST /api/credits/purchase`. Hoje o sandbox não tem pedido
+       * com cobrança Asaas, mas basta um pedido semeado com `asaasChargeId`
+       * para o clique em "ver PIX" chamar o Asaas de verdade a partir da
+       * demonstração. Mesma recusa, mesma posição: primeira linha, antes até
+       * de o pedido ser lido.
+       */
+      if (emModoDemo()) {
+        return res.status(403).json({
+          message: "Nesta demonstração, o pagamento de créditos por PIX não é processado.",
+        });
+      }
+
       const order = await storage.getCreditOrder(parseInt(req.params.id));
       if (!order || order.providerId !== req.session.providerId) return res.status(404).json({ message: "Pedido nao encontrado" });
       if (!order.asaasChargeId) return res.status(400).json({ message: "Sem cobranca Asaas vinculada" });

@@ -35,6 +35,7 @@ import {
   type ItemDeInventario,
 } from "@/components/cobranca/IdentificacaoTecnica";
 import { faixaDoScore } from "@/components/cobranca/formatacao";
+import { useAuth } from "@/lib/auth";
 import type { DetalheChat } from "./tipos";
 
 /* ── Por que cada ausência é um traço, e o que ela significa ──────────── */
@@ -192,6 +193,9 @@ export function PerfilDoCliente({
   const atraso = p?.diasAtraso ?? c?.diasAtraso ?? null;
   const score = p?.ispScore ?? null;
   const faixa = score !== null ? faixaDoScore(score) : null;
+  // Mesmo sinal da faixa de demonstração: o servidor diz se esta instância é a
+  // demo pública. Lá o selo da conexão diz "Dados fictícios", como no 360.
+  const { demoMode } = useAuth();
   // A conexão só existe quando o ERP respondeu AGORA: `conexoes` sai da leitura
   // ao vivo, nunca da base. Se ele não respondeu, o selo diz "Base
   // sincronizada" com a data do valor — nunca "dados reais".
@@ -205,6 +209,7 @@ export function PerfilDoCliente({
       contexto && !contexto.erp.financeiroAoVivo
         ? "Valor em aberto e faturas vêm da varredura, não desta leitura."
         : null,
+    demonstracao: demoMode,
   });
   const inventario: ItemDeInventario[] = dados.equipamentos.map((e) => ({
     id: e.id,

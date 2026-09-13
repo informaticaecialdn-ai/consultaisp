@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import type { Server } from "node:http";
 
@@ -751,5 +751,75 @@ describe("POST /api/providers/alert-settings/test-webhook — SSRF e exigencia d
 
     expect(res.status).toBe(403);
     expect(chamadasExternas()).toHaveLength(0);
+  });
+});
+
+/**
+ * O webhook de alerta na demonstração pública. O visitante é admin do próprio
+ * sandbox (`demo.routes.ts` grava `role: "admin"`), então passa pela trava de
+ * admin — e as duas rotas levavam o domínio que ELE digitou ao DNS, e o teste
+ * ainda fazia o POST. Com DEMO_MODE, nada sai: nem `dns.lookup`, nem `fetch`.
+ * Sem DEMO_MODE, as duas voltam a resolver (e o teste a chamar) como antes.
+ */
+describe("alert-settings na demonstracao publica — nem DNS nem fetch para fora", () => {
+  const original = process.env.DEMO_MODE;
+  afterEach(() => { if (original === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = original; });
+
+  const gravar = (webhookUrl: string) =>
+    fetch(`${base}/api/providers/alert-settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proactiveAlertsEnabled: true, webhookUrl }),
+    });
+  const testar = (webhookUrl: string) =>
+    fetch(`${base}/api/providers/alert-settings/test-webhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ webhookUrl }),
+    });
+
+  it("DEMO_MODE: o PUT grava sem resolver o dominio do visitante", async () => {
+    process.env.DEMO_MODE = "true";
+
+    const res = await gravar("https://dominio-do-visitante.example.com/x");
+
+    expect(res.status).toBe(200);
+    expect(dnsMock.lookup).not.toHaveBeenCalled();
+    expect(chamadasExternas()).toHaveLength(0);
+    expect(storageMock.updateProviderProfile).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ proactiveAlertWebhookUrl: "https://dominio-do-visitante.example.com/x" }),
+    );
+  });
+
+  it("DEMO_MODE: o teste de webhook recusa com 403 antes do DNS e do fetch", async () => {
+    process.env.DEMO_MODE = "true";
+
+    const res = await testar("https://dominio-do-visitante.example.com/x");
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).message).toMatch(/demonstração/);
+    expect(dnsMock.lookup).not.toHaveBeenCalled();
+    expect(chamadasExternas()).toHaveLength(0);
+  });
+
+  it("sem DEMO_MODE: o PUT volta a resolver o dominio antes de gravar", async () => {
+    delete process.env.DEMO_MODE;
+
+    const res = await gravar("https://webhook.example.com/abc123");
+
+    expect(res.status).toBe(200);
+    expect(dnsMock.lookup).toHaveBeenCalled();
+  });
+
+  it("sem DEMO_MODE (ou com valor que nao e 'true'): o teste resolve e chama o endereco", async () => {
+    process.env.DEMO_MODE = "1";
+    proximaRespostaExterna = () => new Response(null, { status: 204 });
+
+    const res = await testar("https://webhook.example.com/abc123");
+
+    expect(res.status).toBe(200);
+    expect(dnsMock.lookup).toHaveBeenCalled();
+    expect(chamadasExternas()).toHaveLength(1);
   });
 });

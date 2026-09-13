@@ -3,6 +3,21 @@ import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { emitirNfse, consultarNfse, cancelarNfse, isFocusNfeConfigured, getFocusNfeEnv } from "../services/focusnfe";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { emModoDemo } from "../demo/modo-demo";
+
+/**
+ * A instância de demonstração não tem token da Focus NFe, e nunca pode ter:
+ * uma nota emitida ali seria uma nota de verdade na prefeitura. Só que a tela
+ * trava o botão "Emitir" enquanto `configured` for falso — e o visitante veria
+ * apenas o aviso de "não configurado", sem conhecer o fluxo.
+ *
+ * Em demonstração, então, a integração se diz configurada e as três rotas
+ * seguem adiante; quem responde é a simulação dentro de `services/focusnfe.ts`,
+ * que desvia ANTES de qualquer rede (a guarda mora no serviço, e não aqui, para
+ * cobrir também quem chama o serviço por fora destas rotas). Fora da
+ * demonstração o portão continua sendo só o token.
+ */
+const focusNfeDisponivel = () => isFocusNfeConfigured() || emModoDemo();
 
 export function registerNfseRoutes(): Router {
   const router = Router();
@@ -10,8 +25,8 @@ export function registerNfseRoutes(): Router {
   // Status da integracao
   router.get("/api/nfse/config", requireAuth, requireProvider, async (_req, res) => {
     return res.json({
-      configured: isFocusNfeConfigured(),
-      environment: getFocusNfeEnv(),
+      configured: focusNfeDisponivel(),
+      environment: emModoDemo() ? "demonstracao" : getFocusNfeEnv(),
       cnpjPrestador: "64199963000149",
       inscricaoMunicipal: "", // Precisa ser preenchido
       codigoMunicipio: "3550308", // Sao Paulo
@@ -24,7 +39,7 @@ export function registerNfseRoutes(): Router {
   // Emitir NFS-e
   router.post("/api/nfse/emit", requireAuth, requireProvider, async (req, res) => {
     try {
-      if (!isFocusNfeConfigured()) {
+      if (!focusNfeDisponivel()) {
         return res.status(400).json({ message: "Focus NFe nao configurado. Adicione FOCUS_NFE_TOKEN no .env" });
       }
 
@@ -38,8 +53,9 @@ export function registerNfseRoutes(): Router {
         return res.status(400).json({ message: "Campos obrigatorios: tomador, descricao, valor" });
       }
 
-      // Gerar referencia unica
-      const ref = `nfse-${providerId}-${Date.now()}`;
+      // Gerar referencia unica. Na demonstracao o prefixo `demo-` deixa a
+      // nota simulada reconhecivel em qualquer print ou log.
+      const ref = emModoDemo() ? `demo-${providerId}-${Date.now()}` : `nfse-${providerId}-${Date.now()}`;
 
       const result = await emitirNfse({
         ref,
@@ -73,7 +89,7 @@ export function registerNfseRoutes(): Router {
   // Consultar status de NFS-e
   router.get("/api/nfse/:ref", requireAuth, requireProvider, async (req, res) => {
     try {
-      if (!isFocusNfeConfigured()) {
+      if (!focusNfeDisponivel()) {
         return res.status(400).json({ message: "Focus NFe nao configurado" });
       }
 
@@ -87,7 +103,7 @@ export function registerNfseRoutes(): Router {
   // Cancelar NFS-e
   router.delete("/api/nfse/:ref", requireAuth, requireProvider, async (req, res) => {
     try {
-      if (!isFocusNfeConfigured()) {
+      if (!focusNfeDisponivel()) {
         return res.status(400).json({ message: "Focus NFe nao configurado" });
       }
 

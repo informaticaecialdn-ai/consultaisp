@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { customers } from "@shared/schema";
 
-const fake = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], queries: [] as unknown[] }));
+const fake = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], queries: [] as unknown[], provedor: {} as Record<string, unknown> }));
 vi.mock("../db", () => ({ db: { select: () => ({ from: (table: unknown) => ({ where: async (query: unknown) => {
   fake.queries.push(query);
-  return table === customers ? fake.rows : [{ cidadesExcluidasDoMapa: [] }];
+  return table === customers ? fake.rows : [{ cidadesExcluidasDoMapa: [], ...fake.provedor }];
 } }) }) } }));
 vi.mock("../services/area-atendida", async importOriginal => ({
   ...await importOriginal<object>(), resolverAreaAtendida: async () => ({ cidades: ["Londrina"], uf: "PR", origem: "declarada" }),
@@ -19,9 +19,11 @@ vi.mock("../services/benchmark-bairro.service", () => ({
 }));
 vi.mock("../services/geocoding", () => ({ geocodeAddress: vi.fn(), geocodeCity: vi.fn() }));
 import { LocalizacaoStorage } from "./localizacao.storage";
+import { geocodeAddress, geocodeCity } from "../services/geocoding";
 
 beforeEach(() => {
   fake.queries = [];
+  fake.provedor = {};
   fake.rows = Array.from({ length: 30 }, (_, i) => ({
     id: i + 1, providerId: 7, name: "Cliente", city: "Londrina", state: "PR", neighborhood: "Centro",
     status: i < 20 ? "active" : "cancelled", totalOverdueAmount: i < 4 || i === 20 ? "100" : "0",
@@ -91,5 +93,55 @@ describe("Localização: universo da carteira", () => {
     fake.rows[0].state = "SP";
     const r = await new LocalizacaoStorage().getLocalizacao(7);
     expect(r.cidades[0]).toMatchObject({ uf: null, ufAmbigua: true, benchmark: null, benchmarkPct: null });
+  });
+});
+
+/**
+ * A sede no mapa. Na demonstração o endereço é o que o visitante digitou, e
+ * geocodificar seria Google/Nominatim a cada abertura do mapa: o centro da
+ * cidade sai da tabela fixa das cidades da demo. Fora dela, o caminho de
+ * sempre — endereço, e a cidade como reserva.
+ */
+describe("Localização: sede do provedor", () => {
+  beforeEach(() => {
+    vi.mocked(geocodeAddress).mockReset();
+    vi.mocked(geocodeCity).mockReset();
+  });
+  afterEach(() => {
+    delete process.env.DEMO_MODE;
+  });
+
+  it("DEMO ligado: cidade da demo vira a coordenada fixa dela, sem geocodificar", async () => {
+    process.env.DEMO_MODE = "true";
+    fake.provedor = { addressCity: "Ibiporã", addressState: "PR", addressStreet: "Rua do Visitante", addressNumber: "1" };
+    const r = await new LocalizacaoStorage().getLocalizacao(7);
+    expect(r.sede).toMatchObject({ cidade: "Ibiporã", uf: "PR", lat: -23.2694, lon: -51.0436 });
+    expect(geocodeAddress).not.toHaveBeenCalled();
+    expect(geocodeCity).not.toHaveBeenCalled();
+  });
+
+  it("DEMO ligado: cidade fora das quatro da demo cai em Londrina, ainda sem rede", async () => {
+    process.env.DEMO_MODE = "true";
+    fake.provedor = { addressCity: "Curitiba", addressState: "PR" };
+    const r = await new LocalizacaoStorage().getLocalizacao(7);
+    expect(r.sede).toMatchObject({ cidade: "Curitiba", lat: -23.31, lon: -51.1628 });
+    expect(geocodeAddress).not.toHaveBeenCalled();
+    expect(geocodeCity).not.toHaveBeenCalled();
+  });
+
+  it("DEMO ligado: provedor sem cidade continua sem sede", async () => {
+    process.env.DEMO_MODE = "true";
+    const r = await new LocalizacaoStorage().getLocalizacao(7);
+    expect(r.sede).toBeNull();
+  });
+
+  it("DEMO desligado: geocodifica o endereço e, sem resposta, a cidade — como antes", async () => {
+    fake.provedor = { addressCity: "Londrina", addressState: "PR", addressStreet: "Rua A", addressNumber: "10", addressZip: "86010-000" };
+    vi.mocked(geocodeAddress).mockResolvedValue(null);
+    vi.mocked(geocodeCity).mockResolvedValue([-23.3103, -51.1628]);
+    const r = await new LocalizacaoStorage().getLocalizacao(7);
+    expect(geocodeAddress).toHaveBeenCalledWith("Rua A, 10", "Londrina", "PR", "86010-000");
+    expect(geocodeCity).toHaveBeenCalledWith("Londrina", "PR");
+    expect(r.sede).toMatchObject({ cidade: "Londrina", lat: -23.3103, lon: -51.1628, foraDaArea: false });
   });
 });

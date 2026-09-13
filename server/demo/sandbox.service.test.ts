@@ -35,6 +35,18 @@ vi.mock("../db", () => ({
   pool: {},
 }));
 
+/**
+ * O chat simulado guarda o que o visitante fez na memória do processo, fora do
+ * banco de mentira — o único jeito de ver que `apagarSandbox` o esvazia é
+ * espiar a chamada. O espião repassa para a função real (que
+ * `chat-simulado.test.ts` já prova esvaziar só aquele provedor).
+ */
+vi.mock("./chat-simulado", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./chat-simulado")>();
+  return { ...real, limparChatSimuladoDoProvedor: vi.fn(real.limparChatSimuladoDoProvedor) };
+});
+
+import { readFileSync } from "node:fs";
 import { getTableColumns, getTableName, is, SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
@@ -86,6 +98,12 @@ import {
   marcaEventos,
   providerDocuments,
 } from "@shared/schema";
+// Dois módulos de schema que NÃO são reexportados por `@shared/schema` e têm
+// tabelas com FK para `providers` — o teste "sem exceção" deriva deles também.
+import * as schemaCobrancaFaturas from "@shared/schema-cobranca-faturas";
+import * as schemaChatAutonomiaSeguranca from "@shared/chat-autonomia-seguranca";
+import { cobrancaPreAvisos, cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
+import { chatAutonomiaAutorizacao, chatAutonomiaSeguranca } from "@shared/chat-autonomia-seguranca";
 import {
   criarSandbox,
   sandboxesExpirados,
@@ -93,8 +111,24 @@ import {
   apagarSandbox,
   SALDO_INICIAL,
 } from "./sandbox.service";
+import { custosInformados, type Economia } from "@shared/cobranca/politica";
+import { precoDoPlano } from "@shared/cobranca/economia";
+import { etapaParaAtraso, prescrita } from "@shared/cobranca/regua";
+import { STATUS_DE_CASO, eventoDaTransicaoDeCaso, statusAposNegociacaoDesfeita, transicaoDeCaso, type StatusDeCaso } from "@shared/cobranca/estados";
+import { DIVIDA_MINIMA_PARA_CASO, dnaDoCaso, prioridadeSugerida } from "../services/cobranca/regua-diaria.service";
+import { carteiraDoStatusErp, STATUS_DE_CLIENTE_ATUAL } from "../storage/cobranca.storage";
+import { ACAO_AO_RECEBER_MENSAGEM, ACAO_PADRAO_APOS_RESPOSTA, TAMANHO_MAXIMO_DA_ACAO } from "../services/chat/chat-atendimento.service";
+import { ACOES_COMUNS_DO_CHAT } from "@/components/chat/tipos";
+import {
+  calcularPrazoRetirada,
+  casoEstaEncerrado,
+  equipamentoTemRetiradaPendente,
+  validarSinalBureau,
+} from "../services/equipment-recovery-rules";
 import { PROVEDORES_DA_DEMO, INDICE_MIGRADOR_DE_EXEMPLO } from "./mundo-base";
 import { limparSandboxesExpirados } from "./limpeza.service";
+import { limparChatSimuladoDoProvedor, roteiroDaConversa, type LinhaDaConversa } from "./chat-simulado";
+import { economiaDoCliente } from "@shared/cobranca/ficha360";
 import { cpfFicticio } from "./pessoas-ficticias";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
@@ -149,6 +183,10 @@ const TABELAS = [
   equipmentRecoveryEvents,
   marcaEventos,
   providerDocuments,
+  cobrancaPreAvisos,
+  cobrancaQuitacoes,
+  chatAutonomiaAutorizacao,
+  chatAutonomiaSeguranca,
 ];
 /** tabela (nome real do banco) -> (coluna do banco -> chave camelCase que o Drizzle usa em JS). */
 const chavePorColuna = new Map(
@@ -451,6 +489,15 @@ async function cpfsDeExemplo(providerId: number): Promise<Array<{ situacao: stri
   ];
 }
 
+/**
+ * A faixa de risco que o sync grava (server/storage/customers.storage.ts:287).
+ * A expressão não é exportada; o teste "risk_tier usa o vocabulario e a regra
+ * do sync" confere que ela continua escrita assim naquele arquivo.
+ */
+function faixaDeRiscoDoSync(maxDaysOverdue: number): string {
+  return maxDaysOverdue > 180 ? "critical" : maxDaysOverdue > 90 ? "high" : maxDaysOverdue > 60 ? "medium" : "low";
+}
+
 /** Move `createdAt` do sandbox `ms` milissegundos para trás — simula o tempo passar sem esperar 24h de verdade. */
 async function envelhecer(providerId: number, ms: number): Promise<void> {
   const linha = (banco.linhas.get("providers") ?? []).find((p) => p.id === providerId);
@@ -467,7 +514,9 @@ describe("sandbox do visitante", () => {
     expect(s.subdomain).toMatch(/^sandbox-[a-f0-9]{16}$/);
     const clientes = await clientesDe(s.providerId);
     expect(clientes).toHaveLength(1500);
-    expect(clientes.filter((c) => c.paymentStatus === "overdue")).toHaveLength(225);
+    // 225 inadimplentes ATIVOS; os ex-clientes que saíram devendo também são
+    // `overdue` (a regra do sync), mas nunca contam na carteira de ativos.
+    expect(clientes.filter((c) => c.status === "active" && c.paymentStatus === "overdue")).toHaveLength(225);
     expect(clientes.filter((c) => c.status === "cancelled")).toHaveLength(150);
     expect(await equipamentosDe(s.providerId)).toHaveLength(120);
     // O saldo do visitante mora todo em ispCredits; spcCredits nasce em zero.
@@ -600,6 +649,23 @@ describe("sandbox do visitante", () => {
     const s = await criarSandbox();
     await apagarSandbox(s.providerId);
     expect(await clientesDe(s.providerId)).toHaveLength(0);
+  });
+
+  it("apagar esvazia o chat simulado daquele provedor, e so depois de o provedor sumir do banco", async () => {
+    const s = await criarSandbox();
+    const limpar = vi.mocked(limparChatSimuladoDoProvedor);
+    limpar.mockClear();
+    let provedorAindaExistia: boolean | null = null;
+    limpar.mockImplementationOnce((providerId) => {
+      provedorAindaExistia = (banco.linhas.get("providers") ?? []).some((p) => p.id === providerId);
+    });
+
+    await apagarSandbox(s.providerId);
+
+    expect(limpar).toHaveBeenCalledTimes(1);
+    expect(limpar).toHaveBeenCalledWith(s.providerId);
+    // Antes do delete, um erro no banco deixaria o sandbox de pé e sem o chat.
+    expect(provedorAindaExistia).toBe(false);
   });
 
   // ── Alocação de índices: prova por EXECUÇÃO, não por fórmula reconstruída ──
@@ -855,6 +921,701 @@ describe("sandbox do visitante", () => {
 });
 
 /**
+ * Leva 1 da demonstração com todos os recursos (spec 2026-09-12, Frente C):
+ * o que o visitante abria VAZIO — Economia pendente, carteira de ex-clientes
+ * só com cards fechados, recuperação de equipamento sem caso, Conversas sem
+ * nenhuma conversa. Cada `it()` prova um invariante contra o que
+ * `criarSandbox()` REALMENTE gravou, e as regras vêm das funções reais
+ * (régua, DNA, prazo de retirada, sinal de bureau), nunca de números
+ * reescritos aqui.
+ *
+ * Um sandbox só para o bloco inteiro (`beforeAll`): os testes leem, e só o
+ * último apaga — o arquivo continua sequencial e cumulativo como o resto.
+ */
+describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () => {
+  const DIA_MS = 86_400_000;
+  let s: Awaited<ReturnType<typeof criarSandbox>>;
+
+  /** Timestamp gravado (ISO string no banco de mentira, ou Date) -> ms. */
+  const ms = (valor: unknown): number => new Date(valor as string | Date).getTime();
+  /** JSONB chega como o texto que o Drizzle serializou — ver o teste de anti-fraude acima. */
+  const json = (valor: unknown): any => (typeof valor === "string" ? JSON.parse(valor) : valor);
+  const linhasDe = (tabela: string, providerId: number) => (banco.linhas.get(tabela) ?? []).filter((l) => l.providerId === providerId);
+  const adminDe = (providerId: number) => (banco.linhas.get("users") ?? []).find((u) => u.providerId === providerId)!;
+
+  beforeAll(async () => {
+    s = await criarSandbox();
+  });
+
+  it("uma politica de cobranca com custos informados e preco para todo plano da carteira — a Economia deixa de ser pendente", async () => {
+    const politicas = linhasDe("cobranca_politica", s.providerId);
+    expect(politicas).toHaveLength(1);
+    expect(politicas[0].pausada).toBe(false);
+
+    const economia = json(politicas[0].economia) as Economia;
+    expect(custosInformados(economia), JSON.stringify(economia)).toBe(true);
+    expect(economia.confirmado).toBe(true);
+
+    // Todo plano da carteira tem preço cadastrado — pela MESMA função que a
+    // ficha 360 usa para casar o nome — e o preço é a mensalidade cobrada.
+    const clientes = await clientesDe(s.providerId);
+    for (const c of clientes) {
+      expect(precoDoPlano(economia.precoPorPlano, c.contractPlan as string), c.contractPlan as string).not.toBeNull();
+    }
+    const faturas = await faturasDe(s.providerId);
+    for (const c of clientes.filter((x) => x.status === "active" && x.paymentStatus === "overdue")) {
+      const fatura = faturas.find((f) => f.customerId === c.id)!;
+      expect(precoDoPlano(economia.precoPorPlano, c.contractPlan as string)).toBe(Number(fatura.value));
+    }
+  });
+
+  it("clientes nascem sincronizados e com score coerente — nunca o default 100/'low' que a tela esconde", async () => {
+    const clientes = await clientesDe(s.providerId);
+    for (const c of clientes) {
+      expect(c.lastSyncAt, JSON.stringify(c)).toBeTruthy();
+      expect(c.ispScore === 100 && c.riskTier === "low", JSON.stringify(c)).toBe(false);
+    }
+
+    const emDia = clientes.filter((c) => c.status === "active" && c.paymentStatus === "current");
+    const inadimplentes = clientes.filter((c) => c.status === "active" && c.paymentStatus === "overdue");
+    expect(emDia).toHaveLength(1125);
+    for (const c of emDia) {
+      expect(c.ispScore as number).toBeGreaterThanOrEqual(650);
+      expect(c.ispScore as number).toBeLessThanOrEqual(900);
+    }
+    for (const c of inadimplentes) {
+      expect(c.overdueInvoicesCount, JSON.stringify(c)).toBe(1);
+      expect(c.ispScore as number).toBeGreaterThanOrEqual(250);
+      expect(c.ispScore as number).toBeLessThanOrEqual(600);
+    }
+    // A faixa é a do produto para TODO cliente — vocabulário e regra do sync.
+    for (const c of clientes) {
+      expect(c.riskTier, JSON.stringify(c)).toBe(faixaDeRiscoDoSync(c.maxDaysOverdue as number));
+    }
+  });
+
+  it("risk_tier usa o vocabulario e a regra do sync (low/medium/high/critical) — o painel conta as tres faixas de risco", async () => {
+    // A regra repetida em `faixaDeRiscoDoSync` é a desta linha do sync; se ela
+    // mudar lá, este teste acende antes de a demonstração divergir do produto.
+    const fonte = readFileSync(new URL("../storage/customers.storage.ts", import.meta.url), "utf8");
+    expect(fonte).toContain('const riskTier = data.maxDaysOverdue > 180 ? "critical" : data.maxDaysOverdue > 90 ? "high" : data.maxDaysOverdue > 60 ? "medium" : "low";');
+
+    const clientes = await clientesDe(s.providerId);
+    const conhecidas = ["low", "medium", "high", "critical"]; // RISK_CONFIG (inadimplentes.tsx) e formatacao.ts
+    for (const c of clientes) expect(conhecidas, JSON.stringify(c)).toContain(c.riskTier);
+    // O que `getDashboardStats` conta (dashboard.storage.ts) não nasce zerado.
+    for (const faixa of ["critical", "high", "medium"]) {
+      expect(clientes.filter((c) => c.riskTier === faixa).length, faixa).toBeGreaterThan(0);
+    }
+  });
+
+  it("payment_status segue a regra do sync: ex-cliente devendo aparece como devedor onde o produto conta devedor, sem entrar na carteira de ativos", async () => {
+    const fonte = readFileSync(new URL("../storage/customers.storage.ts", import.meta.url), "utf8");
+    expect(fonte).toContain('paymentStatus = data.totalOverdueAmount > 0 ? "overdue" : "current"');
+
+    const clientes = await clientesDe(s.providerId);
+    for (const c of clientes) {
+      expect(c.paymentStatus, JSON.stringify(c)).toBe(Number(c.totalOverdueAmount) > 0 ? "overdue" : "current");
+    }
+    const devedores = clientes.filter((c) => c.paymentStatus !== "current");
+    expect(devedores.filter((c) => c.status === "active")).toHaveLength(225);
+    expect(devedores.filter((c) => c.status === "cancelled")).toHaveLength(74);
+    // A carteira de cobrança separa pelo status do CONTRATO, não por payment_status.
+    const carteiraAtiva = clientes.filter((c) => carteiraDoStatusErp(c.status as string) === "ativo" && Number(c.totalOverdueAmount) > 0);
+    expect(carteiraAtiva).toHaveLength(225);
+
+    // O card "equipamentos não devolvidos" do painel, com o MESMO filtro de
+    // `getDashboardStats`: cliente com payment_status != 'current' e ONU num
+    // dos status de retida. Nascia zerado com o ex-cliente devedor em `current`.
+    const retidos = ["retirada_pendente", "nao_localizado", "retido", "em_cobranca", "not_returned"];
+    const porId = new Map(clientes.map((c) => [c.id, c]));
+    const naoDevolvidos = (await equipamentosDe(s.providerId)).filter(
+      (e) => porId.get(e.customerId)?.paymentStatus !== "current" && retidos.includes(String(e.status).toLowerCase()),
+    );
+    expect(naoDevolvidos.length).toBeGreaterThan(0);
+  });
+
+  it("a divida do ex-cliente e exatamente a fatura de saida vencida (soma e contagem batem), exceto o cliente do caso 'baixado'", async () => {
+    const clientes = await clientesDe(s.providerId);
+    const cancelados = clientes.filter((c) => c.status === "cancelled");
+    // O contrato continua cancelado; o status de pagamento segue a dívida (regra do sync).
+    for (const c of cancelados) expect(c.paymentStatus).toBe(Number(c.totalOverdueAmount) > 0 ? "overdue" : "current");
+
+    const idsCancelados = new Set(cancelados.map((c) => c.id));
+    const saidaVencida = new Map(
+      (await faturasDe(s.providerId))
+        .filter((f) => idsCancelados.has(f.customerId as number) && f.status === "overdue")
+        .map((f) => [f.customerId as number, f]),
+    );
+    const clienteDoBaixado = (await casosDeCobrancaDe(s.providerId)).find((c) => c.status === "baixado")!.customerId as number;
+    expect(saidaVencida.has(clienteDoBaixado), "o cliente do caso baixado deveria ter a fatura de saida vencida").toBe(true);
+
+    const comDivida = cancelados.filter((c) => Number(c.totalOverdueAmount) > 0);
+    expect(comDivida).toHaveLength(saidaVencida.size - 1);
+    expect(comDivida.map((c) => c.id)).not.toContain(clienteDoBaixado);
+
+    for (const c of comDivida) {
+      const fatura = saidaVencida.get(c.id as number);
+      expect(fatura, `ex-cliente ${c.id} com divida sem fatura de saida vencida`).toBeTruthy();
+      expect(c.totalOverdueAmount).toBe(fatura!.value);
+      expect(c.overdueInvoicesCount).toBe(1);
+      expect(c.maxDaysOverdue).toBe(Math.round((Date.now() - ms(c.cortadoEm)) / DIA_MS));
+      expect(c.riskTier).toBe(faixaDeRiscoDoSync(c.maxDaysOverdue as number));
+    }
+    for (const c of cancelados.filter((x) => Number(x.totalOverdueAmount) === 0)) {
+      expect(c.overdueInvoicesCount).toBe(0);
+      expect(c.maxDaysOverdue).toBe(0);
+    }
+
+    const centavos = (v: unknown) => Math.round(Number(v) * 100);
+    const somaDividas = comDivida.reduce((acc, c) => acc + centavos(c.totalOverdueAmount), 0);
+    const somaFaturas = Array.from(saidaVencida.entries())
+      .filter(([customerId]) => customerId !== clienteDoBaixado)
+      .reduce((acc, [, f]) => acc + centavos(f.value), 0);
+    expect(somaDividas).toBe(somaFaturas);
+  });
+
+  it("casos vivos de ex-cliente com etapa, prioridade e DNA das funcoes reais da regua — e nunca dois casos vivos para o mesmo cliente", async () => {
+    const casos = await casosDeCobrancaDe(s.providerId);
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+
+    for (const status of STATUS_DE_CASO) expect(casos.map((c) => c.status), status).toContain(status);
+
+    const vivos = casos.filter((c) => !casoFechado(c.status as string));
+    expect(new Set(vivos.map((c) => c.customerId)).size, "dois casos vivos para o mesmo cliente").toBe(vivos.length);
+
+    const vivosEx = vivos.filter((c) => c.carteira === "ex_cliente");
+    const porStatus: Record<string, number> = {};
+    for (const c of vivosEx) porStatus[c.status as string] = (porStatus[c.status as string] ?? 0) + 1;
+    expect(porStatus).toEqual({ aberto: 3, em_contato: 3, negociando: 2, acordo_ativo: 1, negativado: 1 });
+
+    const agora = new Date();
+    for (const caso of vivosEx) {
+      const cliente = clientes.get(caso.customerId as number)!;
+      expect(cliente.status).toBe("cancelled");
+      expect(Number(cliente.totalOverdueAmount), "caso vivo de ex-cliente sem divida").toBeGreaterThan(0);
+      expect(caso.valorAbertura).toBe(cliente.totalOverdueAmount);
+      expect(caso.valorAtual).toBe(cliente.totalOverdueAmount);
+
+      const dias = cliente.maxDaysOverdue as number;
+      // O atraso NA ABERTURA: o de hoje menos os dias desde que o caso abriu.
+      expect(caso.diasAtrasoAbertura).toBe(dias - Math.floor((Date.now() - ms(caso.abertoEm)) / DIA_MS));
+      const etapa = etapaParaAtraso(dias, "ex_cliente").etapa?.id ?? null;
+      expect(caso.etapaAtual, JSON.stringify(caso)).toBe(etapa);
+      expect(caso.prioridade).toBe(prioridadeSugerida(Number(caso.valorAtual), etapa));
+
+      const dna = dnaDoCaso({ contractStartDate: cliente.contractStartDate as string, diasAtraso: dias, faturasAbertas: 1 }, agora);
+      expect(dna.quadranteDna, "o cliente tem data de contrato: o DNA nao pode sair nulo").not.toBeNull();
+      expect(caso.quadranteDna).toBe(dna.quadranteDna);
+      expect(caso.tom).toBe(dna.tom);
+
+      if (["em_contato", "negociando", "acordo_ativo"].includes(caso.status as string)) {
+        expect(caso.ultimoContatoEm, `${caso.status} sem ultimoContatoEm`).toBeTruthy();
+      }
+    }
+
+    // A fila mistura atrasado, hoje e futuro — senão "vencidos hoje" ou "próximos" nasce vazio.
+    const proximos = vivosEx.map((c) => ms(c.proximoContatoEm));
+    expect(proximos.some((t) => t < Date.now() - DIA_MS)).toBe(true);
+    expect(proximos.some((t) => Math.abs(t - Date.now()) < 60 * 60 * 1000)).toBe(true);
+    expect(proximos.some((t) => t > Date.now() + DIA_MS)).toBe(true);
+  });
+
+  it("todo caso vivo semeado ja esta onde a regua o deixaria hoje — a primeira passada do worker nao move nenhum card", async () => {
+    // `revisarCaso` não é exportada: a decisão dela é refeita com as MESMAS
+    // funções puras e a MESMA entrada (`maxDaysOverdue`, as faturas abertas, a
+    // data do contrato; sem fatura paga, `historicosDePagamentosDoProvedor`
+    // não devolve histórico e o DNA sai sem ele).
+    const casos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const faturas = await faturasDe(s.providerId);
+    const agora = new Date();
+    // 5 vivos do kanban + 5 dos inadimplentes com conversa (cursores 6..10, sem os quais a régua
+    // abria um card "aberto" ao lado da conversa) + 10 de ex-cliente.
+    expect(casos).toHaveLength(20);
+
+    for (const caso of casos) {
+      const cliente = clientes.get(caso.customerId as number)!;
+      const rotulo = `caso ${caso.id} (${caso.status}, ${caso.carteira})`;
+      const dias = cliente.maxDaysOverdue as number;
+      // Nada que a revisão encerre (prescrita, dívida zerada) ou cancele (ativo com contrato fora).
+      expect(prescrita(dias), rotulo).toBe(false);
+      expect(Number(cliente.totalOverdueAmount), rotulo).toBeGreaterThan(0);
+      if (caso.carteira === "ativo") expect((STATUS_DE_CLIENTE_ATUAL as readonly string[]).includes(cliente.status as string), rotulo).toBe(true);
+      expect(faturas.some((f) => f.customerId === cliente.id && f.status === "paid"), rotulo).toBe(false);
+
+      const etapa = etapaParaAtraso(dias, caso.carteira === "ex_cliente" ? "ex_cliente" : "ativo").etapa?.id ?? null;
+      expect(caso.etapaAtual, rotulo).toBe(etapa);
+      expect(Math.abs(Number(cliente.totalOverdueAmount) - Number(caso.valorAtual)), rotulo).toBeLessThan(0.005);
+      expect(caso.prioridade, rotulo).toBe(prioridadeSugerida(Number(caso.valorAtual), etapa));
+      const dna = dnaDoCaso({ contractStartDate: cliente.contractStartDate as string, diasAtraso: dias, faturasAbertas: cliente.overdueInvoicesCount as number }, agora);
+      expect(dna.quadranteDna, `${rotulo}: o cliente tem data de contrato, o DNA nao pode sair nulo`).not.toBeNull();
+      expect(caso.quadranteDna, rotulo).toBe(dna.quadranteDna);
+      expect(caso.tom, rotulo).toBe(dna.tom);
+    }
+
+    // Negativar exige o pré-aviso da pré-negativação (D+90, Súmula 359 do STJ).
+    const negativados = casos.filter((c) => c.status === "negativado");
+    expect(negativados.length).toBeGreaterThan(0);
+    for (const caso of negativados) {
+      expect(clientes.get(caso.customerId as number)!.maxDaysOverdue as number, `caso ${caso.id} negativado antes da pre-negativacao`).toBeGreaterThanOrEqual(90);
+    }
+  });
+
+  it("todo caso vivo tem a proxima acao no vocabulario do produto — a conversa nunca abre 'caso sem proxima acao, parado na fila'", async () => {
+    // As ações de um clique da cobrança moram num componente .tsx, que este
+    // ambiente sem DOM não carrega: lidas do texto da própria constante.
+    const dialogo = readFileSync(new URL("../../client/src/components/cobranca/DialogoContato.tsx", import.meta.url), "utf8");
+    const bloco = /export const PROXIMAS_ACOES_COMUNS = \[([\s\S]*?)\] as const;/.exec(dialogo);
+    expect(bloco, "PROXIMAS_ACOES_COMUNS nao encontrada em DialogoContato.tsx").not.toBeNull();
+    const comuns = Array.from(bloco![1].matchAll(/"([^"]+)"/g)).map((m) => m[1]);
+    const vocabulario = new Set<string>([ACAO_AO_RECEBER_MENSAGEM, ACAO_PADRAO_APOS_RESPOSTA, ...ACOES_COMUNS_DO_CHAT, ...comuns]);
+
+    const casos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const conversas = linhasDe("chat_bullq_conversas", s.providerId);
+    for (const caso of casos) {
+      const rotulo = `caso ${caso.id} (${caso.status})`;
+      // A mesma condição de Atendimento.tsx para não mostrar "caso sem próxima ação — parado na fila".
+      expect(Boolean(caso.proximaAcao && caso.proximoContatoEm), rotulo).toBe(true);
+      expect(vocabulario.has(caso.proximaAcao as string), `${rotulo}: "${caso.proximaAcao}" fora do vocabulario`).toBe(true);
+      expect((caso.proximaAcao as string).length, rotulo).toBeLessThanOrEqual(TAMANHO_MAXIMO_DA_ACAO);
+
+      const conversa = conversas.find((c) => c.casoId === caso.id);
+      if (!conversa) {
+        expect(caso.status, `${rotulo}: caso vivo alem de 'aberto' sem conversa`).toBe("aberto");
+        continue;
+      }
+      if (conversa.status === "OPEN" || conversa.status === "PENDING") {
+        // Fala do cliente sem resposta: o que `receberRespostaDoCliente` grava, no instante em que ela chegou.
+        expect(caso.proximaAcao, rotulo).toBe(ACAO_AO_RECEBER_MENSAGEM);
+        expect(ms(caso.proximoContatoEm), rotulo).toBe(ms(conversa.ultimoEventoEm));
+      }
+      if (conversa.status === "BOT") expect(caso.proximaAcao, rotulo).toBe("Retomar a conversa");
+    }
+  });
+
+  it("abertura, contato, statusDesde e atraso na abertura contam a mesma historia — a esteira nao diz 'neste status ha minutos' para um caso de dias", async () => {
+    const agora = Date.now();
+    const casos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const conversas = linhasDe("chat_bullq_conversas", s.providerId);
+
+    for (const caso of casos) {
+      const rotulo = `caso ${caso.id} (${caso.status})`;
+      const abertoEm = ms(caso.abertoEm);
+      const statusDesde = ms(caso.statusDesde);
+      expect(abertoEm, rotulo).toBeLessThanOrEqual(statusDesde);
+      expect(statusDesde, rotulo).toBeLessThanOrEqual(agora);
+      const dias = clientes.get(caso.customerId as number)!.maxDaysOverdue as number;
+      expect(caso.diasAtrasoAbertura, rotulo).toBe(dias - Math.floor((agora - abertoEm) / DIA_MS));
+      expect(caso.diasAtrasoAbertura as number, rotulo).toBeGreaterThan(0);
+
+      const conversa = conversas.find((c) => c.casoId === caso.id);
+      if (!conversa) {
+        expect(statusDesde, rotulo).toBe(abertoEm);
+        continue;
+      }
+      const contato = ms(caso.ultimoContatoEm);
+      expect(contato, rotulo).toBe(ms(conversa.abertaEm));
+      expect(abertoEm, rotulo).toBeLessThan(contato);
+      if (caso.status === "em_contato") expect(statusDesde, rotulo).toBe(contato);
+      if (caso.status === "negociando" || caso.status === "acordo_ativo") {
+        expect(statusDesde, rotulo).toBeGreaterThanOrEqual(contato);
+        expect(statusDesde, rotulo).toBeLessThanOrEqual(ms(conversa.ultimoEventoEm));
+      }
+      // Negativado antes da conversa: a abertura dela já fala do registro nos órgãos de proteção.
+      if (caso.status === "negativado") expect(statusDesde, rotulo).toBeLessThan(contato);
+    }
+    expect(casos.some((c) => agora - ms(c.statusDesde) > 3 * DIA_MS), "nenhum caso recuado: statusDesde no default").toBe(true);
+  });
+
+  it("13 recuperacoes de equipamento com status do equipamento, prazo e trilha iguais aos que as transicoes reais deixariam", async () => {
+    const recuperacoes = linhasDe("equipment_recovery_cases", s.providerId);
+    expect(recuperacoes).toHaveLength(13);
+    const porStatus: Record<string, number> = {};
+    for (const r of recuperacoes) porStatus[r.status as string] = (porStatus[r.status as string] ?? 0) + 1;
+    expect(porStatus).toEqual({
+      pre_recuperacao: 1, agendado: 1, nova_tentativa: 1, notificacao_formal: 1, contestado: 1,
+      concluido: 4, baixado_economico: 2, prazo_expirado: 2,
+    });
+
+    const admin = adminDe(s.providerId);
+    const equipamentos = await equipamentosDe(s.providerId);
+    expect(equipamentos).toHaveLength(120);
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const eventos = linhasDe("equipment_recovery_events", s.providerId);
+
+    for (const r of recuperacoes) {
+      const equip = equipamentos.find((e) => e.id === r.equipmentId)!;
+      expect(equip, `recuperacao ${r.id} sem equipamento do proprio provedor`).toBeTruthy();
+      expect(equip.customerId).toBe(r.customerId);
+      const cliente = clientes.get(r.customerId as number)!;
+      expect(cliente.status).toBe("cancelled");
+      expect(ms(r.terminationDate)).toBe(ms(cliente.cortadoEm));
+      expect(ms(r.deadlineAt)).toBe(calcularPrazoRetirada(new Date(ms(cliente.cortadoEm))).getTime());
+      expect(r.createdById).toBe(admin.id);
+
+      if (casoEstaEncerrado(r.status as string)) {
+        expect(r.closedAt, `${r.status} sem closedAt`).toBeTruthy();
+        expect(equip.status).toBe(r.status === "concluido" ? "recuperado_triagem" : "baixado");
+        expect(equip.inRecoveryProcess).toBe(false);
+      } else {
+        expect(r.closedAt ?? null, `${r.status} aberto com closedAt`).toBeNull();
+        expect(equip.status).toBe("retirada_pendente");
+        expect(equip.inRecoveryProcess).toBe(true);
+      }
+
+      const trilha = eventos.filter((e) => e.caseId === r.id);
+      expect(trilha.length, `${r.status}: ${trilha.length} eventos`).toBeGreaterThanOrEqual(3);
+      expect(trilha.length, `${r.status}: ${trilha.length} eventos`).toBeLessThanOrEqual(6);
+      expect(trilha.map((e) => e.type)).toContain("caso_criado");
+      for (const e of trilha) {
+        expect(ms(e.occurredAt), `${r.status}/${e.type} no futuro`).toBeLessThanOrEqual(Date.now());
+        expect(ms(e.occurredAt), `${r.status}/${e.type} antes do corte`).toBeGreaterThanOrEqual(ms(r.terminationDate));
+      }
+
+      if (r.status === "agendado") {
+        expect(ms(r.scheduledAt)).toBeGreaterThan(Date.now() + DIA_MS);
+        expect(r.assignedToUserId).toBe(admin.id);
+      }
+      if (r.status === "notificacao_formal") {
+        // O sinal validado tem que passar na regra REAL com as tentativas semeadas.
+        const validacao = validarSinalBureau({
+          deadlineAt: new Date(ms(r.deadlineAt)),
+          proofReference: r.proofReference as string,
+          customerNotifiedAt: new Date(ms(r.customerNotifiedAt)),
+          disputedAt: r.disputedAt ? new Date(ms(r.disputedAt)) : null,
+          attemptResults: trilha.filter((e) => e.type === "tentativa").map((e) => e.result as string | null),
+        });
+        expect(validacao).toEqual({ ok: true });
+        expect(r.evidenceValidatedAt).toBeTruthy();
+        expect(r.bureauStatus).toBe("ativo_validado");
+      }
+    }
+
+    // O agregado do cliente é o que `recalculateCustomerEquipmentAggregate` calcularia agora.
+    for (const c of clientes.values()) {
+      const pendentes = equipamentos.filter((e) => e.customerId === c.id && equipamentoTemRetiradaPendente(e.status as string)).length;
+      expect(c.equipmentCount, `cliente ${c.id}`).toBe(pendentes);
+    }
+  });
+
+  it("integracao do chat simulado e 21 conversas que apontam para caso ou recuperacao do MESMO provedor, com o contato na linha do tempo", async () => {
+    const admin = adminDe(s.providerId);
+    const integracoes = linhasDe("chat_bullq_integracoes", s.providerId);
+    expect(integracoes).toHaveLength(1);
+    expect(integracoes[0]).toMatchObject({
+      organizationId: `demo-org-${s.providerId}`,
+      slug: s.subdomain,
+      ownerEmail: admin.email,
+      canalId: "demo-canal",
+      canalNome: "WhatsApp da Demonstração",
+      status: "ativo",
+    });
+
+    const conversas = linhasDe("chat_bullq_conversas", s.providerId);
+    expect(conversas).toHaveLength(21);
+    const ids = conversas.map((c) => c.conversationId as string);
+    expect(new Set(ids).size).toBe(21);
+    for (const id of ids) expect(id).toMatch(new RegExp(`^demo-conv-${s.providerId}-\\d+$`));
+
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const casos = new Map((await casosDeCobrancaDe(s.providerId)).map((c) => [c.id as number, c]));
+    const recuperacoes = new Map(linhasDe("equipment_recovery_cases", s.providerId).map((r) => [r.id as number, r]));
+    const eventosCobranca = linhasDe("cobranca_eventos", s.providerId);
+    const eventosRecuperacao = linhasDe("equipment_recovery_events", s.providerId);
+
+    const filas = {
+      ativos: conversas.filter((c) => c.origem === "cobranca" && clientes.get(c.customerId as number)?.status === "active"),
+      ex: conversas.filter((c) => c.origem === "cobranca" && clientes.get(c.customerId as number)?.status === "cancelled"),
+      equipamentos: conversas.filter((c) => c.origem === "equipamentos"),
+    };
+    expect(filas.ativos).toHaveLength(9);
+    // 7, e não 8: os 3 casos "aberto" de ex-cliente ficam sem conversa — abrir a conversa move o caso para "em contato".
+    expect(filas.ex).toHaveLength(7);
+    expect(filas.equipamentos).toHaveLength(5);
+    for (const [nome, fila] of Object.entries(filas)) {
+      const status = fila.map((c) => c.status as string);
+      for (const esperado of ["OPEN", "PENDING", "WAITING", "BOT"]) expect(status, `${nome} sem ${esperado}`).toContain(esperado);
+      const fechadas = status.filter((x) => x === "CLOSED").length;
+      expect(fechadas, `${nome}: ${fechadas} CLOSED`).toBeGreaterThanOrEqual(1);
+      expect(fechadas, `${nome}: ${fechadas} CLOSED`).toBeLessThanOrEqual(2);
+    }
+
+    for (const conversa of conversas) {
+      const rotulo = `${conversa.conversationId} (${conversa.status})`;
+      expect(conversa.canalId).toBe("demo-canal");
+      expect(clientes.has(conversa.customerId as number), `${rotulo}: cliente de outro provedor`).toBe(true);
+
+      const aberta = ms(conversa.abertaEm);
+      const ultimo = ms(conversa.ultimoEventoEm);
+      expect(aberta, rotulo).toBeLessThanOrEqual(ultimo);
+      expect(ultimo, rotulo).toBeLessThanOrEqual(Date.now());
+      if (conversa.status === "OPEN" || conversa.status === "PENDING") expect(Date.now() - ultimo, rotulo).toBeLessThan(DIA_MS);
+      if (conversa.status === "WAITING" || conversa.status === "CLOSED") expect(Date.now() - ultimo, rotulo).toBeGreaterThan(DIA_MS);
+
+      const metadataDaConversa = (e: Record<string, unknown>) => json(e.metadata)?.conversationId === conversa.conversationId;
+
+      if (conversa.casoId != null) {
+        const caso = casos.get(conversa.casoId as number);
+        expect(caso, `${rotulo}: caso de outro provedor`).toBeTruthy();
+        expect(caso!.customerId).toBe(conversa.customerId);
+        expect(casoFechado(caso!.status as string), `${rotulo}: conversa em caso fechado`).toBe(false);
+
+        const doCaso = eventosCobranca.filter((e) => e.casoId === caso!.id && metadataDaConversa(e));
+        const contato = doCaso.find((e) => e.tipo === "contato");
+        expect(contato, `${rotulo}: sem evento de contato`).toBeTruthy();
+        expect(contato!.canal).toBe("whatsapp");
+        expect(json(contato!.metadata)).toEqual({ origem: "chat_integrado", conversationId: conversa.conversationId });
+        expect(doCaso.map((e) => e.tipo)).toContain("nota");
+        expect(ms(caso!.ultimoContatoEm)).toBe(ms(contato!.ocorridoEm));
+      }
+
+      if (conversa.origem === "equipamentos") {
+        expect(conversa.casoId ?? null).toBeNull();
+        const recuperacao = recuperacoes.get(conversa.recuperacaoId as number);
+        expect(recuperacao, `${rotulo}: recuperacao de outro provedor`).toBeTruthy();
+        expect(recuperacao!.customerId).toBe(conversa.customerId);
+        expect(recuperacao!.closedAt ?? null, `${rotulo}: conversa em recuperacao encerrada`).toBeNull();
+        const doChat = eventosRecuperacao.filter((e) => e.caseId === recuperacao!.id && metadataDaConversa(e));
+        expect(doChat.map((e) => e.type).sort()).toEqual(["nota", "tentativa"]);
+        expect(json(doChat[0].metadata)).toEqual({ origem: "chat_integrado", conversationId: conversa.conversationId });
+      }
+    }
+    // Toda conversa de cobrança — ativo ou ex-cliente — nasce de um caso vivo.
+    for (const conversa of [...filas.ativos, ...filas.ex]) expect(conversa.casoId, String(conversa.conversationId)).not.toBeNull();
+  });
+
+  it("caso 'aberto' nunca tem contato nem conversa — no produto, abrir a conversa move o caso para 'em contato'", async () => {
+    const abertos = (await casosDeCobrancaDe(s.providerId)).filter((c) => c.status === "aberto");
+    expect(abertos.length).toBeGreaterThan(0);
+    const conversas = linhasDe("chat_bullq_conversas", s.providerId);
+    const eventos = linhasDe("cobranca_eventos", s.providerId);
+    for (const caso of abertos) {
+      expect(caso.ultimoContatoEm ?? null, JSON.stringify(caso)).toBeNull();
+      expect(conversas.some((c) => c.casoId === caso.id), `caso ${caso.id} aberto com conversa`).toBe(false);
+      expect(eventos.some((e) => e.casoId === caso.id && e.tipo === "contato"), `caso ${caso.id} aberto com contato`).toBe(false);
+    }
+  });
+
+  it("todo caso que saiu da fila tem o evento da transicao que o produto grava — propor e desfazer num negativado nao o devolve a fila", async () => {
+    const vivos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const eventos = linhasDe("cobranca_eventos", s.providerId);
+    const alvos = vivos.filter((c) => ["negociando", "acordo_ativo", "negativado"].includes(c.status as string));
+    expect(new Set(alvos.map((c) => c.status))).toEqual(new Set(["negociando", "acordo_ativo", "negativado"]));
+
+    for (const caso of alvos) {
+      const rotulo = `caso ${caso.id} (${caso.status}, ${caso.carteira})`;
+      const doCaso = eventos.filter((e) => e.casoId === caso.id);
+      const transicoes = doCaso.filter((e) => json(e.metadata)?.para != null);
+
+      // A transição que pôs o caso no status de hoje, no instante que `statusDesde` diz.
+      const atual = transicoes.find((e) => json(e.metadata).para === caso.status);
+      expect(atual, `${rotulo}: sem o evento da transicao para ${caso.status}`).toBeTruthy();
+      expect(ms(atual!.ocorridoEm), rotulo).toBe(ms(caso.statusDesde));
+
+      // Cada degrau no formato da rota (cobranca.routes.ts, PATCH do caso): tipo da máquina de estados, metadata { de, para }.
+      for (const t of transicoes) {
+        const { de, para } = json(t.metadata) as { de: StatusDeCaso; para: StatusDeCaso };
+        expect(transicaoDeCaso(de, para), `${rotulo}: ${de} -> ${para}`).toEqual({ ok: true });
+        expect(t.tipo, `${rotulo}: ${de} -> ${para}`).toBe(eventoDaTransicaoDeCaso(de, para));
+        expect(ms(t.ocorridoEm), rotulo).toBeGreaterThanOrEqual(ms(caso.abertoEm));
+        expect(ms(t.ocorridoEm), rotulo).toBeLessThanOrEqual(ms(caso.statusDesde));
+        // De onde ele saiu tem de estar contado antes: "em contato" pelo contato, o resto pela transição anterior.
+        const antes = (e: Record<string, unknown>) => ms(e.ocorridoEm) <= ms(t.ocorridoEm);
+        if (de === "em_contato") expect(doCaso.some((e) => e.tipo === "contato" && antes(e)), `${rotulo}: saiu de em_contato sem contato`).toBe(true);
+        else if (de !== "aberto") expect(transicoes.some((e) => e !== t && json(e.metadata).para === de && antes(e)), `${rotulo}: saiu de ${de} sem ter chegado`).toBe(true);
+      }
+    }
+
+    // O defeito de verdade: criar a proposta leva o negativado a "negociando"; cancelar chama
+    // `statusDeFundoDoCaso` (cobranca.storage.ts), que só devolve "negativado" achando o evento
+    // `negativacao` do caso — sem ele o caso voltava a "aberto", o que estados.ts proíbe.
+    const negativados = vivos.filter((c) => c.status === "negativado");
+    expect(negativados.length).toBeGreaterThan(0);
+    for (const caso of negativados) {
+      const negativacao = eventos.filter((e) => e.casoId === caso.id && e.tipo === "negativacao");
+      expect(negativacao, `caso ${caso.id} negativado sem o evento negativacao`).toHaveLength(1);
+      expect(ms(negativacao[0].ocorridoEm)).toBeLessThanOrEqual(ms(caso.statusDesde));
+      const fundoAposPropor = negativacao.length > 0 ? "negativado" : "aberto";
+      expect(statusAposNegociacaoDesfeita(fundoAposPropor), `caso ${caso.id}`).toBe("negativado");
+    }
+  });
+
+  it("nenhum cliente com conversa de cobranca e candidato da regua — a primeira passada do worker nao abre um card 'aberto' ao lado da conversa", async () => {
+    const vivos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const conversas = linhasDe("chat_bullq_conversas", s.providerId).filter((c) => c.origem === "cobranca");
+    expect(conversas).toHaveLength(16);
+
+    for (const conversa of conversas) {
+      const rotulo = `${conversa.conversationId} (${conversa.status})`;
+      const cliente = clientes.get(conversa.customerId as number)!;
+      // A conversa é de cobrança porque o cliente deve — é justamente o que faria dele candidato sem caso vivo.
+      expect(Number(cliente.totalOverdueAmount), rotulo).toBeGreaterThan(DIVIDA_MINIMA_PARA_CASO);
+      expect(cliente.maxDaysOverdue as number, rotulo).toBeGreaterThanOrEqual(1);
+
+      const caso = vivos.find((c) => c.id === conversa.casoId);
+      expect(caso, `${rotulo}: conversa de cobranca sem caso vivo — a regua abriria um card 'aberto' para o cliente`).toBeTruthy();
+      expect(caso!.customerId, rotulo).toBe(conversa.customerId);
+      expect(caso!.status, `${rotulo}: conversa num caso 'aberto'`).not.toBe("aberto");
+
+      // As condições de `clientesParaAbrirCaso` (cobranca.storage.ts): dívida acima do mínimo, atraso >= 1 e nenhum caso vivo.
+      const candidato = Number(cliente.totalOverdueAmount) > DIVIDA_MINIMA_PARA_CASO
+        && (cliente.maxDaysOverdue as number) >= 1
+        && !vivos.some((c) => c.customerId === cliente.id);
+      expect(candidato, rotulo).toBe(false);
+    }
+  });
+
+  it("nenhum caso vivo cobra o equipamento de uma recuperacao concluida — o aparelho cobrado segue retido", async () => {
+    const vivos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const recuperacoes = linhasDe("equipment_recovery_cases", s.providerId);
+    const equipamentos = await equipamentosDe(s.providerId);
+    const faturas = await faturasDe(s.providerId);
+    let conferidos = 0;
+    for (const caso of vivos) {
+      const cobraEquipamento = faturas.some((f) => f.customerId === caso.customerId && f.status === "overdue" && /equipamento/.test(String(f.descricao ?? "")));
+      if (!cobraEquipamento) continue;
+      conferidos++;
+      const rotulo = `caso ${caso.id} (${caso.status})`;
+      expect(recuperacoes.filter((r) => r.customerId === caso.customerId).map((r) => r.status), rotulo).not.toContain("concluido");
+      const doCliente = equipamentos.filter((e) => e.customerId === caso.customerId);
+      expect(doCliente.some((e) => equipamentoTemRetiradaPendente(e.status as string)), `${rotulo}: cobra equipamento que nao esta retido`).toBe(true);
+    }
+    expect(conferidos, "os casos vivos de ex-cliente cobram a fatura de saida").toBe(10);
+  });
+
+  it("o roteiro de cada conversa semeada conta a mesma historia que o caso, a recuperacao e a linha do tempo", async () => {
+    const agora = Date.now();
+    const provedor = (banco.linhas.get("providers") ?? []).find((p) => p.id === s.providerId)!;
+    const admin = adminDe(s.providerId);
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const casos = new Map((await casosDeCobrancaDe(s.providerId)).map((c) => [c.id as number, c]));
+    const recuperacoes = new Map(linhasDe("equipment_recovery_cases", s.providerId).map((r) => [r.id as number, r]));
+    const equipamentos = new Map((await equipamentosDe(s.providerId)).map((e) => [e.id as number, e]));
+    const eventosCobranca = linhasDe("cobranca_eventos", s.providerId);
+    const eventosRecuperacao = linhasDe("equipment_recovery_events", s.providerId);
+    const conversas = linhasDe("chat_bullq_conversas", s.providerId);
+    expect(conversas.length).toBeGreaterThan(0);
+
+    for (const conversa of conversas) {
+      const cliente = clientes.get(conversa.customerId as number)!;
+      const caso = conversa.casoId != null ? casos.get(conversa.casoId as number) : undefined;
+      const recuperacao = conversa.recuperacaoId != null ? recuperacoes.get(conversa.recuperacaoId as number) : undefined;
+      const equip = recuperacao ? equipamentos.get(recuperacao.equipmentId as number) : undefined;
+      const linha: LinhaDaConversa = {
+        conversationId: conversa.conversationId as string, status: conversa.status as string, origem: conversa.origem as string, canalId: conversa.canalId as string,
+        abertaEm: new Date(ms(conversa.abertaEm)), ultimoEventoEm: new Date(ms(conversa.ultimoEventoEm)),
+        clienteNome: cliente.name as string, clienteTelefone: (cliente.phone as string) ?? null,
+        clienteDivida: (cliente.totalOverdueAmount as string) ?? null, clienteDias: (cliente.maxDaysOverdue as number) ?? null,
+        provedorNome: provedor.name as string, provedorFantasia: (provedor.tradeName as string) ?? null, atendenteNome: admin.name as string,
+        casoStatus: (caso?.status as string) ?? null, casoCarteira: (caso?.carteira as string) ?? null,
+        casoValor: (caso?.valorAtual as string) ?? null, casoDias: (caso?.diasAtrasoAbertura as number) ?? null,
+        recuperacaoStatus: (recuperacao?.status as string) ?? null, recuperacaoAgendadaEm: recuperacao?.scheduledAt ? new Date(ms(recuperacao.scheduledAt)) : null,
+        equipamentoTipo: (equip?.type as string) ?? null, equipamentoMarca: (equip?.brand as string) ?? null, equipamentoModelo: (equip?.model as string) ?? null,
+      };
+      const msgs = roteiroDaConversa(linha, agora);
+      const texto = msgs.map((m) => m.content.text).join(" | ");
+      const rotulo = `${linha.conversationId} (${linha.status}, caso ${linha.casoStatus}, recuperacao ${linha.recuperacaoStatus})`;
+      const doChat = (e: Record<string, unknown>) => json(e.metadata)?.conversationId === linha.conversationId;
+
+      if (linha.status === "BOT") {
+        // O robô só mandou a abertura, e a linha do tempo diz o mesmo: contato sem resultado e sem usuário.
+        expect(msgs.every((m) => m.direction === "OUTBOUND" && m.senderName === "Assistente virtual"), rotulo).toBe(true);
+        if (caso) expect(eventosCobranca.find((e) => doChat(e) && e.tipo === "contato"), rotulo).toMatchObject({ resultado: null, userId: null });
+        if (recuperacao) expect(eventosRecuperacao.find((e) => doChat(e) && e.type === "tentativa"), rotulo).toMatchObject({ result: "sem_resposta", userId: null });
+        continue;
+      }
+      expect(msgs.some((m) => m.direction === "INBOUND"), `${rotulo}: resposta registrada sem fala do cliente`).toBe(true);
+      if (caso) expect(eventosCobranca.find((e) => doChat(e) && e.tipo === "contato")?.resultado ?? null, rotulo).not.toBeNull();
+      if (caso && !casoFechado(linha.casoStatus!)) expect(texto, rotulo).not.toMatch(/paguei|Pagamento localizado/);
+      if (linha.casoStatus === "negativado") {
+        expect(texto, rotulo).toMatch(/não vou pagar/);
+        expect(texto, rotulo).not.toMatch(/PIX|esquecimento/);
+      }
+      if (linha.casoStatus === "acordo_ativo") expect(texto, rotulo).toMatch(/Acordo registrado/);
+      if (!caso && linha.origem === "cobranca" && (linha.clienteDias ?? 0) > 14) expect(texto, rotulo).not.toMatch(/esquecimento/);
+      if (linha.recuperacaoStatus === "contestado") {
+        expect(texto, rotulo).not.toMatch(/Recebemos o equipamento|Pode vir buscar/);
+        // A contestação nasce da conversa: depois de o contato abrir, antes do último evento.
+        const contestadoEm = ms(recuperacao!.disputedAt);
+        expect(contestadoEm, rotulo).toBeGreaterThan(linha.abertaEm.getTime());
+        expect(contestadoEm, rotulo).toBeLessThan(linha.ultimoEventoEm!.getTime());
+      }
+      if (linha.status === "CLOSED") expect(msgs.at(-1)!.content.text, rotulo).toMatch(/encerrar/);
+    }
+  });
+
+  it("a Economia sai calculada, nunca pendente, para em dia, inadimplente, ex-cliente devendo e ex-cliente que pagou", async () => {
+    const economia = json(linhasDe("cobranca_politica", s.providerId)[0].economia) as Economia;
+    const clientes = await clientesDe(s.providerId);
+    const faturas = await faturasDe(s.providerId);
+    const hoje = new Date();
+    const amostras: Record<string, Record<string, unknown> | undefined> = {
+      emDia: clientes.find((c) => c.status === "active" && c.paymentStatus === "current"),
+      inadimplente: clientes.find((c) => c.paymentStatus === "overdue"),
+      exDevendo: clientes.find((c) => c.status === "cancelled" && Number(c.totalOverdueAmount) > 0),
+      exPagou: clientes.find((c) => c.status === "cancelled" && Number(c.totalOverdueAmount) === 0),
+    };
+    for (const [nome, c] of Object.entries(amostras)) {
+      expect(c, nome).toBeTruthy();
+      const doCliente = faturas.filter((f) => f.customerId === c!.id);
+      const vencidas = doCliente.filter((f) => f.status === "overdue").map((f) => ms(f.dueDate));
+      const r = economiaDoCliente({
+        hoje,
+        statusErp: c!.status as string,
+        carteira: c!.status === "cancelled" ? "ex_cliente" : "ativo",
+        contractStartDate: c!.contractStartDate as string,
+        cortadoEm: c!.cortadoEm ? new Date(ms(c!.cortadoEm)) : null,
+        ultimaFaturaEmitidaEm: vencidas.length ? new Date(Math.max(...vencidas)) : null,
+        primeiraFaturaVencidaEm: vencidas.length ? new Date(Math.min(...vencidas)) : null,
+        plano: c!.contractPlan as string,
+        dividaAtual: Number(c!.totalOverdueAmount),
+        economia,
+        mensalidadeObservada: null,
+        historicoPagamento: null,
+        erpConfirmaPagamentos: null,
+        erpSource: FONTE_ERP_DEMO,
+        cobrancaDeSaida: null,
+      });
+      expect(r.economiaPendente, `${nome}: ${r.economiaPendente}`).toBeNull();
+      expect(r.economia, nome).not.toBeNull();
+    }
+  });
+
+  it("nada da semeadura nova sai do proprio provedor nem inventa pessoa: todo cliente referenciado e da carteira de 1.500", async () => {
+    const idsClientes = new Set((await clientesDe(s.providerId)).map((c) => c.id));
+    expect(idsClientes.size).toBe(1500);
+    const referencias = [
+      ...(await casosDeCobrancaDe(s.providerId)),
+      ...linhasDe("equipment_recovery_cases", s.providerId),
+      ...linhasDe("chat_bullq_conversas", s.providerId),
+      ...linhasDe("cobranca_eventos", s.providerId),
+    ];
+    for (const linha of referencias) {
+      expect(idsClientes.has(linha.customerId), JSON.stringify(linha)).toBe(true);
+    }
+    const idsRecuperacoes = new Set(linhasDe("equipment_recovery_cases", s.providerId).map((r) => r.id));
+    for (const e of linhasDe("equipment_recovery_events", s.providerId)) {
+      expect(idsRecuperacoes.has(e.caseId), JSON.stringify(e)).toBe(true);
+    }
+  });
+
+  it("apagarSandbox leva a semeadura inteira — politica, recuperacoes, eventos, integracao e conversas incluidos", async () => {
+    await apagarSandbox(s.providerId);
+    const residuos: string[] = [];
+    for (const tabela of TABELAS) {
+      const nome = getTableName(tabela);
+      if (!("providerId" in getTableColumns(tabela))) continue;
+      const sobra = linhasDe(nome, s.providerId).length;
+      if (sobra > 0) residuos.push(`${nome} (${sobra})`);
+    }
+    expect(residuos).toEqual([]);
+  });
+});
+
+/**
  * A limpeza do sandbox, cobrindo TODA tabela com FK para `providers` — não
  * as que alguém lembrou de listar. Achado real da rodada de correção
  * (11/09/2026): `apagarSandbox` cobria ~15 das 38 tabelas do schema com FK
@@ -869,8 +1630,13 @@ describe("sandbox do visitante", () => {
  * que outra feature criar amanhã; esta, não — ganha a FK, o teste passa a
  * semeá-la, e se `apagarSandbox` não souber limpá-la, ACENDE VERMELHO aqui.
  *
- * SEM EXCEÇÃO — 38 tabelas, 41 pares (tabela, coluna), zero exclusões
- * (rodada de correção 2, 11/09/2026). A primeira versão deste teste excluía
+ * SEM EXCEÇÃO — 42 tabelas, 45 pares (tabela, coluna), zero exclusões
+ * (rodada de correção 2, 11/09/2026; recontado em 12/09/2026, quando a
+ * derivação passou a ler também `shared/schema-cobranca-faturas.ts` e
+ * `shared/chat-autonomia-seguranca.ts` — módulos que `@shared/schema` não
+ * reexporta, e por isso ficavam INVISÍVEIS a este teste: pré-avisos,
+ * quitações e a autorização da autonomia do chat sobravam depois da limpeza
+ * sem acender nada). A primeira versão deste teste excluía
  * `acessos_suporte` (a guarda de LGPD de `storage.deleteProvider` recusa
  * apagar um provedor real com trilha de acesso de suporte, e o raciocínio
  * era "então não é resíduo, é desenho"). Isso reabria o MESMO zumbi
@@ -890,10 +1656,15 @@ describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado d
     chaveCamelCase: string;
   }
 
-  /** Toda tabela exportada de `@shared/schema` com uma FK (de qualquer coluna) apontando para `providers.id`. */
+  /**
+   * Toda tabela exportada de `@shared/schema` — e dos dois módulos de schema
+   * que ele não reexporta — com uma FK (de qualquer coluna) apontando para
+   * `providers.id`.
+   */
   function tabelasComFkParaProviders(): AlvoDeFk[] {
     const alvos: AlvoDeFk[] = [];
-    for (const valor of Object.values(schema)) {
+    const exportados = [...Object.values(schema), ...Object.values(schemaCobrancaFaturas), ...Object.values(schemaChatAutonomiaSeguranca)];
+    for (const valor of exportados) {
       if (!valor || typeof valor !== "object" || !is(valor as object, PgTable)) continue;
       const tabela = valor as PgTable;
       const cfg = getTableConfig(tabela);
@@ -943,13 +1714,17 @@ describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado d
 
   it("apagarSandbox limpa toda tabela com FK para providers — lista derivada do schema, nunca digitada a mao, sem excecao", async () => {
     const alvos = tabelasComFkParaProviders();
-    // Contagem EXATA, não só "> 30": 38 tabelas / 41 pares (3 tabelas —
+    // Contagem EXATA, não só "> 30": 42 tabelas / 45 pares (3 tabelas —
     // anti_fraud_alerts, proactive_alerts, provider_documents — têm duas
-    // colunas cada uma apontando para providers). Se o schema mudar de
-    // forma e esse número desviar, é melhor um teste vermelho apontando o
-    // número exato do que um "> 30" que deixa passar uma tabela a menos.
-    expect(alvos.length, "universo de FKs para providers mudou — recontar antes de ajustar este numero").toBe(41);
-    expect(new Set(alvos.map((a) => a.nomeTabela)).size).toBe(38);
+    // colunas cada uma apontando para providers). Os 4 pares a mais de
+    // 12/09/2026 são cobranca_pre_avisos, cobranca_quitacoes,
+    // chat_autonomia_autorizacao e chat_autonomia_seguranca (a FK composta
+    // desta aponta para a conversa, não para providers — só `provider_id`
+    // conta). Se o schema mudar de forma e esse número desviar, é melhor um
+    // teste vermelho apontando o número exato do que um "> 30" que deixa
+    // passar uma tabela a menos.
+    expect(alvos.length, "universo de FKs para providers mudou — recontar antes de ajustar este numero").toBe(45);
+    expect(new Set(alvos.map((a) => a.nomeTabela)).size).toBe(42);
 
     const s = await criarSandbox();
 
@@ -1099,12 +1874,15 @@ describe("apagar exige o segundo sinal, nao so o prefixo do subdominio", () => {
 
     // 2. A chamada DIRETA recusa: um id errado vindo de qualquer chamador
     //    futuro nao pode virar exclusao de um provedor de verdade.
+    vi.mocked(limparChatSimuladoDoProvedor).mockClear();
     await expect(apagarSandbox(impostor.providerId)).rejects.toThrow();
 
     // 3. E a passada real da limpeza deixa a conta inteira de pe.
     await limparSandboxesExpirados();
     expect(await providerDe(impostor.providerId)).toBeTruthy();
     expect(await clientesDe(impostor.providerId)).toHaveLength(clientesAntes);
+    // A recusa tambem nao mexe no chat simulado de quem sobreviveu.
+    expect(vi.mocked(limparChatSimuladoDoProvedor)).not.toHaveBeenCalledWith(impostor.providerId);
   });
 
   /**

@@ -19,6 +19,7 @@
 import { z } from "zod";
 import { storage } from "../../storage";
 import { clienteDoChat, ErroDaPonteDoChat, urlDaApiDoAgente } from "./chat-ponte.service";
+import { emModoDemo } from "../../demo/modo-demo";
 import { comTravaDaConfiguracaoDoChat } from "./chat-agentes.service";
 import {
   hostPermitido, LIMITES_DO_CONSOLE,
@@ -67,6 +68,11 @@ function idsDaPonte(agenteConfig: Record<string, unknown>): Set<string> {
  * entra sempre — é a conexão que faz sentido aqui. O resto é o superadmin quem
  * libera, por variável de ambiente, porque quem escolhe o destino escolhe para
  * onde vão os headers de credencial.
+ *
+ * Na demonstração a lista do ambiente não entra: ela é a configuração do
+ * superadmin de uma instância real, e esta lista volta inteira para o
+ * navegador do visitante (`listarToolsDoConsole`) e na mensagem de recusa.
+ * Sobra só a base do chat simulado, que `urlDaApiDoAgente` já devolve inerte.
  */
 export function hostsPermitidosDasTools(): string[] {
   const hosts = new Set<string>();
@@ -75,9 +81,11 @@ export function hostsPermitidosDasTools(): string[] {
   } catch {
     /* base mal configurada: sobra a lista do ambiente */
   }
-  for (const h of (process.env.CHAT_BULLQ_TOOLS_HOSTS || "").split(",")) {
-    const limpo = h.trim().toLowerCase();
-    if (limpo) hosts.add(limpo);
+  if (!emModoDemo()) {
+    for (const h of (process.env.CHAT_BULLQ_TOOLS_HOSTS || "").split(",")) {
+      const limpo = h.trim().toLowerCase();
+      if (limpo) hosts.add(limpo);
+    }
   }
   return [...hosts];
 }

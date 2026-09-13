@@ -18,6 +18,39 @@ import {
 
 const CNPJ = "23864873000148";
 
+/**
+ * Na demonstração o CNPJ é o inventado do sandbox: nenhuma das três fontes é
+ * chamada e o cadastro sai local, com o CNPJ pedido. Sem DEMO_MODE (ou com um
+ * valor que não é exatamente "true"), a queda entre as fontes continua.
+ */
+describe("consultarCnpjPublico na demonstracao publica", () => {
+  const original = process.env.DEMO_MODE;
+  afterEach(() => {
+    if (original === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = original;
+    vi.unstubAllGlobals();
+  });
+
+  it("DEMO_MODE: cadastro ficticio do sandbox, sem nenhuma chamada as fontes", async () => {
+    process.env.DEMO_MODE = "true";
+    const chamadas = montar({ "receitaws.com.br": () => ({ corpo: RECEITAWS }) });
+
+    const empresa = await consultarCnpjPublico(CNPJ);
+
+    expect(chamadas).toHaveLength(0);
+    expect(empresa).toMatchObject({ cnpj: CNPJ, razaoSocial: "PROVEDOR DEMONSTRACAO LTDA", situacao: "ATIVA", cidade: "LONDRINA", uf: "PR", fonte: "demonstracao" });
+  });
+
+  it("sem DEMO_MODE: pergunta as fontes como sempre", async () => {
+    process.env.DEMO_MODE = "1";
+    const chamadas = montar({ "receitaws.com.br": () => ({ corpo: RECEITAWS }) });
+
+    const empresa = await consultarCnpjPublico(CNPJ);
+
+    expect(chamadas.length).toBeGreaterThan(0);
+    expect(empresa?.razaoSocial).toBe("HELIO CAINELLI TELECOM LTDA");
+  });
+});
+
 /** Respostas por URL. O que nao estiver no mapa "cai a rede". */
 function montar(rotas: Record<string, () => { status?: number; corpo: unknown }>) {
   const chamadas: string[] = [];

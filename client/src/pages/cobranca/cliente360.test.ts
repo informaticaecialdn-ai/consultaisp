@@ -148,7 +148,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   BlocoConexao, bloqueioDoContrato, estadoDaConexao, formatarMac,
-  IdentificacaoTecnica, MOTIVO_SEM_ORIGEM, origemDoDado, origemDoSnapshot,
+  IdentificacaoTecnica, MOTIVO_SEM_ORIGEM, origemDoDado, origemDoSnapshot, TITULO_DEMONSTRACAO,
 } from "@/components/cobranca/IdentificacaoTecnica";
 import type { EquipamentoDoCliente, SnapshotAoVivo } from "@/components/cobranca/tipos";
 
@@ -347,6 +347,82 @@ describe("o bloco CONEXÃO", () => {
     expect(identificacao).toContain("export function origemDoDado(");
     expect(identificacao).toContain("export function estadoDaConexao(");
     expect(identificacao).toContain("export function formatarMac(");
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────
+ * O selo na demonstração pública. No sandbox a leitura "ao vivo" responde
+ * (pelo conector de demonstração), então sem esta regra o selo diria "Dados
+ * reais" sobre clientes inventados. O sinal é `demoMode` de `useAuth` — o
+ * mesmo da faixa — e fora da demo a regra de sempre não muda um caractere.
+ * ──────────────────────────────────────────────────────────────────────── */
+describe("o selo de origem na demonstração pública", () => {
+  const ENTRADAS = [
+    { aoVivo: true, erpSource: "mk", lidoEm: AGORA },
+    { aoVivo: false, erpSource: "mk", lidoEm: AGORA, motivo: "timeout" },
+    { aoVivo: false, lidoEm: null },
+  ];
+
+  it("com demonstração, ao vivo, varredura ou sem data: sempre 'Dados fictícios', tom info, nunca 'Dados reais'", () => {
+    for (const entrada of ENTRADAS) {
+      const demo = origemDoDado({ ...entrada, demonstracao: true });
+      expect(demo.rotulo).toBe("Dados fictícios");
+      expect(demo.tom).toBe("info");
+      expect(demo.titulo).toContain("Demonstração pública");
+      expect(demo.titulo).toContain("conector de demonstração");
+      expect(demo.titulo).not.toContain("Leitura ao vivo do");
+      // a data e o `aoVivo` continuam os da regra: só a afirmação do selo muda
+      const real = origemDoDado(entrada);
+      expect(demo.aoVivo).toBe(real.aoVivo);
+      expect(demo.quando).toBe(real.quando);
+    }
+    expect(origemDoDado({ aoVivo: true, lidoEm: AGORA, nota: "Nota do bloco.", demonstracao: true }).titulo).toBe(`${TITULO_DEMONSTRACAO} Nota do bloco.`);
+  });
+
+  it("fora da demonstração (false ou ausente) a regra é exatamente a de antes", () => {
+    for (const entrada of ENTRADAS) {
+      expect(origemDoDado({ ...entrada, demonstracao: false })).toEqual(origemDoDado(entrada));
+    }
+    expect(origemDoDado({ aoVivo: true, erpSource: "mk", lidoEm: AGORA, demonstracao: false }).rotulo).toBe("Dados reais");
+    expect(origemDoDado({ aoVivo: true, erpSource: "mk", lidoEm: AGORA }).rotulo).not.toContain("fictícios");
+  });
+
+  it("o erpSource não liga a demonstração: só o sinal explícito liga", () => {
+    expect(origemDoDado({ aoVivo: true, erpSource: "demo", lidoEm: AGORA }).rotulo).toBe("Dados reais");
+  });
+
+  it("origemDoSnapshot repassa a demonstração nos dois caminhos — respondeu e não respondeu", () => {
+    const varredura = { erpSource: "mk", lidoEm: AGORA };
+    expect(origemDoSnapshot(snapshotDe({}), varredura, undefined, true).rotulo).toBe("Dados fictícios");
+    expect(origemDoSnapshot(undefined, varredura, undefined, true).rotulo).toBe("Dados fictícios");
+    expect(origemDoSnapshot(snapshotDe({}), varredura, undefined, false).rotulo).toBe("Dados reais");
+    expect(origemDoSnapshot(undefined, varredura).rotulo).toBe("Base sincronizada");
+  });
+
+  it("o bloco do 360 renderizado: 'Dados fictícios' com demonstração, 'Dados reais' sem", () => {
+    const props = { snapshot: snapshotDe({}), equipamentos: [] };
+    const demo = renderToStaticMarkup(createElement(IdentificacaoTecnica, { ...props, demonstracao: true }));
+    expect(demo).toContain("Dados fictícios");
+    expect(demo).not.toContain("Dados reais");
+    const real = renderToStaticMarkup(createElement(IdentificacaoTecnica, props));
+    expect(real).toContain("Dados reais");
+    expect(real).not.toContain("Dados fictícios");
+    expect(renderToStaticMarkup(createElement(IdentificacaoTecnica, { ...props, demonstracao: false }))).toBe(real);
+  });
+
+  it("o 360 lê demoMode de useAuth e passa ao cabeçalho e ao bloco CONEXÃO", () => {
+    expect(pagina).toContain("const { user, personificando, demoMode } = useAuth();");
+    expect(pagina).toMatch(/origemDoSnapshot\([\s\S]{0,400}?,\s*demoMode,\s*\)/);
+    expect(pagina).toMatch(/<IdentificacaoTecnica[\s\S]{0,400}?demonstracao=\{demoMode\}/);
+    // nunca decidido pelo erpSource no client
+    expect(pagina).not.toMatch(/erpSource\s*===\s*["']demo/);
+  });
+
+  it("o painel do chat lê demoMode de useAuth e passa ao selo da conexão", () => {
+    expect(perfilDoChat).toContain('import { useAuth } from "@/lib/auth";');
+    expect(perfilDoChat).toContain("const { demoMode } = useAuth();");
+    expect(perfilDoChat).toContain("demonstracao: demoMode,");
+    expect(perfilDoChat).not.toMatch(/erpSource\s*===\s*["']demo/);
   });
 });
 

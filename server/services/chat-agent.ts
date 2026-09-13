@@ -6,6 +6,7 @@
 import OpenAI from "openai";
 import { logger } from "../logger";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { emModoDemo } from "../demo/modo-demo";
 
 function getClient() {
   return new OpenAI({
@@ -88,6 +89,14 @@ export async function generateChatResponse(
   userMessage: string,
   history: ChatMessage[] = [],
 ): Promise<string> {
+  // O chat de visitante é público e roda no host da demonstração também: cada
+  // mensagem ali seria uma chamada paga ao modelo, disparada por quem nem
+  // login tem — o mesmo motivo que tirou a análise por IA da demo. O desvio
+  // fica aqui, e não na rota, para valer para qualquer chamador; e vem antes
+  // de montar o cliente, que nunca é instanciado na demonstração.
+  if (emModoDemo()) {
+    return "Esta é a demonstração pública do Consulta ISP: o atendimento automático não responde por aqui. Para falar com a nossa equipe, acesse consultaisp.com.br.";
+  }
   if (!isConfigured()) {
     logger.warn("[ChatAgent] AI API key nao configurada");
     return "Obrigado pela mensagem! No momento nosso assistente automatico esta em configuracao. Deixe seu contato que nossa equipe respondera em breve.";

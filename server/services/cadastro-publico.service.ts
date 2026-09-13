@@ -42,6 +42,7 @@ import { consultarCpf, type Credencial } from "./bigdata.service";
 import { consultarCnpj, DATASETS_EMPRESA_ONBOARDING } from "./bigdata-empresa";
 import { gerarIdentificadorDeConsulta, protocoloDaOrigem } from "./identificador-consulta";
 import { storage } from "../storage";
+import { emModoDemo } from "../demo/modo-demo";
 
 /**
  * De qual provedor sai a credencial que paga o onboarding.
@@ -198,6 +199,14 @@ export async function buscarEmpresa(cnpjBruto: string): Promise<RespostaEmpresa>
   // 1. de graca
   if (!validarCNPJ(cnpj)) {
     return { ok: false, motivo: "documento", mensagem: "CNPJ invalido. Confira os numeros." };
+  }
+
+  // Na demonstracao publica o cadastro fica fechado (o register recusa), e esta
+  // rota continuava levando o CNPJ digitado pelo visitante ate a BrasilAPI.
+  // Recusa clara, antes do banco e da Receita: sem passe emitido, as duas rotas
+  // pagas seguintes tambem ficam fechadas.
+  if (emModoDemo()) {
+    return { ok: false, motivo: "indisponivel", mensagem: "Nesta demonstracao o cadastro de novas empresas fica fechado, e nenhum CNPJ e consultado na Receita." };
   }
 
   /**
