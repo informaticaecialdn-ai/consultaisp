@@ -10,6 +10,11 @@ import { PgDialect } from "drizzle-orm/pg-core";
  * visitantes existiam (revisão da fase B, 13/09/2026: dois sandboxes no mesmo
  * CPF acendiam "3+ consultas de ISPs diferentes"). Fora da demonstração a query
  * é a de sempre. O Postgres não entra: o que se prende é o WHERE que sai.
+ *
+ * A contagem de alertas do benchmark regional segue a mesma regra (auditoria de
+ * isolamento de 13/09/2026, L2): o alerta nasce da consulta de alguém, e o que
+ * a consulta de OUTRO visitante criou — no mundo base ou no próprio sandbox —
+ * não entra no número de quem observa.
  */
 const capturado = vi.hoisted(() => ({ where: [] as unknown[], demo: false }));
 
@@ -53,5 +58,35 @@ describe("getRecentConsultationsForDocument — quem mais consultou o documento"
     expect(semObservador.sql).toBe(comObservador.sql);
     expect(comObservador.params[0]).toBe("99950005639");
     expect(comObservador.params).toHaveLength(2);
+  });
+});
+
+describe("getRegionalAlertCount — os alertas do benchmark regional", () => {
+  it("na demonstração, com o observador: o alerta criado pela consulta de outro visitante não conta", async () => {
+    capturado.demo = true;
+    await new ConsultationsStorage().getRegionalAlertCount([56, 1, 2], 30, 56);
+    const q = render(capturado.where[0]);
+    const texto = q.sql.toLowerCase();
+    expect(texto).toContain("not in (select");
+    expect(texto).toContain("<>");
+    expect(q.params).toContain(PADRAO_DE_SANDBOX_NO_SQL);
+    expect(q.params).toContain(56);
+  });
+
+  it("na demonstração, o alerta sem consulente (não nasceu de consulta) continua contando", async () => {
+    capturado.demo = true;
+    await new ConsultationsStorage().getRegionalAlertCount([56], 30, 56);
+    // `NOT IN` com NULL dá NULL e descartaria a linha em silêncio.
+    expect(render(capturado.where[0]).sql.toLowerCase()).toContain('"anti_fraud_alerts"."consulting_provider_id" is null or');
+  });
+
+  it("fora da demonstração: a mesma query de antes, byte a byte, com ou sem observador", async () => {
+    capturado.demo = false;
+    await new ConsultationsStorage().getRegionalAlertCount([56, 1], 30, 56);
+    await new ConsultationsStorage().getRegionalAlertCount([56, 1], 30);
+    const [comObservador, semObservador] = capturado.where.map(render);
+    expect(comObservador.sql).toBe('("anti_fraud_alerts"."provider_id" in ($1, $2) and "anti_fraud_alerts"."created_at" >= $3)');
+    expect(semObservador.sql).toBe(comObservador.sql);
+    expect(comObservador.params).toHaveLength(3);
   });
 });

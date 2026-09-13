@@ -138,14 +138,6 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
     logger.warn({ err }, "[Worker] LGPD retention scheduler failed to start");
   }
 
-  try {
-    const { startTitularProcessor } = await import("./services/lgpd-titular.service");
-    startTitularProcessor();
-    logger.info("[Worker] LGPD titular processor started");
-  } catch (err) {
-    logger.warn({ err }, "[Worker] LGPD titular processor failed to start");
-  }
-
   // A régua de cobrança: uma passada de boot e uma por dia às 05:00, depois da
   // varredura do ERP das 03:00. Só o worker a roda — ver o cabeçalho do serviço.
   try {
@@ -174,8 +166,8 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   // demonstração pública, item 6): um `import()` que rejeitasse pularia, sem
   // log e sem captura, todo o resto desta IIFE — o laço da autonomia do
   // chat, os handlers de SIGTERM/SIGINT e a cadeia do mapa mais abaixo nunca
-  // seriam registrados. Mesmo padrão dos blocos vizinhos acima (LGPD
-  // titular, régua de cobrança): tentar, logar e seguir. Se a detecção
+  // seriam registrados. Mesmo padrão dos blocos vizinhos acima (régua de
+  // cobrança, reconciliação de confissões): tentar, logar e seguir. Se a detecção
   // falhar, `emModoDemo` cai para "não é demo" — o lado mais seguro: no pior
   // caso a limpeza de sandbox não liga (produção não perde nada), nunca o
   // oposto (a cadeia do mapa sendo desligada por engano numa instância de
@@ -221,6 +213,30 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
         "[Worker] Limpeza de sandboxes da demo falhou ao iniciar — sandboxes NUNCA vao expirar sozinhos ate o worker reiniciar",
       );
     }
+  }
+
+  /*
+   * Pedidos de titular (LGPD) NÃO são processados na demonstração (auditoria de
+   * isolamento de 13/09/2026, L3). O processador anonimiza, PELO CPF, as
+   * consultas de todos os provedores, e na demonstração os CPFs da rede se
+   * repetem em todo sandbox e no mundo base: o pedido de um visitante apagaria
+   * o histórico de todos. A rota pública já recusa o pedido na demonstração;
+   * esta guarda cobre o que já estivesse gravado. Por isso o start mora DEPOIS
+   * da detecção de `emModoDemo` — até 13/09 ele vinha antes, junto da retenção.
+   * Mesma leitura `?.() !== true` das outras chamadas: se a detecção falhar, o
+   * processador liga, como em produção. A retenção por idade, acima, liga
+   * sempre: ela não depende do que um visitante pede.
+   */
+  if (emModoDemo?.() !== true) {
+    try {
+      const { startTitularProcessor } = await import("./services/lgpd-titular.service");
+      startTitularProcessor();
+      logger.info("[Worker] LGPD titular processor started");
+    } catch (err) {
+      logger.warn({ err }, "[Worker] LGPD titular processor failed to start");
+    }
+  } else {
+    logger.info("[Worker] Pedidos de titular (LGPD): processador desligado na demonstração");
   }
 
   /*

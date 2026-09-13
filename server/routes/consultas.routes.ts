@@ -1020,8 +1020,10 @@ export function registerConsultasRoutes(): Router {
         storage.getRegionalScoreStats(allProviderIds, 30),
         storage.getRegionalScoreStats([providerId], 30),
         storage.getRegionalScoreStats(allProviderIds, 60),
-        storage.getRegionalAlertCount(allProviderIds, 30),
-        storage.getRegionalAlertCount([providerId], 30),
+        // O provedor da sessao observa: na demonstracao, alerta criado pela
+        // consulta de outro visitante nao entra (auditoria de isolamento, L2).
+        storage.getRegionalAlertCount(allProviderIds, 30, providerId),
+        storage.getRegionalAlertCount([providerId], 30, providerId),
         storage.getTopRiskCeps(allProviderIds, 30, 5),
       ]);
 

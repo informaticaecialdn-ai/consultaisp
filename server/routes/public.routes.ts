@@ -8,6 +8,7 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { sendConfirmationEmail } from "../services/lgpd-email.service";
 import { resolverMarcaPorHost } from "../services/marca.service";
 import { ehSubdominioDeSandbox } from "../utils/fora-de-sandbox";
+import { emModoDemo } from "../demo/modo-demo";
 
 export function registerPublicRoutes(): Router {
   const router = Router();
@@ -147,6 +148,16 @@ export function registerPublicRoutes(): Router {
   const titularLimiter = createRateLimiter({ windowMs: 3_600_000, maxRequests: 5 });
 
   router.post("/api/public/titular-request", titularLimiter, async (req, res) => {
+    // A demonstracao nao recebe pedido de titular (auditoria de isolamento de
+    // 13/09/2026, L3). O worker processa exclusao, acesso e portabilidade PELO
+    // CPF em todos os provedores, e na demonstracao os CPFs da rede se repetem
+    // em todo sandbox e no mundo base: o pedido de um visitante apagaria o
+    // historico de todos. Quem chega aqui por engano precisa saber onde pedir.
+    if (emModoDemo()) {
+      return res.status(403).json({
+        message: "Esta é a demonstração do Consulta ISP: pedidos de titular (LGPD) não são registrados aqui. Faça o seu em consultaisp.com.br/lgpd.",
+      });
+    }
     try {
       const { cpfCnpj, nome, email, tipoSolicitacao, descricao } = req.body;
 

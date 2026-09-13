@@ -191,7 +191,9 @@ export function registerAntiFraudeRoutes(): Router {
 
       await Promise.all(documentos.map(async (doc) => {
         try {
-          const encontrados = await storage.getCustomerByCpfCnpj(doc);
+          // O proprio provedor observa: na demonstracao o filtro de sandbox
+          // alheio mantem o sandbox dele — sem observador, sairia junto.
+          const encontrados = await storage.getCustomerByCpfCnpj(doc, currentProviderId);
           const meu = encontrados.find(c => c.providerId === currentProviderId);
           if (!meu) return;
           snapshot.set(doc.replace(/\D/g, ""), {

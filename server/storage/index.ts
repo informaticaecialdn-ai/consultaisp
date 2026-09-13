@@ -101,7 +101,7 @@ export interface IStorage {
 
   getCustomersByProvider(providerId: number): Promise<Customer[]>;
   getCustomerByPhoneDigits(providerId: number, digitos: string): Promise<Customer | undefined>;
-  getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]>;
+  getCustomerByCpfCnpj(cpfCnpj: string, observadorId?: number): Promise<Customer[]>;
   baixarDividaQuitada(providerId: number, docsAindaDevendo: string[], inicioDaVarredura: Date): Promise<number>;
   getCustomersByExactAddress(address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string): Promise<Customer[]>;
   getCustomersByAddressHash(addressHash: string, excludeCpfCnpj?: string): Promise<Customer[]>;
@@ -162,7 +162,7 @@ export interface IStorage {
   getConsultationsByCepPrefix(cepPrefix: string, limitDays?: number): Promise<IspConsultation[]>;
   getConsultationTimeline(cpfCnpj: string, providerIds: number[], limit?: number): Promise<IspConsultation[]>;
   getRegionalScoreStats(providerIds: number[], days: number): Promise<{ avgScore: number; totalConsultations: number; belowThresholdCount: number }>;
-  getRegionalAlertCount(providerIds: number[], days: number): Promise<number>;
+  getRegionalAlertCount(providerIds: number[], days: number, observadorId?: number): Promise<number>;
   getTopRiskCeps(providerIds: number[], days: number, limit?: number): Promise<Array<{ cep: string; avgScore: number; count: number }>>;
 
   getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]>;
@@ -485,7 +485,7 @@ class DatabaseStorage implements IStorage {
   // Customers
   getCustomersByProvider = (providerId: number) => this._customers.getCustomersByProvider(providerId);
   getCustomerByPhoneDigits = (providerId: number, digitos: string) => this._customers.getCustomerByPhoneDigits(providerId, digitos);
-  getCustomerByCpfCnpj = (cpfCnpj: string) => this._customers.getCustomerByCpfCnpj(cpfCnpj);
+  getCustomerByCpfCnpj = (cpfCnpj: string, observadorId?: number) => this._customers.getCustomerByCpfCnpj(cpfCnpj, observadorId);
   baixarDividaQuitada = (providerId: number, docsAindaDevendo: string[], inicioDaVarredura: Date) => this._customers.baixarDividaQuitada(providerId, docsAindaDevendo, inicioDaVarredura);
   getCustomersByExactAddress = (address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string) => this._customers.getCustomersByExactAddress(address, city, state, cep, excludeCpfCnpj);
   getCustomersByAddressHash = (addressHash: string, excludeCpfCnpj?: string) => this._customers.getCustomersByAddressHash(addressHash, excludeCpfCnpj);
@@ -508,7 +508,7 @@ class DatabaseStorage implements IStorage {
   getConsultationsByCepPrefix = (cepPrefix: string, limitDays?: number) => this._consultations.getConsultationsByCepPrefix(cepPrefix, limitDays);
   getConsultationTimeline = (cpfCnpj: string, providerIds: number[], limit?: number) => this._consultations.getConsultationTimeline(cpfCnpj, providerIds, limit);
   getRegionalScoreStats = (providerIds: number[], days: number) => this._consultations.getRegionalScoreStats(providerIds, days);
-  getRegionalAlertCount = (providerIds: number[], days: number) => this._consultations.getRegionalAlertCount(providerIds, days);
+  getRegionalAlertCount = (providerIds: number[], days: number, observadorId?: number) => this._consultations.getRegionalAlertCount(providerIds, days, observadorId);
   getTopRiskCeps = (providerIds: number[], days: number, limit?: number) => this._consultations.getTopRiskCeps(providerIds, days, limit);
   getSpcConsultationsByProvider = (providerId: number) => this._consultations.getSpcConsultationsByProvider(providerId);
   createSpcConsultation = (consultation: InsertSpcConsultation) => this._consultations.createSpcConsultation(consultation);

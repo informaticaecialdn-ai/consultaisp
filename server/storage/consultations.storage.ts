@@ -158,11 +158,25 @@ export class ConsultationsStorage {
     };
   }
 
-  async getRegionalAlertCount(providerIds: number[], days: number): Promise<number> {
+  /**
+   * Alertas de anti-fraude dos provedores nos últimos `days` dias — os
+   * "migradores" do benchmark regional.
+   *
+   * Na demonstração, o alerta que a consulta de OUTRO visitante criou (no mundo
+   * base ou no próprio sandbox) não entra no número de quem observa (auditoria
+   * de isolamento de 13/09/2026, L2). Alerta sem consulente continua contando:
+   * `NOT IN` com NULL descartaria a linha em silêncio. Fora da demonstração, a
+   * query de sempre, byte a byte.
+   */
+  async getRegionalAlertCount(providerIds: number[], days: number, observadorId?: number): Promise<number> {
     const since = new Date();
     since.setDate(since.getDate() - days);
+    const condicoes = [inArray(antiFraudAlerts.providerId, providerIds), gte(antiFraudAlerts.createdAt, since)];
+    if (emModoDemo()) {
+      condicoes.push(sql`(${antiFraudAlerts.consultingProviderId} is null or ${doProvedorForaDeSandboxAlheio(antiFraudAlerts.consultingProviderId, observadorId)})`);
+    }
     const result = await db.select({ count: count() }).from(antiFraudAlerts)
-      .where(and(inArray(antiFraudAlerts.providerId, providerIds), gte(antiFraudAlerts.createdAt, since)));
+      .where(and(...condicoes));
     return result[0]?.count || 0;
   }
 

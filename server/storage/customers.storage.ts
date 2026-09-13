@@ -8,6 +8,7 @@ import {
 } from "@shared/schema";
 import { canonizarCidadeDoCadastro } from "../services/cidade-canonica.service";
 import { doProvedorForaDeSandboxAlheio } from "../utils/fora-de-sandbox";
+import { emModoDemo } from "../demo/modo-demo";
 
 /**
  * `YYYY-MM-DD` das partes LOCAIS da data — o formato de uma coluna DATE.
@@ -132,14 +133,24 @@ export class CustomersStorage {
     return (r as any).rowCount ?? 0;
   }
 
-  async getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]> {
+  /**
+   * Os clientes de um CPF/CNPJ em TODOS os provedores — é por aqui que o alerta
+   * de fuga acha o dono cujo ERP não respondeu ao vivo.
+   *
+   * Na demonstração os CPFs da rede se repetem em todo sandbox, e o sandbox de
+   * OUTRO visitante virava dono e ganhava o alerta (auditoria de isolamento de
+   * 13/09/2026, L1): lá sai todo sandbox menos o do `observadorId`. Fora da
+   * demonstração a query é a de sempre, byte a byte.
+   */
+  async getCustomerByCpfCnpj(cpfCnpj: string, observadorId?: number): Promise<Customer[]> {
     const limpo = (cpfCnpj || "").replace(/\D/g, "");
     if (!limpo) return [];
+    const doDocumento = or(
+      eq(customers.cpfCnpj, limpo),
+      sql`regexp_replace(${customers.cpfCnpj}, '[^0-9]', '', 'g') = ${limpo}`,
+    );
     return db.select().from(customers).where(
-      or(
-        eq(customers.cpfCnpj, limpo),
-        sql`regexp_replace(${customers.cpfCnpj}, '[^0-9]', '', 'g') = ${limpo}`,
-      ),
+      emModoDemo() ? and(doDocumento, doProvedorForaDeSandboxAlheio(customers.providerId, observadorId)) : doDocumento,
     );
   }
 

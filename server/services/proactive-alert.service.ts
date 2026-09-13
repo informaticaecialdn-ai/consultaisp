@@ -297,7 +297,9 @@ export async function notifyOwnerProviders(
 ): Promise<void> {
   let daBase: ClienteDaBase[] = [];
   try {
-    daBase = (await storage.getCustomerByCpfCnpj(cpfCnpj)).map(c => ({
+    // O consulente observa: na demonstracao, o sandbox de OUTRO visitante nao
+    // vira dono do CPF (auditoria de isolamento de 13/09/2026, L1).
+    daBase = (await storage.getCustomerByCpfCnpj(cpfCnpj, consultingProviderId)).map(c => ({
       id: c.id, providerId: c.providerId, name: c.name, status: c.status, contractStartDate: c.contractStartDate,
       totalOverdueAmount: c.totalOverdueAmount, maxDaysOverdue: c.maxDaysOverdue,
     }));

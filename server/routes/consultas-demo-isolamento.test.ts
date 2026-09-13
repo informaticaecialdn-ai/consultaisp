@@ -289,4 +289,22 @@ describe("leituras entre provedores da Consulta ISP excluem o sandbox de outro v
     expect([...idsPerguntados].sort((a, b) => a - b)).toEqual([REDE_1, REDE_2, PROPRIO].sort((a, b) => a - b));
     expect(idsPerguntados).not.toContain(OUTRO_SANDBOX);
   });
+
+  it("o benchmark conta os alertas com o provedor da sessao como observador — nos dois numeros", async () => {
+    const estatistica = { avgScore: 0, totalConsultations: 0, belowThresholdCount: 0 };
+    const getRegionalAlertCount = vi.fn(async (_ids: number[], _dias: number, _observador?: number) => 0);
+    Object.assign(storageMock as any, {
+      getRegionalScoreStats: vi.fn(async () => estatistica),
+      getRegionalAlertCount,
+      getTopRiskCeps: vi.fn(async () => []),
+    });
+    regionalMock.getRegionalProviderIds.mockResolvedValue([REDE_1, REDE_2]);
+    sessao.providerId = PROPRIO;
+
+    const res = await fetch(`${base}/api/isp-consultations/benchmark`);
+
+    expect(res.status).toBe(200);
+    expect(getRegionalAlertCount).toHaveBeenCalledWith([PROPRIO, REDE_1, REDE_2], 30, PROPRIO);
+    expect(getRegionalAlertCount).toHaveBeenCalledWith([PROPRIO], 30, PROPRIO);
+  });
 });
