@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
  * `SESSION_SECRET` precisa existir ANTES de qualquer import avaliar
@@ -111,23 +111,35 @@ import {
   apagarSandbox,
   SALDO_INICIAL,
 } from "./sandbox.service";
-import { custosInformados, type Economia } from "@shared/cobranca/politica";
+import { custosInformados, validarPolitica, type Economia } from "@shared/cobranca/politica";
+import { janelaDoChat } from "@shared/cobranca/automacao-chat";
+import { TIPOS_DE_AGENTE } from "@shared/chat-agentes";
+import { dataLocal } from "../services/chat/chat-autonomia-politica";
+import { empresaPublicaSimulada } from "./cnpj-simulado";
+import { primeiraNegativacaoPermitida } from "./semeadura-negociacoes";
+import { regrasAntiFraudeDaDemo } from "./semeadura-consultas";
 import { precoDoPlano } from "@shared/cobranca/economia";
-import { etapaParaAtraso, prescrita } from "@shared/cobranca/regua";
+import { EtapasConfigSchema, etapaParaAtraso, etapasDaCarteira, prescrita, resolverEtapas } from "@shared/cobranca/regua";
+import { AcordoSchema } from "@shared/cobranca/acordo";
+import { parcelasDaDescricao } from "@shared/cobranca/multa";
+import { normalizarMotivoCorte } from "@shared/motivo-corte";
+import { PLAN_PRICES } from "@shared/planos";
+import { montarBoard, type EntradaCasoBoard } from "../services/recovery-board.service";
 import { STATUS_DE_CASO, eventoDaTransicaoDeCaso, statusAposNegociacaoDesfeita, transicaoDeCaso, type StatusDeCaso } from "@shared/cobranca/estados";
-import { DIVIDA_MINIMA_PARA_CASO, dnaDoCaso, prioridadeSugerida } from "../services/cobranca/regua-diaria.service";
+import { DIVIDA_MINIMA_PARA_CASO, MOTIVO_DIVIDA_ZERADA, dnaDoCaso, prioridadeSugerida } from "../services/cobranca/regua-diaria.service";
 import { carteiraDoStatusErp, STATUS_DE_CLIENTE_ATUAL } from "../storage/cobranca.storage";
 import { ACAO_AO_RECEBER_MENSAGEM, ACAO_PADRAO_APOS_RESPOSTA, TAMANHO_MAXIMO_DA_ACAO } from "../services/chat/chat-atendimento.service";
 import { ACOES_COMUNS_DO_CHAT } from "@/components/chat/tipos";
 import {
+  EQUIPMENT_STATUSES,
   calcularPrazoRetirada,
   casoEstaEncerrado,
   equipamentoTemRetiradaPendente,
   validarSinalBureau,
 } from "../services/equipment-recovery-rules";
-import { PROVEDORES_DA_DEMO, INDICE_MIGRADOR_DE_EXEMPLO } from "./mundo-base";
+import { PROVEDORES_DA_DEMO, INDICE_MIGRADOR_DE_EXEMPLO, CPFS_COMPARTILHADOS } from "./mundo-base";
 import { limparSandboxesExpirados } from "./limpeza.service";
-import { limparChatSimuladoDoProvedor, roteiroDaConversa, type LinhaDaConversa } from "./chat-simulado";
+import { AGENTES_DA_DEMO, agenteConfigDaDemo, limparChatSimuladoDoProvedor, roteiroDaConversa, type LinhaDaConversa } from "./chat-simulado";
 import { economiaDoCliente } from "@shared/cobranca/ficha360";
 import { cpfFicticio } from "./pessoas-ficticias";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
@@ -327,23 +339,21 @@ function processarInsert(sqlTexto: string, params: unknown[]): { tabela: string;
  * thread), e o literal `false` (o que o Drizzle gera para um `inArray` com
  * lista VAZIA — nenhuma linha bate). Todas as condições encontradas são
  * combinadas em E, que é tudo que os dois arquivos precisam.
+ *
+ * Compilado UMA vez por comando, e não a cada linha (Leva 2, fase B): com as
+ * faturas históricas e as consultas da rede, reler o texto do WHERE linha a
+ * linha sobre dezenas de milhares de linhas levava a criação do sandbox para
+ * perto do tempo-limite de cada `it()`.
  */
-function avaliarCondicoes(whereTexto: string, mapa: Map<string, string>, params: unknown[], linha: Record<string, unknown>): boolean {
-  if (whereTexto.trim() === "false") return false;
-  const igualdades = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g));
-  for (const c of igualdades) {
-    if (linha[mapa.get(c[1])!] !== params[Number(c[2]) - 1]) return false;
-  }
-  const listas = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" in \(([^)]*)\)/g));
-  for (const c of listas) {
-    const indices = c[2].split(", ").map((ref) => Number(ref.replace("$", "")) - 1);
-    const permitidos = indices.map((i) => params[i]);
-    if (!permitidos.includes(linha[mapa.get(c[1])!])) return false;
-  }
-  return true;
+function compilarCondicoes(whereTexto: string, mapa: Map<string, string>, params: unknown[]): (linha: Record<string, unknown>) => boolean {
+  if (whereTexto.trim() === "false") return () => false;
+  const igualdades = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g), (c) => [mapa.get(c[1])!, params[Number(c[2]) - 1]] as const);
+  const listas = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" in \(([^)]*)\)/g), (c) =>
+    [mapa.get(c[1])!, new Set(c[2].split(", ").map((ref) => params[Number(ref.replace("$", "")) - 1]))] as const);
+  return (linha) => igualdades.every(([chave, valor]) => linha[chave] === valor) && listas.every(([chave, permitidos]) => permitidos.has(linha[chave]));
 }
 
-/** `select <cols> from "t" [where ...]` — igualdade, `in` ou `false`, ver `avaliarCondicoes`. */
+/** `select <cols> from "t" [where ...]` — igualdade, `in` ou `false`, ver `compilarCondicoes`. */
 function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
   const m = sqlTexto.match(/^select (.+) from "(\w+)"(?: where (.+))?$/s);
   if (!m) throw new Error(`SELECT nao reconhecido pelo banco de mentira: ${sqlTexto}`);
@@ -351,7 +361,7 @@ function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
   let linhas = banco.linhas.get(tabela) ?? [];
   if (whereTexto) {
     const mapa = chavePorColuna.get(tabela)!;
-    linhas = linhas.filter((linha) => avaliarCondicoes(whereTexto, mapa, params, linha));
+    linhas = linhas.filter(compilarCondicoes(whereTexto, mapa, params));
   }
   return projetar(tabela, linhas, textoDeColunas);
 }
@@ -369,7 +379,8 @@ function processarCount(sqlTexto: string, params: unknown[]): unknown[][] {
   const [, tabela, whereTexto] = m;
   const mapa = chavePorColuna.get(tabela);
   if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
-  const linhas = (banco.linhas.get(tabela) ?? []).filter((linha) => !whereTexto || avaliarCondicoes(whereTexto, mapa, params, linha));
+  const passa = whereTexto ? compilarCondicoes(whereTexto, mapa, params) : () => true;
+  const linhas = (banco.linhas.get(tabela) ?? []).filter(passa);
   return [[String(linhas.length)]];
 }
 
@@ -391,12 +402,81 @@ function processarDelete(sqlTexto: string, params: unknown[]): void {
   }
   const mapa = chavePorColuna.get(tabela);
   if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
-  const restantes = linhasAtuais.filter((linha) => !avaliarCondicoes(whereTexto, mapa, params, linha));
+  const passa = compilarCondicoes(whereTexto, mapa, params);
+  const restantes = linhasAtuais.filter((linha) => !passa(linha));
   banco.linhas.set(tabela, restantes);
+}
+
+/**
+ * `update "t" set "a" = $1, "b" = $2 where ...` — só a forma de valores
+ * simples, a que `tentarCriarSandbox` usa para zerar a dívida dos clientes da
+ * recuperação dos últimos 30 dias (Leva 2, fase B). Qualquer expressão SQL no
+ * `set` (o relógio do mundo base, por exemplo) continua recusada alto.
+ */
+function processarUpdate(sqlTexto: string, params: unknown[]): void {
+  const m = sqlTexto.match(/^update "(\w+)" set (.+?) where (.+)$/s);
+  if (!m) throw new Error(`UPDATE nao reconhecido pelo banco de mentira: ${sqlTexto}`);
+  const [, tabela, textoDoSet, whereTexto] = m;
+  const mapa = chavePorColuna.get(tabela);
+  if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+  const atribuicoes = textoDoSet.split(", ").map((trecho) => {
+    const a = trecho.match(/^"(\w+)" = \$(\d+)$/);
+    if (!a || !mapa.get(a[1])) throw new Error(`SET nao reconhecido pelo banco de mentira: ${trecho}`);
+    return [mapa.get(a[1])!, params[Number(a[2]) - 1]] as const;
+  });
+  const passa = compilarCondicoes(whereTexto, mapa, params);
+  for (const linha of banco.linhas.get(tabela) ?? []) {
+    if (!passa(linha)) continue;
+    for (const [chave, valor] of atribuicoes) linha[chave] = valor;
+  }
+}
+
+/**
+ * `insert into "t" ("a", "b") select * from unnest($1::tipo[], $2::tipo[])` — a
+ * escrita por coluna de `tentarCriarSandbox` (clientes e faturas,
+ * `inserirPorColunas`): cada parâmetro é a coluna inteira. Coluna fora da lista
+ * leva o default, como no INSERT de verdade.
+ */
+function processarInsertPorColunas(sqlTexto: string, params: unknown[]): void {
+  const m = sqlTexto.match(/^insert into "(\w+)" \(([^)]*)\) select \* from unnest\((.+)\)$/s);
+  if (!m) throw new Error(`INSERT por colunas nao reconhecido pelo banco de mentira: ${sqlTexto}`);
+  const [, tabela, textoDeColunas, textoDasListas] = m;
+  const mapa = chavePorColuna.get(tabela);
+  const colunasDaTabela = colunaPorCampo.get(tabela);
+  if (!mapa || !colunasDaTabela) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+  const chaves = textoDeColunas.split(", ").map((c) => {
+    const chave = mapa.get(c.replace(/"/g, ""));
+    if (!chave) throw new Error(`Coluna ${c} nao mapeada em "${tabela}"`);
+    return chave;
+  });
+  const listas = Array.from(textoDasListas.matchAll(/\$(\d+)::/g), (r) => params[Number(r[1]) - 1] as unknown[]);
+  if (listas.length !== chaves.length) throw new Error(`INSERT por colunas com ${chaves.length} colunas e ${listas.length} listas em "${tabela}"`);
+  const acumulado = banco.linhas.get(tabela) ?? [];
+  for (let i = 0; i < listas[0].length; i++) {
+    const linha: Record<string, unknown> = {};
+    for (const [chave, coluna] of Object.entries(colunasDaTabela)) {
+      if (!chaves.includes(chave)) linha[chave] = chave === "id" ? proximoId(tabela) : valorPadraoDaColuna(coluna);
+    }
+    chaves.forEach((chave, j) => { linha[chave] = listas[j][i]; });
+    acumulado.push(linha);
+  }
+  banco.linhas.set(tabela, acumulado);
 }
 
 beforeAll(() => {
   const proxy = drizzle(async (sqlTexto: string, params: unknown[]) => {
+    if (/^insert into "\w+" \([^)]*\) select \* from unnest\(/.test(sqlTexto)) {
+      processarInsertPorColunas(sqlTexto, params);
+      return { rows: [] };
+    }
+    // O lock do complemento do mundo base (`complementarMundoBase`): aqui não há concorrência a travar.
+    if (sqlTexto.startsWith("select pg_advisory_xact_lock(")) {
+      return { rows: [] };
+    }
+    if (sqlTexto.startsWith("update ")) {
+      processarUpdate(sqlTexto, params);
+      return { rows: [] };
+    }
     if (sqlTexto.startsWith("insert into")) {
       const retorno = sqlTexto.match(/ returning (.+)$/s);
       const { tabela, linhasCriadas } = processarInsert(sqlTexto, params);
@@ -478,7 +558,12 @@ async function cpfsDeExemplo(providerId: number): Promise<Array<{ situacao: stri
   const limpo = clientes.find(
     (c) => c.paymentStatus === "current" && c.status === "active" && !cpfsDaBase.has(c.cpfCnpj as string),
   );
-  const devendoNaRede = clientes.find((c) => cpfsDaBase.has(c.cpfCnpj as string));
+  // Em dia AQUI e o primeiro CPF da rede: o sandbox também tem inadimplentes e
+  // quem pagou nos últimos 30 dias com CPF da rede (revisão da fase B).
+  const posicaoNaRede = new Map(CPFS_COMPARTILHADOS.map((cpf, i) => [cpf, i]));
+  const devendoNaRede = clientes
+    .filter((c) => c.paymentStatus === "current" && c.status === "active" && cpfsDaBase.has(c.cpfCnpj as string))
+    .sort((a, b) => (posicaoNaRede.get(a.cpfCnpj as string) ?? Infinity) - (posicaoNaRede.get(b.cpfCnpj as string) ?? Infinity))[0];
   if (!limpo) throw new Error("nenhum cliente 'limpo' encontrado no sandbox");
   if (!devendoNaRede) throw new Error("nenhum cliente 'devendo_na_rede' encontrado no sandbox");
 
@@ -514,11 +599,14 @@ describe("sandbox do visitante", () => {
     expect(s.subdomain).toMatch(/^sandbox-[a-f0-9]{16}$/);
     const clientes = await clientesDe(s.providerId);
     expect(clientes).toHaveLength(1500);
-    // 225 inadimplentes ATIVOS; os ex-clientes que saíram devendo também são
+    // 225 inadimplentes ATIVOS, menos os 3 que pagaram nos últimos 30 dias
+    // (Leva 2, fase B); os ex-clientes que saíram devendo também são
     // `overdue` (a regra do sync), mas nunca contam na carteira de ativos.
-    expect(clientes.filter((c) => c.status === "active" && c.paymentStatus === "overdue")).toHaveLength(225);
+    expect(clientes.filter((c) => c.status === "active" && c.paymentStatus === "overdue")).toHaveLength(222);
     expect(clientes.filter((c) => c.status === "cancelled")).toHaveLength(150);
-    expect(await equipamentosDe(s.providerId)).toHaveLength(120);
+    // 90 em dia + 30 ex-clientes + 75 inadimplentes ativos com a ONU em comodato
+    // (Leva 2): um provedor FTTH não tem só o cliente em dia com equipamento.
+    expect(await equipamentosDe(s.providerId)).toHaveLength(195);
     // O saldo do visitante mora todo em ispCredits; spcCredits nasce em zero.
     // O dashboard SOMA os dois bolsos (server/storage/dashboard.storage.ts), e
     // ate 12/09/2026 os dois nasciam em SALDO_INICIAL: o visitante via 1.000
@@ -528,12 +616,16 @@ describe("sandbox do visitante", () => {
     expect(provider.spcCredits, "o painel somaria um saldo que nenhuma consulta gasta").toBe(0);
   });
 
-  it("150 CPFs da carteira tambem existem na rede — senao a consulta so diz 'nada consta'", async () => {
+  it("273 CPFs da carteira tambem existem na rede — 150 em dia e 123 inadimplentes — senao a consulta so diz 'nada consta' e nenhum alerta tem consulta de verdade", async () => {
     const s = await criarSandbox();
     const cpfsDaBase = await todosOsCpfsDaBase();
-    const cpfsDoSandbox = (await clientesDe(s.providerId)).map((c) => c.cpfCnpj as string);
-    const naRede = cpfsDoSandbox.filter((cpf) => cpfsDaBase.has(cpf));
-    expect(naRede).toHaveLength(150);
+    const clientes = await clientesDe(s.providerId);
+    const naRede = clientes.filter((c) => cpfsDaBase.has(c.cpfCnpj as string));
+    expect(naRede).toHaveLength(273);
+    // Revisão da fase B (13/09/2026): o alerta de fuga nasce de consulta da rede,
+    // e a rede só consulta CPF compartilhado — o devedor precisa ser um deles.
+    expect(naRede.filter((c) => c.status === "active" && c.paymentStatus === "current")).toHaveLength(153);
+    expect(naRede.filter((c) => c.status === "active" && c.paymentStatus === "overdue")).toHaveLength(120);
   });
 
   it("todo cliente ja nasce com coordenada — o mapa de calor nao espera geocodificacao", async () => {
@@ -670,7 +762,7 @@ describe("sandbox do visitante", () => {
 
   // ── Alocação de índices: prova por EXECUÇÃO, não por fórmula reconstruída ──
 
-  it("os 1.500 clientes do sandbox nao colidem com o mundo base: 150 REAPROVEITAM CPF da rede de proposito, os outros 1.350 sao exclusivos", async () => {
+  it("os 1.500 clientes do sandbox nao colidem com o mundo base: 273 REAPROVEITAM CPF da rede de proposito, os outros 1.227 sao exclusivos", async () => {
     const s = await criarSandbox();
     const cpfsDoSandbox = (await clientesDe(s.providerId)).map((c) => c.cpfCnpj as string);
     expect(new Set(cpfsDoSandbox).size, "CPF repetido dentro do proprio sandbox").toBe(1500);
@@ -678,8 +770,8 @@ describe("sandbox do visitante", () => {
     const cpfsDaBase = await todosOsCpfsDaBase();
     const compartilhados = cpfsDoSandbox.filter((cpf) => cpfsDaBase.has(cpf));
     const exclusivos = cpfsDoSandbox.filter((cpf) => !cpfsDaBase.has(cpf));
-    expect(compartilhados).toHaveLength(150);
-    expect(exclusivos).toHaveLength(1350);
+    expect(compartilhados).toHaveLength(273);
+    expect(exclusivos).toHaveLength(1227);
   });
 
   it("dois sandboxes concorrentes nunca geram o mesmo CPF exclusivo (prova por execucao contra o gerador real, nao por formula)", async () => {
@@ -691,8 +783,8 @@ describe("sandbox do visitante", () => {
     const b = await criarSandbox();
     const exclusivosA = await exclusivosDe(a.providerId);
     const exclusivosB = await exclusivosDe(b.providerId);
-    expect(exclusivosA).toHaveLength(1350);
-    expect(exclusivosB).toHaveLength(1350);
+    expect(exclusivosA).toHaveLength(1227);
+    expect(exclusivosB).toHaveLength(1227);
     expect(exclusivosA.filter((cpf) => exclusivosB.includes(cpf))).toHaveLength(0);
   });
 
@@ -727,7 +819,9 @@ describe("sandbox do visitante", () => {
     const fechadosDesde = new Date(hoje.getTime() - 30 * 24 * 60 * 60 * 1000); // JANELA_DE_FECHADOS_DIAS
 
     const statusFechados = casos.filter((c) => casoFechado(c.status as string));
-    expect(statusFechados.map((c) => c.status).sort()).toEqual(["baixado", "cancelamento", "encerrado", "pago"]);
+    // As quatro colunas, e mais os 6 casos de quem pagou nos últimos 30 dias (Leva 2, fase B), fechados na conciliação.
+    expect([...new Set(statusFechados.map((c) => c.status))].sort()).toEqual(["baixado", "cancelamento", "encerrado", "pago"]);
+    expect(statusFechados).toHaveLength(4 + 6);
 
     for (const caso of statusFechados) {
       const encerradoEm = caso.encerradoEm as Date | string | null;
@@ -860,9 +954,11 @@ describe("sandbox do visitante", () => {
       // cru (le `banco.linhas` direto, sem passar pelo decoder) — um
       // Postgres de verdade devolveria o array ja desserializado.
       const riskFactors = typeof alerta.riskFactors === "string" ? JSON.parse(alerta.riskFactors) : alerta.riskFactors;
+      // Leva 2, fase B: além dos 3 de dívida, os alertas extras trazem consultas
+      // repetidas e contrato novo — todo alerta com um motivo que a tela conhece.
       const motivos = motivosGravados(riskFactors);
-      expect(motivos, JSON.stringify(alerta)).toContain("divida_ativa");
-      expect(rotuloDoAlerta(motivos)).toBe("Fuga · cliente ativo com dívida");
+      expect(motivos.length, JSON.stringify(alerta)).toBeGreaterThan(0);
+      if (motivos.includes("divida_ativa")) expect(rotuloDoAlerta(motivos)).toBe("Fuga · cliente ativo com dívida");
 
       // `customerProviderId` simula o JOIN que `getAlertsByProvider` faz de
       // verdade (server/storage/antifraude.storage.ts) — sem ele
@@ -873,6 +969,9 @@ describe("sandbox do visitante", () => {
       // O nome do parceiro nunca sai cru — sempre o código anonimizado.
       expect(mascarado.consultingProviderName as string).toMatch(/^Provedor Parceiro ISP-/);
     }
+
+    const deDivida = alertas.filter((a) => motivosGravados(typeof a.riskFactors === "string" ? JSON.parse(a.riskFactors) : a.riskFactors).includes("divida_ativa"));
+    expect(deDivida.length).toBeGreaterThanOrEqual(3);
 
     // Clientes distintos — os alertas não apontam todos para o mesmo cliente.
     expect(new Set(alertas.map((a) => a.customerId)).size).toBe(alertas.length);
@@ -976,15 +1075,22 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
       expect(c.ispScore === 100 && c.riskTier === "low", JSON.stringify(c)).toBe(false);
     }
 
-    const emDia = clientes.filter((c) => c.status === "active" && c.paymentStatus === "current");
+    // Quem pagou nos últimos 30 dias (Leva 2, fase B) está em dia com o score de
+    // quem acabou de sair do atraso: o score conta a história, não só o hoje.
+    const recuperados = new Set((await casosDeCobrancaDe(s.providerId)).filter((c) => c.motivoEncerramento === MOTIVO_DIVIDA_ZERADA && c.status === "encerrado" && c.ultimoContatoEm).map((c) => c.customerId));
+    expect(recuperados.size).toBe(6);
+    const emDiaAgora = clientes.filter((c) => c.status === "active" && c.paymentStatus === "current");
+    const emDia = emDiaAgora.filter((c) => !recuperados.has(c.id));
     const inadimplentes = clientes.filter((c) => c.status === "active" && c.paymentStatus === "overdue");
+    expect(emDiaAgora).toHaveLength(1125 + 3);
     expect(emDia).toHaveLength(1125);
     for (const c of emDia) {
       expect(c.ispScore as number).toBeGreaterThanOrEqual(650);
       expect(c.ispScore as number).toBeLessThanOrEqual(900);
     }
     for (const c of inadimplentes) {
-      expect(c.overdueInvoicesCount, JSON.stringify(c)).toBe(1);
+      // A dívida e, quando o dia dela já passou neste mês, a mensalidade do mês (revisão da fase B).
+      expect([1, 2], JSON.stringify(c)).toContain(c.overdueInvoicesCount);
       expect(c.ispScore as number).toBeGreaterThanOrEqual(250);
       expect(c.ispScore as number).toBeLessThanOrEqual(600);
     }
@@ -1018,11 +1124,12 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
       expect(c.paymentStatus, JSON.stringify(c)).toBe(Number(c.totalOverdueAmount) > 0 ? "overdue" : "current");
     }
     const devedores = clientes.filter((c) => c.paymentStatus !== "current");
-    expect(devedores.filter((c) => c.status === "active")).toHaveLength(225);
-    expect(devedores.filter((c) => c.status === "cancelled")).toHaveLength(74);
+    // Menos os 3 ativos e os 3 ex-clientes que pagaram nos últimos 30 dias (Leva 2, fase B).
+    expect(devedores.filter((c) => c.status === "active")).toHaveLength(222);
+    expect(devedores.filter((c) => c.status === "cancelled")).toHaveLength(71);
     // A carteira de cobrança separa pelo status do CONTRATO, não por payment_status.
     const carteiraAtiva = clientes.filter((c) => carteiraDoStatusErp(c.status as string) === "ativo" && Number(c.totalOverdueAmount) > 0);
-    expect(carteiraAtiva).toHaveLength(225);
+    expect(carteiraAtiva).toHaveLength(222);
 
     // O card "equipamentos não devolvidos" do painel, com o MESMO filtro de
     // `getDashboardStats`: cliente com payment_status != 'current' e ONU num
@@ -1035,7 +1142,7 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
     expect(naoDevolvidos.length).toBeGreaterThan(0);
   });
 
-  it("a divida do ex-cliente e exatamente a fatura de saida vencida (soma e contagem batem), exceto o cliente do caso 'baixado'", async () => {
+  it("a divida do ex-cliente e exatamente a fatura de saida vencida (soma e contagem batem) — o caso 'baixado' tira a fatura dos vencidos junto com a divida", async () => {
     const clientes = await clientesDe(s.providerId);
     const cancelados = clientes.filter((c) => c.status === "cancelled");
     // O contrato continua cancelado; o status de pagamento segue a dívida (regra do sync).
@@ -1048,10 +1155,12 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
         .map((f) => [f.customerId as number, f]),
     );
     const clienteDoBaixado = (await casosDeCobrancaDe(s.providerId)).find((c) => c.status === "baixado")!.customerId as number;
-    expect(saidaVencida.has(clienteDoBaixado), "o cliente do caso baixado deveria ter a fatura de saida vencida").toBe(true);
+    // Até a Leva 2 a fatura do baixado continuava "overdue" com o agregado zerado,
+    // e a ficha acendia "o saldo agregado difere das faturas vencidas".
+    expect(saidaVencida.has(clienteDoBaixado), "o cliente do caso baixado ainda tem a fatura de saida vencida").toBe(false);
 
     const comDivida = cancelados.filter((c) => Number(c.totalOverdueAmount) > 0);
-    expect(comDivida).toHaveLength(saidaVencida.size - 1);
+    expect(comDivida).toHaveLength(saidaVencida.size);
     expect(comDivida.map((c) => c.id)).not.toContain(clienteDoBaixado);
 
     for (const c of comDivida) {
@@ -1087,7 +1196,13 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
     const vivosEx = vivos.filter((c) => c.carteira === "ex_cliente");
     const porStatus: Record<string, number> = {};
     for (const c of vivosEx) porStatus[c.status as string] = (porStatus[c.status as string] ?? 0) + 1;
-    expect(porStatus).toEqual({ aberto: 3, em_contato: 3, negociando: 2, acordo_ativo: 1, negativado: 1 });
+    // Os 71 ex-clientes devendo têm caso (Leva 2, carteira completa; 74 menos os
+    // 3 que pagaram nos últimos 30 dias): os que a equipe já trabalhou são os
+    // mesmos 7; o resto está na fila, "aberto".
+    const { aberto, ...trabalhados } = porStatus;
+    expect(trabalhados).toEqual({ em_contato: 3, negociando: 2, acordo_ativo: 1, negativado: 1 });
+    expect(vivosEx).toHaveLength(71);
+    expect(aberto).toBe(71 - 7);
 
     const agora = new Date();
     for (const caso of vivosEx) {
@@ -1124,15 +1239,18 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
   it("todo caso vivo semeado ja esta onde a regua o deixaria hoje — a primeira passada do worker nao move nenhum card", async () => {
     // `revisarCaso` não é exportada: a decisão dela é refeita com as MESMAS
     // funções puras e a MESMA entrada (`maxDaysOverdue`, as faturas abertas, a
-    // data do contrato; sem fatura paga, `historicosDePagamentosDoProvedor`
-    // não devolve histórico e o DNA sai sem ele).
+    // data do contrato). O DNA sai aqui sem o histórico de pagamentos: as
+    // mensalidades pagas da Leva 2 (fase B) seguem o perfil do próprio DNA, e
+    // `semeadura-faturas.test.ts` prova que recalculado com elas o quadrante não
+    // muda — a régua de verdade confere no banco local.
     const casos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
     const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
     const faturas = await faturasDe(s.providerId);
     const agora = new Date();
-    // 5 vivos do kanban + 5 dos inadimplentes com conversa (cursores 6..10, sem os quais a régua
-    // abria um card "aberto" ao lado da conversa) + 10 de ex-cliente.
-    expect(casos).toHaveLength(20);
+    // Um caso vivo por devedor (Leva 2, carteira completa): 222 inadimplentes ativos + 71
+    // ex-clientes devendo (os 6 que pagaram nos últimos 30 dias têm o caso fechado).
+    // Antes eram 20, e a primeira passada abria os outros na frente do visitante.
+    expect(casos).toHaveLength(293);
 
     for (const caso of casos) {
       const cliente = clientes.get(caso.customerId as number)!;
@@ -1142,7 +1260,11 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
       expect(prescrita(dias), rotulo).toBe(false);
       expect(Number(cliente.totalOverdueAmount), rotulo).toBeGreaterThan(0);
       if (caso.carteira === "ativo") expect((STATUS_DE_CLIENTE_ATUAL as readonly string[]).includes(cliente.status as string), rotulo).toBe(true);
-      expect(faturas.some((f) => f.customerId === cliente.id && f.status === "paid"), rotulo).toBe(false);
+      // A fatura em aberto continua em aberto: nenhuma paga venceu depois dela.
+      const aberta = faturas.find((f) => f.customerId === cliente.id && f.status === "overdue")!;
+      for (const paga of faturas.filter((f) => f.customerId === cliente.id && f.status === "paid")) {
+        expect(ms(paga.dueDate), `${rotulo}: ${paga.erpRef} paga depois da divida`).toBeLessThan(ms(aberta.dueDate));
+      }
 
       const etapa = etapaParaAtraso(dias, caso.carteira === "ex_cliente" ? "ex_cliente" : "ativo").etapa?.id ?? null;
       expect(caso.etapaAtual, rotulo).toBe(etapa);
@@ -1215,8 +1337,9 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
         expect(statusDesde, rotulo).toBe(abertoEm);
         continue;
       }
-      const contato = ms(caso.ultimoContatoEm);
-      expect(contato, rotulo).toBe(ms(conversa.abertaEm));
+      // O contato que abriu a conversa; `ultimoContatoEm` pode ser a última fala da equipe, depois (Leva 2, fase B).
+      const contato = ms(conversa.abertaEm);
+      expect(ms(caso.ultimoContatoEm), rotulo).toBeGreaterThanOrEqual(contato);
       expect(abertoEm, rotulo).toBeLessThan(contato);
       if (caso.status === "em_contato") expect(statusDesde, rotulo).toBe(contato);
       if (caso.status === "negociando" || caso.status === "acordo_ativo") {
@@ -1241,7 +1364,7 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
 
     const admin = adminDe(s.providerId);
     const equipamentos = await equipamentosDe(s.providerId);
-    expect(equipamentos).toHaveLength(120);
+    expect(equipamentos).toHaveLength(195); // 120 + as 75 ONUs em comodato de inadimplentes ativos (Leva 2)
     const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
     const eventos = linhasDe("equipment_recovery_events", s.providerId);
 
@@ -1368,7 +1491,9 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
         expect(contato!.canal).toBe("whatsapp");
         expect(json(contato!.metadata)).toEqual({ origem: "chat_integrado", conversationId: conversa.conversationId });
         expect(doCaso.map((e) => e.tipo)).toContain("nota");
-        expect(ms(caso!.ultimoContatoEm)).toBe(ms(contato!.ocorridoEm));
+        // O contato que abriu a conversa; o último contato do caso é o mais recente (a última fala da equipe, quando houve).
+        expect(ms(contato!.ocorridoEm)).toBe(ms(conversa.abertaEm));
+        expect(ms(caso!.ultimoContatoEm)).toBe(Math.max(...doCaso.filter((e) => e.tipo === "contato").map((e) => ms(e.ocorridoEm))));
       }
 
       if (conversa.origem === "equipamentos") {
@@ -1407,7 +1532,8 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
     for (const caso of alvos) {
       const rotulo = `caso ${caso.id} (${caso.status}, ${caso.carteira})`;
       const doCaso = eventos.filter((e) => e.casoId === caso.id);
-      const transicoes = doCaso.filter((e) => json(e.metadata)?.para != null);
+      // `etapa_mudou` (a régua, Leva 2 fase B) também leva `para` — de etapa, não de status.
+      const transicoes = doCaso.filter((e) => e.tipo !== "etapa_mudou" && json(e.metadata)?.para != null);
 
       // A transição que pôs o caso no status de hoje, no instante que `statusDesde` diz.
       const atual = transicoes.find((e) => json(e.metadata).para === caso.status);
@@ -1483,7 +1609,9 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
       const doCliente = equipamentos.filter((e) => e.customerId === caso.customerId);
       expect(doCliente.some((e) => equipamentoTemRetiradaPendente(e.status as string)), `${rotulo}: cobra equipamento que nao esta retido`).toBe(true);
     }
-    expect(conferidos, "os casos vivos de ex-cliente cobram a fatura de saida").toBe(10);
+    // As 11 posições ímpares abaixo de 30 sem recuperação: ONU retida, saída devida
+    // cobrando o aparelho — e, com a carteira completa, todas com caso vivo.
+    expect(conferidos, "os casos vivos de ex-cliente cobram a fatura de saida").toBe(11);
   });
 
   it("o roteiro de cada conversa semeada conta a mesma historia que o caso, a recuperacao e a linha do tempo", async () => {
@@ -1611,6 +1739,699 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
       const sobra = linhasDe(nome, s.providerId).length;
       if (sobra > 0) residuos.push(`${nome} (${sobra})`);
     }
+    expect(residuos).toEqual([]);
+  });
+});
+
+/**
+ * Leva 2, pacote P2 (fase A): o que a auditoria de telas da rodada 2 achou de
+ * incoerente DENTRO da semeadura — cada `it()` é um achado virado invariante,
+ * conferido contra a função real do produto que lê aquele dado. Um sandbox
+ * próprio, criado uma vez: os `it()` só leem.
+ */
+describe("a semeadura conta a mesma historia em todas as telas (Leva 2, fase A do P2)", () => {
+  const DIA_MS = 86_400_000;
+  let s: Awaited<ReturnType<typeof criarSandbox>>;
+
+  const ms = (valor: unknown): number => new Date(valor as string | Date).getTime();
+  const json = (valor: unknown): any => (typeof valor === "string" ? JSON.parse(valor) : valor);
+  const linhasDe = (tabela: string, providerId: number) => (banco.linhas.get(tabela) ?? []).filter((l) => l.providerId === providerId);
+  const adminDe = (providerId: number) => (banco.linhas.get("users") ?? []).find((u) => u.providerId === providerId)!;
+  const centavos = (v: unknown) => Math.round(Number(v ?? 0) * 100);
+  /** O literal de array que o pg-proxy grava (`{"Londrina - PR",...}`) — ver o teste de `cidadesAtendidas` acima. */
+  const listaDoArray = (literal: unknown): string[] =>
+    String(literal ?? "").replace(/^\{|\}$/g, "").split(",").filter(Boolean).map((x) => x.replace(/^"|"$/g, ""));
+
+  beforeAll(async () => {
+    s = await criarSandbox();
+  });
+
+  it("o caso 'pago' e pago de fato: fatura paga, cliente sem divida e o encerramento na linha do tempo", async () => {
+    const pagos = (await casosDeCobrancaDe(s.providerId)).filter((c) => c.status === "pago");
+    expect(pagos).toHaveLength(1);
+    const caso = pagos[0];
+    const cliente = (await clientesDe(s.providerId)).find((c) => c.id === caso.customerId)!;
+    // Até aqui o card "pago" apontava para um cliente com R$ 79,90 vencidos: sumia
+    // da lista da carteira e o cabeçalho (1.349) brigava com o KPI (1.350).
+    expect(cliente.status).toBe("active");
+    expect(cliente.paymentStatus).toBe("current");
+    expect(Number(cliente.totalOverdueAmount)).toBe(0);
+    expect(cliente.overdueInvoicesCount ?? 0).toBe(0);
+    expect(cliente.maxDaysOverdue ?? 0).toBe(0);
+
+    const faturas = (await faturasDe(s.providerId)).filter((f) => f.customerId === cliente.id);
+    expect(faturas.filter((f) => f.status !== "paid"), "fatura em aberto para quem pagou").toEqual([]);
+    const paga = faturas.find((f) => f.status === "paid");
+    expect(paga, "caso pago sem fatura paga").toBeTruthy();
+    expect(paga!.paidValue).toBe(paga!.value);
+    expect(ms(paga!.paidDate)).toBeGreaterThan(ms(paga!.dueDate));
+    expect(ms(paga!.paidDate)).toBeLessThanOrEqual(Date.now());
+
+    // A régua abre depois do vencimento; o caso fecha quando o pagamento entra.
+    expect(ms(caso.abertoEm)).toBeGreaterThan(ms(paga!.dueDate));
+    expect(ms(caso.abertoEm)).toBeLessThan(ms(caso.encerradoEm));
+    expect(ms(caso.encerradoEm)).toBe(ms(paga!.paidDate));
+    expect(ms(caso.statusDesde)).toBe(ms(caso.encerradoEm));
+
+    // O evento que `encerrarCaso` (cobranca.storage.ts) grava ao fechar pelo kanban.
+    const encerramentos = linhasDe("cobranca_eventos", s.providerId).filter((e) => e.casoId === caso.id && e.tipo === "encerramento");
+    expect(encerramentos, "caso pago sem o encerramento na linha do tempo").toHaveLength(1);
+    const { status, de } = json(encerramentos[0].metadata) as { status: string; de: StatusDeCaso };
+    expect(status).toBe("pago");
+    expect(transicaoDeCaso(de, "pago")).toEqual({ ok: true });
+    expect(ms(encerramentos[0].ocorridoEm)).toBe(ms(caso.encerradoEm));
+  });
+
+  it("todo devedor ja nasce com o seu caso vivo — a primeira passada da regua nao abre card nenhum na frente do visitante", async () => {
+    const clientes = await clientesDe(s.providerId);
+    const vivos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    // As condições de `clientesParaAbrirCaso` (cobranca.storage.ts) que dependem do cliente.
+    const devedores = clientes.filter((c) => Number(c.totalOverdueAmount) > DIVIDA_MINIMA_PARA_CASO && (c.maxDaysOverdue as number) >= 1);
+    expect(devedores).toHaveLength(293);
+    for (const d of devedores) {
+      const doCliente = vivos.filter((c) => c.customerId === d.id);
+      expect(doCliente, `cliente ${d.id} (${d.status}, ${d.maxDaysOverdue} dias) sem caso vivo`).toHaveLength(1);
+      expect(doCliente[0].carteira, `cliente ${d.id}`).toBe(carteiraDoStatusErp(d.status as string));
+    }
+    const idsDevedores = new Set(devedores.map((d) => d.id));
+    for (const c of vivos) expect(idsDevedores.has(c.customerId), `caso ${c.id} vivo para quem nao deve`).toBe(true);
+  });
+
+  it("parte dos casos vivos e do administrador e parte fica na fila geral — 'Minha fila', 'Toda a equipe' e 'Fila geral' diferem", async () => {
+    const admin = adminDe(s.providerId);
+    const etapasDoAdmin = new Set(
+      (json(linhasDe("cobranca_politica", s.providerId)[0].etapas) as Array<{ id: string; responsavelUserId?: number | null }>)
+        .filter((e) => e.responsavelUserId === admin.id)
+        .map((e) => e.id),
+    );
+    const vivos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const conversas = linhasDe("chat_bullq_conversas", s.providerId);
+
+    expect(vivos.some((c) => c.responsavelUserId === admin.id), "nenhum caso na fila do admin").toBe(true);
+    expect(vivos.some((c) => (c.responsavelUserId ?? null) === null), "nenhum caso na fila geral").toBe(true);
+    for (const caso of vivos) {
+      // Quem conversou pelo chat é dono do caso; sem conversa humana, vale o responsável da etapa.
+      const conversa = conversas.find((c) => c.casoId === caso.id);
+      const esperado = (conversa && conversa.status !== "BOT") || etapasDoAdmin.has(caso.etapaAtual as string) ? admin.id : null;
+      expect(caso.responsavelUserId ?? null, `caso ${caso.id} (${caso.status}, ${caso.etapaAtual}, conversa ${conversa?.status ?? "-"})`).toBe(esperado);
+    }
+    const abertas = conversas.filter((c) => c.origem === "cobranca" && c.status === "OPEN");
+    expect(abertas.length).toBeGreaterThan(0);
+    for (const conversa of abertas) {
+      expect(vivos.find((c) => c.id === conversa.casoId)?.responsavelUserId, String(conversa.conversationId)).toBe(admin.id);
+    }
+  });
+
+  it("politica com a origem da cobranca 'manual' nas duas carteiras e etapas com responsavel — sem mudar a janela de etapa nenhuma", async () => {
+    const admin = adminDe(s.providerId);
+    const politica = linhasDe("cobranca_politica", s.providerId)[0];
+    const acordo = json(politica.acordo);
+    // `nao_definida` só autoriza o valor integral à vista, e contradizia os casos negociando e com acordo.
+    expect(acordo.ativo.origemDaCobranca).toBe("manual");
+    expect(acordo.ex_cliente.origemDaCobranca).toBe("manual");
+    expect(AcordoSchema.safeParse(acordo).success, JSON.stringify(AcordoSchema.safeParse(acordo))).toBe(true);
+
+    const etapas = json(politica.etapas);
+    expect(EtapasConfigSchema.safeParse(etapas).success).toBe(true);
+    expect((etapas as Array<{ responsavelUserId?: number | null }>).some((e) => e.responsavelUserId === admin.id)).toBe(true);
+    // A régua lê as janelas desta política: mexer nelas moveria todo card semeado.
+    const janelas = (lista: ReturnType<typeof resolverEtapas>) => lista.map((e) => [e.id, e.diaMin, e.diaMax, e.ativa]);
+    expect(janelas(resolverEtapas({ etapas }))).toEqual(janelas(resolverEtapas(null)));
+  });
+
+  it("cidades atendidas no formato que a Regionalizacao grava, e plano que a tabela de precos conhece", async () => {
+    const provider = await providerDe(s.providerId);
+    const cidades = listaDoArray(provider.cidadesAtendidas);
+    // PUT /api/regional/cidades recusa qualquer outra forma (regional.routes.ts), e a busca
+    // de cidades devolvia "Londrina - PR" de novo ao lado de "Londrina".
+    for (const cidade of cidades) expect(cidade).toMatch(/^.+ - [A-Z]{2}$/);
+    expect([...cidades].sort()).toEqual(["Apucarana - PR", "Cambé - PR", "Ibiporã - PR", "Londrina - PR"]);
+    expect(Object.keys(PLAN_PRICES)).toContain(provider.plan);
+  });
+
+  it("todo cliente com coordenada diz de onde ela veio — o modo Rede do mapa so plota procedencia confiavel", async () => {
+    const clientes = await clientesDe(s.providerId);
+    const comCoordenada = clientes.filter((c) => c.latitude && c.longitude);
+    expect(comCoordenada).toHaveLength(1500);
+    for (const c of comCoordenada) expect(c.geoPrecisao, `cliente ${c.id}`).toBe("erp");
+  });
+
+  it("status de equipamento e canal de tentativa no vocabulario que o produto aceita hoje", async () => {
+    for (const e of await equipamentosDe(s.providerId)) {
+      expect(EQUIPMENT_STATUSES as readonly string[], `equipamento ${e.id}: ${e.status}`).toContain(e.status);
+    }
+    // `tentativaSchema` não é exportado: o enum é lido do texto da rota.
+    const rota = readFileSync(new URL("../routes/equipamentos.routes.ts", import.meta.url), "utf8");
+    const bloco = /const tentativaSchema = z\.object\(\{\s*channel: z\.enum\(\[([^\]]*)\]\)/.exec(rota);
+    expect(bloco, "tentativaSchema nao encontrado em equipamentos.routes.ts").not.toBeNull();
+    const canais = Array.from(bloco![1].matchAll(/"([^"]+)"/g)).map((m) => m[1]);
+    const tentativas = linhasDe("equipment_recovery_events", s.providerId).filter((e) => e.type === "tentativa");
+    expect(tentativas.length).toBeGreaterThan(0);
+    for (const t of tentativas) expect(canais, `tentativa ${t.id}: ${t.channel}`).toContain(t.channel);
+  });
+
+  it("os KPIs da recuperacao acendem pelo montador real: prazo critico e recuperados nos ultimos 30 dias", async () => {
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const equipamentos = new Map((await equipamentosDe(s.providerId)).map((e) => [e.id as number, e]));
+    const casos: EntradaCasoBoard[] = linhasDe("equipment_recovery_cases", s.providerId).map((r) => {
+      const e = equipamentos.get(r.equipmentId as number)!;
+      const c = clientes.get(r.customerId as number)!;
+      return {
+        id: r.id as number, status: r.status as string, prioridade: (r.priority as string) ?? "normal",
+        rescisaoEm: new Date(ms(r.terminationDate)), prazoAt: new Date(ms(r.deadlineAt)),
+        agendadoEm: null, metodo: null, responsavelId: null, responsavelNome: null, notificadoEm: null,
+        bureauStatus: (r.bureauStatus as string) ?? "pendente", contestadoEm: null,
+        encerradoEm: r.closedAt ? new Date(ms(r.closedAt)) : null, notas: null,
+        equipamento: { id: e.id as number, tipo: e.type as string, marca: e.brand as string, modelo: e.model as string, serie: e.serialNumber as string, mac: e.mac as string, patrimonio: null, valor: e.value as string, status: e.status as string },
+        cliente: { id: c.id as number, nome: c.name as string, cpfCnpj: c.cpfCnpj as string, telefone: c.phone as string, endereco: c.address as string, numero: c.addressNumber as string, bairro: c.neighborhood as string, cidade: c.city as string, uf: c.state as string, situacao: c.status as string, dividaEmAberto: c.totalOverdueAmount as string, diasEmAtraso: c.maxDaysOverdue as number },
+      };
+    });
+    const board = montarBoard({ casos, equipamentosSemCaso: [], tentativas: [], usuarios: [] });
+
+    expect(board.kpis.prazoCritico, JSON.stringify(board.kpis)).toBeGreaterThanOrEqual(1);
+    expect(board.kpis.prazoCritico, JSON.stringify(board.kpis)).toBeLessThanOrEqual(2);
+    for (const card of board.cards.filter((c) => c.caso && c.coluna !== "recuperado" && c.coluna !== "baixado" && c.caso.diasRestantes <= 10)) {
+      expect(card.caso!.diasRetido, card.chave).toBeGreaterThanOrEqual(50);
+      expect(card.caso!.diasRetido, card.chave).toBeLessThanOrEqual(55);
+      expect(card.coluna, card.chave).toBe("31a60");
+    }
+    expect(board.kpis.recuperados30d, JSON.stringify(board.kpis)).toBe(2);
+    expect(board.kpis.valorRecuperado30d).toBe(580);
+  });
+
+  it("a fatura de saida so cobra o equipamento que nao voltou nem esta voltando", async () => {
+    const recuperacoes = linhasDe("equipment_recovery_cases", s.providerId);
+    const equipamentos = await equipamentosDe(s.providerId);
+    const saidas = (await faturasDe(s.providerId)).filter((f) => String(f.erpRef).startsWith("demo-saida-"));
+    expect(saidas).toHaveLength(150);
+    let emRecuperacao = 0;
+    for (const f of saidas) {
+      const doCliente = recuperacoes.filter((r) => r.customerId === f.customerId);
+      // Aberta: o provedor quer o aparelho de volta. Concluída: o aparelho voltou.
+      const voltaOuVoltou = doCliente.some((r) => !casoEstaEncerrado(r.status as string) || r.status === "concluido");
+      const semAparelho = !equipamentos.some((e) => e.customerId === f.customerId);
+      if (doCliente.some((r) => !casoEstaEncerrado(r.status as string))) emRecuperacao++;
+      const { equipamento, multa, indeterminada } = parcelasDaDescricao(f.descricao as string, Number(f.value));
+      const rotulo = `${f.erpRef}: ${f.descricao}`;
+      expect(indeterminada, rotulo).toBe(false);
+      expect(multa, rotulo).toBe(300);
+      expect(equipamento, rotulo).toBe(voltaOuVoltou || semAparelho ? 0 : 290);
+    }
+    expect(emRecuperacao, "as 5 recuperacoes abertas").toBe(5);
+  });
+
+  it("o caso 'baixado' leva a fatura para fora dos vencidos — agregado e faturas vencidas contam a mesma soma no provedor inteiro", async () => {
+    const baixado = (await casosDeCobrancaDe(s.providerId)).find((c) => c.status === "baixado")!;
+    const faturas = await faturasDe(s.providerId);
+    const saida = faturas.find((f) => f.customerId === baixado.customerId && String(f.erpRef).startsWith("demo-saida-"))!;
+    expect(saida.status, "a fatura do caso baixado segue vencida").toBe("baixada_no_erp");
+    expect(saida.baixadaEm).toBeTruthy();
+    expect(ms(saida.baixadaEm)).toBeLessThanOrEqual(Date.now());
+
+    const clientes = await clientesDe(s.providerId);
+    const vencidas = faturas.filter((f) => f.status === "overdue");
+    expect(clientes.reduce((soma, c) => soma + centavos(c.totalOverdueAmount), 0)).toBe(vencidas.reduce((soma, f) => soma + centavos(f.value), 0));
+    for (const c of clientes) {
+      const doCliente = vencidas.filter((f) => f.customerId === c.id);
+      expect(c.overdueInvoicesCount ?? 0, `cliente ${c.id}`).toBe(doCliente.length);
+    }
+  });
+
+  it("ex-clientes devendo em todas as etapas da regua do ex-cliente, com saida vencida no mes corrente — sem quebrar recuperacao nem sinal de bureau", async () => {
+    const vivosEx = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string) && c.carteira === "ex_cliente");
+    const etapas = new Set(vivosEx.map((c) => c.etapaAtual));
+    // Antes as saídas só tinham 60, 150 e 365 dias: lembrete e dívida antiga nunca tinham ninguém.
+    for (const etapa of etapasDaCarteira("ex_cliente")) expect([...etapas], etapa.id).toContain(etapa.id);
+
+    const agora = new Date();
+    const mesCorrente = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
+    // No dia 1 não existe saída vencida no próprio mês (vencer hoje ainda não é atraso).
+    if (Math.min(agora.getDate(), agora.getUTCDate()) > 1) {
+      const idsEx = new Set(vivosEx.map((c) => c.customerId));
+      const doMes = (await faturasDe(s.providerId)).filter((f) =>
+        idsEx.has(f.customerId) && f.status === "overdue" && new Date(ms(f.dueDate)).toISOString().slice(0, 7) === mesCorrente);
+      expect(doMes.length, "o card de prejuizo abre o mes corrente zerado").toBeGreaterThan(0);
+    }
+    // O sinal de bureau da notificação formal continua passando na regra real.
+    const formal = linhasDe("equipment_recovery_cases", s.providerId).find((r) => r.status === "notificacao_formal")!;
+    expect(formal.bureauStatus).toBe("ativo_validado");
+  });
+
+  it("todo cancelado tem o motivo do corte que o ERP daria — e quem saiu devendo foi cortado pelo financeiro", async () => {
+    const clientes = await clientesDe(s.providerId);
+    const familias = new Set<string | null>();
+    for (const c of clientes) {
+      if (c.status !== "cancelled") {
+        expect(c.motivoCorte ?? null, `cliente ${c.id}`).toBeNull();
+        continue;
+      }
+      const familia = normalizarMotivoCorte(c.motivoCorte as string);
+      familias.add(familia);
+      expect(familia, `cliente ${c.id}: "${c.motivoCorte}"`).not.toBeNull();
+      if (Number(c.totalOverdueAmount) > 0) expect(familia, `cliente ${c.id}`).toBe("financeiro");
+    }
+    expect(familias).toEqual(new Set(["financeiro", "administrativo"]));
+  });
+
+  it("inadimplente ativo tambem tem ONU em comodato — e o comodato normal nao pesa no agregado de nao devolvidos", async () => {
+    const equipamentos = await equipamentosDe(s.providerId);
+    const inadimplentes = (await clientesDe(s.providerId)).filter((c) => c.status === "active" && c.paymentStatus === "overdue");
+    const comOnu = inadimplentes.filter((c) => equipamentos.some((e) => e.customerId === c.id && e.status === "em_comodato"));
+    expect(comOnu.length).toBeGreaterThan(0);
+    for (const c of comOnu) {
+      expect(c.equipmentCount, `cliente ${c.id}`).toBe(0);
+      expect(c.equipmentEstimatedValue, `cliente ${c.id}`).toBe("0.00");
+    }
+  });
+
+  it("o CPF do chip 'devendo na rede' divide o imovel com um inadimplente de outro CPF — o cruzamento de endereco da consulta acende", async () => {
+    const clientes = await clientesDe(s.providerId);
+    const devendo = (await cpfsDeExemplo(s.providerId)).find((e) => e.situacao === "devendo_na_rede")!;
+    const chip = clientes.find((c) => c.cpfCnpj === devendo.cpf)!;
+    const digitos = (v: unknown) => String(v ?? "").replace(/\D/g, "");
+    const numero = (v: unknown) => digitos(v).replace(/^0+/, "");
+    // O critério de `getCustomersByAddressForAlert` (customers.storage.ts) com CEP específico: CEP + número.
+    const vizinhos = clientes.filter((c) => c.cpfCnpj !== chip.cpfCnpj && c.paymentStatus === "overdue"
+      && digitos(c.cep) === digitos(chip.cep) && numero(c.addressNumber) === numero(chip.addressNumber));
+    expect(vizinhos, `chip ${chip.id} em ${chip.address}, ${chip.addressNumber} (${chip.cep})`).toHaveLength(1);
+    expect(vizinhos[0].status).toBe("active");
+    expect(vizinhos[0].address).toBe(chip.address);
+    expect(vizinhos[0].city).toBe(chip.city);
+  });
+});
+
+/**
+ * Leva 2, pacote P2 (fase B): a FIAÇÃO dos módulos que os outros pacotes
+ * entregaram puros — chat (P1), faturas históricas (P4), trilha dos casos (P5),
+ * complemento do mundo base (P8), consultas e alertas (P9) e ficha do provedor
+ * (P11). Cada `it()` confere que a linha gravada é a que o módulo devolveu E que
+ * ela conta a mesma história que o resto do sandbox.
+ *
+ * O relógio fica parado numa quarta-feira às 15h de São Paulo: o roteiro do
+ * chat, a janela de contato e o "hoje" do KPI dependem da hora, e a suíte roda
+ * a qualquer hora (inclusive de madrugada, quando a equipe não fala com
+ * ninguém e "contatados hoje" é zero de verdade).
+ */
+describe("a semeadura liga os modulos da leva 2 (fase B do P2)", () => {
+  const DIA_MS = 86_400_000;
+  const AGORA = new Date("2026-09-16T18:00:00.000Z");
+  let s: Awaited<ReturnType<typeof criarSandbox>>;
+
+  const ms = (valor: unknown): number => new Date(valor as string | Date).getTime();
+  const json = (valor: unknown): any => (typeof valor === "string" ? JSON.parse(valor) : valor);
+  const linhasDe = (tabela: string, providerId: number) => (banco.linhas.get(tabela) ?? []).filter((l) => l.providerId === providerId);
+  const adminDe = (providerId: number) => (banco.linhas.get("users") ?? []).find((u) => u.providerId === providerId)!;
+  const centavos = (v: unknown) => Math.round(Number(v ?? 0) * 100);
+
+  beforeAll(async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(AGORA);
+    s = await criarSandbox();
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
+  /** A política que a régua leria desta linha — a mesma leitura de `politicaDoProvedor` (confissao-base.service.ts). */
+  function politicaGravada(providerId: number) {
+    const linha = linhasDe("cobranca_politica", providerId)[0];
+    const r = validarPolitica({
+      etapas: json(linha.etapas), negociacao: json(linha.negociacao), encargos: json(linha.encargos), janelaContato: json(linha.janelaContato),
+      economia: json(linha.economia), acordo: json(linha.acordo), pausada: linha.pausada, pausadaMotivo: linha.pausadaMotivo ?? null,
+    });
+    if (!r.ok) throw new Error(`politica gravada invalida: ${r.erros.join("; ")}`);
+    return r.politica;
+  }
+
+  it("a integracao do chat nasce com os tres perfis prontos e o primeiro contato ligado (P1)", () => {
+    const [integracao] = linhasDe("chat_bullq_integracoes", s.providerId);
+    // Sem isto a API da demo mostrava os perfis "nao_configurado" e "Iniciar contato" de equipamento dava 409.
+    expect(integracao.agenteId).toBe(AGENTES_DA_DEMO.cobranca_ativos.id);
+    const config = json(integracao.agenteConfig);
+    expect(config).toEqual(JSON.parse(JSON.stringify(agenteConfigDaDemo())));
+    for (const tipo of TIPOS_DE_AGENTE) {
+      expect(config.agentes[tipo], tipo).toMatchObject({ id: AGENTES_DA_DEMO[tipo].id, modelo: AGENTES_DA_DEMO[tipo].modelo, etapa: "pronto", habilitado: true });
+    }
+    expect(config.primeiroContato.ligada).toBe(true);
+  });
+
+  it("toda conversa em que a equipe falou tem o contato no instante da ultima fala da equipe no roteiro — e ha contatados hoje (P1)", async () => {
+    const provedor = await providerDe(s.providerId);
+    const admin = adminDe(s.providerId);
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const casos = new Map((await casosDeCobrancaDe(s.providerId)).map((c) => [c.id as number, c]));
+    const eventos = linhasDe("cobranca_eventos", s.providerId);
+    const conversas = linhasDe("chat_bullq_conversas", s.providerId).filter((c) => c.casoId != null);
+    expect(conversas).toHaveLength(16);
+
+    let comFalaDaEquipe = 0;
+    for (const conversa of conversas) {
+      const cliente = clientes.get(conversa.customerId as number)!;
+      const caso = casos.get(conversa.casoId as number)!;
+      // A MESMA linha que o chat simulado monta ao ler a conversa (`camposDaConversa`).
+      const linha: LinhaDaConversa = {
+        conversationId: conversa.conversationId as string, status: conversa.status as string, origem: conversa.origem as string, canalId: conversa.canalId as string,
+        abertaEm: new Date(ms(conversa.abertaEm)), ultimoEventoEm: new Date(ms(conversa.ultimoEventoEm)),
+        clienteNome: cliente.name as string, clienteTelefone: (cliente.phone as string) ?? null,
+        clienteDivida: (cliente.totalOverdueAmount as string) ?? null, clienteDias: (cliente.maxDaysOverdue as number) ?? null,
+        provedorNome: provedor.name as string, provedorFantasia: (provedor.tradeName as string) ?? null, semeadaEm: new Date(ms(provedor.createdAt)), atendenteNome: admin.name as string,
+        casoStatus: caso.status as string, casoCarteira: caso.carteira as string, casoValor: caso.valorAtual as string, casoDias: caso.diasAtrasoAbertura as number,
+        recuperacaoStatus: null, recuperacaoAgendadaEm: null, equipamentoTipo: null, equipamentoMarca: null, equipamentoModelo: null,
+      };
+      // O chat congela o roteiro no `createdAt` do provedor (`roteiroCongelado`): ele é o `agora` da semeadura.
+      expect(ms(provedor.createdAt), "o provedor do sandbox tem de nascer com o agora da semeadura").toBe(AGORA.getTime());
+      // Lido 20 h depois (ou depois de um reinício da API), o chat usa o mesmo instante.
+      const falasDaEquipe = roteiroDaConversa(linha, ms(provedor.createdAt)).filter((m) => m.direction === "OUTBOUND" && m.senderName === admin.name);
+      const contatos = eventos
+        .filter((e) => e.casoId === caso.id && e.tipo === "contato" && json(e.metadata)?.conversationId === conversa.conversationId)
+        .map((e) => ms(e.ocorridoEm))
+        .sort((a, b) => a - b);
+      const rotulo = `${conversa.conversationId} (${conversa.status}, caso ${caso.status})`;
+
+      const ultima = falasDaEquipe.at(-1);
+      if (ultima && ms(ultima.createdAt) > ms(conversa.abertaEm)) {
+        comFalaDaEquipe++;
+        expect(contatos, rotulo).toEqual([ms(conversa.abertaEm), ms(ultima.createdAt)]);
+      } else {
+        expect(contatos, rotulo).toEqual([ms(conversa.abertaEm)]);
+      }
+      // O que `registrarEventoDeCobranca` grava a cada contato: o último é o do caso.
+      expect(ms(caso.ultimoContatoEm), rotulo).toBe(Math.max(...eventos.filter((e) => e.casoId === caso.id && e.tipo === "contato").map((e) => ms(e.ocorridoEm))));
+    }
+    expect(comFalaDaEquipe, "nenhuma conversa com fala da equipe").toBeGreaterThan(0);
+
+    // O mesmo recorte de `kpisDaCobranca`: contato desde a meia-noite do processo.
+    const inicioDoDia = new Date(Date.now());
+    inicioDoDia.setHours(0, 0, 0, 0);
+    const contatadosHoje = new Set(eventos.filter((e) => e.tipo === "contato" && ms(e.ocorridoEm) >= inicioDoDia.getTime()).map((e) => e.customerId));
+    expect(contatadosHoje.size, "Contatados hoje nasce zerado em plena tarde de quarta-feira").toBeGreaterThan(0);
+    for (const e of eventos.filter((x) => x.tipo === "contato")) expect(ms(e.ocorridoEm), `contato ${e.id} no futuro`).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("mensalidades pagas e fatura do mes para a carteira inteira, e a divida muda so pela mensalidade do mes que ja venceu (P4)", async () => {
+    const faturas = await faturasDe(s.providerId);
+    const clientes = await clientesDe(s.providerId);
+    const porId = new Map(clientes.map((c) => [c.id, c]));
+    const mensalidades = faturas.filter((f) => String(f.erpRef).startsWith("demo-mens-"));
+    expect(mensalidades.length, "o sandbox nasceu sem historico de faturas").toBeGreaterThan(5_000);
+    const mesCorrente = AGORA.toISOString().slice(0, 7);
+    for (const f of mensalidades) {
+      const rotulo = String(f.erpRef);
+      expect(["paid", "aberta", "overdue"], rotulo).toContain(f.status);
+      if (f.status === "paid") expect(ms(f.paidDate), rotulo).toBeLessThanOrEqual(Date.now());
+      else if (f.status === "aberta") expect(ms(f.dueDate), `${rotulo}: a vencer que ja venceu`).toBeGreaterThan(Date.now());
+      else {
+        // Revisão da fase B: a mensalidade deste mês do inadimplente ativo, que já venceu — soma na dívida dele.
+        expect(new Date(ms(f.dueDate)).toISOString().slice(0, 7), rotulo).toBe(mesCorrente);
+        expect(ms(f.dueDate), rotulo).toBeLessThan(Date.now());
+        expect(porId.get(f.customerId)).toMatchObject({ status: "active", paymentStatus: "overdue" });
+      }
+    }
+    const comPaga = new Set(mensalidades.filter((f) => f.status === "paid").map((f) => f.customerId));
+    for (const c of clientes.filter((x) => x.status === "active" && x.paymentStatus === "current")) {
+      expect(comPaga.has(c.id), `cliente ${c.id} em dia sem nenhuma mensalidade paga`).toBe(true);
+    }
+    // O cliente do caso "pago" já tem a fatura daquela competência (a paga hoje): nada de segunda mensalidade no mesmo mês.
+    const pago = (await casosDeCobrancaDe(s.providerId)).find((c) => c.status === "pago")!;
+    const doPago = faturas.filter((f) => f.customerId === pago.customerId);
+    const competencias = doPago.map((f) => new Date(ms(f.dueDate)).toISOString().slice(0, 7));
+    expect(new Set(competencias).size, `competencias do caso pago: ${competencias.join(", ")}`).toBe(competencias.length);
+
+    const vencidas = faturas.filter((f) => f.status === "overdue");
+    expect(clientes.reduce((soma, c) => soma + centavos(c.totalOverdueAmount), 0)).toBe(vencidas.reduce((soma, f) => soma + centavos(f.value), 0));
+    for (const c of clientes) expect(c.overdueInvoicesCount ?? 0, `cliente ${c.id}`).toBe(vencidas.filter((f) => f.customerId === c.id).length);
+  });
+
+  it("tres recuperacoes por carteira nos ultimos 30 dias: a fatura sai dos vencidos, a divida zera e o caso fecha na conciliacao depois do contato (P4)", async () => {
+    const admin = adminDe(s.providerId);
+    const faturas = await faturasDe(s.providerId);
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const casos = await casosDeCobrancaDe(s.providerId);
+    const eventos = linhasDe("cobranca_eventos", s.providerId);
+    const quitacoes = linhasDe("cobranca_quitacoes", s.providerId);
+    const clienteDoBaixado = casos.find((c) => c.status === "baixado")!.customerId;
+
+    const baixadas = faturas.filter((f) => f.status === "baixada_no_erp" && f.customerId !== clienteDoBaixado);
+    const recuperacoes = [
+      ...baixadas.map((f) => ({ fatura: f, em: ms(f.baixadaEm) })),
+      ...quitacoes.map((q) => ({ fatura: faturas.find((f) => f.id === q.faturaId)!, em: ms(q.confirmadoEm) })),
+    ];
+    // A baixa acende a esteira (`recuperacaoAposContato`); a quitação, o "Recuperado 30 d" da carteira.
+    expect(baixadas).toHaveLength(4);
+    expect(quitacoes).toHaveLength(2);
+    const porCarteira = (carteira: string) => recuperacoes.filter((r) => carteiraDoStatusErp(clientes.get(r.fatura.customerId as number)!.status as string) === carteira).length;
+    expect(porCarteira("ativo")).toBe(3);
+    expect(porCarteira("ex_cliente")).toBe(3);
+
+    for (const q of quitacoes) {
+      const fatura = faturas.find((f) => f.id === q.faturaId);
+      expect(fatura, `quitacao ${q.id} sem fatura do proprio provedor`).toBeTruthy();
+      // O que a rota de confirmação grava: comprovante conferido pelo administrador, valor integral, fatura paga.
+      expect(q).toMatchObject({ origem: "comprovante_conferido", userId: admin.id, customerId: fatura!.customerId, valorPago: fatura!.value });
+      expect(fatura!.status).toBe("paid");
+    }
+
+    for (const { fatura, em } of recuperacoes) {
+      const cliente = clientes.get(fatura.customerId as number)!;
+      const rotulo = `${fatura.erpRef} (cliente ${cliente.id}, ${cliente.status})`;
+      expect(String(fatura.erpRef), rotulo).toMatch(/^demo-(fatura|saida)-/);
+      expect(em, rotulo).toBeLessThanOrEqual(Date.now());
+      expect(Date.now() - em, rotulo).toBeLessThan(30 * DIA_MS);
+      // Quem deixou de dever sai da carteira de devedores pela regra do sync.
+      expect(cliente, rotulo).toMatchObject({ totalOverdueAmount: "0.00", overdueInvoicesCount: 0, maxDaysOverdue: 0, paymentStatus: "current", riskTier: "low" });
+
+      // O contato que antecedeu a recuperação, na janela que o indicador conta (até 7 dias antes).
+      const contatos = eventos.filter((e) => e.customerId === cliente.id && e.tipo === "contato" && ms(e.ocorridoEm) <= em && ms(e.ocorridoEm) >= em - 7 * DIA_MS);
+      expect(contatos, `${rotulo}: recuperacao sem contato antes`).toHaveLength(1);
+      expect(janelaDoChat(new Date(ms(contatos[0].ocorridoEm)), politicaGravada(s.providerId).janelaContato).permitida, `${rotulo}: contato fora da janela`).toBe(true);
+
+      const doCliente = casos.filter((c) => c.customerId === cliente.id);
+      expect(doCliente, rotulo).toHaveLength(1);
+      const caso = doCliente[0];
+      // Dívida zerada no ERP: a régua fecha para conciliação (`revisarCaso`), não como "pago".
+      expect(caso, rotulo).toMatchObject({ status: "encerrado", motivoEncerramento: MOTIVO_DIVIDA_ZERADA });
+      expect(ms(caso.encerradoEm), rotulo).toBe(em);
+      expect(ms(caso.ultimoContatoEm), rotulo).toBe(ms(contatos[0].ocorridoEm));
+      expect(ms(caso.abertoEm), rotulo).toBeLessThan(ms(contatos[0].ocorridoEm));
+      const encerramentos = eventos.filter((e) => e.casoId === caso.id && e.tipo === "encerramento");
+      expect(encerramentos, rotulo).toHaveLength(1);
+      const { status, de } = json(encerramentos[0].metadata) as { status: StatusDeCaso; de: StatusDeCaso };
+      expect(status).toBe("encerrado");
+      expect(transicaoDeCaso(de, "encerrado"), rotulo).toEqual({ ok: true });
+      expect(ms(encerramentos[0].ocorridoEm), rotulo).toBe(em);
+    }
+  });
+
+  it("negociando tem a proposta e acordo ativo tem o acordo, com parcelas a vencer e a metadata que o storage grava — sem duplicar a transicao (P5)", async () => {
+    const vivos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const negociacoes = linhasDe("cobranca_negociacoes", s.providerId);
+    const parcelas = linhasDe("cobranca_parcelas", s.providerId);
+    const eventos = linhasDe("cobranca_eventos", s.providerId);
+    const hoje = dataLocal(new Date());
+
+    const comNegociacao = vivos.filter((c) => c.status === "negociando" || c.status === "acordo_ativo");
+    expect(comNegociacao.length).toBeGreaterThan(0);
+    expect(negociacoes).toHaveLength(comNegociacao.length);
+    for (const caso of vivos) {
+      const rotulo = `caso ${caso.id} (${caso.status}, ${caso.carteira})`;
+      const doCaso = negociacoes.filter((n) => n.casoId === caso.id);
+      if (caso.status === "negociando") expect(doCaso.map((n) => n.status), rotulo).toEqual(["proposta"]);
+      else if (caso.status === "acordo_ativo") expect(["ativa", "aceita"], rotulo).toContain(doCaso[0]?.status);
+      else expect(doCaso, rotulo).toHaveLength(0);
+
+      for (const n of doCaso) {
+        expect(n.customerId, rotulo).toBe(caso.customerId);
+        for (const p of parcelas.filter((x) => x.negociacaoId === n.id)) {
+          if (p.status === "pendente") expect(String(p.vencimento) > hoje, `${rotulo}: parcela ${p.numero} vence ${p.vencimento}`).toBe(true);
+          if (p.status === "paga") {
+            const paga = eventos.filter((e) => e.casoId === caso.id && e.tipo === "parcela_paga" && json(e.metadata)?.parcelaId === p.id);
+            expect(paga, `${rotulo}: parcela ${p.numero} paga sem o evento`).toHaveLength(1);
+          }
+        }
+        const propostas = eventos.filter((e) => e.casoId === caso.id && e.tipo === "negociacao_proposta");
+        expect(propostas, `${rotulo}: a proposta duplicada ou ausente na linha do tempo`).toHaveLength(1);
+        // A metadata real mesclada por cima da transição: sem o registro, o aceite trataria a proposta como exceção.
+        expect(json(propostas[0].metadata), rotulo).toMatchObject({ negociacaoId: n.id, para: "negociando", exigeAprovacao: false, versaoAprovacao: 1 });
+        if (caso.status === "acordo_ativo") {
+          const aceites = eventos.filter((e) => e.casoId === caso.id && e.tipo === "acordo_aceito");
+          expect(aceites, rotulo).toHaveLength(1);
+          expect(json(aceites[0].metadata), rotulo).toMatchObject({ negociacaoId: n.id, para: "acordo_ativo" });
+        }
+      }
+    }
+  });
+
+  it("todo caso vivo tem a trilha da regua ate a etapa de hoje, e o negativado o pre-aviso a 10 dias uteis da inscricao (P5)", async () => {
+    const politica = politicaGravada(s.providerId);
+    const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
+    const vivos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
+    const eventos = linhasDe("cobranca_eventos", s.providerId);
+
+    for (const caso of vivos) {
+      const rotulo = `caso ${caso.id} (${caso.status}, ${caso.carteira})`;
+      const etapas = eventos.filter((e) => e.casoId === caso.id && e.tipo === "etapa_mudou").sort((a, b) => ms(a.ocorridoEm) - ms(b.ocorridoEm));
+      expect(etapas.length, `${rotulo}: sem a abertura da regua`).toBeGreaterThan(0);
+      expect(json(etapas[0].metadata).abertura, rotulo).toBe(true);
+      expect(ms(etapas[0].ocorridoEm), rotulo).toBe(ms(caso.abertoEm));
+      expect(json(etapas.at(-1)!.metadata).para ?? null, rotulo).toBe(caso.etapaAtual ?? null);
+      for (const e of etapas) expect(ms(e.ocorridoEm), rotulo).toBeLessThanOrEqual(Date.now());
+    }
+
+    const negativados = vivos.filter((c) => c.status === "negativado");
+    expect(negativados.length).toBeGreaterThan(0);
+    for (const caso of negativados) {
+      const rotulo = `caso ${caso.id} (${caso.carteira})`;
+      const preAvisos = eventos.filter((e) => e.casoId === caso.id && e.tipo === "contato" && e.canal === "email");
+      expect(preAvisos, `${rotulo}: negativado sem o pre-aviso`).toHaveLength(1);
+      const preAviso = ms(preAvisos[0].ocorridoEm);
+      expect(preAviso, rotulo).toBeGreaterThanOrEqual(ms(caso.abertoEm));
+      expect(preAviso, rotulo).toBeLessThan(ms(caso.statusDesde));
+      expect(janelaDoChat(new Date(preAviso), politica.janelaContato).permitida, `${rotulo}: pre-aviso fora da janela`).toBe(true);
+      const permitida = primeiraNegativacaoPermitida(
+        { id: caso.id as number, carteira: caso.carteira as "ativo" | "ex_cliente", abertoEm: new Date(ms(caso.abertoEm)), diasAtraso: clientes.get(caso.customerId as number)!.maxDaysOverdue as number },
+        politica,
+        new Date(),
+      );
+      expect(ms(caso.statusDesde), `${rotulo}: negativado antes dos 10 dias uteis do pre-aviso (Sumula 359 do STJ)`).toBeGreaterThanOrEqual(permitida.getTime());
+    }
+  });
+
+  it("todo alerta nasce de uma consulta da rede sobre o CPF, um minuto antes dele, com a contagem daquele instante e a divida nunca mais velha que o contrato (revisao da fase B)", async () => {
+    // Até 13/09/2026 o alerta escolhia qualquer cliente — CPF que só o sandbox
+    // tem, "consultado por 3 provedores" — e o 360 contava zero consultas de outros.
+    const base = new Set(PROVEDORES_DA_DEMO.map((p) => idDe(p.subdomain)));
+    const consultasDaRede = (banco.linhas.get("isp_consultations") ?? []).filter((c) => base.has(c.providerId as number));
+    const alertas = await alertasAntiFraudeDe(s.providerId);
+    expect(alertas.length).toBeGreaterThanOrEqual(12);
+    expect(alertas.length).toBeLessThanOrEqual(16);
+    for (const a of alertas) {
+      const doCpf = consultasDaRede.filter((c) => c.cpfCnpj === a.customerCpfCnpj);
+      const origem = doCpf.find((c) => c.providerId === a.consultingProviderId && ms(c.createdAt) < ms(a.createdAt) && ms(a.createdAt) - ms(c.createdAt) <= 60_000);
+      expect(origem, `alerta ${a.id}: ${a.consultingProviderId} nunca consultou ${a.customerCpfCnpj} antes dele`).toBeDefined();
+      const naJanela = doCpf.filter((c) => ms(c.createdAt) <= ms(origem!.createdAt) && ms(origem!.createdAt) - ms(c.createdAt) <= 30 * DIA_MS);
+      expect(a.recentConsultations, `alerta ${a.id}`).toBe(new Set(naJanela.map((c) => c.providerId)).size);
+      const diasDeContrato = Number((json(a.riskFactors) as string[]).find((f) => f.startsWith("dias_contrato:"))!.split(":")[1]);
+      expect(a.daysOverdue as number, `alerta ${a.id}: ${a.message}`).toBeLessThanOrEqual(diasDeContrato);
+    }
+    const motivos = new Set(alertas.flatMap((a) => motivosGravados(json(a.riskFactors))));
+    for (const m of ["divida_ativa", "consultas_repetidas", "contrato_novo"] as const) expect(motivos.has(m), m).toBe(true);
+    expect(alertas.some((a) => a.status === "resolved") && alertas.some((a) => a.status === "dismissed")).toBe(true);
+  });
+
+  it("a consulta semeada conta os provedores que consultaram o CPF nos 30 dias antes dela — sem o sandbox de outro visitante, como a consulta refeita ao vivo (revisao da fase B)", async () => {
+    const outrosSandboxes = new Set((banco.linhas.get("providers") ?? [])
+      .filter((p) => String(p.subdomain ?? "").startsWith("sandbox-") && p.id !== s.providerId).map((p) => p.id));
+    const todas = banco.linhas.get("isp_consultations") ?? [];
+    const alerta = "3+ consultas de ISPs diferentes nos ultimos 30 dias";
+    let comRedeNaJanela = 0;
+    for (const c of linhasDe("isp_consultations", s.providerId)) {
+      const quando = ms(c.createdAt);
+      const antes = todas.filter((x) => x.cpfCnpj === c.cpfCnpj && !outrosSandboxes.has(x.providerId) && ms(x.createdAt) < quando && quando - ms(x.createdAt) <= 30 * DIA_MS);
+      const em30d = new Set(antes.map((x) => x.providerId)).size;
+      if (antes.some((x) => x.providerId !== s.providerId)) comRedeNaJanela++;
+      expect((json(c.result).alerts as string[]).includes(alerta), `${c.cpfCnpj}: ${em30d} provedores em 30 dias`).toBe(em30d >= 3 && em30d < 5);
+    }
+    expect(comRedeNaJanela, "nenhuma consulta semeada de CPF com consulta da rede na janela").toBeGreaterThan(0);
+  });
+
+  it("nenhuma fatura vence antes do contrato, todo ativo tem fatura no mes corrente e a divida e a soma das vencidas (revisao da fase B)", async () => {
+    const clientes = await clientesDe(s.providerId);
+    const faturas = linhasDe("invoices", s.providerId);
+    const inicio = new Map(clientes.map((c) => [c.id, String(c.contractStartDate)]));
+    for (const f of faturas) {
+      const dia = new Date(ms(f.dueDate)).toISOString().slice(0, 10);
+      expect(dia >= inicio.get(f.customerId)!, `fatura ${f.erpRef} vence em ${dia}, antes do contrato de ${inicio.get(f.customerId)}`).toBe(true);
+    }
+    // A carteira do mês abria 200 ativos "sem fatura" contra 222 devendo.
+    const mes = AGORA.toISOString().slice(0, 7);
+    const comFaturaNoMes = new Set(faturas.filter((f) => new Date(ms(f.dueDate)).toISOString().slice(0, 7) === mes).map((f) => f.customerId));
+    expect(clientes.filter((c) => c.status === "active" && !comFaturaNoMes.has(c.id)).map((c) => c.id)).toEqual([]);
+    // 16/09: as dívidas de 45 e 250 dias venceram nos dias 2 e 9 — a mensalidade deste mês também venceu.
+    const vencidasPorCliente = new Map<unknown, typeof faturas>();
+    for (const f of faturas.filter((x) => x.status === "overdue")) vencidasPorCliente.set(f.customerId, [...(vencidasPorCliente.get(f.customerId) ?? []), f]);
+    expect(clientes.filter((c) => c.status === "active" && (vencidasPorCliente.get(c.id)?.length ?? 0) === 2).length).toBeGreaterThan(0);
+    for (const c of clientes) {
+      const vencidas = vencidasPorCliente.get(c.id) ?? [];
+      expect(centavos(c.totalOverdueAmount), `cliente ${c.id}`).toBe(vencidas.reduce((soma, f) => soma + centavos(f.value), 0));
+      expect(c.overdueInvoicesCount ?? 0, `cliente ${c.id}`).toBe(vencidas.length);
+    }
+  });
+
+  it("o historico de consultas, os alertas extras e as regras do anti-fraude sao do proprio sandbox (P9)", async () => {
+    const admin = adminDe(s.providerId);
+    const cpfsDaCarteira = new Set((await clientesDe(s.providerId)).map((c) => c.cpfCnpj));
+    const idsDaCarteira = new Set((await clientesDe(s.providerId)).map((c) => c.id));
+    const base = new Set(PROVEDORES_DA_DEMO.map((p) => idDe(p.subdomain)));
+
+    const isp = linhasDe("isp_consultations", s.providerId);
+    expect(isp.length).toBeGreaterThanOrEqual(9);
+    expect(isp.length).toBeLessThanOrEqual(11);
+    expect(new Set(isp.map((c) => c.decisionReco))).toEqual(new Set(["Accept", "Review", "Reject"]));
+    const spc = linhasDe("spc_consultations", s.providerId);
+    const cadastral = linhasDe("bigdata_consultations", s.providerId);
+    expect(spc).toHaveLength(4);
+    expect(cadastral).toHaveLength(3);
+    for (const c of [...isp, ...spc, ...cadastral]) {
+      expect(c.userId, JSON.stringify(c)).toBe(admin.id);
+      expect(cpfsDaCarteira.has(c.cpfCnpj ?? c.cpf), `consulta sobre CPF fora da carteira: ${c.cpfCnpj ?? c.cpf}`).toBe(true);
+    }
+
+    const alertas = await alertasAntiFraudeDe(s.providerId);
+    expect(alertas).toHaveLength(3 + 13);
+    for (const a of alertas) {
+      expect(base.has(a.consultingProviderId as number), `alerta ${a.id} consultado por quem nao e da rede`).toBe(true);
+      expect(idsDaCarteira.has(a.customerId), `alerta ${a.id} de cliente fora da carteira`).toBe(true);
+    }
+    expect(linhasDe("anti_fraud_rules", s.providerId)).toHaveLength(regrasAntiFraudeDaDemo(s.providerId).length);
+  });
+
+  it("a ficha, os socios, os documentos, a equipe, o historico de sync e os pedidos de credito contam a mesma empresa do cadastro simulado (P11)", async () => {
+    const provider = await providerDe(s.providerId);
+    const receita = empresaPublicaSimulada("");
+    // A sede no mapa e na ficha é o endereço que "buscar na Receita" devolveria.
+    expect(provider).toMatchObject({
+      name: "Provedor Demonstração", tradeName: receita.nomeFantasia, addressCity: receita.cidade, addressState: "PR",
+      addressStreet: receita.logradouro, addressNumber: receita.numero, addressZip: receita.cep,
+    });
+    expect(linhasDe("provider_partners", s.providerId).map((p) => p.name)).toEqual(receita.socios.map((x) => x.nome));
+
+    const documentos = linhasDe("provider_documents", s.providerId);
+    expect(documentos.map((d) => d.status)).toEqual(["approved", "approved", "approved"]);
+    for (const d of documentos) expect(d.uploadedById).toBe(s.providerId);
+
+    const equipe = (banco.linhas.get("users") ?? []).filter((u) => u.providerId === s.providerId);
+    expect(equipe).toHaveLength(4);
+    // O segundo sinal da limpeza continua sendo o administrador da demo — e é o primeiro usuário.
+    expect(adminDe(s.providerId).email).toBe(`${s.subdomain}@demo.consultaisp.com.br`);
+
+    const logs = linhasDe("erp_sync_logs", s.providerId);
+    expect(logs).toHaveLength(10);
+    const integracao = (await integracaoDe(s.providerId))!;
+    expect(ms(integracao.lastSyncAt)).toBe(Math.max(...logs.map((l) => ms(l.syncedAt))));
+    expect(integracao).toMatchObject({ lastSyncStatus: "success", totalSynced: 1500 });
+
+    const pedidos = linhasDe("credit_orders", s.providerId);
+    expect(pedidos.map((p) => p.status).sort()).toEqual(["cancelled", "paid", "pending"]);
+  });
+
+  it("o mundo base e complementado antes do sandbox: consultas cruzadas da rede e os analistas que as assinam (P8)", () => {
+    const base = new Set(PROVEDORES_DA_DEMO.map((p) => idDe(p.subdomain)));
+    const consultasDaRede = (banco.linhas.get("isp_consultations") ?? []).filter((c) => base.has(c.providerId as number));
+    expect(consultasDaRede.length, "complementarMundoBase nao rodou").toBeGreaterThan(1_000);
+    expect((banco.linhas.get("users") ?? []).filter((u) => base.has(u.providerId as number))).toHaveLength(5);
+  });
+
+  it("apagarSandbox leva toda linha nova da fiacao — nenhuma tabela com o provedor fica com sobra", async () => {
+    await apagarSandbox(s.providerId);
+    const residuos: string[] = [];
+    for (const tabela of TABELAS) {
+      const nome = getTableName(tabela);
+      if (!("providerId" in getTableColumns(tabela))) continue;
+      const sobra = linhasDe(nome, s.providerId).length;
+      if (sobra > 0) residuos.push(`${nome} (${sobra})`);
+    }
+    const documentosPorAutor = (banco.linhas.get("provider_documents") ?? []).filter((d) => d.uploadedById === s.providerId);
+    if (documentosPorAutor.length > 0) residuos.push(`provider_documents.uploadedById (${documentosPorAutor.length})`);
     expect(residuos).toEqual([]);
   });
 });

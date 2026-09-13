@@ -38,6 +38,7 @@ export interface CpfDeExemplo {
 }
 
 const CPFS_DA_REDE = new Set(CPFS_COMPARTILHADOS);
+const POSICAO_NA_REDE = new Map(CPFS_COMPARTILHADOS.map((cpf, i) => [cpf, i]));
 
 /**
  * Um CPF de cada situação, para a Consulta ISP sugerir o que testar num
@@ -48,10 +49,25 @@ const CPFS_DA_REDE = new Set(CPFS_COMPARTILHADOS);
 export async function cpfsDeExemplo(providerId: number): Promise<CpfDeExemplo[]> {
   const clientes = await storage.getCustomersByProvider(providerId);
 
+  // `equipmentCount` é o agregado de aparelho NÃO devolvido
+  // (`recalculateCustomerEquipmentAggregate`, pelo critério de
+  // `equipamentoTemRetiradaPendente`): quem tem retirada pendente não é a
+  // história do "limpo" — a consulta mostraria a ocorrência patrimonial. A ONU
+  // em comodato de quem está em dia não entra nessa conta e não afasta ninguém.
   const limpo = clientes.find(
-    (c) => c.paymentStatus === "current" && c.status === "active" && !CPFS_DA_REDE.has(c.cpfCnpj),
+    (c) =>
+      c.paymentStatus === "current" &&
+      c.status === "active" &&
+      !CPFS_DA_REDE.has(c.cpfCnpj) &&
+      (c.equipmentCount ?? 0) === 0,
   );
-  const devendoNaRede = clientes.find((c) => CPFS_DA_REDE.has(c.cpfCnpj));
+  // Em dia AQUI, e o primeiro CPF da rede (`CPFS_COMPARTILHADOS[0]`, devedor em
+  // dois provedores parceiros): o sandbox também tem inadimplentes e quem pagou
+  // nos últimos 30 dias com CPF da rede (os alertas do Anti-Fraude nascem de
+  // consultas da rede sobre eles), e a ordem da leitura do banco não é garantida.
+  const devendoNaRede = clientes
+    .filter((c) => c.paymentStatus === "current" && c.status === "active" && CPFS_DA_REDE.has(c.cpfCnpj))
+    .sort((a, b) => POSICAO_NA_REDE.get(a.cpfCnpj)! - POSICAO_NA_REDE.get(b.cpfCnpj)!)[0];
 
   if (!limpo || !devendoNaRede) {
     throw new Error(

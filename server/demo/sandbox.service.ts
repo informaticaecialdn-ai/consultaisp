@@ -16,6 +16,10 @@
  * chamada por registro transformaria a porta da demonstração em tela de
  * espera.
  *
+ * Clientes e faturas, as duas escritas grandes, vão por coluna
+ * (`inserirPorColunas`, Leva 2 fase B): com as faturas históricas, montar o
+ * `INSERT ... VALUES` no Drizzle virou o maior custo da criação.
+ *
  * O provedor e o usuário administrador NÃO passam por
  * `storage.createProvider`/`storage.createUser` (rodada de correção,
  * 11/09/2026): nenhuma das duas aceita um executor de transação — conferido
@@ -27,7 +31,8 @@
  * funções fazem, `emailCanonico` incluído.
  */
 import crypto from "crypto";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, is, sql, SQL } from "drizzle-orm";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db";
 import { logger } from "../logger";
 import {
@@ -60,6 +65,11 @@ import {
   equipmentRecoveryEvents,
   marcaEventos,
   providerDocuments,
+  providerPartners,
+  erpSyncLogs,
+  creditOrders,
+  ispConsultations,
+  spcConsultations,
   users,
 } from "@shared/schema";
 import type {
@@ -68,21 +78,25 @@ import type {
   InsertEquipment,
   InsertCobrancaCaso,
   InsertCobrancaEvento,
-  InsertAntiFraudAlert,
   InsertChatBullqConversa,
   EconomiaDaPolitica,
+  AcordoDaPolitica,
 } from "@shared/schema";
 import { cobrancaPreAvisos, cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
 import { chatAutonomiaAutorizacao, chatAutonomiaSeguranca } from "@shared/chat-autonomia-seguranca";
 import { storage } from "../storage";
 import { emailCanonico } from "../storage/users.storage";
+import { carteiraDoStatusErp } from "../storage/cobranca.storage";
 import { hashPassword } from "../password";
-import { pessoaFicticia, cpfFicticio } from "./pessoas-ficticias";
-import { PROVEDORES_DA_DEMO, INDICES_COMPARTILHADOS, MESORREGIAO_DO_MUNDO_BASE, semearMundoBase, linhaDaIntegracao } from "./mundo-base";
-import { STATUS_DE_CASO, casoFechado, eventoDaTransicaoDeCaso, transicaoDeCaso, type StatusDeCaso } from "@shared/cobranca/estados";
-import { etapaParaAtraso } from "@shared/cobranca/regua";
-import { severidadeDoAlerta } from "@shared/antifraude-avaliacao";
+import { pessoaFicticia } from "./pessoas-ficticias";
+import { PROVEDORES_DA_DEMO, INDICES_COMPARTILHADOS, MESORREGIAO_DO_MUNDO_BASE, complementarMundoBase, semearMundoBase, linhaDaIntegracao } from "./mundo-base";
+import { STATUS_DE_CASO, casoFechado, eventoDaTransicaoDeCaso, statusAposContato, transicaoDeCaso, type Carteira, type StatusDeCaso } from "@shared/cobranca/estados";
+import { etapaParaAtraso, prescrita, type EtapaId } from "@shared/cobranca/regua";
+import { ACORDO_PADRAO } from "@shared/cobranca/acordo";
+import { POLITICA_PADRAO, validarPolitica } from "@shared/cobranca/politica";
+import { janelaDoChat } from "@shared/cobranca/automacao-chat";
 import {
+  DIVIDA_MINIMA_PARA_CASO,
   MOTIVO_CANCELADO_NO_ERP,
   MOTIVO_DIVIDA_ZERADA,
   dnaDoCaso,
@@ -102,10 +116,22 @@ import {
   proximoDiaUtil,
 } from "../services/chat/chat-atendimento.service";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
-import { limparChatSimuladoDoProvedor } from "./chat-simulado";
+import { AGENTES_DA_DEMO, agenteConfigDaDemo, limparChatSimuladoDoProvedor, roteiroDaConversa, type LinhaDaConversa } from "./chat-simulado";
+import { MESES_DE_HISTORICO_REDUZIDO, faturasHistoricasDoSandbox, type ClienteDoHistorico, type ContatoDoHistorico, type RecuperacaoDaDemo } from "./semeadura-faturas";
+import { eventosDaNegociacao, primeiraNegativacaoPermitida, trilhaDosCasos, type CasoDaTrilha, type PoliticaDaTrilha } from "./semeadura-negociacoes";
+import { alertasExtrasDoSandbox, consultasDoSandbox, regrasAntiFraudeDaDemo, type ClienteDaConsulta, type ClienteDaRede, type ConsultaDaRede } from "./semeadura-consultas";
+import {
+  documentosDaDemo,
+  fichaDoProvedorDaDemo,
+  integracaoErpSincronizada,
+  logsDeSyncDaDemo,
+  pedidosDeCreditoDaDemo,
+  sociosDaDemo,
+  usuariosExtrasDaDemo,
+} from "./semeadura-ficha";
 
 /** O que uma transação de verdade e o `pg-proxy` de teste têm em comum. Ver o mesmo tipo em `mundo-base.ts`. */
-type Executor = Pick<typeof db, "insert" | "select" | "delete">;
+type Executor = Pick<typeof db, "insert" | "select" | "delete" | "update" | "execute">;
 
 /**
  * O PRIMEIRO dos DOIS sinais de identidade do sandbox — sem coluna nova, sem
@@ -225,6 +251,8 @@ const EM_DIA_TOTAL_POR_SANDBOX = CLIENTES_POR_SANDBOX - INADIMPLENTES_POR_SANDBO
 
 const EM_DIA_COM_EQUIPAMENTO_COMODATO = 90; // ativos, ONU normal, ainda em comodato
 const CANCELADOS_COM_EQUIPAMENTO_RETIDO = 30; // ex-clientes, ONU NÃO devolvida — 120 = 8% do total
+/** Um em cada três inadimplentes ativos com a ONU em comodato (75) — ver `equipamentoDaEntrada`. */
+const INADIMPLENTE_COM_COMODATO_A_CADA = 3;
 
 const IDADES_DE_VENCIMENTO_REPRESENTATIVAS = [10, 45, 120, 300, 20, 60, 90, 150, 250];
 const VALORES_DE_PLANO = [79.9, 99.9, 119.9, 149.9, 199.9];
@@ -234,16 +262,51 @@ const TENURE_MESES_REPRESENTATIVOS = [2, 5, 9, 14, 20, 28, 36, 48, 60, 84];
 const RECENCIA_CANCELAMENTO_DIAS = [30, 60, 90, 150, 210, 365];
 
 /**
+ * Leva 2 (auditoria de telas, rodada 2): as saídas DEVIDAS só tinham 60, 150 e
+ * 365 dias — as posições ímpares de `RECENCIA_CANCELAMENTO_DIAS` —, e a régua do
+ * ex-cliente nunca tinha ninguém no lembrete (D+1..14) nem na dívida antiga
+ * (D+180..359); o card de prejuízo, que abre no mês corrente, abria R$ 0,00.
+ *
+ * Só mudam as posições a partir de `CANCELADOS_COM_EQUIPAMENTO_RETIDO`: nelas
+ * não há ONU, recuperação nem conversa, então a idade nova não mexe no sinal de
+ * bureau da notificação formal, nas trilhas das recuperações nem nos roteiros do
+ * chat, que moram nas posições abaixo de 30. Uma idade por etapa do ex-cliente,
+ * em ciclo; `null` é a coorte que venceu no mês corrente
+ * (`diasDaSaidaNoMesCorrente`), que também cai no lembrete.
+ */
+const RECENCIA_DA_SAIDA_DEVIDA_SEM_EQUIPAMENTO_DIAS: ReadonlyArray<number | null> = [null, 60, 150, 240, 365];
+
+/**
+ * Duas recuperações abertas com o prazo de 60 dias quase no fim, por posição —
+ * sem elas o KPI "prazo crítico" (<= 10 dias, `recovery-board.service.ts`) e a
+ * coluna "31 a 60 dias" nasciam zerados. Nenhuma das duas tem sinal de bureau: a
+ * notificação formal (posição 18) segue na coorte de 30 dias, o único jeito de o
+ * sinal passar em `validarSinalBureau`.
+ */
+const DIAS_DESDE_O_CORTE_NO_FIM_DO_PRAZO: ReadonlyMap<number, number> = new Map([[0, 52], [12, 55]]);
+
+/**
  * As cidades que o mundo base atende (`PROVEDORES_DA_DEMO`, deduplicadas:
  * Londrina aparece em rede-1 e rede-5). O sandbox nasce SEM
  * `cidadesAtendidas` nem `addressState` (rodada de correção, Tarefa 6,
  * 11/09/2026) — sem eles o modo "Rede" do mapa de calor manda o visitante
  * configurar as cidades do PRÓPRIO provedor antes de mostrar qualquer coisa,
  * numa demonstração que não tem onde clicar para configurar.
+ *
+ * No formato que a tela de Regionalização grava, "Cidade - UF" (Leva 2): o
+ * `PUT /api/regional/cidades` recusava a lista semeada com 400, e a busca de
+ * cidades oferecia "Londrina - PR" de novo ao lado de "Londrina". Os leitores
+ * tiram o sufixo (`normalizarCidade`, area-atendida.ts). As quatro são do PR.
  */
-const CIDADES_DO_MUNDO_BASE = Array.from(new Set(PROVEDORES_DA_DEMO.map((p) => p.cidade)));
+const CIDADES_DO_MUNDO_BASE = Array.from(new Set(PROVEDORES_DA_DEMO.map((p) => `${p.cidade} - PR`)));
 
-const STATUS_DE_EQUIPAMENTO_RETIDO = ["retido", "retirada_pendente", "nao_localizado", "em_cobranca", "not_returned"] as const;
+/**
+ * Status de ONU retida SEM recuperação, no vocabulário atual
+ * (`EQUIPMENT_STATUSES`, equipment-recovery-rules.ts). Até a Leva 2 a lista
+ * incluía `retido`, `em_cobranca` e `not_returned`, legados de importação
+ * antiga que o produto não grava mais.
+ */
+const STATUS_DE_EQUIPAMENTO_RETIDO = ["retirada_pendente", "nao_localizado"] as const;
 const STATUS_DE_EQUIPAMENTO_COMODATO = "em_comodato";
 const MARCAS_DE_EQUIPAMENTO = ["Fiberhome", "Huawei", "ZTE", "Nokia", "TP-Link", "Intelbras"] as const;
 const MODELO_POR_MARCA: Record<(typeof MARCAS_DE_EQUIPAMENTO)[number], string> = {
@@ -263,13 +326,78 @@ const DIA_MS = 86_400_000;
 const HORA_MS = 3_600_000;
 
 /**
- * O cliente do caso "baixado" do kanban (`casosDoKanban`). A fatura de saída
- * dele nasce vencida como a de qualquer ex-cliente em posição ímpar, mas a
- * dívida NÃO vai para o cliente: baixar é exatamente o admin tirar a dívida
- * da cobrança, e um card "baixado" apontando para alguém que ainda deve seria
- * a régua reabrindo o caso na primeira passada.
+ * O cliente do caso "baixado" do kanban (`casosDoKanban`). Saiu devendo como
+ * qualquer ex-cliente em posição ímpar, mas a dívida NÃO vai para o cliente:
+ * baixar é exatamente o admin tirar a dívida da cobrança, e um card "baixado"
+ * apontando para alguém que ainda deve seria a régua reabrindo o caso na
+ * primeira passada. A fatura de saída dele nasce `baixada_no_erp` (Leva 2 —
+ * ver `linhaDaFaturaDeSaida`).
  */
 const CURSOR_DO_CASO_BAIXADO = INADIMPLENTES_POR_SANDBOX + 1;
+
+/**
+ * O cliente do caso "pago" do kanban: o segundo em dia exclusivo (o primeiro,
+ * cursor 375, é o chip "limpo" de `cpfsDeExemplo`). Leva 2: o caso morava num
+ * inadimplente com a fatura ainda vencida — o cliente sumia da lista da
+ * carteira, o cabeçalho (1.349) brigava com o KPI (1.350) e o detalhe do caso
+ * mostrava dívida num card pago. Ver `linhaDaFaturaDoCasoPago`.
+ */
+const CURSOR_DO_CASO_PAGO = INADIMPLENTES_POR_SANDBOX + CANCELADOS_POR_SANDBOX + 1;
+/** Quantos dias a fatura do caso "pago" ficou vencida até ser paga hoje. */
+const DIAS_DE_ATRASO_DO_CASO_PAGO = 12;
+
+/**
+ * O inadimplente que mora no mesmo imóvel do cliente do chip "devendo na rede"
+ * (o primeiro compartilhado, cursor 1.350: `cpfsDeExemplo` pega o cliente em
+ * dia com o primeiro CPF de `CPFS_COMPARTILHADOS`). Sem ele o cruzamento de endereço da consulta
+ * (`getCustomersByAddressForAlert`) nunca acendia na demonstração. Muda o
+ * imóvel do INADIMPLENTE, nunca o do chip: o CPF compartilhado é a mesma pessoa
+ * na rede, e o endereço dela precisa bater nos dois provedores.
+ */
+const CURSOR_DO_VIZINHO_DO_DEVENDO_NA_REDE = 30;
+
+/**
+ * As etapas em que a política da demonstração nomeia o administrador como
+ * responsável — a negociação e a pré-negativação, onde a decisão é de gente; as
+ * outras ficam com "qualquer operador". Só o responsável: a janela de cada etapa
+ * é a do catálogo, e é por ela que os cards semeados já estão onde a régua os
+ * deixaria.
+ */
+const ETAPAS_DO_ADMINISTRADOR_DA_DEMO = ["negociacao_recuperacao", "pre_negativacao"] as const;
+
+/**
+ * A política de acordo padrão com a origem da cobrança `manual` nas duas
+ * carteiras (Leva 2). `nao_definida` só autoriza o valor integral à vista
+ * (`chat-autonomia-negociacao.service.ts`) e contradizia os cards negociando e
+ * com acordo que a própria semeadura mostra. `manual` é origem disponível
+ * (`ORIGEM_INDISPONIVEL`, shared/cobranca/acordo.ts, só recusa `erp`).
+ */
+function acordoDaDemo(): AcordoDaPolitica {
+  return {
+    ativo: { ...ACORDO_PADRAO.ativo, origemDaCobranca: "manual" },
+    ex_cliente: { ...ACORDO_PADRAO.ex_cliente, origemDaCobranca: "manual" },
+  };
+}
+
+/**
+ * A política da demonstração em duas formas: a `gravada` (o que vai para
+ * `cobranca_politica`; as outras colunas ficam no default do schema) e a `lida`,
+ * que é o que a régua e a trilha dos casos enxergam dessa linha — a mesma
+ * validação de `politicaDoProvedor`, com os padrões no lugar das colunas não
+ * gravadas. A trilha (`trilhaDosCasos`) e o negativado precisam da LIDA: uma
+ * política montada à parte poderia divergir da que a régua lê amanhã.
+ */
+function politicaDaDemo(adminId: number) {
+  const gravada = {
+    economia: ECONOMIA_DA_DEMO,
+    etapas: ETAPAS_DO_ADMINISTRADOR_DA_DEMO.map((id) => ({ id, responsavelUserId: adminId })),
+    acordo: acordoDaDemo(),
+    pausada: false,
+  };
+  const lida = validarPolitica({ ...POLITICA_PADRAO, ...gravada });
+  if (!lida.ok) throw new Error(`politicaDaDemo: a politica da demonstracao nao passa na validacao do produto — ${lida.erros.join("; ")}`);
+  return { gravada, lida: lida.politica };
+}
 
 /**
  * Custos de um ISP regional de fibra, por cliente (OPEX por mês) — números
@@ -299,11 +427,14 @@ const ECONOMIA_DA_DEMO: EconomiaDaPolitica = {
 
 /**
  * As 13 recuperações de equipamento, por POSIÇÃO dentro dos cancelados com
- * ONU retida (0..29). Os abertos ficam todos na coorte de 30 dias
+ * ONU retida (0..29). Os abertos ficam na coorte de 30 dias
  * (`RECENCIA_CANCELAMENTO_DIAS[pos % 6] === 30`), com o prazo regulatório de
  * 60 dias ainda correndo — é o único jeito de o sinal de bureau do caso em
- * notificação formal passar em `validarSinalBureau`. Concluídos saíram há 60
- * dias; baixados e expirados, há 90 (prazo vencido há 30).
+ * notificação formal passar em `validarSinalBureau` —, exceto 0 e 12, com o
+ * prazo quase no fim (`DIAS_DESDE_O_CORTE_NO_FIM_DO_PRAZO`). Concluídos saíram
+ * há 60 dias (dois deles recolhidos neste mês,
+ * `RECUPERACOES_CONCLUIDAS_NO_ULTIMO_MES`); baixados e expirados, há 90 (prazo
+ * vencido há 30).
  */
 const RECUPERACAO_POR_POSICAO: ReadonlyMap<number, RecoveryCaseStatus> = new Map<number, RecoveryCaseStatus>([
   [0, "pre_recuperacao"],
@@ -320,6 +451,72 @@ const RECUPERACAO_POR_POSICAO: ReadonlyMap<number, RecoveryCaseStatus> = new Map
   [14, "prazo_expirado"],
   [20, "prazo_expirado"],
 ]);
+
+/**
+ * Duas das quatro concluídas foram recolhidas NESTE mês, por posição — o KPI
+ * "recuperados 30 d" da tela de Recuperação nascia zerado (as quatro fechavam
+ * cinco dias depois do corte, há 55 dias). Mesmo corte de 60 dias; a retirada é
+ * que veio depois, ainda dentro do prazo.
+ */
+const RECUPERACOES_CONCLUIDAS_NO_ULTIMO_MES: ReadonlySet<number> = new Set([7, 13]);
+const DIAS_DO_CORTE_A_RETIRADA = 5;
+const DIAS_DO_CORTE_A_RETIRADA_NO_ULTIMO_MES = 40;
+
+/**
+ * Os devedores que PAGARAM nos últimos 30 dias (Leva 2, fase B): três ativos e
+ * três ex-clientes, por cursor, com a idade do contato que antecedeu o
+ * pagamento. Sem eles o "Recuperado 30 d" da carteira e o da esteira
+ * (`recuperacaoAposContato`) nasciam sem base. Quem decide o mecanismo (baixa no
+ * ERP ou quitação conferida) e a data do pagamento é `faturasHistoricasDoSandbox`.
+ *
+ * Nenhum tem conversa, recuperação de equipamento nem o imóvel do chip
+ * "devendo na rede": quem pagou teve o caso fechado, e uma conversa ativa num
+ * caso fechado seria a demonstração se contradizendo. Alerta, só o de antes do
+ * pagamento: os ativos são pessoas da rede (`inadimplenteComCpfDaRede`), e uma
+ * consulta de provedor da rede entre o vencimento e o pagamento vira o aviso
+ * "pagou depois" — a foto com a dívida, a situação de hoje em dia. O contato é por telefone,
+ * registrado pelo administrador. Ativos com 120, 60 e 150 dias de atraso; ex-clientes
+ * nas posições ímpares acima de 30 (saída devida sem ONU) de 60, 150 e 240 dias —
+ * sempre mais velhos que o contato, que só cobra dívida já vencida.
+ */
+const RECUPERACOES_DOS_ULTIMOS_30_DIAS: ReadonlyArray<{ cursor: number; diasDesdeOContato: number }> = [
+  { cursor: 11, diasDesdeOContato: 4 },
+  { cursor: 14, diasDesdeOContato: 11 },
+  { cursor: 16, diasDesdeOContato: 19 },
+  { cursor: INADIMPLENTES_POR_SANDBOX + 33, diasDesdeOContato: 6 },
+  { cursor: INADIMPLENTES_POR_SANDBOX + 35, diasDesdeOContato: 13 },
+  { cursor: INADIMPLENTES_POR_SANDBOX + 37, diasDesdeOContato: 22 },
+];
+
+/**
+ * A partir desta posição o inadimplente é uma PESSOA DA REDE — a identidade de
+ * um CPF compartilhado, como os 150 em dia (`personaIndexOverride`).
+ *
+ * Revisão da fase B (13/09/2026): o alerta de fuga só existe porque um
+ * provedor da rede consultou o CPF, e o mundo base só consulta CPF
+ * compartilhado (uma consulta de provedor base sobre CPF exclusivo sobreviveria
+ * ao sandbox). Com todos os devedores exclusivos, o Anti-Fraude fingia a
+ * consulta — "consultado por 3 provedores" com o 360 contando zero. As
+ * primeiras posições continuam exclusivas: o kanban e as conversas (0 a 10) e
+ * o vizinho do chip (`CURSOR_DO_VIZINHO_DO_DEVENDO_NA_REDE`), e é deles que a
+ * Consulta ISP semeada tira o devedor que só este provedor conhece. Os ativos
+ * da recuperação dos últimos 30 dias também são da rede: é o aviso de antes do
+ * pagamento.
+ */
+const PRIMEIRO_INADIMPLENTE_COM_CPF_DA_REDE = 105;
+
+function inadimplenteComCpfDaRede(cursor: number): boolean {
+  return cursor >= PRIMEIRO_INADIMPLENTE_COM_CPF_DA_REDE || RECUPERACOES_DOS_ULTIMOS_30_DIAS.some((r) => r.cursor === cursor);
+}
+
+/**
+ * O caso negativado abriu este tanto de dias antes da conversa: cabem o
+ * pré-aviso (na abertura, que já passou de D+90) e os 10 dias úteis até a
+ * inscrição (`primeiraNegativacaoPermitida`), com folga para feriado emendado.
+ */
+const DIAS_DA_ABERTURA_DO_NEGATIVADO_ATE_A_CONVERSA = 30;
+/** A inscrição sai às 10h do primeiro dia permitido, não à meia-noite que a função devolve. */
+const HORAS_DO_DIA_PERMITIDO_ATE_A_NEGATIVACAO = 10;
 
 function recuperacaoDaEntrada(entrada: EntradaSandbox): RecoveryCaseStatus | null {
   if (entrada.categoria !== "cancelado" || entrada.posicaoNaCategoria >= CANCELADOS_COM_EQUIPAMENTO_RETIDO) return null;
@@ -440,8 +637,17 @@ interface EntradaSandbox {
 function planoDeIndicesDoSandbox(): EntradaSandbox[] {
   const entradas: EntradaSandbox[] = [];
 
+  // Os inadimplentes com a identidade de uma pessoa da rede (ver
+  // `inadimplenteComCpfDaRede`) usam a aresta seguinte à dos 150 em dia: CPFs
+  // que nenhum outro cliente do sandbox tem.
+  let proximoDaRede = CLIENTES_COMPARTILHADOS_POR_SANDBOX;
   for (let k = 0; k < INADIMPLENTES_POR_SANDBOX; k++) {
-    entradas.push({ cursor: k, categoria: "inadimplente", posicaoNaCategoria: k });
+    entradas.push({
+      cursor: k,
+      categoria: "inadimplente",
+      posicaoNaCategoria: k,
+      ...(inadimplenteComCpfDaRede(k) ? { personaIndexOverride: INDICES_COMPARTILHADOS[proximoDaRede++] } : {}),
+    });
   }
 
   for (let k = 0; k < CANCELADOS_POR_SANDBOX; k++) {
@@ -494,10 +700,43 @@ function tenureMeses(indice: number): number {
   return TENURE_MESES_REPRESENTATIVOS[Math.abs(indice) % TENURE_MESES_REPRESENTATIVOS.length];
 }
 
-/** Quando este cliente saiu — só para "cancelado". Função pura: mesma entrada, mesma data sempre. */
+/** Quando este cliente saiu — só para "cancelado". Função pura: mesma entrada e mesmo `agora`, mesma data sempre. */
 function cortadoEmDaEntrada(entrada: EntradaSandbox, agora: Date): Date | null {
   if (entrada.categoria !== "cancelado") return null;
-  return subtrairDias(agora, RECENCIA_CANCELAMENTO_DIAS[entrada.posicaoNaCategoria % RECENCIA_CANCELAMENTO_DIAS.length]);
+  return subtrairDias(agora, diasDesdeOCorte(entrada, agora));
+}
+
+/** A idade da saída por posição — ver `RECENCIA_DA_SAIDA_DEVIDA_SEM_EQUIPAMENTO_DIAS` e `DIAS_DESDE_O_CORTE_NO_FIM_DO_PRAZO`. */
+function diasDesdeOCorte(entrada: EntradaSandbox, agora: Date): number {
+  const posicao = entrada.posicaoNaCategoria;
+  const noFimDoPrazo = DIAS_DESDE_O_CORTE_NO_FIM_DO_PRAZO.get(posicao);
+  if (noFimDoPrazo !== undefined) return noFimDoPrazo;
+  if (posicao >= CANCELADOS_COM_EQUIPAMENTO_RETIDO && !saidaPaga(entrada)) {
+    const ciclo = RECENCIA_DA_SAIDA_DEVIDA_SEM_EQUIPAMENTO_DIAS;
+    return ciclo[Math.floor((posicao - CANCELADOS_COM_EQUIPAMENTO_RETIDO) / 2) % ciclo.length] ?? diasDaSaidaNoMesCorrente(agora);
+  }
+  return RECENCIA_CANCELAMENTO_DIAS[posicao % RECENCIA_CANCELAMENTO_DIAS.length];
+}
+
+/**
+ * Dias de atraso de uma saída que venceu NO MÊS de `agora` — o período padrão do
+ * card de prejuízo. O menor dos dois dias do mês (local e UTC) porque a fatura é
+ * lida pelo dia em UTC (`to_char(due_date)`, faturas.storage.ts) e o período
+ * pelo relógio local (`periodoDaData`); até 10 dias, dentro do lembrete. No dia 1
+ * não há como: vencer hoje ainda não é atraso, e a coorte cai no mês anterior.
+ */
+function diasDaSaidaNoMesCorrente(agora: Date): number {
+  return Math.max(1, Math.min(10, Math.min(agora.getDate(), agora.getUTCDate()) - 1));
+}
+
+/**
+ * O `motivo_status` cru que o ERP grava no contrato (shared/motivo-corte.ts,
+ * medido no SGP): quem saiu devendo a saída foi cortado pelo financeiro; quem a
+ * pagou pediu para sair. O cliente do caso "baixado" também saiu devendo — a
+ * baixa veio depois.
+ */
+function motivoDoCorte(entrada: EntradaSandbox): string {
+  return saidaPaga(entrada) ? "Administrativo" : "Financeiro";
 }
 
 interface DescritorDeEquipamento {
@@ -530,6 +769,11 @@ function equipamentoDaEntrada(entrada: EntradaSandbox): DescritorDeEquipamento |
       : { status: STATUS_DE_EQUIPAMENTO_RETIDO[entrada.posicaoNaCategoria % STATUS_DE_EQUIPAMENTO_RETIDO.length], emRecuperacao: false };
     return { status, value: VALOR_DO_EQUIPAMENTO, retido: equipamentoTemRetiradaPendente(status), emRecuperacao };
   }
+  // Leva 2: o inadimplente ativo também tem a ONU instalada — o 360 dele dizia
+  // "nenhum equipamento registrado". Comodato normal: fora do agregado.
+  if (entrada.categoria === "inadimplente" && entrada.posicaoNaCategoria % INADIMPLENTE_COM_COMODATO_A_CADA === 1) {
+    return { status: STATUS_DE_EQUIPAMENTO_COMODATO, value: VALOR_DO_EQUIPAMENTO, retido: false, emRecuperacao: false };
+  }
   if (entrada.categoria === "em_dia" && entrada.posicaoNaCategoria >= EM_DIA_TOTAL_POR_SANDBOX - EM_DIA_COM_EQUIPAMENTO_COMODATO) {
     return { status: STATUS_DE_EQUIPAMENTO_COMODATO, value: VALOR_DO_EQUIPAMENTO, retido: false, emRecuperacao: false };
   }
@@ -541,10 +785,25 @@ function saidaPaga(entrada: EntradaSandbox): boolean {
   return entrada.posicaoNaCategoria % 2 === 0;
 }
 
-/** Proporcional + multa + equipamento — o valor exato da fatura de saída, um lugar só para fatura e dívida do cliente. */
-function valorDaFaturaDeSaida(indice: number): number {
-  const proporcional = Number((valorMensalidade(indice) * DIAS_PROPORCIONAL_DE_SAIDA / 30).toFixed(2));
-  return Number((MULTA_DE_SAIDA_PADRAO + VALOR_DO_EQUIPAMENTO + proporcional).toFixed(2));
+/**
+ * A saída cobra o aparelho só quando ele não voltou nem vai voltar: ONU retida
+ * sem recuperação, ou recuperação que terminou sem o aparelho (baixa econômica,
+ * prazo expirado). Leva 2: até aqui TODA saída cobrava "equipamento 290,00" —
+ * de quem nunca teve ONU, de quem a devolveu (recuperação concluída) e de quem
+ * tem a retirada aberta, que a Recuperação mostrava como aparelho a buscar
+ * depois de pago.
+ */
+function saidaCobraEquipamento(entrada: EntradaSandbox): boolean {
+  if (entrada.categoria !== "cancelado" || entrada.posicaoNaCategoria >= CANCELADOS_COM_EQUIPAMENTO_RETIDO) return false;
+  const recuperacao = recuperacaoDaEntrada(entrada);
+  return recuperacao === null || (casoEstaEncerrado(recuperacao) && recuperacao !== "concluido");
+}
+
+/** Proporcional + multa (+ equipamento, quando cobra) — o valor exato da fatura de saída, um lugar só para fatura e dívida do cliente. */
+function valorDaFaturaDeSaida(providerId: number, entrada: EntradaSandbox): number {
+  const proporcional = Number((valorMensalidade(indiceDaEntrada(providerId, entrada)) * DIAS_PROPORCIONAL_DE_SAIDA / 30).toFixed(2));
+  const equipamento = saidaCobraEquipamento(entrada) ? VALOR_DO_EQUIPAMENTO : 0;
+  return Number((MULTA_DE_SAIDA_PADRAO + equipamento + proporcional).toFixed(2));
 }
 
 /**
@@ -557,7 +816,7 @@ function dividaDeSaidaDaEntrada(providerId: number, entrada: EntradaSandbox, ago
   if (entrada.categoria !== "cancelado" || saidaPaga(entrada) || entrada.cursor === CURSOR_DO_CASO_BAIXADO) return null;
   const cortadoEm = cortadoEmDaEntrada(entrada, agora)!;
   return {
-    valor: valorDaFaturaDeSaida(indiceDaEntrada(providerId, entrada)),
+    valor: valorDaFaturaDeSaida(providerId, entrada),
     dias: Math.round((agora.getTime() - cortadoEm.getTime()) / DIA_MS),
   };
 }
@@ -608,9 +867,18 @@ function linhaDoCliente(providerId: number, entrada: EntradaSandbox, agora: Date
   const indicePessoa = entrada.personaIndexOverride ?? indice;
   const pessoa = pessoaFicticia(indicePessoa);
   const cpf = pessoa.cpf;
+  // O imóvel é o da própria pessoa, exceto o do vizinho do chip "devendo na rede"
+  // (`CURSOR_DO_VIZINHO_DO_DEVENDO_NA_REDE`), que mora onde mora o chip.
+  const moradia = entrada.cursor === CURSOR_DO_VIZINHO_DO_DEVENDO_NA_REDE ? pessoaFicticia(INDICES_COMPARTILHADOS[0]) : pessoa;
   const equip = equipamentoDaEntrada(entrada);
   const cortadoEm = cortadoEmDaEntrada(entrada, agora);
-  const contractStartDate = paraDataSemHora(subtrairMeses(cortadoEm ?? agora, tenureMeses(indice)));
+  // O contrato nunca começa depois da fatura que o inadimplente deixou de pagar:
+  // no mínimo um mês antes dela. Revisão da fase B (13/09/2026): o tempo de casa
+  // contado de hoje deixava 20 ativos com dívida mais velha que o contrato, e o
+  // Anti-Fraude dizia "57 dias de contrato" e "145 dias vencidos" no mesmo card.
+  const peloTempoDeCasa = subtrairMeses(cortadoEm ?? agora, tenureMeses(indice));
+  const umMesAntesDaDivida = entrada.categoria === "inadimplente" ? subtrairMeses(subtrairDias(agora, idadeRepresentativa(entrada.posicaoNaCategoria)), 1) : null;
+  const contractStartDate = paraDataSemHora(umMesAntesDaDivida && umMesAntesDaDivida < peloTempoDeCasa ? umMesAntesDaDivida : peloTempoDeCasa);
 
   const base: InsertCustomer = {
     providerId,
@@ -618,14 +886,18 @@ function linhaDoCliente(providerId: number, entrada: EntradaSandbox, agora: Date
     cpfCnpj: cpf,
     email: pessoa.email,
     phone: pessoa.telefone,
-    address: pessoa.logradouro,
-    addressNumber: pessoa.numero,
-    neighborhood: pessoa.bairro,
-    city: pessoa.cidade,
-    state: pessoa.uf,
-    cep: pessoa.cep,
-    latitude: pessoa.latitude,
-    longitude: pessoa.longitude,
+    address: moradia.logradouro,
+    addressNumber: moradia.numero,
+    neighborhood: moradia.bairro,
+    city: moradia.cidade,
+    state: moradia.uf,
+    cep: moradia.cep,
+    latitude: moradia.latitude,
+    longitude: moradia.longitude,
+    // A coordenada é a do cadastro do ERP da demo — a procedência que o sync grava
+    // (erp-sync.service.ts). Nula, o modo Rede do mapa não plotava ninguém
+    // (`PRECISAO_CONFIAVEL`, rede-regional.service.ts).
+    geoPrecisao: "erp",
     contractStartDate,
     contractPlan: planoDoContrato(indice),
     // Default de schema e "manual" — mesma razao de `mundo-base.ts`: sem
@@ -638,7 +910,7 @@ function linhaDoCliente(providerId: number, entrada: EntradaSandbox, agora: Date
     // sincronizado" para um cliente que veio do conector da demo.
     lastSyncAt: agora,
     ispScore: scoreDaEntrada(providerId, entrada, agora),
-    ...(cortadoEm ? { cortadoEm } : {}),
+    ...(cortadoEm ? { cortadoEm, motivoCorte: motivoDoCorte(entrada) } : {}),
   };
 
   if (entrada.categoria === "inadimplente") {
@@ -704,25 +976,53 @@ function linhaDaFatura(providerId: number, customerId: number, entrada: EntradaS
 }
 
 /**
+ * A fatura que o cliente do caso "pago" quitou (`CURSOR_DO_CASO_PAGO`): um
+ * cliente em dia que atrasou `DIAS_DE_ATRASO_DO_CASO_PAGO` dias e pagou HOJE, o
+ * valor inteiro — o instante do pagamento é o do encerramento do caso.
+ */
+function linhaDaFaturaDoCasoPago(providerId: number, customerId: number, entrada: EntradaSandbox, agora: Date): InsertInvoice {
+  const valor = valorMensalidade(indiceDaEntrada(providerId, entrada)).toFixed(2);
+  return {
+    customerId,
+    providerId,
+    value: valor,
+    dueDate: subtrairDias(agora, DIAS_DE_ATRASO_DO_CASO_PAGO),
+    status: "paid",
+    paidDate: agora,
+    paidValue: valor,
+    erpSource: FONTE_ERP_DEMO,
+    erpRef: `demo-fatura-${customerId}`,
+  };
+}
+
+/**
  * A fatura de SAÍDA do ex-cliente — mesmo formato que `shared/cobranca/multa.ts`
  * (`parcelasDaDescricao`) lê, no molde de `mundo-base.ts`: sem ela a carteira
- * de ex-clientes do sandbox abriria vazia (Economia, multa, prejuízo).
+ * de ex-clientes do sandbox abriria vazia (Economia, multa, prejuízo). A parcela
+ * do equipamento só entra quando a saída o cobra (`saidaCobraEquipamento`).
  */
-function linhaDaFaturaDeSaida(providerId: number, customerId: number, entrada: EntradaSandbox, cortadoEm: Date): InsertInvoice {
-  const valor = valorDaFaturaDeSaida(indiceDaEntrada(providerId, entrada));
-  const descricao = `Proporcional ${DIAS_PROPORCIONAL_DE_SAIDA} dias + multa ${formatarReal(MULTA_DE_SAIDA_PADRAO)} + equipamento ${formatarReal(VALOR_DO_EQUIPAMENTO)}`;
+function linhaDaFaturaDeSaida(providerId: number, customerId: number, entrada: EntradaSandbox, cortadoEm: Date, agora: Date): InsertInvoice {
+  const valor = valorDaFaturaDeSaida(providerId, entrada);
+  const equipamento = saidaCobraEquipamento(entrada) ? ` + equipamento ${formatarReal(VALOR_DO_EQUIPAMENTO)}` : "";
+  const descricao = `Proporcional ${DIAS_PROPORCIONAL_DE_SAIDA} dias + multa ${formatarReal(MULTA_DE_SAIDA_PADRAO)}${equipamento}`;
   const paga = saidaPaga(entrada);
+  // O caso "baixado": o admin tirou a dívida da cobrança e a varredura seguinte
+  // viu a fatura sumir dos pendentes do ERP — `baixada_no_erp` com `baixadaEm`,
+  // como `baixarFaturasSumidas` (faturas.storage.ts) grava. Vencida, ela brigava
+  // com o agregado zerado do cliente ("o saldo agregado difere das faturas vencidas").
+  const baixada = entrada.cursor === CURSOR_DO_CASO_BAIXADO;
 
   return {
     customerId,
     providerId,
     value: valor.toFixed(2),
     dueDate: cortadoEm,
-    status: paga ? "paid" : "overdue",
+    status: paga ? "paid" : baixada ? "baixada_no_erp" : "overdue",
     descricao,
     erpSource: FONTE_ERP_DEMO,
     erpRef: `demo-saida-${customerId}`,
     ...(paga ? { paidDate: cortadoEm, paidValue: valor.toFixed(2) } : {}),
+    ...(baixada ? { baixadaEm: agora } : {}),
   };
 }
 
@@ -743,20 +1043,41 @@ function linhaDoEquipamento(providerId: number, customerId: number, entrada: Ent
   };
 }
 
-async function inserirClientesEmBlocos(tx: Executor, linhas: InsertCustomer[]): Promise<number[]> {
-  const ids: number[] = [];
-  for (let i = 0; i < linhas.length; i += TAMANHO_DO_BLOCO) {
-    const bloco = linhas.slice(i, i + TAMANHO_DO_BLOCO);
-    const inseridos = await tx.insert(customers).values(bloco).returning({ id: customers.id });
-    ids.push(...inseridos.map((r) => r.id));
-  }
-  return ids;
-}
-
-async function inserirFaturasEmBlocos(tx: Executor, linhas: InsertInvoice[]): Promise<void> {
-  for (let i = 0; i < linhas.length; i += TAMANHO_DO_BLOCO) {
-    await tx.insert(invoices).values(linhas.slice(i, i + TAMANHO_DO_BLOCO));
-  }
+/**
+ * INSERT em massa com UM parâmetro por coluna — `insert into t (...) select *
+ * from unnest($1::tipo[], ...)` — em vez de um por célula. Medido no banco local
+ * (13/09/2026): montar o `INSERT ... VALUES` de 9,6 mil faturas no Drizzle
+ * custava ~750 ms só de JavaScript, antes de o banco receber qualquer coisa, e o
+ * dos 1.500 clientes ~330 dos ~480 ms do insert.
+ *
+ * Grava o mesmo que o `values()` do Drizzle: cada célula passa pelo
+ * `mapToDriverValue` da coluna; a célula que falta numa linha leva o default
+ * literal da coluna (o que o `default` do VALUES aplicaria); a coluna que
+ * nenhuma linha traz fica fora da lista e o banco aplica o default dela. Coluna
+ * de array e default SQL faltando só em parte das linhas não cabem nessa forma, e
+ * falham alto.
+ *
+ * Sem `returning`: a ordem das linhas devolvidas por um INSERT ... SELECT não é
+ * garantida. Quem precisa do id relê pela chave natural (CPF, `erp_ref`).
+ */
+async function inserirPorColunas(tx: Executor, tabela: PgTable, linhas: ReadonlyArray<Record<string, unknown>>): Promise<void> {
+  if (linhas.length === 0) return;
+  const colunas = Object.entries(getTableColumns(tabela) as Record<string, PgColumn>).filter(([chave]) => linhas.some((l) => l[chave] !== undefined));
+  const listas = colunas.map(([chave, coluna]) => {
+    const tipo = coluna.getSQLType();
+    if (tipo.endsWith("]")) throw new Error(`inserirPorColunas: a coluna ${chave} e um array, e unnest a achataria`);
+    const valores = linhas.map((linha) => {
+      let valor = linha[chave];
+      if (valor === undefined && coluna.hasDefault) {
+        if (is(coluna.default, SQL)) throw new Error(`inserirPorColunas: ${chave} falta em parte das linhas e o default e SQL`);
+        valor = coluna.default;
+      }
+      return valor === undefined || valor === null ? null : coluna.mapToDriverValue(valor);
+    });
+    return sql`${sql.param(valores)}::${sql.raw(tipo)}[]`;
+  });
+  const nomes = sql.join(colunas.map(([, coluna]) => sql.identifier(coluna.name)), sql`, `);
+  await tx.execute(sql`insert into ${tabela} (${nomes}) select * from unnest(${sql.join(listas, sql`, `)})`);
 }
 
 /** Devolve os ids na ordem das linhas — as recuperações de equipamento precisam do `equipment.id` de cada ONU. */
@@ -776,13 +1097,14 @@ async function inserirEquipamentosEmBlocos(tx: Executor, linhas: InsertEquipment
  * quadro vazio — a régua diária que POPULARIA `cobranca_casos` só roda no
  * worker (boot + 05:00), que este processo HTTP nunca executa.
  *
- * Os 6 status não-terminais — e os 5 casos das conversas de cobrança de
- * ativos, cursores 6..10 — usam clientes que já nasceram inadimplentes
- * (`paymentStatus: "overdue"`); os 3 terminais que fecham o contrato
+ * Os 5 status vivos — e os 5 casos das conversas de cobrança de ativos,
+ * cursores 6..10 — usam clientes que já nasceram inadimplentes
+ * (`paymentStatus: "overdue"`); o "pago" usa um cliente em dia que pagou hoje
+ * (`CURSOR_DO_CASO_PAGO`, Leva 2); os 3 terminais que fecham o contrato
  * (`cancelamento`, `baixado`, `encerrado`) usam clientes que já nasceram
  * cancelados — nenhum dos 9 toca os clientes de exemplo ("limpo",
- * "devendo_na_rede"), que vivem fora da faixa exclusiva de cursores usada
- * aqui (0..10 e 225..227).
+ * "devendo_na_rede"), que vivem fora dos cursores usados aqui (0..10,
+ * 225..227 e 376).
  *
  * Rodada de correção (Tarefa 3, 11/09/2026): `montarColuna`
  * (`server/routes/cobranca.routes.ts`) só mostra uma coluna FECHADA
@@ -826,7 +1148,6 @@ function casosDoKanban(
     { status: "negociando", cursor: 2 },
     { status: "negativado", cursor: 3 },
     { status: "acordo_ativo", cursor: 4 },
-    { status: "pago", cursor: 5 },
     // Os inadimplentes das 5 conversas de cobrança de ativos (`conversasPlanejadas`).
     // Até 12/09/2026 eles tinham conversa e nenhum caso: devendo e sem caso vivo,
     // eram candidatos de `clientesParaAbrirCaso`, e a primeira passada da régua
@@ -852,36 +1173,16 @@ function casosDoKanban(
   for (const item of NAO_TERMINAIS) {
     const k = indicePorCursor.get(item.cursor)!;
     const entrada = entradaDoCursor(item.cursor);
-    const indice = indiceDaEntrada(providerId, entrada);
-    const mensalidade = valorMensalidade(indice);
-    const valor = mensalidade.toFixed(2);
+    // A dívida do cliente, e não a mensalidade: a do mês que já venceu soma nela
+    // (`dividasDoMes`, semeadura-faturas.ts).
+    const divida = Number(linhasClientes[k].totalOverdueAmount ?? 0);
+    const valor = divida.toFixed(2);
     const dias = idadeRepresentativa(entrada.posicaoNaCategoria);
-    // "pago" é o único status FECHADO dentro de NAO_TERMINAIS (ver
-    // STATUS_FECHADOS_DE_CASO em shared/cobranca/estados.ts) — os outros
-    // cinco são vivos e não levam encerradoEm. Caso fechado a régua não
-    // revisa: fica sem etapa, como o encerramento real deixa.
-    if (item.status === "pago") {
-      casos.push({
-        providerId,
-        customerId: idDoCursor(item.cursor),
-        status: item.status,
-        carteira: "ativo",
-        etapaAtual: null,
-        diasAtrasoAbertura: dias,
-        valorAbertura: valor,
-        valorAtual: valor,
-        prioridade: "normal",
-        proximoContatoEm: null,
-        encerradoEm: agora,
-        motivoEncerramento: null,
-      });
-      continue;
-    }
     // A mesma entrada que `revisarCaso` usaria: `diasAtraso` = `maxDaysOverdue`
-    // do cliente, uma fatura aberta, a data do contrato. `diasAtrasoAbertura`
+    // do cliente, as faturas abertas, a data do contrato. `diasAtrasoAbertura`
     // sai com o atraso de HOJE e `aplicarLinhaDoTempo` o recua até a abertura.
     const etapa = etapaParaAtraso(dias, "ativo").etapa?.id ?? null;
-    const dna = dnaDoCaso({ contractStartDate: linhasClientes[k].contractStartDate ?? null, diasAtraso: dias, faturasAbertas: 1 }, agora);
+    const dna = dnaDoCaso({ contractStartDate: linhasClientes[k].contractStartDate ?? null, diasAtraso: dias, faturasAbertas: linhasClientes[k].overdueInvoicesCount ?? 1 }, agora);
     casos.push({
       providerId,
       customerId: idDoCursor(item.cursor),
@@ -891,12 +1192,34 @@ function casosDoKanban(
       diasAtrasoAbertura: dias,
       valorAbertura: valor,
       valorAtual: valor,
-      prioridade: prioridadeSugerida(mensalidade, etapa),
+      prioridade: prioridadeSugerida(divida, etapa),
       proximoContatoEm: new Date(agora.getTime() + DIA_MS),
       quadranteDna: dna.quadranteDna,
       tom: dna.tom,
     });
   }
+
+  // O "pago": a régua abriu o caso no dia seguinte ao vencimento (`abrirCaso`,
+  // D+1) e o pagamento o fechou agora — `statusDesde` e `encerradoEm` no mesmo
+  // instante, como `encerrarCaso` grava. Caso fechado a régua não revisa: fica
+  // sem etapa, como os outros fechados deste semeador.
+  const mensalidadeDoPago = valorMensalidade(indiceDaEntrada(providerId, entradaDoCursor(CURSOR_DO_CASO_PAGO))).toFixed(2);
+  casos.push({
+    providerId,
+    customerId: idDoCursor(CURSOR_DO_CASO_PAGO),
+    status: "pago",
+    carteira: "ativo",
+    etapaAtual: null,
+    abertoEm: subtrairDias(agora, DIAS_DE_ATRASO_DO_CASO_PAGO - 1),
+    statusDesde: agora,
+    diasAtrasoAbertura: 1,
+    valorAbertura: mensalidadeDoPago,
+    valorAtual: mensalidadeDoPago,
+    prioridade: "normal",
+    proximoContatoEm: null,
+    encerradoEm: agora,
+    motivoEncerramento: null,
+  });
 
   for (const item of TERMINAIS_EX_CLIENTE) {
     casos.push({
@@ -946,11 +1269,10 @@ function casosDoKanban(
  * cliente) — um card que a primeira passada do worker mudaria de etapa seria
  * a demonstração desmentindo a si mesma.
  *
- * Sem negociação semeada: `ACORDO_PADRAO` nasce com a origem da cobrança
- * `nao_definida`, e com ela a política só autoriza o valor integral à vista —
- * um parcelamento semeado seria um acordo que o próprio produto recusaria.
- * `negociando`/`acordo_ativo` sem linha de negociação é o mesmo estado dos
- * cards do kanban acima, e a régua não mexe neles (`STATUS_GOVERNADOS_PELO_ACORDO`).
+ * Sem negociação semeada aqui: a política já nasce com a origem da cobrança
+ * `manual` (`acordoDaDemo`, Leva 2), e as linhas de negociação de TODO caso
+ * `negociando`/`acordo_ativo` — deste semeador e do kanban — saem da trilha dos
+ * casos (`trilhaDosCasos`), depois do insert, em `tentarCriarSandbox`.
  */
 const CASOS_VIVOS_DE_EX_CLIENTE: ReadonlyArray<{ posicao: number; status: StatusDeCaso; proximoContato: "passado" | "hoje" | "futuro" }> = [
   { posicao: 3, status: "aberto", proximoContato: "hoje" },
@@ -999,6 +1321,53 @@ function casosVivosDeExCliente(
       tom: dna.tom,
     };
   });
+}
+
+/**
+ * A carteira completa (Leva 2): todo devedor que ainda não tem caso nasce com o
+ * caso "aberto" que a primeira passada da régua abriria — os filtros de
+ * `clientesParaAbrirCaso` (dívida acima do mínimo, atraso de ao menos um dia,
+ * sem caso) e a decisão de `abrirCaso` (prescrita não abre; etapa, prioridade e
+ * DNA pelas funções reais). Até aqui só 20 dos 299 devedores tinham caso, e o
+ * worker abria os outros 279 na frente do visitante.
+ *
+ * `abrirCaso` marca o próximo contato para o dia da abertura. Um em cada três
+ * abriu dois dias atrás e ninguém tocou — a fila de vencidos não nasce vazia —,
+ * quando o atraso de hoje comporta a abertura recuada (`aplicarLinhaDoTempo`
+ * recua `abertoEm` até o próximo contato já vencido). O resto abriu hoje.
+ */
+function casosAbertosDaCarteira(
+  providerId: number,
+  idsClientes: number[],
+  linhasClientes: InsertCustomer[],
+  jaTemCaso: ReadonlySet<number>,
+  agora: Date,
+): InsertCobrancaCaso[] {
+  const casos: InsertCobrancaCaso[] = [];
+  linhasClientes.forEach((linha, k) => {
+    const divida = Number(linha.totalOverdueAmount ?? 0);
+    const dias = linha.maxDaysOverdue ?? 0;
+    if (divida <= DIVIDA_MINIMA_PARA_CASO || dias < 1 || jaTemCaso.has(idsClientes[k]) || prescrita(dias)) return;
+    const carteira = carteiraDoStatusErp(linha.status ?? "active");
+    const etapa = etapaParaAtraso(dias, carteira).etapa?.id ?? null;
+    const dna = dnaDoCaso({ contractStartDate: linha.contractStartDate ?? null, diasAtraso: dias, faturasAbertas: linha.overdueInvoicesCount ?? 0 }, agora);
+    const abriuHaDoisDias = casos.length % 3 === 0 && dias > 2;
+    casos.push({
+      providerId,
+      customerId: idsClientes[k],
+      status: "aberto",
+      carteira,
+      etapaAtual: etapa,
+      diasAtrasoAbertura: dias,
+      valorAbertura: divida.toFixed(2),
+      valorAtual: divida.toFixed(2),
+      prioridade: prioridadeSugerida(divida, etapa),
+      proximoContatoEm: abriuHaDoisDias ? subtrairDias(agora, 2) : agora,
+      quadranteDna: dna.quadranteDna,
+      tom: dna.tom,
+    });
+  });
+  return casos;
 }
 
 // ── Chat integrado simulado (a conversa nasce no banco local, nunca no fork do Chat BullQ) ──
@@ -1138,19 +1507,47 @@ function followUpDoCaso(caso: InsertCobrancaCaso, conversa: ConversaPlanejada | 
   return { proximaAcao: ACAO_PADRAO_APOS_RESPOSTA, proximoContatoEm };
 }
 
+/** O meio da conversa: a proposta veio depois de o cliente responder e antes do último evento. */
+function meioDaConversa(conversa: ConversaPlanejada): Date {
+  return new Date((conversa.abertaEm.getTime() + conversa.ultimoEventoEm.getTime()) / 2);
+}
+
 /**
  * Desde quando o caso está no status atual, pela transição que a conversa
  * conta: em contato desde o contato que o moveu; negociando desde o meio da
- * conversa (a proposta veio depois de o cliente responder); acordo desde a
- * última fala da equipe ("Acordo registrado"); negativado ANTES da conversa —
- * a abertura dela já fala do registro nos órgãos de proteção.
+ * conversa; acordo desde a última fala da equipe ("Acordo registrado"). O
+ * negativado tem conta própria (`negativacaoDoCaso`): ele é anterior à
+ * conversa e depende do pré-aviso.
  */
-function statusDesdeComContato(status: string, abertoEm: Date, conversa: ConversaPlanejada): Date {
-  const meio = (a: Date, b: Date) => new Date((a.getTime() + b.getTime()) / 2);
+function statusDesdeComContato(status: string, conversa: ConversaPlanejada): Date {
   if (status === "em_contato") return conversa.abertaEm;
-  if (status === "negociando") return meio(conversa.abertaEm, conversa.ultimoEventoEm);
+  if (status === "negociando") return meioDaConversa(conversa);
   if (status === "acordo_ativo") return conversa.ultimoEventoEm;
-  return meio(abertoEm, conversa.abertaEm);
+  throw new Error(`statusDesdeComContato: status ${status} sem transicao contada pela conversa ${conversa.conversationId}`);
+}
+
+/**
+ * O instante da negativação, ANTES da conversa (a abertura dela já fala do
+ * registro nos órgãos de proteção) e nunca antes dos 10 dias úteis do
+ * pré-aviso — a data sai de `primeiraNegativacaoPermitida`, a mesma regra que a
+ * trilha dos casos confere; aqui ela só é chamada. Até a fase B o negativado
+ * abria um dia antes da conversa e era inscrito 12 h depois, sem espaço para o
+ * aviso que a Súmula 359 do STJ exige.
+ *
+ * `diasAtrasoAbertura` ainda é o atraso de HOJE neste ponto (ver `aplicarLinhaDoTempo`).
+ */
+function negativacaoDoCaso(caso: InsertCobrancaCaso, abertoEm: Date, conversa: ConversaPlanejada, politica: PoliticaDaTrilha, agora: Date): Date {
+  const permitida = primeiraNegativacaoPermitida(
+    // O caso ainda não foi inserido: sem id, o zero só aparece nas mensagens de erro do módulo.
+    { id: 0, carteira: caso.carteira as Carteira, abertoEm, diasAtraso: caso.diasAtrasoAbertura ?? 0 },
+    politica,
+    agora,
+  );
+  const negativadoEm = new Date(permitida.getTime() + HORAS_DO_DIA_PERMITIDO_ATE_A_NEGATIVACAO * HORA_MS);
+  if (negativadoEm.getTime() >= conversa.abertaEm.getTime()) {
+    throw new Error(`negativacaoDoCaso: a negativacao so caberia em ${negativadoEm.toISOString()}, depois da conversa ${conversa.conversationId} que ja fala dela`);
+  }
+  return negativadoEm;
 }
 
 /**
@@ -1172,8 +1569,11 @@ function statusDesdeComContato(status: string, abertoEm: Date, conversa: Convers
  *
  * Caso "aberto" com conversa é deriva do plano, e falha alto: o produto nunca
  * deixa um caso aberto com contato registrado (ver `conversasPlanejadas`).
+ *
+ * O negativado abre `DIAS_DA_ABERTURA_DO_NEGATIVADO_ATE_A_CONVERSA` antes da
+ * conversa, e não um dia: o pré-aviso e o prazo até a inscrição vêm antes dela.
  */
-function aplicarLinhaDoTempo(casos: InsertCobrancaCaso[], cursorPorCliente: Map<number, number>, conversas: ConversaPlanejada[], agora: Date): void {
+function aplicarLinhaDoTempo(casos: InsertCobrancaCaso[], cursorPorCliente: Map<number, number>, conversas: ConversaPlanejada[], politica: PoliticaDaTrilha, agora: Date): void {
   for (const caso of casos) {
     const status = caso.status ?? "aberto";
     if (casoFechado(status)) continue;
@@ -1184,9 +1584,14 @@ function aplicarLinhaDoTempo(casos: InsertCobrancaCaso[], cursorPorCliente: Map<
       if (status === "aberto") {
         throw new Error(`aplicarLinhaDoTempo: conversa ${conversa.conversationId} num caso 'aberto' — abrir a conversa move o caso para 'em_contato' no produto`);
       }
-      abertoEm = new Date(conversa.abertaEm.getTime() - DIA_MS);
       caso.ultimoContatoEm = conversa.abertaEm;
-      caso.statusDesde = statusDesdeComContato(status, abertoEm, conversa);
+      if (status === "negativado") {
+        abertoEm = new Date(conversa.abertaEm.getTime() - DIAS_DA_ABERTURA_DO_NEGATIVADO_ATE_A_CONVERSA * DIA_MS);
+        caso.statusDesde = negativacaoDoCaso(caso, abertoEm, conversa, politica, agora);
+      } else {
+        abertoEm = new Date(conversa.abertaEm.getTime() - DIA_MS);
+        caso.statusDesde = statusDesdeComContato(status, conversa);
+      }
     } else {
       abertoEm = caso.proximoContatoEm && caso.proximoContatoEm.getTime() < agora.getTime() ? caso.proximoContatoEm : agora;
       caso.statusDesde = abertoEm;
@@ -1201,6 +1606,39 @@ function aplicarLinhaDoTempo(casos: InsertCobrancaCaso[], cursorPorCliente: Map<
     }
     Object.assign(caso, followUp);
   }
+}
+
+/**
+ * Quem cuida de cada caso vivo (Leva 2): o dono da conversa humana do chat —
+ * quem abriu e responde a conversa é o administrador — e, sem ela, o responsável
+ * da etapa na política (`ETAPAS_DO_ADMINISTRADOR_DA_DEMO`); o resto fica na
+ * fila geral. Com todos nulos, "Minha fila", "Toda a equipe" e "Fila geral"
+ * mostravam o mesmo quadro. A conversa só do robô não dá dono ao caso.
+ */
+function atribuirResponsaveis(casos: InsertCobrancaCaso[], cursorPorCliente: Map<number, number>, conversas: ConversaPlanejada[], adminId: number): void {
+  const etapasDoAdmin = new Set<string>(ETAPAS_DO_ADMINISTRADOR_DA_DEMO);
+  for (const caso of casos) {
+    if (casoFechado(caso.status ?? "aberto")) continue;
+    const conversa = conversas.find((c) => c.origem === "cobranca" && c.cursor === cursorPorCliente.get(caso.customerId));
+    const conversaHumana = conversa !== undefined && conversa.status !== "BOT";
+    caso.responsavelUserId = conversaHumana || etapasDoAdmin.has(caso.etapaAtual ?? "") ? adminId : null;
+  }
+}
+
+/**
+ * O encerramento que o kanban grava ao levar o caso a "Pago" — o evento de
+ * `encerrarCaso` (cobranca.storage.ts): tipo `encerramento`, canal nulo de quem
+ * fechou pela tela, sem motivo e `metadata { status, de }`. Sem ele o caso
+ * "pago" abria a linha do tempo vazia (auditoria de telas, rodada 2).
+ */
+function eventoDoCasoPago(providerId: number, adminId: number, caso: { id: number; customerId: number; encerradoEm: Date }): InsertCobrancaEvento {
+  if (!transicaoDeCaso("aberto", "pago").ok) {
+    throw new Error(`eventoDoCasoPago: aberto -> pago no caso ${caso.id} nao e transicao da maquina de estados`);
+  }
+  return {
+    providerId, casoId: caso.id, customerId: caso.customerId, userId: adminId,
+    tipo: "encerramento", canal: null, notas: null, metadata: { status: "pago", de: "aberto" }, ocorridoEm: caso.encerradoEm,
+  };
 }
 
 type LinhaDaRecuperacao = typeof equipmentRecoveryCases.$inferInsert;
@@ -1223,6 +1661,8 @@ function recuperacaoPlanejada(
   cortadoEm: Date,
   conversa: ConversaPlanejada | undefined,
   agora: Date,
+  /** Só para "concluido": quantos dias depois do corte o aparelho foi recolhido. */
+  diasAteARetirada: number,
 ): { caso: LinhaDaRecuperacao; eventos: LinhaDoEventoDeRecuperacao[] } {
   const depoisDoCorte = (dias: number) => new Date(cortadoEm.getTime() + dias * DIA_MS);
   const deadlineAt = calcularPrazoRetirada(cortadoEm);
@@ -1252,7 +1692,8 @@ function recuperacaoPlanejada(
       Object.assign(caso, { assignedToUserId: adminId, collectionMethod: "retirada" });
       eventos.push(
         { providerId, userId: adminId, type: "status_alterado", fromStatus: "pre_recuperacao", toStatus: "agendado", occurredAt: depoisDoCorte(3) },
-        { providerId, userId: adminId, type: "tentativa", channel: "presencial", result: "ausente_horario_confirmado", occurredAt: depoisDoCorte(5) },
+        // "visita", e não "presencial": o canal que `tentativaSchema` (equipamentos.routes.ts) aceita.
+        { providerId, userId: adminId, type: "tentativa", channel: "visita", result: "ausente_horario_confirmado", occurredAt: depoisDoCorte(5) },
         { providerId, userId: adminId, type: "status_alterado", fromStatus: "agendado", toStatus: "nova_tentativa", occurredAt: depoisDoCorte(5) },
       );
       break;
@@ -1265,7 +1706,7 @@ function recuperacaoPlanejada(
         notificationProtocol: `NOT-${providerId}-${ids.customerId}`,
       });
       eventos.push(
-        { providerId, userId: adminId, type: "tentativa", channel: "presencial", result: "recusa_expressa", notes: "Titular recusou a devolução", occurredAt: depoisDoCorte(6) },
+        { providerId, userId: adminId, type: "tentativa", channel: "visita", result: "recusa_expressa", notes: "Titular recusou a devolução", occurredAt: depoisDoCorte(6) },
         { providerId, userId: adminId, type: "status_alterado", fromStatus: "pre_recuperacao", toStatus: "notificacao_formal", occurredAt: notificadoEm },
       );
       break;
@@ -1283,11 +1724,11 @@ function recuperacaoPlanejada(
       break;
     }
     case "concluido":
-      Object.assign(caso, { bureauStatus: "resolvido", closedAt: depoisDoCorte(5), scheduledAt: depoisDoCorte(5), assignedToUserId: adminId, collectionMethod: "retirada" });
+      Object.assign(caso, { bureauStatus: "resolvido", closedAt: depoisDoCorte(diasAteARetirada), scheduledAt: depoisDoCorte(diasAteARetirada), assignedToUserId: adminId, collectionMethod: "retirada" });
       eventos.push(
-        { providerId, userId: adminId, type: "status_alterado", fromStatus: "pre_recuperacao", toStatus: "agendado", occurredAt: depoisDoCorte(3) },
-        { providerId, userId: adminId, type: "tentativa", channel: "presencial", result: "contato_confirmado", occurredAt: depoisDoCorte(5) },
-        { providerId, userId: adminId, type: "status_alterado", fromStatus: "agendado", toStatus: "concluido", notes: "Equipamento recolhido para triagem", occurredAt: depoisDoCorte(5) },
+        { providerId, userId: adminId, type: "status_alterado", fromStatus: "pre_recuperacao", toStatus: "agendado", occurredAt: depoisDoCorte(diasAteARetirada - 2) },
+        { providerId, userId: adminId, type: "tentativa", channel: "visita", result: "contato_confirmado", occurredAt: depoisDoCorte(diasAteARetirada) },
+        { providerId, userId: adminId, type: "status_alterado", fromStatus: "agendado", toStatus: "concluido", notes: "Equipamento recolhido para triagem", occurredAt: depoisDoCorte(diasAteARetirada) },
       );
       break;
     case "baixado_economico":
@@ -1347,12 +1788,24 @@ function recuperacaoPlanejada(
  * evento, os dois com o metadata de `registrarEventoDoChat`. O resultado do
  * contato acompanha o card: acordo é promessa, negativado recusou, conversa
  * só do robô ainda não teve resposta.
+ *
+ * Leva 2, fase B: quando a equipe falou depois da abertura, um segundo contato
+ * no instante da ÚLTIMA fala dela no roteiro (`ultimaFalaDaEquipe`, calculada
+ * por `roteiroDaConversa`). Sem ele o KPI "Contatados hoje" nascia zerado com a
+ * equipe respondendo no chat há duas horas.
+ *
+ * AIDEV-QUESTION: no produto, a resposta do atendente pelo chat grava `nota`
+ * (`registrarEventoDoChat`, chat-bullq.storage.ts), e só a abertura grava
+ * `contato` — "Contatados hoje" não conta quem só respondeu no chat. A
+ * semeadura segue o pedido do plano (contato na última fala da equipe); se o
+ * KPI deve contar a resposta pelo chat, a mudança é do produto, fora da demo.
  */
 function eventosDoChatNaCobranca(
   providerId: number,
   adminId: number,
   caso: { id: number; customerId: number; status: string },
   conversa: ConversaPlanejada,
+  ultimaFalaDaEquipe: Date | undefined,
 ): InsertCobrancaEvento[] {
   const doBot = conversa.status === "BOT";
   const metadata = { origem: "chat_integrado", conversationId: conversa.conversationId };
@@ -1360,6 +1813,9 @@ function eventosDoChatNaCobranca(
   const base = { providerId, casoId: caso.id, customerId: caso.customerId, userId: doBot ? null : adminId, canal: "whatsapp", metadata };
   return [
     { ...base, tipo: "contato", resultado, notas: "Conversa aberta pelo WhatsApp integrado", ocorridoEm: conversa.abertaEm },
+    ...(ultimaFalaDaEquipe
+      ? [{ ...base, userId: adminId, tipo: "contato", resultado, notas: "Atendente respondeu pelo WhatsApp integrado", ocorridoEm: ultimaFalaDaEquipe }]
+      : []),
     { ...base, tipo: "nota", notas: NOTA_DO_CHAT_POR_STATUS[conversa.status], ocorridoEm: conversa.ultimoEventoEm },
   ];
 }
@@ -1387,15 +1843,15 @@ function eventosDaTransicaoNaCobranca(
   caso: { id: number; customerId: number; status: StatusDeCaso; statusDesde: Date },
   conversa: ConversaPlanejada | undefined,
 ): InsertCobrancaEvento[] {
-  const meioDaConversa = conversa && new Date((conversa.abertaEm.getTime() + conversa.ultimoEventoEm.getTime()) / 2);
+  const proposta = conversa && meioDaConversa(conversa);
   const degraus: Array<{ de: StatusDeCaso; para: StatusDeCaso; em: Date }> = [];
   if (caso.status === "negativado") {
     degraus.push({ de: "aberto", para: "negativado", em: caso.statusDesde });
   } else if (caso.status === "negociando") {
     degraus.push({ de: conversa ? "em_contato" : "aberto", para: "negociando", em: caso.statusDesde });
   } else if (caso.status === "acordo_ativo") {
-    if (meioDaConversa) degraus.push({ de: "em_contato", para: "negociando", em: meioDaConversa });
-    degraus.push({ de: meioDaConversa ? "negociando" : "aberto", para: "acordo_ativo", em: caso.statusDesde });
+    if (proposta) degraus.push({ de: "em_contato", para: "negociando", em: proposta });
+    degraus.push({ de: proposta ? "negociando" : "aberto", para: "acordo_ativo", em: caso.statusDesde });
   }
   return degraus.map(({ de, para, em }) => {
     const tipo = eventoDaTransicaoDeCaso(de, para);
@@ -1406,82 +1862,205 @@ function eventosDaTransicaoNaCobranca(
   });
 }
 
-/**
- * Cursores de exemplo para os alertas de anti-fraude — um punhado (3), não a
- * carteira inteira: inadimplentes (a categoria que a regra padrão
- * `ativo_inadimplente` exige), fora da faixa 0..5 que `casosDoKanban` já usa
- * — as duas histórias não precisam se sobrepor.
- */
-const CURSORES_DE_ALERTA_ANTI_FRAUDE = [20, 21, 22] as const;
+// ── Fiação dos módulos da Leva 2 (fase B) ──
 
 /**
- * Um punhado de `anti_fraud_alerts` para o PRÓPRIO sandbox, na FORMA exata
- * que `notifyOwnerProviders` (`server/services/proactive-alert.service.ts`)
- * grava de verdade quando a regra de fuga dispara.
- *
- * Sem isto a aba Anti-Fraude do sandbox SEMPRE abre vazia: o detector só
- * escreve alerta no DONO do cliente consultado, e numa consulta ao vivo de
- * verdade o dono é sempre outro provedor da rede — nunca o PRÓPRIO sandbox
- * que o visitante acabou de logar em (é a Tarefa 4: a segunda funcionalidade
- * que a landing anuncia, e a demonstração nunca mostrava nada nela).
- *
- * `customerId` aponta para um cliente ATIVO e INADIMPLENTE da PRÓPRIA
- * carteira do sandbox — a mesma condição que a regra `ativo_inadimplente`
- * (padrão, ligada) exige antes de um alerta nascer de verdade.
- * `consultingProviderId` é sempre um dos CINCO provedores do mundo base
- * (nunca o próprio sandbox, e nunca inventado): é a "rede" que teria
- * consultado este cliente. `riskFactors` no MESMO formato que
- * `notifyOwnerProviders` grava — é o que a tela lê de volta via
- * `motivosGravados` (`shared/antifraude-avaliacao.ts`); sem "divida_ativa"
- * ali o card cairia no motivo genérico em vez do rótulo real.
+ * O último instante até `ate` em que a política deixa falar com o cliente — o
+ * contato é contato, e o CDC art. 42 vale para ele. Volta no tempo (e nunca
+ * avança): o contato da recuperação precisa ficar a pelo menos
+ * `diasDesdeOContato` de hoje, senão `faturasHistoricasDoSandbox` o recusaria
+ * como recente demais num fim de semana emendado.
  */
-function alertasAntiFraudeDoSandbox(
+function ultimoInstanteNaJanela(ate: Date, janela: PoliticaDaTrilha["janelaContato"]): Date {
+  let t = ate.getTime();
+  // Quinze dias de horas cobre qualquer janela válida, com sábado, domingo e feriado emendados.
+  for (let i = 0; i < 15 * 24; i++) {
+    if (janelaDoChat(new Date(t), janela).permitida) return new Date(t);
+    t = Math.floor(t / HORA_MS) * HORA_MS - HORA_MS / 2;
+  }
+  throw new Error(`ultimoInstanteNaJanela: nenhuma hora dentro da janela de contato nos 15 dias antes de ${ate.toISOString()}`);
+}
+
+/** Os contatos que antecederam as recuperações dos últimos 30 dias, NA ORDEM de `RECUPERACOES_DOS_ULTIMOS_30_DIAS`. */
+function contatosDaRecuperacao30d(
+  indicePorCursor: ReadonlyMap<number, number>,
+  idsClientes: readonly number[],
+  janela: PoliticaDaTrilha["janelaContato"],
+  agora: Date,
+): ContatoDoHistorico[] {
+  return RECUPERACOES_DOS_ULTIMOS_30_DIAS.map(({ cursor, diasDesdeOContato }) => ({
+    customerId: idsClientes[indicePorCursor.get(cursor)!],
+    contatoEm: ultimoInstanteNaJanela(subtrairDias(agora, diasDesdeOContato), janela),
+  }));
+}
+
+/**
+ * A carteira como `faturasHistoricasDoSandbox` a lê: um item por cliente, com a
+ * fatura VENCIDA que a semeadura já montou (a mensalidade do inadimplente, a
+ * saída de quem saiu devendo) — é o limite do histórico e a única fatura que
+ * uma recuperação fecha.
+ */
+function clientesDoHistorico(
   providerId: number,
-  entradas: EntradaSandbox[],
-  idsClientes: number[],
-  indicePorCursor: Map<number, number>,
-  provedoresDoMundoBase: readonly number[],
-): InsertAntiFraudAlert[] {
-  const idDoCursor = (cursor: number): number => idsClientes[indicePorCursor.get(cursor)!];
-  const entradaDoCursor = (cursor: number): EntradaSandbox => entradas[indicePorCursor.get(cursor)!];
-
-  return CURSORES_DE_ALERTA_ANTI_FRAUDE.map((cursor, i) => {
-    const entrada = entradaDoCursor(cursor);
-    const indice = indiceDaEntrada(providerId, entrada);
-    const pessoa = pessoaFicticia(indice);
-    const totalOverdueAmount = valorMensalidade(indice);
-    const maxDaysOverdue = idadeRepresentativa(entrada.posicaoNaCategoria);
-    const diasDeContrato = tenureMeses(indice) * 30;
-    const consultingProviderId = provedoresDoMundoBase[i % provedoresDoMundoBase.length];
-    const consultingProviderName = PROVEDORES_DA_DEMO[i % PROVEDORES_DA_DEMO.length].nome;
-    const severidade = severidadeDoAlerta(["divida_ativa"], { totalOverdueAmount, maxDaysOverdue });
-
+  entradas: readonly EntradaSandbox[],
+  idsClientes: readonly number[],
+  linhasClientes: readonly InsertCustomer[],
+  linhasFaturas: readonly InsertInvoice[],
+): ClienteDoHistorico[] {
+  const vencidaPorCliente = new Map(linhasFaturas.filter((f) => f.status === "overdue").map((f) => [f.customerId, f]));
+  return entradas.map((entrada, k) => {
+    const linha = linhasClientes[k];
+    const vencida = vencidaPorCliente.get(idsClientes[k]);
     return {
-      providerId,
-      customerId: idDoCursor(cursor),
-      consultingProviderId,
-      consultingProviderName,
-      customerName: pessoa.nome,
-      customerCpfCnpj: cpfFicticio(indice),
-      type: "defaulter_consulted",
-      severity: severidade,
-      message: `Seu cliente ativo com R$ ${formatarReal(totalOverdueAmount)} vencidos há ${maxDaysOverdue} dia${maxDaysOverdue === 1 ? "" : "s"} foi consultado por outro provedor da rede`,
-      riskScore: severidade === "critical" ? 90 : severidade === "high" ? 70 : 50,
-      riskLevel: severidade === "critical" ? "critico" : severidade === "high" ? "alto" : "medio",
-      riskFactors: [
-        "consulta_outro_provedor",
-        "divida_ativa",
-        `dias_contrato:${diasDeContrato}`,
-        "combinacao:qualquer",
-        "erp_ao_vivo",
-      ],
-      daysOverdue: maxDaysOverdue,
-      overdueAmount: totalOverdueAmount.toFixed(2),
-      recentConsultations: 1,
-      resolved: false,
-      status: "new",
+      customerId: idsClientes[k],
+      categoria: entrada.categoria,
+      mensalidade: valorMensalidade(indiceDaEntrada(providerId, entrada)),
+      contractStartDate: linha.contractStartDate ?? null,
+      cortadoEm: linha.cortadoEm ?? null,
+      maxDaysOverdue: linha.maxDaysOverdue ?? 0,
+      overdueInvoicesCount: linha.overdueInvoicesCount ?? 0,
+      faturaEmAberto: vencida ? { erpRef: vencida.erpRef!, valor: Number(vencida.value), vencimento: vencida.dueDate } : null,
     };
   });
+}
+
+/** O agregado de quem deixou de dever, pela regra do sync: sem dívida, `current` e a faixa de risco de zero dia. */
+const CLIENTE_SEM_DIVIDA = {
+  totalOverdueAmount: "0.00",
+  overdueInvoicesCount: 0,
+  maxDaysOverdue: 0,
+  paymentStatus: "current",
+  riskTier: faixaDeRiscoDoAtraso(0),
+} satisfies Partial<InsertCustomer>;
+
+/** O resultado de um contato por telefone em que o cliente prometeu pagar — e pagou no dia seguinte. */
+const RESULTADO_DO_CONTATO_DA_RECUPERACAO = "promessa_pagamento";
+
+/**
+ * O caso de quem pagou nos últimos 30 dias, já FECHADO: a régua o abriu um dia
+ * antes do contato, o contato por telefone o levou a "em contato"
+ * (`statusAposContato`, a esteira da rota de eventos), e a dívida zerada no ERP
+ * o fechou na passada seguinte — `encerrado` com `MOTIVO_DIVIDA_ZERADA`, que é o
+ * que `revisarCaso` grava ("só o recebimento explícito confirma dinheiro"), nunca
+ * `pago`. Etapa nula, como os outros fechados deste semeador; etapa, prioridade
+ * e DNA da foto de antes do pagamento (`originais`).
+ */
+function casosDaRecuperacao30d(
+  providerId: number,
+  recuperacoes: readonly RecuperacaoDaDemo[],
+  originais: ReadonlyMap<number, InsertCustomer>,
+  agora: Date,
+): InsertCobrancaCaso[] {
+  return recuperacoes.map((r) => {
+    const cliente = originais.get(r.customerId)!;
+    const dias = cliente.maxDaysOverdue ?? 0;
+    const abertoEm = new Date(r.contatoEm.getTime() - DIA_MS);
+    const diasNaAbertura = Math.max(0, dias - Math.floor((agora.getTime() - abertoEm.getTime()) / DIA_MS));
+    const etapa = etapaParaAtraso(diasNaAbertura, r.carteira).etapa?.id ?? null;
+    const dna = dnaDoCaso({ contractStartDate: cliente.contractStartDate ?? null, diasAtraso: dias, faturasAbertas: cliente.overdueInvoicesCount ?? 0 }, agora);
+    const valor = r.valor.toFixed(2);
+    return {
+      providerId,
+      customerId: r.customerId,
+      status: "encerrado",
+      carteira: r.carteira,
+      etapaAtual: null,
+      abertoEm,
+      statusDesde: r.recuperadoEm,
+      diasAtrasoAbertura: diasNaAbertura,
+      valorAbertura: valor,
+      valorAtual: valor,
+      prioridade: prioridadeSugerida(r.valor, etapa),
+      ultimoContatoEm: r.contatoEm,
+      proximoContatoEm: null,
+      encerradoEm: r.recuperadoEm,
+      motivoEncerramento: MOTIVO_DIVIDA_ZERADA,
+      quadranteDna: dna.quadranteDna,
+      tom: dna.tom,
+    };
+  });
+}
+
+/**
+ * O contato no formato do POST /casos/:id/eventos (telefone, pelo administrador,
+ * sem metadata) e o encerramento que `encerrarCaso` grava quando é o motor que
+ * fecha (`userId` nulo, canal `sistema`, o motivo nas notas).
+ */
+function eventosDaRecuperacao30d(providerId: number, adminId: number, caso: { id: number; customerId: number }, r: RecuperacaoDaDemo): InsertCobrancaEvento[] {
+  const emContato = statusAposContato("aberto", RESULTADO_DO_CONTATO_DA_RECUPERACAO);
+  if (!emContato || eventoDaTransicaoDeCaso(emContato, "encerrado") !== "encerramento" || !transicaoDeCaso(emContato, "encerrado").ok) {
+    throw new Error(`eventosDaRecuperacao30d: aberto -> contato -> encerrado no caso ${caso.id} nao e caminho da maquina de estados`);
+  }
+  const base = { providerId, casoId: caso.id, customerId: caso.customerId };
+  return [
+    { ...base, userId: adminId, tipo: "contato", canal: "telefone", resultado: RESULTADO_DO_CONTATO_DA_RECUPERACAO, notas: null, metadata: null, ocorridoEm: r.contatoEm },
+    { ...base, userId: null, tipo: "encerramento", canal: "sistema", notas: MOTIVO_DIVIDA_ZERADA, metadata: { status: "encerrado", de: emContato }, ocorridoEm: r.recuperadoEm },
+  ];
+}
+
+/**
+ * A linha que o chat simulado monta ao LER a conversa semeada
+ * (`camposDaConversa`, chat-simulado.ts) — os mesmos valores que o banco
+ * devolverá, para o roteiro calculado aqui ser o que o visitante vê.
+ */
+function linhaDaConversaDeCobranca(
+  conversa: ConversaPlanejada,
+  cliente: InsertCustomer,
+  caso: InsertCobrancaCaso,
+  provedor: { name: string; tradeName: string | null; createdAt: Date | null },
+  atendenteNome: string,
+): LinhaDaConversa {
+  return {
+    conversationId: conversa.conversationId,
+    status: conversa.status,
+    origem: conversa.origem,
+    canalId: CANAL_DO_CHAT_DA_DEMO,
+    abertaEm: conversa.abertaEm,
+    ultimoEventoEm: conversa.ultimoEventoEm,
+    clienteNome: cliente.name,
+    clienteTelefone: cliente.phone ?? null,
+    clienteDivida: cliente.totalOverdueAmount ?? null,
+    clienteDias: cliente.maxDaysOverdue ?? null,
+    provedorNome: provedor.name,
+    provedorFantasia: provedor.tradeName,
+    semeadaEm: provedor.createdAt,
+    atendenteNome,
+    casoStatus: caso.status ?? "aberto",
+    casoCarteira: caso.carteira,
+    casoValor: caso.valorAtual ?? null,
+    casoDias: caso.diasAtrasoAbertura ?? null,
+    recuperacaoStatus: null,
+    recuperacaoAgendadaEm: null,
+    equipamentoTipo: null,
+    equipamentoMarca: null,
+    equipamentoModelo: null,
+  };
+}
+
+/**
+ * O instante da última fala da equipe no roteiro da conversa, quando ela veio
+ * depois da abertura — `roteiroDaConversa` decide (janela de contato, regras de
+ * 24 h); aqui só se lê. A equipe fala com o nome do atendente que abriu a
+ * conversa (o assistente fala como "Assistente virtual").
+ */
+function ultimaFalaDaEquipe(linha: LinhaDaConversa, agora: Date): Date | undefined {
+  const falas = roteiroDaConversa(linha, agora.getTime()).filter((m) => m.direction === "OUTBOUND" && m.senderName === linha.atendenteNome);
+  const ultima = falas.at(-1);
+  const em = ultima ? new Date(ultima.createdAt) : undefined;
+  return em && em.getTime() > linha.abertaEm.getTime() ? em : undefined;
+}
+
+/**
+ * A metadata que o storage grava na proposta e no aceite, mesclada POR CIMA do
+ * `{ de, para }` da transição que `eventosDaTransicaoNaCobranca` já gravou — a
+ * trilha não duplica o evento. Sem a transição para mesclar, o plano derivou, e
+ * falha alto.
+ */
+function mesclarNaTransicao(eventos: InsertCobrancaEvento[], casoId: number, tipo: string, metadata: Record<string, unknown> | null): void {
+  if (!metadata) return;
+  const transicao = eventos.find((e) => e.casoId === casoId && e.tipo === tipo);
+  if (!transicao) throw new Error(`mesclarNaTransicao: caso ${casoId} com negociacao e sem o evento ${tipo} da transicao`);
+  transicao.metadata = { ...(transicao.metadata ?? {}), ...metadata };
 }
 
 /** Código de erro do Postgres para violação de unicidade (`unique_violation`). */
@@ -1501,6 +2080,11 @@ const TENTATIVAS_DE_CRIACAO = 5;
  */
 export async function criarSandbox(): Promise<{ providerId: number; userId: number; subdomain: string; expiraEm: Date }> {
   const mundoBase = await semearMundoBase();
+  // Fora da transação do sandbox, com transação e lock próprios (mundo-base.ts):
+  // no caminho comum são duas leituras; num mundo no formato antigo, a primeira
+  // criação depois do deploy paga a reescrita, uma vez. As consultas do sandbox
+  // leem a rede já no formato atual.
+  await complementarMundoBase();
   const agora = new Date();
 
   for (let tentativa = 1; tentativa <= TENTATIVAS_DE_CRIACAO; tentativa++) {
@@ -1521,6 +2105,14 @@ export async function criarSandbox(): Promise<{ providerId: number; userId: numb
  * de cobrança, integração ERP, alertas de anti-fraude). Falhar em qualquer
  * ponto não deixa par provedor+usuário órfão: a transação inteira desfaz.
  *
+ * Leva 2, fase B: os módulos puros dos outros pacotes entram aqui, na ordem das
+ * FKs — ficha, equipe, sócios, documentos, sync e créditos logo depois do
+ * administrador (`semeadura-ficha.ts`); faturas históricas e recuperação dos
+ * últimos 30 dias antes de faturas e casos (`semeadura-faturas.ts`); consultas e
+ * alertas depois da carteira (`semeadura-consultas.ts`); a trilha dos casos
+ * depois do insert deles (`semeadura-negociacoes.ts`); e o `agenteConfig` do
+ * chat simulado na integração (`chat-simulado.ts`).
+ *
  * `provedoresDoMundoBase` (Tarefa 4, 11/09/2026) são os ids que
  * `semearMundoBase()` já devolveu para `criarSandbox()` — os alertas de
  * anti-fraude do sandbox precisam de um "consulente" que exista de verdade
@@ -1534,10 +2126,16 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
   return db.transaction(async (tx) => {
     // Espelha storage.createProvider (server/storage/providers.storage.ts:161-164).
     const [provider] = await tx.insert(providers).values({
+      // A ficha da aba Empresa — nome fantasia, sede em Londrina, contato — é o
+      // cadastro que "buscar na Receita" devolve para este CNPJ (cnpj-simulado.ts).
+      ...fichaDoProvedorDaDemo(subdomain),
       name: "Provedor Demonstração",
       cnpj: cnpjDoSandbox(),
       subdomain,
-      plan: "enterprise",
+      // Um plano da tabela de preços (`PLAN_PRICES`, shared/planos.ts): "enterprise"
+      // saiu do catálogo em 03/09/2026 e a vitrine do painel não reconhecia o
+      // plano do visitante (Leva 2).
+      plan: "pro",
       status: "active",
       verificationStatus: "approved",
       ispCredits: SALDO_INICIAL,
@@ -1553,6 +2151,10 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
       // parceiros" do painel mostrava zero — medido no ar em 12/09/2026.
       mesorregioes: [MESORREGIAO_DO_MUNDO_BASE],
       addressState: "PR",
+      // O MESMO instante da semeadura, e não o `now()` da transação: o chat
+      // simulado congela o roteiro das conversas nele (`roteiroCongelado`), e o
+      // contato da última fala da equipe é gravado abaixo com este `agora`.
+      createdAt: agora,
     }).returning();
 
     // Rodada de correção (Tarefa 1): o MESMO conjunto de campos que o mundo
@@ -1560,7 +2162,9 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
     // habilitada `buildErpConfig` lança antes de o conector "demo" ser
     // chamado, e a rede inteira (inclusive a PRÓPRIA carteira do sandbox)
     // fica invisível para a consulta ao vivo.
-    await tx.insert(erpIntegrations).values(linhaDaIntegracao(provider.id));
+    // Leva 2: com a última sincronização igual ao histórico semeado abaixo — a
+    // aba Integração dizia "Nunca sincronizou" sobre 1.500 clientes sincronizados.
+    await tx.insert(erpIntegrations).values({ ...linhaDaIntegracao(provider.id), ...integracaoErpSincronizada(agora, CLIENTES_POR_SANDBOX) });
 
     // Espelha storage.createUser (server/storage/users.storage.ts:92-98),
     // email canonicalizado incluído. `emailDoAdminDaDemo` (não mais o literal
@@ -1575,15 +2179,36 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
       emailVerified: true,
     }).returning();
 
+    // A empresa por trás do selo "Verificado": a equipe além do administrador
+    // (que segue sendo o primeiro usuário e o segundo sinal da limpeza), os
+    // sócios do QSA simulado, os documentos do KYC, o histórico de
+    // sincronização e os pedidos de crédito.
+    await tx.insert(users).values(usuariosExtrasDaDemo(subdomain, senhaHash).map((u) => ({ ...u, providerId: provider.id })));
+    await tx.insert(providerPartners).values(sociosDaDemo().map((socio) => ({ ...socio, providerId: provider.id })));
+    await tx.insert(providerDocuments).values(documentosDaDemo(provider.id));
+    await tx.insert(erpSyncLogs).values(logsDeSyncDaDemo(provider.id, CLIENTES_POR_SANDBOX, agora));
+    await tx.insert(creditOrders).values(pedidosDeCreditoDaDemo(provider.id, agora));
+
     // Política com custos e preço por plano: sem ela a Economia de TODA ficha
-    // 360 abria pendente. Demais colunas no default do schema.
-    await tx.insert(cobrancaPolitica).values({ providerId: provider.id, economia: ECONOMIA_DA_DEMO, pausada: false });
+    // 360 abria pendente. Leva 2: a origem da cobrança `manual` (`acordoDaDemo`)
+    // e o administrador como responsável das etapas de decisão
+    // (`ETAPAS_DO_ADMINISTRADOR_DA_DEMO`), só o responsável — a janela é a do
+    // catálogo. Demais colunas no default do schema.
+    const politica = politicaDaDemo(user.id);
+    await tx.insert(cobrancaPolitica).values({ providerId: provider.id, ...politica.gravada });
 
     const entradas = planoDeIndicesDoSandbox();
     const indicePorCursor = new Map(entradas.map((e, i) => [e.cursor, i]));
 
     const linhasClientes = entradas.map((e) => linhaDoCliente(provider.id, e, agora));
-    const idsClientes = await inserirClientesEmBlocos(tx, linhasClientes);
+    await inserirPorColunas(tx, customers, linhasClientes);
+    // O id de cada cliente relido pelo CPF, único dentro do sandbox (ver `inserirPorColunas`).
+    const idPorCpf = new Map((await tx.select({ id: customers.id, cpfCnpj: customers.cpfCnpj }).from(customers).where(eq(customers.providerId, provider.id))).map((c) => [c.cpfCnpj, c.id]));
+    const idsClientes = linhasClientes.map((linha) => {
+      const id = idPorCpf.get(linha.cpfCnpj);
+      if (id === undefined) throw new Error(`tentarCriarSandbox: cliente ${linha.cpfCnpj} nao foi gravado`);
+      return id;
+    });
     const cursorPorCliente = new Map(entradas.map((e, k) => [idsClientes[k], e.cursor]));
 
     const linhasFaturas: InsertInvoice[] = [];
@@ -1598,7 +2223,9 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
         linhasFaturas.push(linhaDaFatura(provider.id, customerId, entrada, agora));
       } else if (entrada.categoria === "cancelado") {
         const cortadoEm = cortadoEmDaEntrada(entrada, agora)!;
-        linhasFaturas.push(linhaDaFaturaDeSaida(provider.id, customerId, entrada, cortadoEm));
+        linhasFaturas.push(linhaDaFaturaDeSaida(provider.id, customerId, entrada, cortadoEm, agora));
+      } else if (entrada.cursor === CURSOR_DO_CASO_PAGO) {
+        linhasFaturas.push(linhaDaFaturaDoCasoPago(provider.id, customerId, entrada, agora));
       }
 
       const equip = equipamentoDaEntrada(entrada);
@@ -1608,14 +2235,91 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
       }
     }
 
-    await inserirFaturasEmBlocos(tx, linhasFaturas);
+    // Faturas históricas e a recuperação dos últimos 30 dias, ANTES de inserir
+    // faturas e casos: quem pagou já entra com a fatura fechada, a dívida zerada e
+    // o caso encerrado — a carteira de devedores e os casos vivos contam sem ele.
+    const indiceDoCliente = new Map(idsClientes.map((id, k) => [id, k]));
+    const contatosDaRecuperacao = contatosDaRecuperacao30d(indicePorCursor, idsClientes, politica.lida.janelaContato, agora);
+    const historico = faturasHistoricasDoSandbox({
+      providerId: provider.id,
+      adminId: user.id,
+      clientes: clientesDoHistorico(provider.id, entradas, idsClientes, linhasClientes, linhasFaturas),
+      contatos: contatosDaRecuperacao,
+      agora,
+      // 3 meses nos em dia, e não 6: medido no banco local (13/09/2026), as ~9,2 mil
+      // mensalidades de 6 meses sozinhas levavam a criação a ~1,7 s, acima do
+      // orçamento (~1,2 s local, ~3 s no banco real). Três meses ainda dão
+      // pontualidade, recebido e a fatura do mês a todo cliente em dia.
+      mesesDeHistoricoEmDia: MESES_DE_HISTORICO_REDUZIDO,
+    });
+    // O plano escolhe quem pagou; o módulo confere se o contato serve. Divergir
+    // deixaria caso fechado para quem ainda deve (ou o contrário): falha alto.
+    const recuperados = historico.recuperacoes.map((r) => r.customerId);
+    if (recuperados.join(",") !== contatosDaRecuperacao.map((c) => c.customerId).join(",")) {
+      throw new Error(`tentarCriarSandbox: recuperacoes dos ultimos 30 dias [${recuperados.join(",")}] divergem do plano`);
+    }
+    const recuperacaoPorCliente = new Map(historico.recuperacoes.map((r) => [r.customerId, r]));
+    const alteracaoDaFatura = new Map(historico.recuperacoes.map((r) => [r.erpRef, r.alteracaoDaFatura]));
+    linhasFaturas.forEach((f, i) => {
+      const alteracao = alteracaoDaFatura.get(f.erpRef ?? "");
+      if (alteracao) linhasFaturas[i] = { ...f, ...alteracao };
+    });
+    /** A foto de quem pagou ANTES de pagar — etapa, prioridade e DNA do caso encerrado saem dela. */
+    const originais = new Map<number, InsertCustomer>();
+    for (const r of historico.recuperacoes) {
+      const k = indiceDoCliente.get(r.customerId)!;
+      originais.set(r.customerId, linhasClientes[k]);
+      linhasClientes[k] = { ...linhasClientes[k], ...CLIENTE_SEM_DIVIDA };
+    }
+    if (recuperados.length > 0) {
+      await tx.update(customers).set(CLIENTE_SEM_DIVIDA).where(and(eq(customers.providerId, provider.id), inArray(customers.id, recuperados)));
+    }
+    // A mensalidade do mês que já venceu sem pagamento soma na dívida do
+    // inadimplente, antes de casos, conversas, consultas e alertas lerem a
+    // carteira. Todo inadimplente nasce com UMA fatura de uma mensalidade: o
+    // novo agregado é o dobro dela, e um UPDATE por valor resolve.
+    const acrescidos = new Map<string, number[]>();
+    for (const d of historico.dividasDoMes) {
+      const k = indiceDoCliente.get(d.customerId)!;
+      const linha = linhasClientes[k];
+      if ((linha.overdueInvoicesCount ?? 0) !== 1) throw new Error(`tentarCriarSandbox: mensalidade do mes vencida para o cliente ${d.customerId}, que nao tem uma fatura em aberto`);
+      const total = (Number(linha.totalOverdueAmount) + d.valor).toFixed(2);
+      linhasClientes[k] = { ...linha, totalOverdueAmount: total, overdueInvoicesCount: 2 };
+      acrescidos.set(total, [...(acrescidos.get(total) ?? []), d.customerId]);
+    }
+    for (const [total, ids] of acrescidos) {
+      await tx.update(customers).set({ totalOverdueAmount: total, overdueInvoicesCount: 2 }).where(and(eq(customers.providerId, provider.id), inArray(customers.id, ids)));
+    }
+    // O cliente do caso "pago" já tem a fatura da competência que pagou hoje
+    // (`linhaDaFaturaDoCasoPago`): a mensalidade do mesmo mês seria uma segunda cobrança.
+    const faturaDoPago = linhasFaturas.find((f) => f.customerId === idsClientes[indicePorCursor.get(CURSOR_DO_CASO_PAGO)!])!;
+    const mesmaCompetenciaDoPago = (f: InsertInvoice) =>
+      f.customerId === faturaDoPago.customerId && f.dueDate.toISOString().slice(0, 7) === faturaDoPago.dueDate.toISOString().slice(0, 7);
+    const mensalidades = historico.faturas.filter((f) => !mesmaCompetenciaDoPago(f));
+
+    await inserirPorColunas(tx, invoices, [...linhasFaturas, ...mensalidades]);
+    if (historico.quitacoes.length > 0) {
+      const refs = historico.quitacoes.map((q) => q.erpRef);
+      const idDaFatura = new Map((await tx.select({ id: invoices.id, erpRef: invoices.erpRef }).from(invoices)
+        .where(and(eq(invoices.providerId, provider.id), inArray(invoices.erpRef, refs)))).map((f) => [f.erpRef, f.id]));
+      await tx.insert(cobrancaQuitacoes).values(historico.quitacoes.map(({ erpRef, ...quitacao }) => {
+        const faturaId = idDaFatura.get(erpRef);
+        if (faturaId === undefined) throw new Error(`tentarCriarSandbox: quitacao sem a fatura ${erpRef}`);
+        return { ...quitacao, faturaId };
+      }));
+    }
     const idsEquipamentos = await inserirEquipamentosEmBlocos(tx, linhasEquipamentos);
 
     const conversas = conversasPlanejadas(provider.id, agora);
 
-    const casos = [
+    const casosTrabalhados = [
       ...casosDoKanban(provider.id, entradas, idsClientes, linhasClientes, indicePorCursor, agora),
       ...casosVivosDeExCliente(provider.id, entradas, idsClientes, linhasClientes, indicePorCursor, agora),
+    ];
+    const casos = [
+      ...casosTrabalhados,
+      ...casosAbertosDaCarteira(provider.id, idsClientes, linhasClientes, new Set(casosTrabalhados.map((c) => c.customerId)), agora),
+      ...casosDaRecuperacao30d(provider.id, historico.recuperacoes, originais, agora),
     ];
     // O índice único parcial do banco (`cobranca_casos_um_aberto_por_cliente`)
     // derrubaria a transação inteira com um erro cru; aqui a deriva aparece
@@ -1624,7 +2328,21 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
     if (new Set(clientesComCasoVivo).size !== clientesComCasoVivo.length) {
       throw new Error("tentarCriarSandbox: dois casos de cobranca vivos para o mesmo cliente");
     }
-    aplicarLinhaDoTempo(casos, cursorPorCliente, conversas, agora);
+    aplicarLinhaDoTempo(casos, cursorPorCliente, conversas, politica.lida, agora);
+    atribuirResponsaveis(casos, cursorPorCliente, conversas, user.id);
+    // O contato da última fala da equipe em cada conversa de cobrança, decidido
+    // antes do insert: `ultimoContatoEm` do caso é o último contato gravado.
+    const ultimaFalaPorConversa = new Map<string, Date>();
+    for (const conversa of conversas) {
+      if (conversa.origem !== "cobranca") continue;
+      const k = indicePorCursor.get(conversa.cursor)!;
+      const caso = casos.find((c) => c.customerId === idsClientes[k] && !casoFechado(c.status ?? "aberto"));
+      if (!caso) continue;
+      const em = ultimaFalaDaEquipe(linhaDaConversaDeCobranca(conversa, linhasClientes[k], caso, provider, user.name), agora);
+      if (!em) continue;
+      ultimaFalaPorConversa.set(conversa.conversationId, em);
+      caso.ultimoContatoEm = em;
+    }
     const idsCasos = (await tx.insert(cobrancaCasos).values(casos).returning({ id: cobrancaCasos.id })).map((r) => r.id);
 
     const recuperacoes = entradaDoEquipamento.flatMap((k, i) => {
@@ -1635,6 +2353,7 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
         provider.id, user.id, status,
         { customerId: idsClientes[k], equipmentId: idsEquipamentos[i] },
         cortadoEmDaEntrada(entradas[k], agora)!, conversa, agora,
+        RECUPERACOES_CONCLUIDAS_NO_ULTIMO_MES.has(entradas[k].posicaoNaCategoria) ? DIAS_DO_CORTE_A_RETIRADA_NO_ULTIMO_MES : DIAS_DO_CORTE_A_RETIRADA,
       )];
     });
     const idsRecuperacoes = (await tx.insert(equipmentRecoveryCases).values(recuperacoes.map((r) => r.caso)).returning({ id: equipmentRecoveryCases.id })).map((r) => r.id);
@@ -1642,8 +2361,61 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
       recuperacoes.flatMap((r, i) => r.eventos.map((e) => ({ ...e, caseId: idsRecuperacoes[i] }))),
     );
 
-    const alertas = alertasAntiFraudeDoSandbox(provider.id, entradas, idsClientes, indicePorCursor, provedoresDoMundoBase);
-    await tx.insert(antiFraudAlerts).values(alertas);
+    // O histórico de consultas do mês (Consulta ISP, SPC, cadastral), os alertas
+    // pelas regras reais e as regras que os produzem, sobre a carteira no
+    // estado final — quem pagou nos últimos 30 dias já está em dia.
+    //
+    // A dívida de cada cliente fatura a fatura — as vencidas de hoje e as que a
+    // recuperação quitou, com a data: é a foto de um aviso de dias atrás.
+    const quitadaEm = new Map(historico.recuperacoes.map((r) => [r.erpRef, r.recuperadoEm]));
+    const vencidasPorCliente = new Map<number, Array<{ valor: number; vencimento: Date; quitadaEm?: Date }>>();
+    for (const f of [...linhasFaturas, ...mensalidades]) {
+      const quitada = quitadaEm.get(f.erpRef ?? "");
+      if (f.status !== "overdue" && !quitada) continue;
+      vencidasPorCliente.set(f.customerId, [...(vencidasPorCliente.get(f.customerId) ?? []), { valor: Number(f.value), vencimento: f.dueDate, ...(quitada ? { quitadaEm: quitada } : {}) }]);
+    }
+    const clientesDaConsulta: ClienteDaConsulta[] = linhasClientes.map((linha, k) => ({
+      ...linha,
+      id: idsClientes[k],
+      mensalidade: valorMensalidade(indiceDaEntrada(provider.id, entradas[k])),
+      faturasVencidas: vencidasPorCliente.get(idsClientes[k]) ?? [],
+    }));
+    // A rede lida do mundo base, e não imaginada: consulta que custa crédito é a de CPF que a rede conhece.
+    const cpfsCompartilhados = entradas.flatMap((e, k) => (e.personaIndexOverride === undefined ? [] : [linhasClientes[k].cpfCnpj]));
+    const rede: ClienteDaRede[] = await tx.select({
+      providerId: customers.providerId,
+      name: customers.name,
+      cpfCnpj: customers.cpfCnpj,
+      status: customers.status,
+      totalOverdueAmount: customers.totalOverdueAmount,
+      maxDaysOverdue: customers.maxDaysOverdue,
+      overdueInvoicesCount: customers.overdueInvoicesCount,
+      contractStartDate: customers.contractStartDate,
+      city: customers.city,
+      state: customers.state,
+    }).from(customers).where(and(inArray(customers.providerId, [...provedoresDoMundoBase]), inArray(customers.cpfCnpj, cpfsCompartilhados)));
+    // As consultas que os provedores da rede fizeram sobre esses CPFs (as do
+    // complemento do mundo base): entram na contagem de 30 e 90 dias da consulta
+    // semeada, e cada alerta nasce de uma delas. A data se filtra em memória —
+    // são poucas centenas de linhas.
+    const consultasDaRede: ConsultaDaRede[] = (await tx.select({ providerId: ispConsultations.providerId, cpfCnpj: ispConsultations.cpfCnpj, createdAt: ispConsultations.createdAt })
+      .from(ispConsultations)
+      .where(and(inArray(ispConsultations.providerId, [...provedoresDoMundoBase]), inArray(ispConsultations.cpfCnpj, cpfsCompartilhados))))
+      .flatMap((c) => (c.createdAt ? [{ providerId: c.providerId, cpfCnpj: c.cpfCnpj, createdAt: new Date(c.createdAt) }] : []));
+    const consultas = consultasDoSandbox({ providerId: provider.id, nomeDoProvedor: provider.name, adminId: user.id, clientes: clientesDaConsulta, rede, consultasDaRede, agora });
+    await tx.insert(ispConsultations).values(consultas.isp);
+    await tx.insert(spcConsultations).values(consultas.spc);
+    await tx.insert(bigdataConsultations).values(consultas.cadastral);
+    const alertas = alertasExtrasDoSandbox({
+      providerId: provider.id,
+      clientes: clientesDaConsulta,
+      equipamentos: linhasEquipamentos.map((e) => ({ customerId: e.customerId, status: e.status, value: e.value })),
+      provedoresDaRede: provedoresDoMundoBase.map((id, i) => ({ id, nome: PROVEDORES_DA_DEMO[i].nome })),
+      consultasDaRede,
+      agora,
+    });
+    if (alertas.length > 0) await tx.insert(antiFraudAlerts).values(alertas);
+    await tx.insert(antiFraudRules).values(regrasAntiFraudeDaDemo(provider.id));
 
     // A integração "pronta" que a tela de Conversas exige. Os identificadores
     // são os do chat simulado da demonstração — nenhum aponta para o Chat
@@ -1656,6 +2428,11 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
       canalId: CANAL_DO_CHAT_DA_DEMO,
       canalNome: "WhatsApp da Demonstração",
       status: "ativo",
+      // Os três perfis prontos e o primeiro contato ligado, com os MESMOS ids da
+      // coleção de agentes do simulado — sem isto os perfis apareciam "não
+      // configurados" e "Iniciar contato" de equipamento respondia 409.
+      agenteId: AGENTES_DA_DEMO.cobranca_ativos.id,
+      agenteConfig: { ...agenteConfigDaDemo() },
     });
 
     // A linha do tempo da cobrança: a transição de cada caso que saiu da fila,
@@ -1664,6 +2441,9 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
     const casoVivoPorCursor = new Map<number, { id: number; customerId: number; status: string }>();
     casos.forEach((c, i) => {
       const status = (c.status ?? "aberto") as StatusDeCaso;
+      if (status === "pago") eventosDaCobranca.push(eventoDoCasoPago(provider.id, user.id, { id: idsCasos[i], customerId: c.customerId, encerradoEm: c.encerradoEm! }));
+      const recuperacao = recuperacaoPorCliente.get(c.customerId);
+      if (recuperacao) eventosDaCobranca.push(...eventosDaRecuperacao30d(provider.id, user.id, { id: idsCasos[i], customerId: c.customerId }, recuperacao));
       if (casoFechado(status)) return;
       const cursor = cursorPorCliente.get(c.customerId)!;
       casoVivoPorCursor.set(cursor, { id: idsCasos[i], customerId: c.customerId, status });
@@ -1697,10 +2477,58 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
         ultimoEventoEm: conversa.ultimoEventoEm,
         createdAt: conversa.abertaEm,
       });
-      if (caso) eventosDaCobranca.push(...eventosDoChatNaCobranca(provider.id, user.id, caso, conversa));
+      if (caso) eventosDaCobranca.push(...eventosDoChatNaCobranca(provider.id, user.id, caso, conversa, ultimaFalaPorConversa.get(conversa.conversationId)));
     }
+
+    // A trilha mecânica dos casos vivos: a negociação que a conversa promete, a
+    // régua andando até a etapa de hoje e o pré-aviso do negativado. As
+    // transições já estão acima; a trilha só mescla nelas a metadata do storage.
+    const trilha = trilhaDosCasos({
+      providerId: provider.id,
+      adminId: user.id,
+      politica: politica.lida,
+      agora,
+      casos: casos.flatMap((c, i): CasoDaTrilha[] => {
+        const status = (c.status ?? "aberto") as StatusDeCaso;
+        if (casoFechado(status)) return [];
+        const cursor = cursorPorCliente.get(c.customerId)!;
+        const conversa = conversas.find((x) => x.origem === "cobranca" && x.cursor === cursor);
+        return [{
+          id: idsCasos[i],
+          customerId: c.customerId,
+          status,
+          carteira: c.carteira as Carteira,
+          etapaAtual: (c.etapaAtual ?? null) as EtapaId | null,
+          quadranteDna: c.quadranteDna ?? null,
+          tom: c.tom ?? null,
+          abertoEm: c.abertoEm!,
+          statusDesde: c.statusDesde!,
+          // A proposta que `eventosDaTransicaoNaCobranca` gravou no meio da conversa.
+          propostaEm: conversa ? meioDaConversa(conversa) : null,
+          valorAtual: Number(c.valorAtual),
+          diasAtraso: linhasClientes[indicePorCursor.get(cursor)!].maxDaysOverdue ?? 0,
+        }];
+      }),
+    });
+    if (trilha.negociacoes.length > 0) {
+      const idsNegociacoes = (await tx.insert(cobrancaNegociacoes).values(trilha.negociacoes.map((n) => n.linha)).returning({ id: cobrancaNegociacoes.id })).map((r) => r.id);
+      const idsParcelas = (await tx.insert(cobrancaParcelas)
+        .values(trilha.negociacoes.flatMap((n, i) => n.parcelas.map((p) => ({ ...p, negociacaoId: idsNegociacoes[i] }))))
+        .returning({ id: cobrancaParcelas.id })).map((r) => r.id);
+      let primeiraParcela = 0;
+      trilha.negociacoes.forEach((n, i) => {
+        const parcelaIds = idsParcelas.slice(primeiraParcela, primeiraParcela + n.parcelas.length);
+        primeiraParcela += n.parcelas.length;
+        const r = eventosDaNegociacao(n, { negociacaoId: idsNegociacoes[i], parcelaIds });
+        mesclarNaTransicao(eventosDaCobranca, n.casoId, "negociacao_proposta", r.metadataDaProposta);
+        mesclarNaTransicao(eventosDaCobranca, n.casoId, "acordo_aceito", r.metadataDoAceite);
+        eventosDaCobranca.push(...r.eventos);
+      });
+    }
+    eventosDaCobranca.push(...trilha.eventos);
+
     await tx.insert(chatBullqConversas).values(linhasConversas);
-    await tx.insert(cobrancaEventos).values(eventosDaCobranca);
+    await inserirPorColunas(tx, cobrancaEventos, eventosDaCobranca);
 
     return {
       providerId: provider.id,

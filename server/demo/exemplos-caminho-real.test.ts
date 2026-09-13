@@ -24,6 +24,12 @@ const banco = vi.hoisted(() => ({
   linhas: new Map<string, Record<string, unknown>[]>(),
   proximoId: new Map<string, number>(),
   db: null as any,
+  /**
+   * Devolve `customers` na ordem INVERSA da inserção. Postgres não garante
+   * ordem num SELECT sem ORDER BY — na demo publicada o chip "limpo" caiu num
+   * cliente com ONU em comodato, que por inserção nunca seria o primeiro.
+   */
+  inverterClientes: false,
 }));
 
 vi.mock("../db", () => ({
@@ -38,7 +44,10 @@ import {
   cobrancaCasos, antiFraudAlerts,
   cobrancaPolitica, cobrancaEventos, equipmentRecoveryCases, equipmentRecoveryEvents,
   chatBullqIntegracoes, chatBullqConversas,
+  cobrancaNegociacoes, cobrancaParcelas, ispConsultations, spcConsultations, bigdataConsultations, antiFraudRules,
+  providerPartners, providerDocuments, erpSyncLogs, creditOrders,
 } from "@shared/schema";
+import { cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
 import { criarSandbox } from "./sandbox.service";
 import { semearMundoBase, PROVEDORES_DA_DEMO } from "./mundo-base";
 import { cpfsDeExemplo } from "./exemplos.service";
@@ -47,6 +56,7 @@ import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { buildConnectorConfig } from "../erp/config";
 import { getConnector } from "../erp/registry";
 import { detectMigrator } from "../services/migrator-detection.service";
+import { calcularScoreISP } from "../utils/isp-score";
 import { decryptField } from "../utils/crypto";
 // Efeito colateral: com DEMO_MODE=true (acima), registra o conector "demo" no registry.
 import "../erp/connectors/demo";
@@ -56,10 +66,15 @@ import "../erp/connectors/demo";
  * arquivos. As seis da segunda linha entraram com a semeadura de "todos os
  * recursos" (política com custos, recuperações, chat): este arquivo não as lê,
  * mas sem o mapa de colunas o INSERT delas estoura antes de o sandbox existir.
+ * A terceira e a quarta linhas são as da fiação da Leva 2 (fase B do P2):
+ * negociações, quitações, consultas e alertas, ficha do provedor — e as
+ * consultas cruzadas que `complementarMundoBase` grava na rede.
  */
 const TABELAS = [
   providers, users, customers, invoices, equipment, erpIntegrations, cobrancaCasos, antiFraudAlerts,
   cobrancaPolitica, cobrancaEventos, equipmentRecoveryCases, equipmentRecoveryEvents, chatBullqIntegracoes, chatBullqConversas,
+  cobrancaNegociacoes, cobrancaParcelas, cobrancaQuitacoes, ispConsultations, spcConsultations, bigdataConsultations, antiFraudRules,
+  providerPartners, providerDocuments, erpSyncLogs, creditOrders,
 ];
 const chavePorColuna = new Map(
   TABELAS.map((t) => [
@@ -129,19 +144,13 @@ function processarInsert(sqlTexto: string, params: unknown[]): { tabela: string;
   return { tabela, linhasCriadas };
 }
 
-function avaliarCondicoes(whereTexto: string, mapa: Map<string, string>, params: unknown[], linha: Record<string, unknown>): boolean {
-  if (whereTexto.trim() === "false") return false;
-  const igualdades = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g));
-  for (const c of igualdades) {
-    if (linha[mapa.get(c[1])!] !== params[Number(c[2]) - 1]) return false;
-  }
-  const listas = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" in \(([^)]*)\)/g));
-  for (const c of listas) {
-    const indices = c[2].split(", ").map((ref) => Number(ref.replace("$", "")) - 1);
-    const permitidos = indices.map((i) => params[i]);
-    if (!permitidos.includes(linha[mapa.get(c[1])!])) return false;
-  }
-  return true;
+/** Compilado uma vez por comando, e não a cada linha — ver a mesma função em `sandbox.service.test.ts`. */
+function compilarCondicoes(whereTexto: string, mapa: Map<string, string>, params: unknown[]): (linha: Record<string, unknown>) => boolean {
+  if (whereTexto.trim() === "false") return () => false;
+  const igualdades = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" = \$(\d+)/g), (c) => [mapa.get(c[1])!, params[Number(c[2]) - 1]] as const);
+  const listas = Array.from(whereTexto.matchAll(/"(?:\w+)"\."(\w+)" in \(([^)]*)\)/g), (c) =>
+    [mapa.get(c[1])!, new Set(c[2].split(", ").map((ref) => params[Number(ref.replace("$", "")) - 1]))] as const);
+  return (linha) => igualdades.every(([chave, valor]) => linha[chave] === valor) && listas.every(([chave, permitidos]) => permitidos.has(linha[chave]));
 }
 
 function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
@@ -151,13 +160,80 @@ function processarSelect(sqlTexto: string, params: unknown[]): unknown[][] {
   let linhas = banco.linhas.get(tabela) ?? [];
   if (whereTexto) {
     const mapa = chavePorColuna.get(tabela)!;
-    linhas = linhas.filter((linha) => avaliarCondicoes(whereTexto, mapa, params, linha));
+    linhas = linhas.filter(compilarCondicoes(whereTexto, mapa, params));
   }
+  if (tabela === "customers" && banco.inverterClientes) linhas = [...linhas].reverse();
   return projetar(tabela, linhas, textoDeColunas);
+}
+
+/**
+ * `update "t" set "a" = $1 where ...` só com valores simples — o de
+ * `tentarCriarSandbox` que zera a dívida de quem pagou nos últimos 30 dias.
+ * Mesma forma de `sandbox.service.test.ts`.
+ */
+function processarUpdate(sqlTexto: string, params: unknown[]): void {
+  const m = sqlTexto.match(/^update "(\w+)" set (.+?) where (.+)$/s);
+  if (!m) throw new Error(`UPDATE nao reconhecido: ${sqlTexto}`);
+  const [, tabela, textoDoSet, whereTexto] = m;
+  const mapa = chavePorColuna.get(tabela);
+  if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+  const atribuicoes = textoDoSet.split(", ").map((trecho) => {
+    const a = trecho.match(/^"(\w+)" = \$(\d+)$/);
+    if (!a || !mapa.get(a[1])) throw new Error(`SET nao reconhecido: ${trecho}`);
+    return [mapa.get(a[1])!, params[Number(a[2]) - 1]] as const;
+  });
+  const passa = compilarCondicoes(whereTexto, mapa, params);
+  for (const linha of banco.linhas.get(tabela) ?? []) {
+    if (!passa(linha)) continue;
+    for (const [chave, valor] of atribuicoes) linha[chave] = valor;
+  }
+}
+
+/**
+ * `insert into "t" (...) select * from unnest($1::tipo[], ...)` — a escrita por
+ * coluna de clientes e faturas (`inserirPorColunas`). Mesma forma de
+ * `sandbox.service.test.ts`; aqui o default de coluna fora da lista é nulo, como
+ * no INSERT deste arquivo.
+ */
+function processarInsertPorColunas(sqlTexto: string, params: unknown[]): void {
+  const m = sqlTexto.match(/^insert into "(\w+)" \(([^)]*)\) select \* from unnest\((.+)\)$/s);
+  if (!m) throw new Error(`INSERT por colunas nao reconhecido: ${sqlTexto}`);
+  const [, tabela, textoDeColunas, textoDasListas] = m;
+  const mapa = chavePorColuna.get(tabela);
+  if (!mapa) throw new Error(`Tabela sem mapa de colunas: ${tabela}`);
+  const chaves = textoDeColunas.split(", ").map((c) => {
+    const chave = mapa.get(c.replace(/"/g, ""));
+    if (!chave) throw new Error(`Coluna ${c} nao mapeada em "${tabela}"`);
+    return chave;
+  });
+  const listas = Array.from(textoDasListas.matchAll(/\$(\d+)::/g), (r) => params[Number(r[1]) - 1] as unknown[]);
+  if (listas.length !== chaves.length) throw new Error(`INSERT por colunas com ${chaves.length} colunas e ${listas.length} listas em "${tabela}"`);
+  const acumulado = banco.linhas.get(tabela) ?? [];
+  for (let i = 0; i < listas[0].length; i++) {
+    const linha: Record<string, unknown> = {};
+    for (const chave of mapa.values()) {
+      if (!chaves.includes(chave)) linha[chave] = chave === "id" ? proximoId(tabela) : null;
+    }
+    chaves.forEach((chave, j) => { linha[chave] = listas[j][i]; });
+    acumulado.push(linha);
+  }
+  banco.linhas.set(tabela, acumulado);
 }
 
 beforeAll(() => {
   const proxy = drizzle(async (sqlTexto: string, params: unknown[]) => {
+    if (/^insert into "\w+" \([^)]*\) select \* from unnest\(/.test(sqlTexto)) {
+      processarInsertPorColunas(sqlTexto, params);
+      return { rows: [] };
+    }
+    // O lock do complemento do mundo base (`complementarMundoBase`): aqui não há concorrência a travar.
+    if (sqlTexto.startsWith("select pg_advisory_xact_lock(")) {
+      return { rows: [] };
+    }
+    if (sqlTexto.startsWith("update ")) {
+      processarUpdate(sqlTexto, params);
+      return { rows: [] };
+    }
     if (sqlTexto.startsWith("insert into")) {
       const retorno = sqlTexto.match(/ returning (.+)$/s);
       const { tabela, linhasCriadas } = processarInsert(sqlTexto, params);
@@ -189,6 +265,100 @@ async function consultarNoProvedor(providerId: number, cpf: string) {
     cliente: achou ? resultado.customers[0] : null,
   };
 }
+
+/**
+ * A decisão que `POST /api/isp-consultations` tomaria com estes resultados: o
+ * MESMO recorte de `server/routes/consultas.routes.ts` (cliente do consultante
+ * -> `proprio`, os demais provedores -> `rede.ocorrencias`, `sugestaoIA` ->
+ * `decisionReco`) sobre o motor de score de verdade (`calcularScoreISP`). Fica
+ * de fora o que a rota lê de OUTRAS tabelas — sinal de recuperação validado,
+ * cruzamento de endereço, consultas recentes —, que este banco de mentira não
+ * semeia para o CPF limpo.
+ */
+function decisaoDaConsulta(consultante: number, resultados: Array<Awaited<ReturnType<typeof consultarNoProvedor>>>): string {
+  const achados = resultados.filter((r) => r.achou).map((r) => ({ ...r.cliente!, providerId: r.providerId }));
+  const proprio = achados.find((c) => c.providerId === consultante);
+  const rede = achados.filter((c) => c.providerId !== consultante);
+  const { sugestaoIA } = calcularScoreISP({
+    proprio: proprio
+      ? {
+          // `serviceAgeMonths || 0` na rota: o conector demo não devolve o campo.
+          mesesComoCliente: 0,
+          diasAtrasoAtual: proprio.maxDaysOverdue,
+          valorAtrasoAtual: proprio.totalOverdueAmount,
+          faturasAtrasadasTotal: proprio.overdueInvoicesCount || 0,
+          faturasTotal: 0,
+          equipamentosDevolvidos: proprio.hasUnreturnedEquipment === true ? false : undefined,
+          statusContrato: proprio.contractStatus === "cancelled"
+            ? "cancelado"
+            : proprio.contractStatus === "suspended" || proprio.maxDaysOverdue > 0
+              ? "suspenso"
+              : proprio.contractStatus === "active" ? "ativo" : "desconhecido",
+        }
+      : undefined,
+    rede: {
+      ocorrencias: rede.map((c) => ({
+        diasAtraso: c.maxDaysOverdue,
+        valorAtraso: c.totalOverdueAmount,
+        faturasAtraso: c.overdueInvoicesCount || 0,
+        statusContrato: c.contractStatus || "unknown",
+      })),
+      totalProvedores: new Set(rede.map((c) => c.providerId)).size,
+      consultasRecentes30d: 0,
+      consultasRecentes90d: 0,
+    },
+  });
+  return sugestaoIA === "APROVAR" ? "Accept" : sugestaoIA === "REJEITAR" ? "Reject" : "Review";
+}
+
+describe("o chip 'CPF limpo' sai Aprovar pela consulta real (rodada 2, 13/09/2026)", () => {
+  it("LIMPO sai decisionReco Accept — em qualquer ordem que o banco devolva a carteira", async () => {
+    const mundoBase = await semearMundoBase();
+    const sandbox = await criarSandbox();
+    const todosOsProvedores = [sandbox.providerId, ...mundoBase.provedores];
+    const escolhidos: string[] = [];
+    try {
+      for (const invertida of [false, true]) {
+        banco.inverterClientes = invertida;
+        const limpo = (await cpfsDeExemplo(sandbox.providerId)).find((e) => e.situacao === "limpo")!;
+        escolhidos.push(limpo.cpf);
+        const resultados = await Promise.all(todosOsProvedores.map((id) => consultarNoProvedor(id, limpo.cpf)));
+        expect(
+          decisaoDaConsulta(sandbox.providerId, resultados),
+          `${invertida ? "ordem invertida" : "ordem de insercao"}: ${JSON.stringify(resultados)}`,
+        ).toBe("Accept");
+      }
+    } finally {
+      banco.inverterClientes = false;
+    }
+
+    // A ordem invertida põe primeiro os últimos "em dia" — os que têm ONU em
+    // comodato. É exatamente o cliente que o conector acusava de não devolver
+    // equipamento; sem esta conferência o teste poderia passar sem exercitar o caso.
+    const cliente = (banco.linhas.get("customers") ?? []).find(
+      (c) => c.providerId === sandbox.providerId && c.cpfCnpj === escolhidos[1],
+    )!;
+    const aparelhos = (banco.linhas.get("equipment") ?? []).filter((e) => e.customerId === cliente.id);
+    expect(aparelhos.map((e) => e.status)).toEqual(["em_comodato"]);
+  }, 30_000);
+
+  it("LIMPO nunca é cliente com equipamento de retirada pendente (customers.equipment_count)", async () => {
+    await semearMundoBase();
+    const sandbox = await criarSandbox();
+    const antes = (await cpfsDeExemplo(sandbox.providerId)).find((e) => e.situacao === "limpo")!;
+    const linha = (banco.linhas.get("customers") ?? []).find(
+      (c) => c.providerId === sandbox.providerId && c.cpfCnpj === antes.cpf,
+    )!;
+
+    linha.equipmentCount = 1;
+    try {
+      const depois = (await cpfsDeExemplo(sandbox.providerId)).find((e) => e.situacao === "limpo")!;
+      expect(depois.cpf).not.toBe(antes.cpf);
+    } finally {
+      linha.equipmentCount = 0;
+    }
+  }, 30_000);
+});
 
 describe("os tres CPFs de exemplo entregam a historia prometida (item 1, verificacao pelo caminho real)", () => {
   it("LIMPO: cliente do proprio sandbox, sem divida em NENHUM provedor da rede", async () => {
