@@ -14,6 +14,8 @@ import { logger } from "../../logger";
 import { clienteZapSign, type DocumentoDoZapSign } from "../../assinatura/zapsign";
 import { LIMITE_DO_PDF_BYTES } from "../../assinatura/pdf";
 import { ErroDeConfissao } from "../../assinatura/erro";
+import { emModoDemo } from "../../demo/modo-demo";
+import { fetchDaAssinaturaSimulada, integracaoDaAssinaturaSimulada } from "../../demo/assinatura-simulada";
 import { registrarEventoDaConfissao, signatariosGravaveis } from "./confissao-emissao.service";
 import type { AmbienteDeAssinatura, SignatarioDaConfissao, StatusDeConfissao } from "@shared/cobranca/confissao";
 import type { CobrancaConfissao } from "@shared/schema";
@@ -38,9 +40,12 @@ function papeisDe(confissao: CobrancaConfissao): Map<string, "cliente" | "proved
 }
 
 async function zapDaLinha(providerId: number, confissao: CobrancaConfissao) {
-  const cred = await storage.getIntegracaoComCredencial(providerId);
+  // Na demonstração: a conta simulada e o `fetch` local (server/demo/assinatura-simulada.ts) — o cancelar
+  // e a reconciliação do worker reconsultam sem sair do processo e sem ler assinatura_integracoes.
+  const demo = emModoDemo();
+  const cred = demo ? integracaoDaAssinaturaSimulada(providerId) : await storage.getIntegracaoComCredencial(providerId);
   if (!cred) throw new ErroDeConfissao("NAO_CONFIGURADA", "A integração com o ZapSign não está configurada para este provedor", 409);
-  return { zap: clienteZapSign({ apiToken: cred.apiToken, ambiente: confissao.ambiente as AmbienteDeAssinatura }), cred };
+  return { zap: clienteZapSign({ apiToken: cred.apiToken, ambiente: confissao.ambiente as AmbienteDeAssinatura, ...(demo ? { fetchImpl: fetchDaAssinaturaSimulada } : {}) }), cred };
 }
 
 async function reconsultar(providerId: number, confissao: CobrancaConfissao): Promise<DocumentoDoZapSign> {

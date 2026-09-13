@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * A base é a parte que decide o que se confessa. O que se prova: acordo usa só
@@ -23,6 +23,8 @@ vi.mock("../chat/chat-ponte.service", () => ({ estadoDaIntegracao: vi.fn(async (
 vi.mock("../../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { estadoDaAssinatura, hashDaBase, montarBase } from "./confissao-base.service";
+import { integracaoDaAssinaturaSimulada } from "../../demo/assinatura-simulada";
+import { AUTH_MODE_PADRAO, AVISO_SANDBOX } from "@shared/cobranca/confissao";
 
 const HOJE = new Date(2026, 8, 10, 10, 0); // 10/09/2026
 function cliente(extra: Record<string, unknown> = {}) {
@@ -220,5 +222,36 @@ describe("estado da assinatura", () => {
     expect(e.custo?.creditos).toBe(5);
     storageMock.getIntegracaoComCredencial.mockResolvedValueOnce(undefined);
     expect(await estadoDaAssinatura(1)).toMatchObject({ configurada: false, ativa: false, motivo: expect.stringContaining("superadmin") });
+  });
+});
+
+describe("demonstração pública (DEMO_MODE)", () => {
+  const original = process.env.DEMO_MODE;
+  afterEach(() => { if (original === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = original; });
+
+  it("o estado vem da conta simulada — configurada, ativa, sandbox, sem chat — sem ler assinatura_integracoes", async () => {
+    process.env.DEMO_MODE = "true";
+    const e = await estadoDaAssinatura(1);
+    expect(e).toMatchObject({ configurada: true, ativa: true, ambiente: "sandbox", modelo: "padrao", modeloRevisado: false, provedorAssina: false, authMode: AUTH_MODE_PADRAO, prazoAssinaturaDias: 15, chatDisponivel: false, motivo: null });
+    expect(e.custo).toMatchObject({ creditos: 0, reais: 0, texto: expect.stringContaining("ambiente de testes") });
+    expect(storageMock.getIntegracaoComCredencial).not.toHaveBeenCalled();
+  });
+  it("a base usa a conta simulada: sem bloqueio de configuração, em sandbox e com o aviso de TESTE no texto", async () => {
+    process.env.DEMO_MODE = "true";
+    // O sandbox do visitante não tem linha na tabela — e mesmo que tivesse, a demonstração não a lê.
+    storageMock.getIntegracaoComCredencial.mockResolvedValue(undefined);
+    const b = await montarBase(1, 42, { hoje: HOJE });
+    expect(b.dto.bloqueios).toEqual([]);
+    expect(b.dto.ambiente).toBe("sandbox");
+    expect(b.integracao).toEqual(integracaoDaAssinaturaSimulada(1));
+    expect(b.dto.previa).toMatchObject({ modelo: "padrao", texto: expect.stringContaining(AVISO_SANDBOX) });
+    expect(storageMock.getIntegracaoComCredencial).not.toHaveBeenCalled();
+  });
+  it("fora da demonstração nada muda: lê a tabela e, sem linha, é não configurada", async () => {
+    delete process.env.DEMO_MODE;
+    storageMock.getIntegracaoComCredencial.mockResolvedValue(undefined);
+    expect(await estadoDaAssinatura(1)).toMatchObject({ configurada: false, ativa: false, ambiente: null });
+    expect((await montarBase(1, 42, { hoje: HOJE })).dto.bloqueios).toContain("assinatura eletrônica não configurada — o superadmin cadastra o ZapSign do provedor");
+    expect(storageMock.getIntegracaoComCredencial).toHaveBeenCalledTimes(2);
   });
 });

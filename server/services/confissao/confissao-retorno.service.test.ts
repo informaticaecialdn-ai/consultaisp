@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * O retorno é UMA função para webhook, worker e cancelar: reconsulta o ZapSign
@@ -34,6 +34,7 @@ vi.mock("../../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: 
 
 import { aplicarRetorno, cancelarConfissao, expirarSeVencida, reenviarNotificacoes, registrarInformadoPeloWebhook, _reiniciarJanelasParaTestes, _tamanhoDaJanelaDeReenvioParaTestes } from "./confissao-retorno.service";
 import { ErroDeConfissao } from "../../assinatura/erro";
+import { fetchDaAssinaturaSimulada, integracaoDaAssinaturaSimulada } from "../../demo/assinatura-simulada";
 
 function confissao(extra: Record<string, any> = {}) {
   return { id: 77, providerId: 1, customerId: 42, casoId: 9, status: "enviada", ambiente: "producao", valorTotal: "819.76", zapsignDocToken: "doc-1", webhookZapsignId: "w-1",
@@ -209,5 +210,45 @@ describe("informado pelo webhook, cancelar, reenviar, expirar", () => {
     zap.detalharDocumento.mockResolvedValueOnce(detalhe({ status: "signed", signed_file: null }));
     expect(await expirarSeVencida(1, 77, "2026-09-26")).toBe(false);
     expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
+  });
+});
+
+describe("demonstração pública (DEMO_MODE)", () => {
+  const original = process.env.DEMO_MODE;
+  let rede: ReturnType<typeof vi.spyOn>;
+  let real: typeof import("../../assinatura/zapsign");
+  beforeEach(async () => {
+    process.env.DEMO_MODE = "true";
+    real = await vi.importActual<typeof import("../../assinatura/zapsign")>("../../assinatura/zapsign");
+    // O cliente REAL do ZapSign: o que se prova é que o serviço lhe entrega o fetch simulado.
+    clienteZapSignMock.mockImplementation(((config: any) => real.clienteZapSign(config)) as any);
+    rede = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("a demonstração não pode sair para a rede"));
+  });
+  afterEach(() => {
+    rede.mockRestore();
+    clienteZapSignMock.mockImplementation(() => zap);
+    if (original === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = original;
+  });
+  const documentoDaDemo = () => real.clienteZapSign({ apiToken: "x", ambiente: "sandbox", fetchImpl: fetchDaAssinaturaSimulada }).criarDocumentoPorPdf({
+    name: "Confissão de dívida", base64_pdf: "JVBERi0=", signers: [{ name: "Rosana", auth_mode: "assinaturaTela-tokenWhatsapp", external_id: "cliente" }], lang: "pt-br",
+    external_id: "confissao:77", folder_path: "consulta-isp/1", date_limit_to_sign: "2026-09-25", reminder_every_n_days: 3, allow_refuse_signature: true, signature_order_active: false,
+  });
+
+  it("cancelar funciona sem rede e sem ler assinatura_integracoes: reconsulta e apaga no simulado", async () => {
+    const doc = await documentoDaDemo();
+    storageMock.obterConfissao.mockResolvedValue(confissao({ ambiente: "sandbox", zapsignDocToken: doc.token, webhookZapsignId: `demo-webhook-${doc.token}` }));
+    const c = await cancelarConfissao(1, 77, 7, { permitirSemDocumentoNoZapSign: true });
+    expect(c.status).toBe("cancelada");
+    expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 77, "enviada", "cancelada", expect.objectContaining({ encerradaEm: expect.any(Date) }));
+    expect(storageMock.getIntegracaoComCredencial).not.toHaveBeenCalled();
+    expect(clienteZapSignMock).toHaveBeenCalledWith({ apiToken: integracaoDaAssinaturaSimulada(1).apiToken, ambiente: "sandbox", fetchImpl: fetchDaAssinaturaSimulada });
+    expect(rede).not.toHaveBeenCalled();
+  });
+  it("uma linha de produção nunca vira título na demonstração: o simulado responde sandbox e o retorno não aplica", async () => {
+    const doc = await documentoDaDemo();
+    storageMock.obterConfissao.mockResolvedValue(confissao({ ambiente: "producao", zapsignDocToken: doc.token }));
+    expect(await aplicarRetorno(1, 77, "webhook")).toMatchObject({ status: "enviada", mudou: false, motivo: "ambiente divergente" });
+    expect(storageMock.transicionarConfissao).not.toHaveBeenCalled();
+    expect(rede).not.toHaveBeenCalled();
   });
 });

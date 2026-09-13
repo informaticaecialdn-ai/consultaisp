@@ -18,6 +18,8 @@ import { comTravaDoChat } from "../chat/chat-trava";
 import { clienteZapSign, type ClienteZapSign, type SignatarioParaCriar } from "../../assinatura/zapsign";
 import { gerarPdfDaConfissao } from "../../assinatura/pdf";
 import { ErroDeConfissao } from "../../assinatura/erro";
+import { emModoDemo } from "../../demo/modo-demo";
+import { fetchDaAssinaturaSimulada } from "../../demo/assinatura-simulada";
 import { montarBase } from "./confissao-base.service";
 import { renderizarConfissao, variaveisDoModeloZapSign, VERSAO_DO_MODELO, type Representante } from "@shared/cobranca/confissao-modelo";
 import { LEMBRETE_A_CADA_DIAS, type OrigemDaConfissao, type SignatarioDaConfissao, type StatusDeConfissao, type StatusDoSignatario } from "@shared/cobranca/confissao";
@@ -181,7 +183,8 @@ export async function emitirConfissao(providerId: number, customerId: number, us
     });
     if (pdf) await storage.guardarPdf(providerId, rascunho.id, "original", pdf);
 
-    const zap: ClienteZapSign = clienteZapSign({ apiToken: integracao.apiToken, ambiente });
+    // Na demonstração, o cliente REAL com o `fetch` local da assinatura simulada: nenhum pedido sai para o ZapSign.
+    const zap: ClienteZapSign = clienteZapSign({ apiToken: integracao.apiToken, ambiente, ...(emModoDemo() ? { fetchImpl: fetchDaAssinaturaSimulada } : {}) });
 
     let docToken: string | null = null;
     let webhookId: string | null = null;

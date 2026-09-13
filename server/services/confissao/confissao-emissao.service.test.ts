@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Emitir é a única escrita que fala com o ZapSign para CRIAR. O que se prova:
@@ -36,13 +36,15 @@ const zapsign = vi.hoisted(() => ({
   excluirDocumento: vi.fn(async (): Promise<void> => undefined),
   excluirWebhook: vi.fn(async (): Promise<void> => undefined),
 }));
-vi.mock("../../assinatura/zapsign", () => ({ clienteZapSign: () => zapsign }));
+const clienteZapSignMock = vi.hoisted(() => vi.fn((_config: { apiToken: string; ambiente: string; fetchImpl?: typeof fetch }): any => zapsign));
+vi.mock("../../assinatura/zapsign", () => ({ clienteZapSign: clienteZapSignMock }));
 vi.mock("../../assinatura/pdf", () => ({ gerarPdfDaConfissao: vi.fn(async () => Buffer.from("%PDF-1.4 x")) }));
 const loggerMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
 vi.mock("../../logger", () => ({ logger: loggerMock }));
 
 import { CABECALHO_DO_WEBHOOK, emitirConfissao, urlDoWebhookDeAssinatura } from "./confissao-emissao.service";
 import { ErroDeConfissao } from "../../assinatura/erro";
+import { fetchDaAssinaturaSimulada, integracaoDaAssinaturaSimulada } from "../../demo/assinatura-simulada";
 
 function base(extra: Record<string, any> = {}) {
   const canonica = { versao: "1.0", origem: "saldo_integral", ambiente: "producao", modeloRevisado: false,
@@ -204,5 +206,37 @@ describe("emitir a confissão", () => {
     await emitirConfissao(1, 42, 7, corpo());
     expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 61, "rascunho", "cancelada", expect.objectContaining({ chaveIdempotencia: null, erroUltimo: "emissão interrompida antes do envio" }));
     expect(storageMock.criarConfissao).toHaveBeenCalled();
+  });
+});
+
+describe("demonstração pública (DEMO_MODE)", () => {
+  const original = process.env.DEMO_MODE;
+  afterEach(() => { if (original === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = original; });
+  const baseDaDemo = () => base({ dto: { ...base().dto, ambiente: "sandbox" }, integracao: integracaoDaAssinaturaSimulada(1), canonica: { ...base().canonica, ambiente: "sandbox" } });
+
+  it("fora da demonstração o cliente do ZapSign é o de sempre, sem fetch local", async () => {
+    delete process.env.DEMO_MODE;
+    await emitirConfissao(1, 42, 7, corpo());
+    expect(clienteZapSignMock).toHaveBeenCalledWith({ apiToken: "tok", ambiente: "producao" });
+  });
+  it("na demonstração o cliente REAL fala com o fetch simulado: a emissão chega a enviada, em sandbox, sem nenhum pedido de rede", async () => {
+    process.env.DEMO_MODE = "true";
+    const rede = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("a demonstração não pode sair para a rede"));
+    try {
+      const real = await vi.importActual<typeof import("../../assinatura/zapsign")>("../../assinatura/zapsign");
+      clienteZapSignMock.mockImplementationOnce(config => real.clienteZapSign(config as Parameters<typeof real.clienteZapSign>[0]));
+      baseMock.montarBase.mockResolvedValueOnce(baseDaDemo());
+      const r = await emitirConfissao(1, 42, 7, { ...corpo(), confirmoTeste: true });
+      expect(r.status).toBe("enviada");
+      expect(clienteZapSignMock.mock.calls[0][0]).toMatchObject({ ambiente: "sandbox", fetchImpl: fetchDaAssinaturaSimulada });
+      expect(storageMock.transicionarConfissao).toHaveBeenCalledWith(1, 77, "rascunho", "enviada", expect.objectContaining({
+        zapsignDocToken: expect.stringMatching(/^demo-/), webhookZapsignId: expect.stringMatching(/^demo-/), zapsignSandbox: true,
+        zapsignSigners: [{ papel: "cliente", token: expect.stringMatching(/^demo-/), signUrl: null, status: "new", signedAt: null, authMode: "assinaturaTela-tokenWhatsapp" }],
+      }));
+      expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledWith(1, expect.objectContaining({ notas: expect.stringContaining("TESTE, sem validade jurídica") }));
+      expect(rede).not.toHaveBeenCalled();
+    } finally {
+      rede.mockRestore();
+    }
   });
 });

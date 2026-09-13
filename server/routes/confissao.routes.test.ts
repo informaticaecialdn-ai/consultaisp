@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import type { Server } from "node:http";
 
@@ -15,7 +15,11 @@ const storageMock = vi.hoisted(() => ({
   obterPdf: vi.fn(async (): Promise<any> => undefined),
   marcarModeloRevisado: vi.fn(async (): Promise<void> => undefined),
   getUsersByProvider: vi.fn(async (): Promise<any[]> => [{ id: 7, name: "Ana Admin" }]),
+  getIntegracaoComCredencial: vi.fn(async (): Promise<any> => undefined),
 }));
+// Só alcançados pelo `estadoDaAssinatura` REAL do bloco da demonstração (os demais testes dublam o serviço inteiro).
+vi.mock("../services/chat/chat-ponte.service", () => ({ estadoDaIntegracao: vi.fn(async () => null) }));
+vi.mock("../services/cobranca/snapshot-ao-vivo.service", () => ({ snapshotAoVivoDoCliente: vi.fn(async () => null) }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 const HASH = "a".repeat(64);
 const servicos = vi.hoisted(() => ({
@@ -170,5 +174,28 @@ describe("cancelar, reenviar, PDF, estado, modelo", () => {
     expect(servicos.estadoDaAssinatura).toHaveBeenCalledWith(42);
     expect((await json("PUT", "/api/cobranca/confissoes/modelo/revisado")).status).toBe(200);
     expect(storageMock.marcarModeloRevisado).toHaveBeenCalledWith(42, 7);
+  });
+});
+
+describe("demonstração pública (DEMO_MODE)", () => {
+  const original = process.env.DEMO_MODE;
+  afterEach(() => { if (original === undefined) delete process.env.DEMO_MODE; else process.env.DEMO_MODE = original; });
+
+  it("GET estado com DEMO ligado: configurada e ativa em sandbox, sem ler assinatura_integracoes; desligado: o de hoje, não configurada", async () => {
+    // O serviço REAL atrás da rota — é ele que decide pela demonstração, não a rota.
+    const real = await vi.importActual<typeof import("../services/confissao/confissao-base.service")>("../services/confissao/confissao-base.service");
+    const estadoReal = ((providerId: number) => real.estadoDaAssinatura(providerId)) as any;
+    servicos.estadoDaAssinatura.mockImplementationOnce(estadoReal).mockImplementationOnce(estadoReal);
+    sessao = OPERADOR;
+
+    process.env.DEMO_MODE = "true";
+    const demo = await json("GET", "/api/cobranca/confissoes/estado");
+    expect(demo.status).toBe(200);
+    expect(await demo.json()).toMatchObject({ configurada: true, ativa: true, ambiente: "sandbox", modelo: "padrao", provedorAssina: false, chatDisponivel: false, motivo: null, custo: { reais: 0, creditos: 0 } });
+    expect(storageMock.getIntegracaoComCredencial).not.toHaveBeenCalled();
+
+    delete process.env.DEMO_MODE;
+    expect(await (await json("GET", "/api/cobranca/confissoes/estado")).json()).toMatchObject({ configurada: false, ativa: false, ambiente: null, custo: null, motivo: expect.stringContaining("não configurada") });
+    expect(storageMock.getIntegracaoComCredencial).toHaveBeenCalledWith(42);
   });
 });

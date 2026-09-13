@@ -22,6 +22,8 @@ import { snapshotAoVivoDoCliente, type SnapshotAoVivo } from "../cobranca/snapsh
 import { carteiraDoStatusErp } from "../../storage/cobranca.storage";
 import { estadoDaIntegracao } from "../chat/chat-ponte.service";
 import { ErroDeConfissao } from "../../assinatura/erro";
+import { emModoDemo } from "../../demo/modo-demo";
+import { integracaoDaAssinaturaSimulada } from "../../demo/assinatura-simulada";
 import { parcelasDaDescricao } from "@shared/cobranca/multa";
 import { POLITICA_PADRAO, ROTULO_ORIGEM_DA_COBRANCA, prescricaoPorAtraso, validarPolitica, valorAtualizado, type Encargos, type Politica } from "@shared/cobranca";
 import {
@@ -142,7 +144,9 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
 
   let integracao: IntegracaoComCredencial | null = null;
   try {
-    integracao = (await storage.getIntegracaoComCredencial(providerId)) ?? null;
+    // Na demonstração pública a conta é a simulada, sempre sandbox (server/demo/assinatura-simulada.ts):
+    // o sandbox do visitante não tem linha em assinatura_integracoes, e sem conta nenhum cliente emitiria.
+    integracao = emModoDemo() ? integracaoDaAssinaturaSimulada(providerId) : (await storage.getIntegracaoComCredencial(providerId)) ?? null;
   } catch (e) {
     if (e instanceof ErroDeConfissao) bloqueios.push(e.message);
     else throw e;
@@ -312,7 +316,8 @@ export async function estadoDaAssinatura(providerId: number): Promise<EstadoDaAs
   let integracao: IntegracaoComCredencial | null = null;
   let motivo: string | null = null;
   try {
-    integracao = (await storage.getIntegracaoComCredencial(providerId)) ?? null;
+    // A mesma conta simulada de `montarBase`: na demonstração o 360 e a aba Integração leem "ativa, sandbox".
+    integracao = emModoDemo() ? integracaoDaAssinaturaSimulada(providerId) : (await storage.getIntegracaoComCredencial(providerId)) ?? null;
   } catch (e) {
     if (e instanceof ErroDeConfissao) motivo = e.message;
     else throw e;
