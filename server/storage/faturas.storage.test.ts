@@ -254,6 +254,9 @@ function responderResumo(o: {
   base?: (string | number | null)[];
 }) {
   banco.responder = (sqlTexto) => {
+    // A das faturas vem primeiro pelo INICIO: ela tambem cita `from "customers"`,
+    // na subconsulta que recorta o cliente atual.
+    if (sqlTexto.startsWith("select coalesce(sum(")) return [o.faturas ?? ["0", "0", "0", "0", "0", "0", "0"]];
     if (sqlTexto.includes('from "customers"')) return [o.clientes ?? ["0", "0", "0"]];
     if (sqlTexto.includes("max(")) return [o.base ?? ["0", null]];
     return [o.faturas ?? ["0", "0", "0", "0", "0", "0", "0"]];
@@ -309,6 +312,25 @@ describe("resumoDoMes", () => {
     expect(clientes.sql).toContain("not exists (");
     // A base: alguma fatura do ERP (erp_source nao nulo) deste provedor.
     expect(base.sql).toContain('"invoices"."erp_source" is not null');
+  });
+
+  // Auditoria da demo, 12/09/2026: a rota /carteira/mes so aceita a carteira de
+  // ATIVOS, mas as somas saiam de TODA fatura do mes. A fatura paga de um
+  // cliente `cancelled` entrava no "Pagou o mes" (ago/26: R$ 16.373,75 de 25
+  // saidas), enquanto as contagens de clientes ja olhavam so ativo/suspenso.
+  // Os valores tem de ser da MESMA populacao das contagens — senao o card
+  // soma dinheiro de quem a lista ao lado nem mostra.
+  it("os valores sao so das faturas de cliente ATUAL — fatura paga de cancelado nao entra no recebido", async () => {
+    responderResumo({ base: ["1", null] });
+    await storage.resumoDoMes(PROVEDOR, "2026-09", HOJE);
+    const [faturas] = banco.consultas;
+    // A fatura so conta se o cliente dela e deste provedor e esta ativo/suspenso.
+    expect(faturas.sql).toMatch(/"invoices"\."customer_id" in \(select "id" from "customers" where \("customers"\."provider_id" = \$\d+ and "customers"\."status" in \(\$\d+, \$\d+\)\)\)/);
+    expect(faturas.params).toEqual(expect.arrayContaining(["active", "suspended"]));
+    expect(faturas.params).not.toContain("cancelled");
+    // O provider_id da subconsulta tambem aponta para o provedor.
+    expect(Array.from(faturas.sql.matchAll(/"provider_id" = \$(\d+)/g)).length).toBeGreaterThanOrEqual(2);
+    conferirTenant(faturas);
   });
 });
 

@@ -20,6 +20,12 @@ import { PADRAO_DE_COBRANCA_DE_SAIDA, PADRAO_DE_LEITURA_DE_FATURAS, somarCobranc
  *                    (`baixada_no_erp`) — pagamento provavel, sem prova
  *   faturado       = tudo do universo
  *
+ * No `resumoDoMes`, que so atende a carteira de ATIVOS, o universo ainda e
+ * recortado pelo cliente ATUAL (active/suspended no momento da leitura): todas
+ * as somas acima valem so para fatura de quem e cliente hoje. Isso vale para
+ * mes passado tambem — quem pagou julho e cancelou em setembro sai de julho.
+ * Ver a AIDEV-QUESTION em `resumoDoMes`.
+ *
  * Regra do dono (memoria "integridade do dado"): so dado real e verificavel,
  * nunca zero enganoso. Sem fatura vinda do ERP o resumo diz `base: false`, e
  * a tela mostra "—", nao "R$ 0".
@@ -711,6 +717,32 @@ export class FaturasStorage {
     const soma = (cond: SQL) => sql<number>`coalesce(sum(${invoices.value}) filter (where ${cond}), 0)`.mapWith(Number);
     const conta = (cond: SQL) => sql<number>`count(*) filter (where ${cond})`.mapWith(Number);
 
+    // Os valores saem da MESMA populacao das contagens de clientes abaixo: so
+    // fatura de cliente ATUAL (ativo/suspenso). A rota /carteira/mes e da
+    // carteira de ativos; sem este recorte, a fatura paga de quem cancelou
+    // entrava no "Pagou o mes" e no faturado (auditoria da demo, 12/09/2026:
+    // ago/26 somava R$ 16.373,75 de 25 saidas pagas). O ex-cliente tem a
+    // carteira dele.
+    //
+    // AIDEV-QUESTION: o recorte olha o status de HOJE, e a tela deixa escolher
+    // qualquer mes (seletor da carteira; MesQuerySchema aceita qualquer AAAA-MM).
+    // Com isso faturado, recebido e em conciliacao de um mes passado encolhem
+    // conforme a base cancela: a fatura de julho paga por quem cancelou em
+    // setembro some de julho, e como so a carteira de ativos tem visao mensal,
+    // essa receita nao aparece em mes nenhum. A carteira de um mes passado deve
+    // ser a populacao de hoje (e a tela dizer "clientes atuais") ou a daquele
+    // mes? A segunda usaria `customers.cortado_em` ("quando o contrato passou ao
+    // status atual"): conta quem hoje nao e atual mas mudou de status depois do
+    // fim do mes. So que essa data vem do ERP e pode ser nula. Decisao do dono;
+    // ficou o recorte de hoje, que ao menos bate com as contagens ao lado.
+    const doClienteAtual = inArray(
+      invoices.customerId,
+      db.select({ id: customers.id }).from(customers).where(and(
+        eq(customers.providerId, providerId),
+        inArray(customers.status, [...STATUS_DE_CLIENTE_ATUAL]),
+      )),
+    );
+
     const [f] = await db.select({
       faturado: sql<number>`coalesce(sum(${invoices.value}), 0)`.mapWith(Number),
       recebido: soma(and(inArray(invoices.status, [...STATUS_FATURA_PAGA]), isNotNull(invoices.paidDate))!),
@@ -726,6 +758,7 @@ export class FaturasStorage {
         gte(invoices.dueDate, ts(de)),
         lt(invoices.dueDate, ts(ate)),
         inArray(invoices.status, UNIVERSO_DO_MES),
+        doClienteAtual,
       ));
 
     // Cliente ATUAL contra as faturas dele no mes. Tres grupos que se somam
