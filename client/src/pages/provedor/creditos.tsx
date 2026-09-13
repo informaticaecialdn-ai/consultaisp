@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -42,6 +42,12 @@ const STATUS: Record<string, { rotulo: string; tom: Tone; Icone: any }> = {
   cancelled: { rotulo: "cancelado",            tom: "neutral", Icone: XCircle },
   overdue:   { rotulo: "vencido",              tom: "danger",  Icone: XCircle },
 };
+
+/** Pedido que ainda pode virar credito — a mesma regra da faixa "aguardando" da tela. */
+const aguardaPagamento = (o: any) => o.status === "pending" || o.status === "overdue";
+
+/** Enquanto houver pedido aguardando, de quanto em quanto tempo os pedidos sao relidos. */
+const RELEITURA_DOS_PEDIDOS_MS = 15_000;
 
 const brl = (v: number | string) =>
   Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -137,16 +143,26 @@ function Modal({ titulo, sub, onClose, children, testId }: {
 }
 
 export default function CreditosPage() {
-  const { provider } = useAuth();
+  const { provider, recarregar } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
+
+  // O saldo vem da sessao, e a sessao era a do login: quem consultava em outra
+  // tela e abria esta via o numero de antes do debito. Reler ao abrir a tela
+  // cobre isso sem que cada tela de consulta precise lembrar de avisar. O
+  // pagamento que compensa com a tela JA aberta e o efeito dos pedidos, abaixo.
+  useEffect(() => { recarregar(); }, [recarregar]);
 
   const [pacoteEscolhido, setPacoteEscolhido] = useState<PacoteDeCredito | null>(null);
   const [modalPagar, setModalPagar] = useState<{ order: any; charge: any } | null>(null);
   const [modalPix, setModalPix] = useState<{ pixData: any } | null>(null);
 
+  // O pedido nasce `pending` e o credito so entra pelo webhook do Asaas, que
+  // esta tela nao ouve. Enquanto ha pedido aguardando, os pedidos sao relidos;
+  // sem pendente, nada fica batendo no servidor.
   const { data: orders = [], isLoading: carregandoPedidos } = useQuery<any[]>({
     queryKey: ["/api/credits/orders"],
+    refetchInterval: (q) => (q.state.data ?? []).some(aguardaPagamento) ? RELEITURA_DOS_PEDIDOS_MS : false,
   });
 
   const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
@@ -160,7 +176,9 @@ export default function CreditosPage() {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["/api/credits/orders"] });
-      qc.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      // Era `invalidateQueries(["/api/auth/me"])`, que nao atingia nada: a
+      // sessao nao mora no React Query.
+      recarregar();
       setPacoteEscolhido(null);
       setModalPagar(data);
       toast({ title: "Pedido criado" });
@@ -181,7 +199,19 @@ export default function CreditosPage() {
   // O saldo é UM só. Somar isp + spc era o resto do modelo de três bolsos e
   // mostrava um número que nenhuma consulta debitava por inteiro.
   const saldo = provider?.ispCredits ?? 0;
-  const pendentes = orders.filter(o => o.status === "pending" || o.status === "overdue");
+  const pendentes = orders.filter(aguardaPagamento);
+
+  // Pedido que deixou de aguardar (o webhook liberou o credito, ou a cobranca
+  // foi cancelada) pode ter mudado o saldo: a sessao e relida. Sem isto quem
+  // pagava o PIX com a tela aberta via "créditos liberados" no historico e o
+  // saldo antigo no topo ate sair e voltar.
+  const aguardandoAntes = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const aguardando = new Set<number>(pendentes.map(o => o.id));
+    const saiuDaFila = Array.from(aguardandoAntes.current).some(id => !aguardando.has(id));
+    aguardandoAntes.current = aguardando;
+    if (saiuDaFila) recarregar();
+  }, [orders, recarregar]);
 
   /** Quantas consultas de cada tipo o saldo ainda paga. */
   const rende = (custo: number) => Math.floor(saldo / custo);

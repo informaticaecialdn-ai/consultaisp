@@ -369,7 +369,11 @@ function formatFileSize(bytes: number) {
 
 export default function PainelProvedorPage() {
   const marca = useMarca();
-  const { user, provider, personificando, demoMode } = useAuth();
+  const { user, provider, personificando, demoMode, recarregar } = useAuth();
+  // O saldo do cabecalho e da aba de creditos sai da sessao, que so era lida na
+  // montagem da aplicacao: quem consultava (a consulta debita no servidor) e
+  // abria o painel via o saldo do login. Mesmo conserto de /creditos.
+  useEffect(() => { recarregar(); }, [recarregar]);
   const { toast } = useToast();
   const qc = useQueryClient();
   const [location, navigate] = useLocation();
@@ -547,7 +551,9 @@ export default function PainelProvedorPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/provider/profile"] });
-      qc.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      // Era `invalidateQueries(["/api/auth/me"])`, que nao atingia nada: a
+      // sessao nao mora no React Query.
+      recarregar();
       setEmpresa(null);
       toast({ title: "Dados salvos", description: "Informacoes da empresa atualizadas com sucesso." });
     },

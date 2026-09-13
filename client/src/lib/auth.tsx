@@ -82,6 +82,16 @@ interface AuthState {
   register: (data: { email: string; password: string; name: string; phone?: string; responsavelCpf: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => Promise<{ needsVerification: boolean; email: string }>;
   logout: () => Promise<void>;
   clearMustChangePassword: () => void;
+  /**
+   * Rele `GET /api/auth/me` e troca a sessao guardada pela de agora.
+   *
+   * Existe porque a sessao so era lida na montagem, e nela vive o que o
+   * servidor muda sem a tela saber — o saldo em `provider.ispCredits` cai a
+   * cada consulta e sobe quando um pagamento compensa. `invalidateQueries(
+   * ["/api/auth/me"])` nao serve: este provider nao usa React Query, entao
+   * nao ha query com essa chave para invalidar. Quem mostra o saldo chama isto.
+   */
+  recarregar: () => Promise<void>;
 }
 
 /**
@@ -226,7 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearMustChangePassword = () => setMustChangePassword(false);
 
   return (
-    <AuthContext.Provider value={{ user, provider, marca, partnerCode, personificando, mustChangePassword, demoMode, isLoading, login, register, logout, clearMustChangePassword }}>
+    <AuthContext.Provider value={{ user, provider, marca, partnerCode, personificando, mustChangePassword, demoMode, isLoading, login, register, logout, clearMustChangePassword, recarregar: checkAuth }}>
       {children}
     </AuthContext.Provider>
   );
