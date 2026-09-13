@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Search, MapPin, FileText, Building2, ChevronDown, ChevronUp, Shield, Lock } from "lucide-react";
 import type { CepData } from "./types";
 import { getDetectedType } from "./utils";
@@ -114,42 +114,57 @@ export default function ConsultaSearchBar({
   const [installComplement, setInstallComplement] = useState("");
 
   const detectedType = getDetectedType(query);
+  /** 8 digitos sem endereco buscado: o botao principal busca o CEP em vez de consultar. */
+  const cepAPedir = query.replace(/\D/g, "").length === 8 && !cepData;
 
-  // Digitar um CPF de 11 digitos passa por 8 digitos no meio do caminho, o que dispara
-  // esta busca de CEP. Sem o guard de cancelamento a resposta tardia chegava depois do
-  // else ter limpado o estado e reescrevia "CEP nao encontrado" — a tela mostrava
-  // "CPF detectado" e o erro de CEP ao mesmo tempo.
+  // LGPD: o ViaCEP e um terceiro, e este campo tambem recebe CPF e CNPJ. Os 8
+  // digitos por que ele passa no meio de um documento sao os 8 primeiros do CPF
+  // ou a raiz do CNPJ. Buscar sozinho — no instante dos 8 digitos, ou depois de
+  // uma pausa neles — entregava esse pedaco a quem nao tem base legal para
+  // recebe-lo, e nenhuma espera fecha isso: quem digita lendo o papel leva mais
+  // de meio segundo entre teclas, quem corrige o fim de um CPF apaga ate 8 e
+  // para para conferir, e o CNPJ formatado para na "/" com a raiz no campo. So
+  // quem opera sabe que os 8 digitos sao um CEP, entao o endereco so e buscado
+  // quando a pessoa pede: "Buscar CEP" (o botao principal) ou Enter.
+  // AIDEV-QUESTION: isto troca o fluxo antigo (digitar o CEP e o painel abrir
+  // sozinho) por um clique a mais. Se o produto quiser a abertura automatica de
+  // volta, ela precisa de um sinal que um documento nao da — por exemplo so o
+  // CEP digitado com hifen ("86200-000") —, nunca de tempo de espera.
+  //
+  // Qualquer mudanca no campo invalida o endereco buscado e descarta a resposta
+  // que ainda nao chegou (o numero da busca muda). Sem isso a resposta tardia
+  // reescrevia o estado depois da limpeza — a tela chegou a mostrar "CPF
+  // detectado" e "CEP nao encontrado" ao mesmo tempo — e cepLoading ficava true
+  // para sempre, sem o Consultar reabilitar.
+  const buscaDeCep = useRef(0);
   useEffect(() => {
-    let cancelado = false;
-    const digits = query.replace(/\D/g, "");
-    if (digits.length === 8) {
-      setCepData(null);
-      setCepError("");
-      setCepLoading(true);
-      fetch(`https://viacep.com.br/ws/${digits}/json/`)
-        .then(r => r.json())
-        .then((d: CepData) => {
-          if (cancelado) return;
-          if (d.erro) {
-            setCepError("CEP não encontrado. Verifique o número.");
-          } else {
-            setCepData(d);
-          }
-        })
-        .catch(() => { if (!cancelado) setCepError("Não foi possível localizar o endereço. Confira o CEP e tente novamente."); })
-        .finally(() => { if (!cancelado) setCepLoading(false); });
-    } else {
-      setCepData(null);
-      setCepError("");
-      // OBRIGATORIO: quando a busca e cancelada no meio (digitou o 9o digito), o
-      // .finally da requisicao antiga e pulado pelo guard. Sem esta linha cepLoading
-      // ficaria true para sempre e o botao Consultar nunca reabilitaria.
-      setCepLoading(false);
-      setAddressNumber("");
-      setAddressComplement("");
-    }
-    return () => { cancelado = true; };
+    buscaDeCep.current++;
+    setCepData(null);
+    setCepError("");
+    setCepLoading(false);
+    setAddressNumber("");
+    setAddressComplement("");
   }, [query]);
+
+  const buscarCep = (digits: string) => {
+    const estaBusca = ++buscaDeCep.current;
+    const valendo = () => estaBusca === buscaDeCep.current;
+    setCepData(null);
+    setCepError("");
+    setCepLoading(true);
+    fetch(`https://viacep.com.br/ws/${digits}/json/`)
+      .then(r => r.json())
+      .then((d: CepData) => {
+        if (!valendo()) return;
+        if (d.erro) {
+          setCepError("CEP não encontrado. Verifique o número.");
+        } else {
+          setCepData(d);
+        }
+      })
+      .catch(() => { if (valendo()) setCepError("Não foi possível localizar o endereço. Confira o CEP e tente novamente."); })
+      .finally(() => { if (valendo()) setCepLoading(false); });
+  };
 
   // Mesmo guard de cancelamento do efeito acima.
   useEffect(() => {
@@ -185,6 +200,12 @@ export default function ConsultaSearchBar({
     if (!query.trim()) return;
     const digits = query.replace(/\D/g, "");
     const isCep = digits.length === 8;
+    // 8 digitos ainda sem endereco: o pedido e buscar o CEP, nao consultar (ver
+    // o comentario de LGPD acima). A consulta sai depois, com o numero do imovel.
+    if (isCep && !cepData) {
+      if (!cepLoading) buscarCep(digits);
+      return;
+    }
 
     onSearch({
       cpfCnpj: query,
@@ -215,7 +236,7 @@ export default function ConsultaSearchBar({
   const deteccao = cepLoading
     ? { label: "Buscando CEP…", cor: "var(--info)", Icone: MapPin }
     : detectedType === "CEP"
-      ? { label: "CEP detectado — informe o número do imóvel", cor: "var(--info)", Icone: MapPin }
+      ? { label: cepData ? "CEP detectado — informe o número do imóvel" : "CEP detectado — clique em Buscar CEP", cor: "var(--info)", Icone: MapPin }
       : detectedType === "CPF"
         ? { label: "CPF detectado", cor: "var(--ok)", Icone: FileText }
         : detectedType === "CNPJ"
@@ -296,8 +317,8 @@ export default function ConsultaSearchBar({
             disabled={!query.trim() || isLoading || cepLoading || (!!cepData && !addressNumber.trim())}
             data-testid="button-consultar-isp"
           >
-            {cepData ? <MapPin size={15} /> : <Search size={15} />}
-            {isLoading ? "Consultando…" : "Consultar"}
+            {cepData || cepAPedir ? <MapPin size={15} /> : <Search size={15} />}
+            {isLoading ? "Consultando…" : cepAPedir ? "Buscar CEP" : "Consultar"}
           </BotaoBarra>
         </div>
 
@@ -391,7 +412,14 @@ export default function ConsultaSearchBar({
                 <input
                   placeholder="CEP de instalação (8 dígitos)"
                   value={installCepQuery}
-                  onChange={(e) => setInstallCepQuery(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                  onChange={(e) => {
+                    // Mais de 8 digitos nao e CEP. Cortar em 8 transformava um CPF
+                    // colado aqui nos 8 primeiros digitos dele, e o efeito de CEP os
+                    // mandava ao ViaCEP (LGPD). Digitar o 9o digito ja nao mudava o
+                    // campo; agora colar um documento tambem nao.
+                    const digitos = e.target.value.replace(/\D/g, "");
+                    if (digitos.length <= 8) setInstallCepQuery(digitos);
+                  }}
                   className="ds-input"
                   data-testid="input-install-cep"
                   style={{
