@@ -44,6 +44,7 @@ import { drizzle } from "drizzle-orm/pg-proxy";
 import { janelaDoChat, lerAutomacaoChat } from "@shared/cobranca/automacao-chat";
 import { POLITICA_PADRAO } from "@shared/cobranca/politica";
 import { TIPOS_DE_AGENTE } from "@shared/chat-agentes";
+import { textoDeAberturaControlada } from "@shared/chat-templates";
 import { ChatBullqClient, type Mensagem, type Resultado } from "../services/chat/chat-bullq.client";
 import { exigirAgentesProntos, listarAgentesDoChat, prepararPrimeiroContatoDoAgente } from "../services/chat/chat-agentes.service";
 import { listarAgentesDoConsole, listarExecucoesDoConsole, listarSkillsDoConsole, listarToolsDoConsole, resumoDoConsole } from "../services/chat/chat-console.service";
@@ -641,11 +642,19 @@ describe("o contrato de agentes que a semeadura grava na integração", () => {
     await expect(exigirAgentesProntos(6, [...TIPOS_DE_AGENTE])).resolves.toBeUndefined();
   });
 
-  it("primeiro contato de equipamento em caso novo: o rascunho sai do agente semeado, com o id e o modelo que a integração guarda", async () => {
+  it("primeiro contato de equipamento em caso novo: abertura controlada com o id do agente semeado e SEM modelo — ele só entra depois da identificação", async () => {
+    // Contrato do lote do Codex: `prepararPrimeiroContatoDoAgente` não pede
+    // rascunho ao fork para nenhum papel (mencionar a devolução já revelaria o
+    // contrato a quem recebeu o número reciclado). O que a integração semeada
+    // garante é o agente PRONTO — id igual nas duas pontas — e o texto neutro.
     const config = agenteConfigDaDemo();
     const r = await prepararPrimeiroContatoDoAgente(6, "recuperacao_equipamentos", { nomeCliente: "Maria", nomeProvedor: "Rede Demo" });
-    expect(r).toMatchObject({ agenteId: config.agentes.recuperacao_equipamentos.id, modelo: config.agentes.recuperacao_equipamentos.modelo });
+    expect(r).toEqual({
+      texto: textoDeAberturaControlada({ nomeCliente: "Maria", nomeProvedor: "Rede Demo" }),
+      agenteId: config.agentes.recuperacao_equipamentos.id, modelo: null, runId: null, modo: "abertura_controlada",
+    });
     expect(r.agenteId).toBe(AGENTES_DA_DEMO.recuperacao_equipamentos.id);
+    expect(r.texto).not.toMatch(/equipamento|devolu|contrato|R\$|\d/);
     expect(espiao).not.toHaveBeenCalled();
   });
 

@@ -77,9 +77,10 @@ export interface AgenteDaDemo { tipo: TipoDeAgente; id: string; nome: string; mo
  * Os três perfis do Painel já provisionados, um por tipo. O id é o MESMO nas
  * duas pontas: a coleção `agentes` desta organização (o "fork") e o
  * `agenteConfig` que a semeadura grava na integração (`agenteConfigDaDemo`).
- * É essa igualdade que o primeiro contato de equipamento confere
- * (`PreparadoSchema` compara agente e modelo) e que marca os três como
- * `daPonte` no console. Antes a coleção nascia vazia e o rascunho respondia 404.
+ * É essa igualdade que o primeiro contato confere (`exigirAgentesProntos` exige
+ * id, modelo e etapa "pronto"; a abertura sai controlada, com o id do agente e
+ * sem modelo antes da identificação) e que marca os três como `daPonte` no
+ * console. Antes a coleção nascia vazia e o rascunho respondia 404.
  */
 export const AGENTES_DA_DEMO: Readonly<Record<TipoDeAgente, AgenteDaDemo>> = Object.fromEntries(
   TIPOS_DE_AGENTE.map((tipo) => [tipo, { tipo, id: `demo-agente-${tipo}`, nome: CATALOGO_DE_AGENTES[tipo].nome, modelo: MODELO_DOS_AGENTES_DA_DEMO }]),

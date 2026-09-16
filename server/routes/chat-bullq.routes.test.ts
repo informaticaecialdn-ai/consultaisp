@@ -62,6 +62,7 @@ vi.mock("../logger", () => ({ logger: loggerMock }));
 import { registerChatBullqRoutes } from "./chat-bullq.routes";
 import { ErroDaPonteDoChat } from "../services/chat/chat-ponte.service";
 import { ErroDeDadosDoAtendimento } from "../services/chat/chat-atendimento.service";
+import { ErroGestao } from "../services/cobranca/gestao-operacional.service";
 
 let server: Server;
 let base: string;
@@ -259,17 +260,19 @@ describe("acesso", () => {
 });
 
 describe("enviar para cobranca", () => {
-  it("passa providerId e userId da sessao, o caso da rota e o texto/acao do corpo", async () => {
+  // O `false` no fim é a INICIATIVA HUMANA: quem clica é o operador, e o
+  // orçamento de contato não o trata como a agenda automática.
+  it("passa providerId e userId da sessao, o caso da rota, o texto/acao do corpo e a iniciativa humana", async () => {
     sessao = OPERADOR;
     const res = await json("POST", "/api/chat-bullq/cobranca/casos/10/enviar", { texto: "Oi, tudo bem?", acaoDaEtapa: "Lembrar" });
     expect(res.status).toBe(200);
-    expect(servico.enviarCasoParaCobranca).toHaveBeenCalledWith(42, 10, 8, "Oi, tudo bem?", "Lembrar");
+    expect(servico.enviarCasoParaCobranca).toHaveBeenCalledWith(42, 10, 8, "Oi, tudo bem?", "Lembrar", false);
     expect(await res.json()).toMatchObject({ conversationId: "conv_1" });
   });
   it("corpo vazio e aceito (mensagem modelo); caso invalido e 400; texto gigante e 400", async () => {
     sessao = OPERADOR;
     expect((await json("POST", "/api/chat-bullq/cobranca/casos/10/enviar")).status).toBe(200);
-    expect(servico.enviarCasoParaCobranca).toHaveBeenLastCalledWith(42, 10, 8, null, null);
+    expect(servico.enviarCasoParaCobranca).toHaveBeenLastCalledWith(42, 10, 8, null, null, false);
     expect((await json("POST", "/api/chat-bullq/cobranca/casos/abc/enviar", {})).status).toBe(400);
     expect((await json("POST", "/api/chat-bullq/cobranca/casos/10/enviar", { texto: "x".repeat(2001) })).status).toBe(400);
   });
@@ -287,6 +290,20 @@ describe("enviar para cobranca", () => {
     expect(res.status).toBe(500);
     expect(JSON.stringify(await res.json())).not.toContain("explodiu");
   });
+  it("bloqueio do orçamento de contato (ErroGestao) é 409 com o motivo na tela, não 500 'erro inesperado'", async () => {
+    sessao = OPERADOR;
+    // Opt-out, contestação aberta ou cota do dia: o motivo já vem escrito para
+    // o atendente ler. Caía no catch-all como "Erro interno no chat".
+    servico.enviarCasoParaCobranca.mockRejectedValueOnce(new ErroGestao("Cliente solicitou não receber contatos."));
+    const res = await json("POST", "/api/chat-bullq/cobranca/casos/10/enviar", {});
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ message: "Cliente solicitou não receber contatos.", codigo: "CONTATO_BLOQUEADO" });
+    servico.enviarRecuperacaoParaChat.mockRejectedValueOnce(new ErroGestao("Orçamento diário de mensagens deste cliente atingido."));
+    const rec = await json("POST", "/api/chat-bullq/recuperacao/77/enviar", {});
+    expect(rec.status).toBe(409);
+    expect(await rec.json()).toMatchObject({ message: "Orçamento diário de mensagens deste cliente atingido." });
+    expect(loggerMock.error).not.toHaveBeenCalled();
+  });
 });
 
 describe("conversa do caso e recuperacao", () => {
@@ -298,11 +315,11 @@ describe("conversa do caso e recuperacao", () => {
     expect(res.status).toBe(200);
     expect(servico.conversaDoCaso).toHaveBeenCalledWith(42, 10);
   });
-  it("recuperacao: mesmo contrato de envio", async () => {
+  it("recuperacao: mesmo contrato de envio, com a iniciativa humana", async () => {
     sessao = OPERADOR;
     const res = await json("POST", "/api/chat-bullq/recuperacao/77/enviar", { texto: "Combinar retirada" });
     expect(res.status).toBe(200);
-    expect(servico.enviarRecuperacaoParaChat).toHaveBeenCalledWith(42, 77, 8, "Combinar retirada");
+    expect(servico.enviarRecuperacaoParaChat).toHaveBeenCalledWith(42, 77, 8, "Combinar retirada", false);
   });
 });
 

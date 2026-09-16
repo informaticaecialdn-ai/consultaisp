@@ -25,8 +25,11 @@ import { TIPOS_DE_AGENTE, type TipoDeAgente, type PrimeiroContatoPreparado } fro
 import { textoDeAberturaControlada, textoNeutroAntesDaIdentificacao } from "@shared/chat-templates";
 import type { CanalWhatsapp, ProvedorWhatsapp } from "@shared/chat-whatsapp";
 import { prescrita } from "@shared/cobranca/regua";
+import { janelaDoChat } from "@shared/cobranca/automacao-chat";
+import { pool } from "../../db";
 import { storage } from "../../storage";
 import type { StatusDeIntegracaoDoChat } from "../../storage/chat-bullq.storage";
+import { baseLegalDaEtapa } from "../../storage/cobranca-comunicacao.storage";
 import { ChatBullqClient, normalizarTelefoneParaChat, type Resultado } from "./chat-bullq.client";
 import { comTravaDoChat } from "./chat-trava";
 import { emModoDemo } from "../../demo/modo-demo";
@@ -405,17 +408,30 @@ interface ContatoNoChat { conversationId: string; messageId: string | null; reap
 /**
  * Abre (ou reaproveita) a conversa do cliente e manda o texto. O que amarra
  * tudo e o telefone: e assim que o Chat BullQ identifica o contato.
+ *
+ * `automatico` e o sinal que o orcamento de contato (`comOrcamentoContato`)
+ * le: a agenda de primeiros contatos e o pre-aviso sao INICIATIVA AUTOMATICA
+ * — respeitam a pausa por promessa vigente e a cota semanal de iniciativas;
+ * o clique do operador no kanban, na ficha ou no card de retirada e
+ * iniciativa HUMANA (`false`) — continua sujeito a opt-out, contestacao
+ * aberta e a cota diaria, mas nao e barrado pela promessa vigente nem pela
+ * cota semanal da automacao. Decisao do coordenador (16/09/2026): ate aqui
+ * todo envio entrava como automatico, e o atendente lia "Automacao pausada
+ * por atendimento" ao tentar falar com quem acabou de prometer pagar.
+ *
+ * O que a iniciativa humana NAO pula esta em `conferirIniciativaHumana`: a
+ * pausa que o proprio cliente pediu e a janela de horario.
  */
-async function abrirOuMandar(providerId: number, customerId: number, telefone: string | null | undefined, nome: string, texto: PreparacaoDoContato, tipo: TipoDeAgente, nomeProvedor: string): Promise<ContatoNoChat> {
+async function abrirOuMandar(providerId: number, customerId: number, telefone: string | null | undefined, nome: string, texto: PreparacaoDoContato, tipo: TipoDeAgente, nomeProvedor: string, automatico: boolean): Promise<ContatoNoChat> {
   // Inclui API e worker: duas origens não disparam introduções simultâneas no mesmo número.
   const fone = normalizarTelefoneParaChat(telefone);
   if (!fone) throw new ErroDaPonteDoChat("SEM_TELEFONE", "O cliente não tem telefone válido no cadastro");
   if (!clienteDoChat()) throw desligado();
-  const r = await comTravaDoChat(`contato:${providerId}:${fone}`, () => abrirOuMandarComTrava(providerId, customerId, telefone, nome, texto, tipo, nomeProvedor));
+  const r = await comTravaDoChat(`contato:${providerId}:${fone}`, () => abrirOuMandarComTrava(providerId, customerId, telefone, nome, texto, tipo, nomeProvedor, automatico));
   if (!r) throw new ErroDaPonteDoChat("CONFLITO", "Este contato já está sendo iniciado. Atualize a conversa em instantes.");
   return r;
 }
-async function abrirOuMandarComTrava(providerId: number, customerId: number, telefone: string | null | undefined, nome: string, texto: PreparacaoDoContato, tipo: TipoDeAgente, nomeProvedor: string): Promise<ContatoNoChat> {
+async function abrirOuMandarComTrava(providerId: number, customerId: number, telefone: string | null | undefined, nome: string, texto: PreparacaoDoContato, tipo: TipoDeAgente, nomeProvedor: string, automatico: boolean): Promise<ContatoNoChat> {
   const cliente = clienteDoChat();
   if (!cliente) throw desligado();
   const intg = await storage.getIntegracaoDoChat(providerId);
@@ -434,6 +450,9 @@ async function abrirOuMandarComTrava(providerId: number, customerId: number, tel
     const statusLocal = vinculo && vinculo.status !== "CLOSED" ? vinculo.status : "PENDING";
     return { conversationId: existente.valor.id, messageId: null, reaproveitada: true, canalId: intg.canalId, status: statusLocal };
   }
+  // Daqui em diante uma mensagem SAI. Conversa reaproveitada (acima) nao envia
+  // nada, por isso nao passa pela conferencia.
+  if (!automatico) await conferirIniciativaHumana(providerId, customerId);
   // Só gera se houver uma conversa nova. O draft não toca canais nem chama tools.
   const { provedorWhatsapp, prepararTemplateWhatsapp } = await import("./chat-templates.service");
   const usaTemplate = provedorWhatsapp(intg.agenteConfig) === "DATAFY";
@@ -447,7 +466,9 @@ async function abrirOuMandarComTrava(providerId: number, customerId: number, tel
   const nova = await comTravaDoChat(`config:${providerId}`, async () => {
     const atual = await storage.getIntegracaoDoChat(providerId);
     if (atual?.organizationId !== intg.organizationId || atual?.canalId !== intg.canalId || atual.status !== "ativo") throw new ErroDaPonteDoChat("CONFLITO", "O canal mudou durante a preparação. Nenhuma mensagem foi enviada; tente novamente.");
-    return comOrcamentoContato(providerId, customerId, "whatsapp", true, () => cliente.iniciarConversa(intg.organizationId, {
+    // Um `ErroGestao` daqui (opt-out, contestacao, cota) sobe INTACTO: a rota o
+    // devolve como 409 com o motivo, que ja vem escrito para o atendente ler.
+    return comOrcamentoContato(providerId, customerId, "whatsapp", automatico, () => cliente.iniciarConversa(intg.organizationId, {
       canalId: intg.canalId!, telefone: fone, nome, texto: mensagem, ...(template ? { template } : {}),
       aiEnabled: false,
     }));
@@ -458,26 +479,50 @@ async function abrirOuMandarComTrava(providerId: number, customerId: number, tel
 }
 
 /**
+ * O que a mao do operador NAO pula ao abrir conversa nova. `avaliarContato`
+ * so barra `pausado` na automacao porque a mesma reserva serve a RESPOSTA do
+ * atendente dentro da conversa (chat-atendimento/chat-autonomia): quem
+ * acabou de escrever nao pode ficar sem resposta. Iniciar contato e outra
+ * coisa — e cobrar por WhatsApp quem acabou de dizer "ja paguei" (CDC art.
+ * 42), ou as 22h (CDC 42 / Anatel 765). A pausa foi o cliente quem pediu
+ * (48 h de "respondeu"/"pagamento informado", `pausarComunicacao`) e o
+ * horario e limite duro: os dois valem para o atendente igual, como o envio
+ * manual de SMS/e-mail ja faz (chat-multicanal.service.ts). Opt-out,
+ * contestacao e cota do dia continuam com o orcamento (`ErroGestao`). A
+ * agenda automatica confere janela e pausa antes de chamar a ponte.
+ */
+async function conferirIniciativaHumana(providerId: number, customerId: number): Promise<void> {
+  const pausa = await pool.query("SELECT 1 FROM cobranca_preferencias_contato WHERE provider_id=$1 AND customer_id=$2 AND pausa_ate>now()", [providerId, customerId]);
+  if (pausa.rowCount) throw new ErroDaPonteDoChat("CONFLITO", "Contato pausado para este cliente: resposta recente ou pagamento informado. Aguarde a pausa terminar antes de iniciar um novo contato.");
+  const politica = await storage.getPoliticaDeCobranca(providerId);
+  if (!janelaDoChat(new Date(), politica?.janelaContato).permitida) throw new ErroDaPonteDoChat("CONFLITO", "Fora do horário de contato da política de cobrança (CDC art. 42 / Anatel 765). O primeiro contato por WhatsApp só sai dentro da janela permitida.");
+}
+
+/**
  * O gesto do kanban: manda o caso para o chat. Registra o evento de contato
  * (canal whatsapp), liga a conversa ao caso e, se o caso ainda estava
  * "aberto", passa a "em contato" — e o que a coluna do kanban espera.
+ *
+ * `automatico` (padrao `true`, o da agenda de primeiros contatos): so a rota,
+ * que e o clique do operador, passa `false` — ver `abrirOuMandar`. O padrao e
+ * o lado estrito de proposito: quem esquecer o sinal entra como automacao.
  */
-export async function enviarCasoParaCobranca(providerId: number, casoId: number, userId: number, texto?: string | null, acaoDaEtapa?: string | null): Promise<ConversaAberta> {
-  return umaOperacao(`cobranca:${providerId}:${casoId}`, () => iniciarContatoDaCobranca(providerId, casoId, userId, texto));
+export async function enviarCasoParaCobranca(providerId: number, casoId: number, userId: number, texto?: string | null, acaoDaEtapa?: string | null, automatico = true): Promise<ConversaAberta> {
+  return umaOperacao(`cobranca:${providerId}:${casoId}`, () => iniciarContatoDaCobranca(providerId, casoId, userId, texto, automatico));
 }
 
-/** Abertura preventiva sem divulgar fatura antes da identificação; continuidade humana. */
+/** Abertura preventiva sem divulgar fatura antes da identificação; continuidade humana. So a agenda dispara: iniciativa automatica. */
 export async function enviarPreAvisoParaChat(providerId: number, cliente: { customerId: number; nome: string; telefone: string | null }, userId: number): Promise<ConversaAberta> {
   const provedor = await storage.getProvider(providerId);
   const nomeProvedor = provedor?.tradeName || provedor?.name || "seu provedor";
   const texto = textoDeAberturaControlada({ nomeCliente: cliente.nome, nomeProvedor });
-  const conversa = await abrirOuMandar(providerId, cliente.customerId, cliente.telefone, cliente.nome, texto, "cobranca_ativos", nomeProvedor);
+  const conversa = await abrirOuMandar(providerId, cliente.customerId, cliente.telefone, cliente.nome, texto, "cobranca_ativos", nomeProvedor, true);
   await storage.registrarConversaDoChat(providerId, { customerId: cliente.customerId, origem: "cobranca", casoId: null,
     conversationId: conversa.conversationId, canalId: conversa.canalId, abertaPorUserId: userId, status: conversa.status });
   return { conversationId: conversa.conversationId, messageId: conversa.messageId, reaproveitada: conversa.reaproveitada,
     enviado: !conversa.reaproveitada, inboxUrl: urlDoInbox(), motivo: conversa.reaproveitada ? MOTIVO_SEM_NOVO_ENVIO : "Aguardando identificação para atendimento humano" };
 }
-async function iniciarContatoDaCobranca(providerId: number, casoId: number, userId: number, texto?: string | null): Promise<ConversaAberta> {
+async function iniciarContatoDaCobranca(providerId: number, casoId: number, userId: number, texto: string | null | undefined, automatico: boolean): Promise<ConversaAberta> {
   const caso = await storage.obterCasoDeCobranca(providerId, casoId);
   if (!caso) throw new ErroDaPonteDoChat("CASO_NAO_ENCONTRADO", "Caso nao encontrado");
   const provedor = await storage.getProvider(providerId);
@@ -489,7 +534,7 @@ async function iniciarContatoDaCobranca(providerId: number, casoId: number, user
     nomeCliente: caso.cliente.nome.trim().split(/\s+/)[0], nomeProvedor, tom: caso.tom, orientacao: orientacao.diretiva,
   }));
 
-  const conversa = await abrirOuMandar(providerId, caso.cliente.id, caso.cliente.telefone, caso.cliente.nome, mensagem, caso.carteira === "ex_cliente" ? "cobranca_ex_clientes" : "cobranca_ativos", nomeProvedor);
+  const conversa = await abrirOuMandar(providerId, caso.cliente.id, caso.cliente.telefone, caso.cliente.nome, mensagem, caso.carteira === "ex_cliente" ? "cobranca_ex_clientes" : "cobranca_ativos", nomeProvedor, automatico);
   await storage.registrarConversaDoChat(providerId, {
     customerId: caso.cliente.id,
     origem: "cobranca",
@@ -512,7 +557,9 @@ async function iniciarContatoDaCobranca(providerId: number, casoId: number, user
     canal: "whatsapp",
     resultado: null,
     notas: "Primeiro contato enviado; aguardando resposta para atendimento humano",
-    metadata: { chat: { conversationId: conversa.conversationId, messageId: conversa.messageId, ...(conversa.preparacao ? { agente: conversa.preparacao } : {}), ...(conversa.template ? { template: conversa.template } : {}) }, origemTexto: conversa.template ? "template_aprovado" : conversa.preparacao?.modo ?? (conversa.preparacao ? "agente_ia" : "operador"), orientacao },
+    // `etapa`/`baseLegal`/`motivoLegal` como no evento da regua de SMS/e-mail
+    // (`concluirComunicacao`): a auditoria le a mesma base legal em todo contato.
+    metadata: { chat: { conversationId: conversa.conversationId, messageId: conversa.messageId, ...(conversa.preparacao ? { agente: conversa.preparacao } : {}), ...(conversa.template ? { template: conversa.template } : {}) }, origemTexto: conversa.template ? "template_aprovado" : conversa.preparacao?.modo ?? (conversa.preparacao ? "agente_ia" : "operador"), orientacao, ...baseLegalDaEtapa(caso.carteira, caso.etapaAtual) },
   });
   if (caso.status === "aberto") {
     await storage.atualizarCasoDeCobranca(providerId, caso.id, { status: "em_contato" }, userId);
@@ -521,11 +568,11 @@ async function iniciarContatoDaCobranca(providerId: number, casoId: number, user
   return { conversationId: conversa.conversationId, reaproveitada: false, messageId: conversa.messageId, inboxUrl: urlDoInbox(), enviado: true, motivo: null };
 }
 
-/** O mesmo gesto para a retirada de equipamento. */
-export async function enviarRecuperacaoParaChat(providerId: number, recuperacaoId: number, userId: number, texto?: string | null): Promise<ConversaAberta> {
-  return umaOperacao(`recuperacao:${providerId}:${recuperacaoId}`, () => iniciarContatoDaRecuperacao(providerId, recuperacaoId, userId, texto));
+/** O mesmo gesto para a retirada de equipamento (`automatico` como em `enviarCasoParaCobranca`). */
+export async function enviarRecuperacaoParaChat(providerId: number, recuperacaoId: number, userId: number, texto?: string | null, automatico = true): Promise<ConversaAberta> {
+  return umaOperacao(`recuperacao:${providerId}:${recuperacaoId}`, () => iniciarContatoDaRecuperacao(providerId, recuperacaoId, userId, texto, automatico));
 }
-async function iniciarContatoDaRecuperacao(providerId: number, recuperacaoId: number, userId: number, texto?: string | null): Promise<ConversaAberta> {
+async function iniciarContatoDaRecuperacao(providerId: number, recuperacaoId: number, userId: number, texto: string | null | undefined, automatico: boolean): Promise<ConversaAberta> {
   const casos = await storage.getRecoveryCases(providerId);
   const r = casos.find(c => c.id === recuperacaoId);
   if (!r) throw new ErroDaPonteDoChat("CASO_NAO_ENCONTRADO", "Caso de recuperacao nao encontrado");
@@ -535,7 +582,7 @@ async function iniciarContatoDaRecuperacao(providerId: number, recuperacaoId: nu
   const { prepararPrimeiroContatoDoAgente } = await import("./chat-agentes.service");
   const mensagem: PreparacaoDoContato = texto?.trim() || (() => prepararPrimeiroContatoDoAgente(providerId, "recuperacao_equipamentos", { nomeCliente: (r.customerName ?? "cliente").trim().split(/\s+/)[0], nomeProvedor }));
 
-  const conversa = await abrirOuMandar(providerId, r.customerId, r.customerPhone, r.customerName ?? "cliente", mensagem, "recuperacao_equipamentos", nomeProvedor);
+  const conversa = await abrirOuMandar(providerId, r.customerId, r.customerPhone, r.customerName ?? "cliente", mensagem, "recuperacao_equipamentos", nomeProvedor, automatico);
   const vinculo = await storage.registrarConversaDoChat(providerId, {
     customerId: r.customerId,
     origem: "equipamentos",

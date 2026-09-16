@@ -50,12 +50,25 @@ import { STATUS_DE_CLIENTE_ATUAL, clienteDaCarteira, comDivida } from "./cobranc
 import type { DevedorDaCarteira } from "@shared/cobranca/prejuizo";
 import { cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
 import { resumirHistoricoDePagamentos, type HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
+import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
 import { z } from "zod";
 
 /** No modo DNA, o período do encerrado já foi recortado pela evidência do ERP. */
 export interface HistoricoDnaDaRelacao extends HistoricoDePagamentos {
   encerramentoConfirmadoEm?: string | null;
 }
+
+/**
+ * As fontes cujo `cortadoEm` PROVA que o contrato acabou — e so delas o DNA
+ * de ex-cliente le a relacao encerrada. O IXC grava data_cancelamento com zero
+ * contratos ativos (erp/connectors/ixc.ts). O conector da demonstracao e a
+ * autoridade do ERP ficticio: na demo ele E o ERP, e a semeadura grava
+ * `cortadoEm` em todo cancelado como o IXC gravaria — sem ele aqui, a regua
+ * diaria zerava o DNA de todo ex-cliente semeado na primeira passada e a
+ * grade de ex-cliente que a demonstracao vende sumia. SGP `data_status` pode
+ * ser simples corte e o MK nao informa: ficam fora, sem DNA encerrado.
+ */
+export const FONTES_COM_ENCERRAMENTO_CONFIRMADO = ["ixc", FONTE_ERP_DEMO] as const;
 
 const QuitacaoConfirmadaSchema = z.object({
   faturaId: z.number().int().positive(),
@@ -373,11 +386,9 @@ export class FaturasStorage {
   ): Promise<Map<number, HistoricoDnaDaRelacao>> {
     // Recorte por ids (os devedores do card): lista vazia e recorte vazio.
     if (Array.isArray(customerId) && customerId.length === 0) return new Map();
-    // Só o IXC preenche cortadoEm com data_cancelamento e zero contratos
-    // ativos (connectors/ixc.ts). SGP data_status pode ser simples corte: não
-    // prova encerramento. Outros ERPs ficam sem histórico de DNA encerrado.
+    // Quem prova o encerramento: `FONTES_COM_ENCERRAMENTO_CONFIRMADO` explica.
     const encerramentoConfirmado = and(
-      eq(customers.erpSource, "ixc"), eq(customers.status, "cancelled"),
+      inArray(customers.erpSource, [...FONTES_COM_ENCERRAMENTO_CONFIRMADO]), eq(customers.status, "cancelled"),
       isNotNull(customers.contractStartDate), isNotNull(customers.cortadoEm),
       sql`${customers.cortadoEm}::date >= ${customers.contractStartDate}`,
       opcoes ? sql`${customers.cortadoEm}::date <= ${diaDeHoje(opcoes.hoje)}::date` : undefined,

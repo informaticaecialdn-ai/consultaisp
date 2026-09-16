@@ -1,4 +1,9 @@
-vi.mock("../cobranca/gestao-operacional.service", () => ({ comOrcamentoContato: vi.fn(async (_pid: number, _cid: number, _canal: string, _automatico: boolean, enviar: () => Promise<unknown>) => enviar()) }));
+// O orçamento de contato é falso (deixa passar), mas o `ErroGestao` é o REAL:
+// a ponte tem de deixá-lo subir intacto para a rota virar 409 com o motivo.
+vi.mock("../cobranca/gestao-operacional.service", async () => {
+  const real = await vi.importActual<typeof import("../cobranca/gestao-operacional.service")>("../cobranca/gestao-operacional.service");
+  return { ErroGestao: real.ErroGestao, comOrcamentoContato: vi.fn(async (_pid: number, _cid: number, _canal: string, _automatico: boolean, enviar: () => Promise<unknown>) => enviar()) };
+});
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -10,7 +15,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * O telefone nunca vai para o log.
  */
 
-vi.mock("../../db", () => ({ pool: {}, db: {} }));
+// `pool.query` só serve à pausa de contato (`cobranca_preferencias_contato`):
+// sem linha = sem pausa. Os testes de pausa trocam a resposta.
+const banco = vi.hoisted(() => ({ query: vi.fn(async () => ({ rowCount: 0, rows: [] })) }));
+vi.mock("../../db", () => ({ pool: { query: banco.query }, db: {} }));
 vi.mock("./chat-trava", () => ({ comTravaDoChat: async (_chave: string, executar: () => Promise<unknown>) => executar() }));
 vi.mock("./chat-agente.service", () => ({ gerarChaveDoAgente: () => "chave-sintetica", hashDaChave: () => "hash-sintetico" }));
 const log = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), fatal: vi.fn() }));
@@ -41,6 +49,8 @@ vi.mock("../../storage", () => ({
     getConversaDoChat: vi.fn(async () => fake.vinculoDoCaso),
     guardarAgenteDoChat: vi.fn(async (_p: number, d: Record<string, unknown>) => { fake.integracao = { ...fake.integracao, ...d }; return fake.integracao; }),
     registrarEventoDoChat: vi.fn(async () => undefined),
+    // Sem política gravada vale a janela padrão (8h–20h, sem domingo).
+    getPoliticaDeCobranca: vi.fn(async () => null),
   },
 }));
 
@@ -52,6 +62,7 @@ import {
   urlDaApiDoAgente, urlDoWebhookDeVolta,
 } from "./chat-ponte.service";
 import { limparChatSimuladoDoProvedor, URL_DO_CHAT_SIMULADO } from "../../demo/chat-simulado";
+import { comOrcamentoContato, ErroGestao } from "../cobranca/gestao-operacional.service";
 
 function clienteFalso(sobrescritas: Record<string, any> = {}) {
   const c = {
@@ -80,9 +91,16 @@ function clienteFalso(sobrescritas: Record<string, any> = {}) {
 }
 
 const CASO = {
-  id: 10, status: "aberto", carteira: "ativo", valorAtual: 189.9,
+  id: 10, status: "aberto", carteira: "ativo", etapaAtual: "aviso_suspensao", valorAtual: 189.9,
   cliente: { id: 42, nome: "Maria da Silva", cpfCnpj: "12345678909", telefone: "(43) 99999-0000", email: null, cidade: null, bairro: null, statusErp: "active", dividaAtual: 189.9, diasAtraso: 47, faturasAbertas: 2 },
 };
+// Segunda-feira, 10h em Brasília: dentro da janela padrão (8h–20h). Quem não fala
+// de horário não pode depender da hora em que a suíte roda — o mesmo relógio de
+// chat-multicanal.envio.test.ts.
+const DENTRO_DA_JANELA = new Date("2026-09-14T13:00:00Z");
+const FORA_DA_JANELA = new Date("2026-09-14T23:30:00Z"); // 20h30 em Brasília
+const relogioEm = (instante: Date) => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(instante); };
+const comPausaVigente = () => banco.query.mockResolvedValueOnce({ rowCount: 1, rows: [{ "?column?": 1 }] } as never);
 const AGENTES_PRONTOS = { agentes: Object.fromEntries([["cobranca_ativos", "ag-ativos"], ["cobranca_ex_clientes", "ag-ex"], ["recuperacao_equipamentos", "ag-equip"]].map(([tipo, id]) => [tipo, { id, modelo: "sakana/modelo-real", habilitado: true, etapa: "pronto" }])) };
 
 beforeEach(() => {
@@ -94,6 +112,8 @@ beforeEach(() => {
   fake.conversasRegistradas.length = 0;
   fake.vinculoDoCaso = undefined;
   vi.clearAllMocks();
+  vi.useRealTimers();
+  banco.query.mockReset().mockResolvedValue({ rowCount: 0, rows: [] } as never);
   process.env.CHAT_BULLQ_INBOX_URL = "https://chat.consultaisp.com.br/inbox/";
 });
 
@@ -408,6 +428,80 @@ describe("enviarCasoParaCobranca", () => {
     const tudo = JSON.stringify([...log.info.mock.calls, ...log.warn.mock.calls]);
     expect(tudo).not.toContain("99999");
   });
+  /**
+   * Decisão do coordenador (16/09/2026): o clique do operador é iniciativa
+   * HUMANA e passa pelo orçamento com `automatico=false` — a pausa por
+   * promessa vigente e a cota semanal de iniciativas são regras da automação
+   * (`avaliarContato`); opt-out, contestação aberta e a cota diária valem para
+   * os dois. Sem o sinal, o gesto do kanban entrava como se fosse a agenda e
+   * o atendente era barrado por "Automação pausada por atendimento".
+   */
+  it("iniciativa humana reserva o orçamento como não automática; sem o sinal (a agenda) segue automática", async () => {
+    clienteFalso(); comCanal(); relogioEm(DENTRO_DA_JANELA);
+    await enviarCasoParaCobranca(6, 10, 3, null, null, false);
+    expect(comOrcamentoContato).toHaveBeenLastCalledWith(6, 42, "whatsapp", false, expect.any(Function));
+    await enviarCasoParaCobranca(6, 10, 3);
+    expect(comOrcamentoContato).toHaveBeenLastCalledWith(6, 42, "whatsapp", true, expect.any(Function));
+  });
+  it("bloqueio do orçamento (ErroGestao) sobe intacto, sem mensagem, evento nem conversa gravada", async () => {
+    const c = clienteFalso(); comCanal(); relogioEm(DENTRO_DA_JANELA);
+    vi.mocked(comOrcamentoContato).mockRejectedValueOnce(new ErroGestao("Cliente solicitou não receber contatos."));
+    await expect(enviarCasoParaCobranca(6, 10, 3, null, null, false)).rejects.toSatisfy((e: unknown) => e instanceof ErroGestao && e.message === "Cliente solicitou não receber contatos.");
+    expect(c.iniciarConversa).not.toHaveBeenCalled();
+    expect(fake.eventos).toEqual([]);
+    expect(fake.conversasRegistradas).toEqual([]);
+    expect(fake.patches).toEqual([]);
+  });
+  /**
+   * A pausa (48 h de "cliente respondeu"/"pagamento informado") e a janela de
+   * horário (CDC art. 42 / Anatel 765) valem para a INICIATIVA humana também —
+   * `avaliarContato` só barra `pausado` na automação porque a mesma reserva
+   * serve à RESPOSTA do atendente dentro da conversa (quem acabou de escrever
+   * não pode ficar sem resposta). Abrir conversa nova é outra coisa: é o
+   * atendente cobrando por WhatsApp quem acabou de dizer "já paguei", ou às
+   * 22h. Revisão de 16/09/2026: o multicanal (SMS/e-mail) já recusava os dois
+   * no envio manual; o WhatsApp, canal principal, deixava passar.
+   */
+  it("pausa vigente barra a iniciativa humana com CONFLITO antes de abrir conversa, reservar orçamento ou gravar evento", async () => {
+    const c = clienteFalso(); comCanal(); relogioEm(DENTRO_DA_JANELA); comPausaVigente();
+    await expect(enviarCasoParaCobranca(6, 10, 3, null, null, false)).rejects.toMatchObject({ codigo: "CONFLITO", message: expect.stringMatching(/pausado/) });
+    expect(banco.query).toHaveBeenCalledWith(expect.stringMatching(/cobranca_preferencias_contato[\s\S]*pausa_ate>now\(\)/), [6, 42]);
+    expect(comOrcamentoContato).not.toHaveBeenCalled();
+    expect(c.iniciarConversa).not.toHaveBeenCalled();
+    expect(fake.eventos).toEqual([]);
+    expect(fake.conversasRegistradas).toEqual([]);
+  });
+  it("fora do horário de contato a iniciativa humana é recusada pela ponte (CDC 42 / Anatel 765), sem tocar o chat", async () => {
+    const c = clienteFalso(); comCanal(); relogioEm(FORA_DA_JANELA);
+    await expect(enviarCasoParaCobranca(6, 10, 3, null, null, false)).rejects.toMatchObject({ codigo: "CONFLITO", message: expect.stringMatching(/horário/) });
+    expect(storage.getPoliticaDeCobranca).toHaveBeenCalledWith(6);
+    expect(comOrcamentoContato).not.toHaveBeenCalled();
+    expect(c.iniciarConversa).not.toHaveBeenCalled();
+    expect(fake.eventos).toEqual([]);
+  });
+  it("a agenda (automatico=true) não passa pela conferência da ponte: pausa e janela dela são de quem a chama", async () => {
+    clienteFalso(); comCanal(); relogioEm(FORA_DA_JANELA); comPausaVigente();
+    await expect(enviarCasoParaCobranca(6, 10, 3)).resolves.toMatchObject({ enviado: true });
+    expect(banco.query).not.toHaveBeenCalled();
+    expect(storage.getPoliticaDeCobranca).not.toHaveBeenCalled();
+  });
+  it("conversa existente reaproveitada fora do horário e com pausa: nada é enviado, então nada é recusado", async () => {
+    const c = clienteFalso({ buscarConversaPorTelefone: vi.fn(async () => ({ ok: true, valor: { id: "conv_velha", status: "OPEN" } })) }); comCanal(); relogioEm(FORA_DA_JANELA); comPausaVigente();
+    await expect(enviarCasoParaCobranca(6, 10, 3, null, null, false)).resolves.toMatchObject({ reaproveitada: true, enviado: false });
+    expect(c.iniciarConversa).not.toHaveBeenCalled();
+  });
+  it("o evento do contato carrega a base legal da etapa do caso, como o da régua de SMS/e-mail", async () => {
+    clienteFalso(); comCanal();
+    await enviarCasoParaCobranca(6, 10, 3);
+    expect(fake.eventos[0].metadata).toMatchObject({ etapa: "aviso_suspensao", baseLegal: "Anatel Res. 765/2023 — 15 dias da notificação", motivoLegal: 'Etapa "Regularização do serviço" da régua de cobrança · Anatel Res. 765/2023 — 15 dias da notificação' });
+    fake.eventos.length = 0; fake.caso = { ...CASO, carteira: "ex_cliente", etapaAtual: "pre_negativacao" };
+    await enviarCasoParaCobranca(6, 10, 3);
+    // Ex-cliente: a conciliação não é o aviso formal da Súmula 359 — a régua tira a base, e o evento respeita.
+    expect(fake.eventos[0].metadata).toMatchObject({ etapa: "pre_negativacao", baseLegal: null, motivoLegal: 'Etapa "Conciliação de pendências" da régua de cobrança' });
+    fake.eventos.length = 0; fake.caso = { ...CASO, etapaAtual: null };
+    await enviarCasoParaCobranca(6, 10, 3);
+    expect(fake.eventos[0].metadata).toMatchObject({ etapa: null, baseLegal: null, motivoLegal: "Caso sem etapa da régua definida no envio" });
+  });
 });
 
 describe("primeiro contato preventivo", () => {
@@ -419,6 +513,8 @@ describe("primeiro contato preventivo", () => {
     expect(c.iniciarConversa).toHaveBeenCalledWith("org_1", expect.objectContaining({ texto: "Olá, sou o assistente virtual de NsLink. Posso falar com Maria?", aiEnabled: false }));
     expect(c.prepararPrimeiroContato).not.toHaveBeenCalled();
     expect(fake.conversasRegistradas[0]).toMatchObject({ customerId: 42, origem: "cobranca", casoId: null, conversationId: "conv_nova" });
+    // Só a agenda dispara pré-aviso: iniciativa automática no orçamento.
+    expect(comOrcamentoContato).toHaveBeenCalledWith(6, 42, "whatsapp", true, expect.any(Function));
   });
 });
 
@@ -455,6 +551,27 @@ describe("enviarRecuperacaoParaChat", () => {
     clienteFalso();
     fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: "ch_1", status: "ativo" };
     await expect(enviarRecuperacaoParaChat(6, 999, 3)).rejects.toMatchObject({ codigo: "CASO_NAO_ENCONTRADO" });
+  });
+  it("'Iniciar contato' do operador é iniciativa humana no orçamento; a agenda continua automática", async () => {
+    clienteFalso(); relogioEm(DENTRO_DA_JANELA);
+    fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: "ch_1", status: "ativo", agenteConfig: AGENTES_PRONTOS };
+    fake.recuperacoes = [{ id: 77, customerId: 42, customerName: "Joao Pereira", customerPhone: "43988880000" }];
+    await enviarRecuperacaoParaChat(6, 77, 3, null, false);
+    expect(comOrcamentoContato).toHaveBeenLastCalledWith(6, 42, "whatsapp", false, expect.any(Function));
+    await enviarRecuperacaoParaChat(6, 77, 3);
+    expect(comOrcamentoContato).toHaveBeenLastCalledWith(6, 42, "whatsapp", true, expect.any(Function));
+  });
+  it("'Iniciar contato' respeita a pausa do cliente e a janela de horário como o kanban (mesma ponte)", async () => {
+    const c = clienteFalso();
+    fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: "ch_1", status: "ativo", agenteConfig: AGENTES_PRONTOS };
+    fake.recuperacoes = [{ id: 77, customerId: 42, customerName: "Joao Pereira", customerPhone: "43988880000" }];
+    relogioEm(DENTRO_DA_JANELA); comPausaVigente();
+    await expect(enviarRecuperacaoParaChat(6, 77, 3, null, false)).rejects.toMatchObject({ codigo: "CONFLITO", message: expect.stringMatching(/pausado/) });
+    relogioEm(FORA_DA_JANELA);
+    await expect(enviarRecuperacaoParaChat(6, 77, 3, null, false)).rejects.toMatchObject({ codigo: "CONFLITO", message: expect.stringMatching(/horário/) });
+    expect(c.iniciarConversa).not.toHaveBeenCalled();
+    expect(fake.conversasRegistradas).toEqual([]);
+    expect(storage.registrarEventoDoChat).not.toHaveBeenCalled();
   });
 });
 

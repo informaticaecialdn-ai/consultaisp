@@ -28,6 +28,7 @@ import { exigirEscopoDoChat } from "./chat-escopo";
 import { acaoNaConversa, detalheDoAtendimento, diagnosticoDoAtendimento, ErroDeDadosDoAtendimento, midiaDoAtendimento, TAMANHO_MAXIMO_DA_ACAO } from "../services/chat/chat-atendimento.service";
 import { ConfiguracaoDeAgenteSchema, TipoDeAgenteSchema, type TipoDeAgente } from "@shared/chat-agentes";
 import { comTravaDaConfiguracaoDoChat, configurarAgenteDoChat, exigirAgentesProntos, listarAgentesDoChat, modelosDosAgentesDoChat, prepararPrimeiroContatoDoAgente, promptDoAgenteDoChat, provisionarAgenteDoChat } from "../services/chat/chat-agentes.service";
+import { ErroGestao } from "../services/cobranca/gestao-operacional.service";
 
 const providerDaSessao = (req: Request): number => req.session.providerId as number;
 const userDaSessao = (req: Request): number => req.session.userId as number;
@@ -54,6 +55,12 @@ function falha(res: Response, e: unknown) {
   if (e instanceof ErroDaPonteDoChat) {
     const status = e.codigo === "CASO_NAO_ENCONTRADO" ? 404 : e.codigo === "CHAT_DESLIGADO" ? 503 : e.codigo === "CHAT_FALHOU" ? 502 : 409;
     return res.status(status).json({ message: e.message, codigo: e.codigo });
+  }
+  // O orcamento de contato recusou (opt-out, contestacao aberta, cota do dia —
+  // `avaliarContato`): conflito com o estado do cliente, e o motivo e a frase
+  // que o atendente le na tela. Caia no catch-all como "Erro interno no chat".
+  if (e instanceof ErroGestao) {
+    return res.status(409).json({ message: e.message, codigo: "CONTATO_BLOQUEADO" });
   }
   logger.error({ err: e }, "Chat BullQ: erro inesperado na rota");
   res.status(500).json({ message: "Erro interno no chat" });
@@ -277,7 +284,8 @@ export function registerChatBullqRoutes(): Router {
     const parsed = EnvioSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ message: "Mensagem invalida", erros: parsed.error.issues.map(i => i.message) });
     try {
-      res.json(await enviarCasoParaCobranca(providerDaSessao(req), casoId, userDaSessao(req), parsed.data.texto ?? null, parsed.data.acaoDaEtapa ?? null));
+      // O clique do operador e iniciativa HUMANA no orcamento de contato (`automatico=false`); a agenda passa `true`.
+      res.json(await enviarCasoParaCobranca(providerDaSessao(req), casoId, userDaSessao(req), parsed.data.texto ?? null, parsed.data.acaoDaEtapa ?? null, false));
     } catch (e) {
       falha(res, e);
     }
@@ -301,7 +309,7 @@ export function registerChatBullqRoutes(): Router {
     const parsed = EnvioSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ message: "Mensagem invalida", erros: parsed.error.issues.map(i => i.message) });
     try {
-      res.json(await enviarRecuperacaoParaChat(providerDaSessao(req), id, userDaSessao(req), parsed.data.texto ?? null));
+      res.json(await enviarRecuperacaoParaChat(providerDaSessao(req), id, userDaSessao(req), parsed.data.texto ?? null, false));
     } catch (e) {
       falha(res, e);
     }

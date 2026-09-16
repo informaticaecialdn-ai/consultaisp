@@ -15,7 +15,7 @@ const banco = vi.hoisted(() => ({
 vi.mock("../db", () => ({ db: new Proxy({} as any, { get: (_alvo, chave) => banco.db[chave] }), pool: {} }));
 
 import { drizzle } from "drizzle-orm/pg-proxy";
-import { FaturasStorage, diaComoTimestamp, janelaDoMes, diaDeHoje } from "./faturas.storage";
+import { FaturasStorage, FONTES_COM_ENCERRAMENTO_CONFIRMADO, diaComoTimestamp, janelaDoMes, diaDeHoje } from "./faturas.storage";
 
 const PROVEDOR = 6;
 const HOJE = new Date(2026, 8, 5, 14, 30); // 05/09/2026, tarde
@@ -54,7 +54,7 @@ describe("datas: dia de calendario, sem fuso", () => {
 });
 
 describe("recebimentos e DNA", () => {
-  it("DNA em lote recorta ex-clientes pelo encerramento confirmado no IXC e pelo período da relação", async () => {
+  it("DNA em lote recorta ex-clientes pelo encerramento confirmado (IXC ou conector da demonstração) e pelo período da relação", async () => {
     banco.responder = () => [[42, 4, 1, "359.60", "2024-06-10T00:00:00Z", "2024-03-10T00:00:00Z", "2024-06-15"]];
     const mapa = await storage.historicosDePagamentosDoProvedor(PROVEDOR, [42], { paraDna: true, hoje: HOJE });
     expect(mapa.get(42)).toMatchObject({ faturasPagas: 4, encerramentoConfirmadoEm: "2024-06-15" });
@@ -62,7 +62,8 @@ describe("recebimentos e DNA", () => {
     const consulta = banco.consultas[0];
     conferirTenant(consulta);
     expect(consulta.sql).toContain('inner join "customers"');
-    expect(consulta.params).toEqual(expect.arrayContaining([PROVEDOR, "ixc", "cancelled", "active", "suspended", "2026-09-05"]));
+    expect(consulta.sql).toContain('"customers"."erp_source" in (');
+    expect(consulta.params).toEqual(expect.arrayContaining([PROVEDOR, "ixc", "demo", "cancelled", "active", "suspended", "2026-09-05"]));
     expect(consulta.sql).toContain('"invoices"."paid_date"::date <= "customers"."cortado_em"::date');
     expect(consulta.sql).toContain('"invoices"."due_date"::date <= "customers"."cortado_em"::date');
     expect(consulta.sql).toContain('"invoices"."paid_date"::date >= "customers"."contract_start_date"');
@@ -70,11 +71,35 @@ describe("recebimentos e DNA", () => {
     expect(consulta.sql).toContain('"customers"."cortado_em"::date >= "customers"."contract_start_date"');
   });
 
+  /**
+   * Quem confirma que o contrato ACABOU: o IXC (data_cancelamento com zero
+   * contratos ativos) e o conector da demonstração — na demo ele É o ERP, e a
+   * semeadura grava `cortadoEm` em todo cancelado. Sem o "demo" aqui, a régua
+   * diária zerava o DNA de todo ex-cliente semeado na primeira passada: a
+   * grade de ex-cliente que a demonstração vende sumia. MK e SGP continuam
+   * fora (SGP `data_status` pode ser simples corte, MK não informa).
+   */
+  it("o encerramento confirmado vem só do IXC e do conector da demonstração — MK e SGP ficam de fora, e sem modo DNA a fonte nem entra", async () => {
+    expect([...FONTES_COM_ENCERRAMENTO_CONFIRMADO]).toEqual(["ixc", "demo"]);
+    banco.responder = () => [[42, 4, 1, "359.60", "2024-06-10T00:00:00Z", "2024-03-10T00:00:00Z", null]];
+    const mapa = await storage.historicosDePagamentosDoProvedor(PROVEDOR, [42], { paraDna: true, hoje: HOJE });
+    // Ex-cliente de fonte que não prova encerramento: histórico lido, relação sem data de fim.
+    expect(mapa.get(42)).toMatchObject({ faturasPagas: 4, encerramentoConfirmadoEm: null });
+    const { sql: texto, params } = banco.consultas[0];
+    // A lista aparece nas duas pontas da consulta (o CASE do select e o recorte do where), sempre a mesma.
+    expect(texto.match(/"customers"\."erp_source" in \(\$\d+, \$\d+\)/g)).toHaveLength(2);
+    expect(params.filter(p => p === "ixc")).toHaveLength(2);
+    expect(params.filter(p => p === "demo")).toHaveLength(2);
+    expect(params).not.toContain("mk");
+    expect(params).not.toContain("sgp");
+  });
+
   it("o histórico financeiro comum permanece completo e sem metadado de encerramento", async () => {
     banco.responder = () => [[42, 4, 1, "359.60", "2024-06-10T00:00:00Z", "2024-03-10T00:00:00Z"]];
     const mapa = await storage.historicosDePagamentosDoProvedor(PROVEDOR, [42]);
     expect(mapa.get(42)).not.toHaveProperty("encerramentoConfirmadoEm");
     expect(banco.consultas[0].sql).not.toContain('"cortado_em"');
+    expect(banco.consultas[0].sql).not.toContain('"erp_source"');
   });
 
   it("recibo local bloqueia título que o ERP ainda oferece, isolando cliente/fonte", async () => {
