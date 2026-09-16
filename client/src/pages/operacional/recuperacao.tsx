@@ -302,6 +302,7 @@ export default function RecuperacaoPage() {
           <p className="mt-1 text-[13px] text-[var(--text-muted)]">Kanban por idade desde a rescisão. Arraste para recuperar ou baixar; a idade vem da data, não do arrasto.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button className="min-h-11" onClick={() => navigate("/recuperacao/operacao")}>Rotas, visitas e evidências</Button>
           <Button variant="outline" className="min-h-11" onClick={() => navigate("/equipamentos")}>
             <ClipboardList className="mr-1.5 h-4 w-4" aria-hidden /> Ver patrimônio
           </Button>

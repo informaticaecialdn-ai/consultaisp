@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, gte, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   customers,
@@ -444,7 +444,7 @@ export class EquipmentStorage {
   }
 
   async getRecoveryEvents(caseId: number, providerId: number): Promise<EquipmentRecoveryEvent[]> {
-    return db.select().from(equipmentRecoveryEvents).where(and(
+    return db.select({ ...getTableColumns(equipmentRecoveryEvents), metadata: sql`${equipmentRecoveryEvents.metadata} #- '{visit,photos}'` }).from(equipmentRecoveryEvents).where(and(
       eq(equipmentRecoveryEvents.caseId, caseId),
       eq(equipmentRecoveryEvents.providerId, providerId),
     )).orderBy(desc(equipmentRecoveryEvents.occurredAt));
@@ -845,7 +845,7 @@ export class EquipmentStorage {
     }).from(equipmentRecoveryEvents)
       .where(and(
         eq(equipmentRecoveryEvents.providerId, providerId),
-        eq(equipmentRecoveryEvents.type, "tentativa"),
+        inArray(equipmentRecoveryEvents.type, ["tentativa", "visita_campo"]),
         inArray(equipmentRecoveryEvents.caseId, caseIds),
       ))
       .orderBy(

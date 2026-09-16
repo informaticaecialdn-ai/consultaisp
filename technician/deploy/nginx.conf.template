@@ -1,0 +1,27 @@
+# Domínio exclusivo do PWA. Configure TLS no proxy de entrada.
+# TECHNICIAN_API_ORIGIN: origem HTTPS canônica do Consulta ISP, sem barra final.
+# TECHNICIAN_API_HOST: host correspondente, já aceito pelo isolamento de host do backend.
+server {
+  listen 8080;
+  server_name _;
+  root /usr/share/nginx/html;
+  client_max_body_size 3m;
+  add_header X-Content-Type-Options nosniff always;
+  add_header Referrer-Policy same-origin always;
+
+  location = /sw.js { add_header Cache-Control "no-cache"; }
+  location = /index.html { add_header Cache-Control "no-cache"; }
+  location ~ ^/api/(auth/(login|logout|me)$|equipment/field/cases(/|$)) {
+    proxy_pass ${TECHNICIAN_API_ORIGIN};
+    proxy_set_header Host ${TECHNICIAN_API_HOST};
+    proxy_ssl_server_name on;
+    proxy_ssl_name ${TECHNICIAN_API_HOST};
+    proxy_ssl_verify on;
+    proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_cookie_domain ${TECHNICIAN_API_HOST} $host;
+    add_header Cache-Control "no-store" always;
+  }
+  location /api/ { return 404; }
+  location / { try_files $uri $uri/ /index.html; }
+}
