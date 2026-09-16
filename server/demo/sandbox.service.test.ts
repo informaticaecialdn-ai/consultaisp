@@ -655,7 +655,10 @@ describe("sandbox do visitante", () => {
     const provider = await providerDe(s.providerId);
     expect(provider.ispCredits).toBe(SALDO_INICIAL);
     expect(provider.spcCredits, "o painel somaria um saldo que nenhuma consulta gasta").toBe(0);
-  });
+    // Primeiro criarSandbox do processo: paga o mundo base inteiro. Sob a carga da
+    // suíte completa passou de 5 s (5,7 s no deploy de 16/09/2026); mesmo teto do
+    // teste de concorrência.
+  }, 60_000);
 
   it("273 CPFs da carteira tambem existem na rede — 150 em dia e 123 inadimplentes — senao a consulta so diz 'nada consta' e nenhum alerta tem consulta de verdade", async () => {
     const s = await criarSandbox();
