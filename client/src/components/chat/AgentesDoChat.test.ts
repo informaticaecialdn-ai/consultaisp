@@ -75,6 +75,13 @@ describe("AgentesDoChat — campos do perfil", () => {
     expect(fonte).toContain("<details");
     expect(fonte).toContain("prompt.data.prompt");
   });
+  it("o prompt é buscado no caminho da rota, não na key inteira: `atualizadoEm` só invalida", () => {
+    // O fetcher padrão do queryClient faz `queryKey.join("/")`: com `atualizadoEm` na key, a URL
+    // ganhava um segmento a mais e o servidor respondia 404 (log de produção, 16/09/2026).
+    const consulta = fonte.match(/const prompt = useQuery<PromptDoAgente>\(\{([\s\S]*?)\}\);/)?.[1] ?? "";
+    expect(consulta).toContain("queryKey: [`${API}/${agente.tipo}/prompt`, agente.atualizadoEm]");
+    expect(consulta).toContain('queryFn: async () => (await apiRequest("GET", `${API}/${agente.tipo}/prompt`)).json()');
+  });
 });
 
 describe("AgentesDoChat — DESIGN_SYSTEM", () => {

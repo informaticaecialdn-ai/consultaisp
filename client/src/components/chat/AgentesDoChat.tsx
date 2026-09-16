@@ -48,7 +48,14 @@ function ConfiguracaoDoAgente({ agente, modelos, credencialAusente, podeAdminist
   const [habilitado, setHabilitado] = useState(agente.habilitado);
   const [previa, setPrevia] = useState<PrimeiroContatoPreparado | null>(null);
   const [promptAberto, setPromptAberto] = useState(false);
-  const prompt = useQuery<PromptDoAgente>({ queryKey: [`${API}/${agente.tipo}/prompt`, agente.atualizadoEm], enabled: promptAberto && podeAdministrar, retry: false, staleTime: 30_000 });
+  // `atualizadoEm` fica na key só para recarregar o prompt depois de salvar/aplicar: o fetcher
+  // padrão junta a key inteira na URL (".../prompt/2026-09-16T19:40:29.296Z" → 404 em produção,
+  // 16/09/2026), por isso a busca é explícita e vai só ao caminho da rota.
+  const prompt = useQuery<PromptDoAgente>({
+    queryKey: [`${API}/${agente.tipo}/prompt`, agente.atualizadoEm],
+    queryFn: async () => (await apiRequest("GET", `${API}/${agente.tipo}/prompt`)).json(),
+    enabled: promptAberto && podeAdministrar, retry: false, staleTime: 30_000,
+  });
 
   const corpo = { modelo: modelo || null, descricao, instrucoes, contextoOperacional, habilitado, temperatura: numeroOuIndefinido(temperatura), maxTokens: numeroOuIndefinido(maxTokens) };
   // A mesma validação do servidor, antes de salvar: o operador vê o limite estourado no campo, não num 400.
