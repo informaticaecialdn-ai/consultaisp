@@ -222,6 +222,18 @@ export default function LandingPage() {
             </div>
             <div className="nav-right">
               <a href={CADASTRO} className="btn btn-primary" onClick={irPara(CADASTRO)}>Começar grátis</a>
+              {/*
+                * Sem `onClick`, ao contrário do vizinho: `/login?mode=register`
+                * é rota deste app e o wouter a abre sem recarregar, mas a
+                * demonstração mora em outro host (demo.consultaisp.com.br).
+                * Passar este clique por `irPara` daria `preventDefault` + um
+                * `setLocation("https://demo...")` — o roteador tentaria casar a
+                * URL inteira com as rotas da landing e o visitante ficaria
+                * parado aqui. `rel` acompanha o herói e o CTA final: `noopener`
+                * não entrega a sessão da landing, `nofollow` evita que um
+                * crawler abra sandbox sozinho (GET /demo grava).
+                */}
+              <a href={DEMO} target="_blank" rel="noopener nofollow" className="btn btn-demo">Ver demonstração</a>
             </div>
           </div>
         </nav>

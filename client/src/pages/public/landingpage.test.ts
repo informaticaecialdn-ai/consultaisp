@@ -81,6 +81,35 @@ describe("porta da demonstração", () => {
     );
   });
 
+  /**
+   * No topo o botão é <a> PURO, sem `onClick`. O "Começar grátis" do lado usa
+   * `onClick={irPara(CADASTRO)}` de propósito — é rota interna, e o wouter
+   * navega sem recarregar a página. A demonstração mora em OUTRO host
+   * (demo.consultaisp.com.br): com `onClick` o `preventDefault` de `irPara`
+   * mataria o link e o `setLocation` trataria a URL inteira como rota deste
+   * app — o visitante ficaria parado na landing em vez de abrir o demo.
+   */
+  it("no topo, ao lado do cadastro — link externo de verdade, sem onClick para o roteador", () => {
+    expect(landing).toMatch(
+      /<div className="nav-right">(?:(?!<\/div>)[\s\S])*?<a href=\{DEMO\}[^>]*target="_blank"[^>]*rel="noopener nofollow"[^>]*>Ver demonstração<\/a>/
+    );
+    const tag = landing.match(/<div className="nav-right">(?:(?!<\/div>)[\s\S])*?(<a href=\{DEMO\}[^>]*>)/)?.[1] ?? "";
+    expect(tag).not.toContain("onClick");
+  });
+
+  /**
+   * A cor é a MESMA do bloco "SUGESTÃO / REJEITAR" do mock do herói — o token
+   * `--neg`, não um vermelho novo colado à mão. O teste amarra os dois pontos:
+   * se o mock trocar de token, o botão do topo não fica para trás; e ninguém
+   * substitui o token por um `#` solto sem o teste reclamar.
+   */
+  it("o vermelho do topo é o mesmo do REJEITAR do mock — token, não hex novo", () => {
+    const tag = landing.match(/<div className="nav-right">(?:(?!<\/div>)[\s\S])*?(<a href=\{DEMO\}[^>]*>)/)?.[1] ?? "";
+    expect(tag).toContain('className="btn btn-demo"');
+    expect(css).toMatch(/\.lp \.btn-demo \{[^}]*background: var\(--neg\);/);
+    expect(css).toMatch(/\.lp \.mock-suggestion \{[^}]*background: var\(--neg\);/);
+  });
+
   it("o cadastro continua sendo a acao principal", () => {
     expect(landing).toContain("Criar conta grátis");
   });

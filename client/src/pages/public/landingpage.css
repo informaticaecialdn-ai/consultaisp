@@ -215,6 +215,30 @@
   }
   .lp .btn-secondary:hover { border-color: var(--ink); background: rgba(14,13,11,0.03); }
 
+  /*
+   * Porta da demonstração no topo (fundo claro). O vermelho é o MESMO do
+   * bloco "SUGESTÃO / REJEITAR" do mock do herói — o token `--neg`, sem hex
+   * novo —, com o creme `--dark-ink` por cima: 7,78:1, folgado para o 4,5:1
+   * da AA. Herda `.btn`, então altura, raio, peso, fonte e espaçamento são os
+   * do "Começar grátis" ao lado; o que muda é só a cor, que é o destaque.
+   */
+  .lp .btn-demo {
+    background: var(--neg);
+    color: var(--dark-ink);
+    border-color: var(--neg);
+  }
+  /* Hover: o mesmo vermelho puxado para a tinta da página — escurece, 8,98:1. */
+  .lp .btn-demo:hover {
+    background: color-mix(in srgb, var(--neg) 86%, var(--ink));
+    border-color: color-mix(in srgb, var(--neg) 86%, var(--ink));
+  }
+  /*
+   * Foco escrito à mão: a landing não define foco em botão nenhum e o
+   * contorno padrão do navegador, preto e colado, some contra um retângulo
+   * vermelho cheio. Afastado da borda, fica visível nos dois fundos.
+   */
+  .lp .btn-demo:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
   .lp .btn-lg { min-height: 52px; padding: 0 28px; font-size: 15px; }
 
   .lp .btn.on-dark { color: var(--dark-ink); border-color: var(--dark-line-strong); }
@@ -354,8 +378,25 @@
   .lp .nav-links a:hover { color: var(--ink); }
   .lp .nav-right { display: flex; align-items: center; gap: 12px; }
 
-  @media (max-width: 860px) {
+  /*
+   * O botão da demonstração acrescenta ~180px ao lado direito. Com os cinco
+   * links ainda na barra, o conjunto (logo ~160 + links ~355 + os dois botões
+   * ~330 + as folgas) passa de 930px: entre 860 e 940 a barra estourava —
+   * ou espremia os links em duas linhas e empurrava a logo. O ponto em que os
+   * links saem sobe junto com o botão que entrou.
+   */
+  @media (max-width: 940px) {
     .lp .nav-links { display: none; }
+  }
+
+  /*
+   * No telefone a barra só comporta a logo e a ação principal: mesmo sem os
+   * links, o par de botões ainda pede ~560px. Vale aqui o critério que já
+   * tirava os links — o secundário deixa a barra —, e a demonstração não some
+   * da página: o mesmo botão está no herói, logo abaixo, e no bloco final.
+   */
+  @media (max-width: 600px) {
+    .lp .nav-right .btn-demo { display: none; }
   }
 
   /* ==================================================================
