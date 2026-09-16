@@ -151,7 +151,11 @@ export function registerChatBullqAgenteRoutes(): Router {
     const parsed = WebhookSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ message: "Corpo invalido" });
     const corpo = parsed.data;
-    const assinatura = (req.header("x-signature-256") ?? "").trim().toLowerCase();
+    // O fork assina no formato do GitHub, `sha256=<hex>` (call-webhook.handler.ts do
+    // Chat BullQ). Ate 16/09/2026 o prefixo entrava na comparacao e TODA chamada de
+    // volta levava 401 "Assinatura invalida" — o fork pausou a automacao apos 5 falhas
+    // e nenhuma resposta de cliente chegava aqui. O prefixo sai; o hex puro segue aceito.
+    const assinatura = (req.header("x-signature-256") ?? "").trim().toLowerCase().replace(/^sha256=/, "");
     // O provedor dono da organizacao — pelo id da org, nunca por algo que o corpo diga sobre o provedor.
     const intg = await storage.getIntegracaoDoChatPorOrganizacao(corpo.organizationId).catch(() => undefined);
     if (!intg?.webhookSecret) return res.status(404).json({ message: "Organizacao desconhecida" });

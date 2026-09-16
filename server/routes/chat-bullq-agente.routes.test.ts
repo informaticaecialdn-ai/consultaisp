@@ -122,6 +122,17 @@ describe("o webhook de volta", () => {
     expect(atendimento.receberRespostaDoCliente).toHaveBeenCalledWith(42, "conv_1");
     expect(autonomia.receberMensagemAutonoma).not.toHaveBeenCalled();
   });
+  it("aceita a assinatura no formato do fork, `sha256=<hex>` — e o prefixo nao abre brecha para segredo errado", async () => {
+    // O call_webhook do Chat BullQ manda `X-Signature-256: sha256=<hmac hex>`; ate 16/09/2026
+    // o prefixo derrubava toda chamada em 401 e o fork pausava a automacao apos 5 falhas.
+    const resposta = mensagemDoCliente("m3");
+    const comPrefixo = (segredo: string) => ({ "x-signature-256": `sha256=${assinar(resposta, segredo)}` });
+    expect((await pedir("POST", "/api/webhooks/chat-bullq", resposta, comPrefixo("outro-segredo"))).status).toBe(401);
+    expect((await pedir("POST", "/api/webhooks/chat-bullq", resposta, { "x-signature-256": "sha256=" })).status).toBe(401);
+    expect(atendimento.receberRespostaDoCliente).not.toHaveBeenCalled();
+    expect((await pedir("POST", "/api/webhooks/chat-bullq", resposta, comPrefixo("segredo-do-42"))).status).toBe(200);
+    expect(atendimento.receberRespostaDoCliente).toHaveBeenCalledWith(42, "conv_1");
+  });
   it("com a autonomia ligada e a conversa no assistente, a mensagem vai para a fila autônoma e o fluxo humano legado não roda", async () => {
     autonomiaStorage.config.mockResolvedValueOnce({ ativa: true });
     expect((await mandar(mensagemDoCliente("m3"))).status).toBe(200);
