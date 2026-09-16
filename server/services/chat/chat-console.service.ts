@@ -30,7 +30,7 @@ import {
 import type { Resultado } from "./chat-bullq.client";
 
 /** As skills que o prompt do agente de cobrança cita pelo nome. Renomear quebra o atendimento. */
-export const SKILLS_DA_PONTE = ["consultarCaso", "registrarTransferencia", "registrarPromessa"] as const;
+export const SKILLS_DA_PONTE = ["consultarCaso", "registrarTransferencia", "registrarPromessa", "consultarEquipamento"] as const;
 
 function cliente() {
   const c = clienteDoChat();

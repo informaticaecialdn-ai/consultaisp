@@ -752,17 +752,18 @@ const SKILLS_DA_DEMO = [
   { name: "consultarCaso", description: "Lê o caso do cliente no Consulta ISP — valor, vencimento e etapa da régua — antes de citar qualquer informação do contrato.", category: "cobrança", httpMethod: "GET", httpPath: "/caso" },
   { name: "registrarPromessa", description: "Registra no caso a promessa de pagamento com o valor integral e a data que o cliente confirmou.", category: "cobrança", httpMethod: "POST", httpPath: "/promessa" },
   { name: "registrarTransferencia", description: "Passa a conversa para a equipe e registra no caso o motivo e um resumo factual do que o cliente disse.", category: "atendimento", httpMethod: "POST", httpPath: "/transferencia" },
+  { name: "consultarEquipamento", description: "Lê a devolução de equipamento pendente do cliente — aparelho, prazo e retirada combinada, sem valor — antes de combinar qualquer coisa.", category: "equipamentos", httpMethod: "GET", httpPath: "/equipamento" },
 ] as const;
 
 type NomeDaSkillDaDemo = (typeof SKILLS_DA_DEMO)[number]["name"];
 
 const idDaSkillDaDemo = (nome: NomeDaSkillDaDemo) => `demo-skill-${nome}`;
 
-/** Equipamento não registra promessa de pagamento: a conversa dele é devolução. */
+/** Equipamento não registra promessa nem lê dívida: a conversa dele é devolução, e a leitura é a do caso de equipamento. */
 const SKILLS_DO_PERFIL: Record<TipoDeAgente, NomeDaSkillDaDemo[]> = {
   cobranca_ativos: ["consultarCaso", "registrarPromessa", "registrarTransferencia"],
   cobranca_ex_clientes: ["consultarCaso", "registrarPromessa", "registrarTransferencia"],
-  recuperacao_equipamentos: ["consultarCaso", "registrarTransferencia"],
+  recuperacao_equipamentos: ["consultarEquipamento", "registrarTransferencia"],
 };
 
 /** O `systemPrompt` que o console mostra: papel do perfil e as regras que citam as skills. Sem nome de provedor — o catálogo não lê o banco. */
@@ -771,7 +772,9 @@ function promptDoPerfilDaDemo(tipo: TipoDeAgente): string {
     `Você é o assistente virtual do provedor. Papel: ${CATALOGO_DE_AGENTES[tipo].nome}.`,
     CATALOGO_DE_AGENTES[tipo].papel,
     "Seu escopo termina quando o cliente responde: chame registrarTransferencia com o motivo e um resumo factual, e deixe a conversa com a equipe.",
-    "Antes de citar qualquer informação do contrato, consulte consultarCaso. Não invente valores, PIX, links, descontos, prazos nem promessas.",
+    tipo === "recuperacao_equipamentos"
+      ? "Antes de combinar qualquer coisa, consulte consultarEquipamento. Não fale em valor do aparelho, multa ou dívida; não prometa dia, horário ou técnico por conta própria."
+      : "Antes de citar qualquer informação do contrato, consulte consultarCaso. Não invente valores, PIX, links, descontos, prazos nem promessas.",
   ].join("\n");
 }
 

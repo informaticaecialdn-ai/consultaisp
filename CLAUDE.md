@@ -764,9 +764,23 @@ GET              /api/chat-bullq/console/execucoes | resumo
 
 Agente novo nasce **parado e sem canal**: criar nao e ligar. Os tres perfis da
 cobranca (ids em `agenteConfig.agentes`), a conexao cuja base e `urlDaApiDoAgente()`
-e as skills `consultarCaso`/`registrarTransferencia`/`registrarPromessa` sao
-marcados `daPonte` e recusados para edicao e remocao — apagar um deles quebra o
-atendimento em producao. Os tres perfis continuam sendo administrados no Painel do
+e as skills `consultarCaso`/`registrarTransferencia`/`registrarPromessa`/
+`consultarEquipamento` sao marcados `daPonte` e recusados para edicao e remocao —
+apagar um deles quebra o atendimento em producao. A API do agente
+(`server/routes/chat-bullq-agente.routes.ts`, chave `x-chave-agente`) tem quatro
+rotas: `GET /caso`, `POST /promessa`, `POST /transferencia` e, desde 16/09/2026,
+`GET /equipamento` — a devolucao pendente pelo telefone (aparelho, prazo, retirada
+combinada), **sem valor do aparelho**; e a skill propria do perfil de equipamentos,
+que antes so tinha a leitura do caso de divida. **As skills nao entram no motor
+autonomo** (o planejador recebe prompt + contexto, sem tool calls): elas rodam so
+quando o runner do fork executa o agente (canal AUTONOMOUS/COPILOT), que a ponte
+deixa DISABLED. Em 16/09/2026 os tres perfis receberam o METODO dos agentes do
+Provedor.ai (Clara D+1..14, Sofia D+15..180 com confissao de divida, Mariana
+logistica reversa), condensado ao limite de 6.000 caracteres: o que entra e o
+julgamento (portas de transferencia, diagnostico da causa, escada de tres degraus,
+promessa so com data dita); o que nao entra e o que o servidor ja decide (texto ao
+cliente, valor, oferta, identidade) e o que o Consulta ISP nao tem (EV/LTV,
+negativacao, reposicao de aparelho). Os tres perfis continuam sendo administrados no Painel do
 Provedor -> aba Chat, onde politica e regua entram no prompt.
 
 O console nasceu como a pagina `/agentes`, item proprio no menu de Gestao, e no

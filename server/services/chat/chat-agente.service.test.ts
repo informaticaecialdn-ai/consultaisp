@@ -35,6 +35,7 @@ const fake = vi.hoisted(() => ({
   eventos: [] as any[],
   gravados: [] as any[],
   patches: [] as any[],
+  recuperacoes: [] as any[],
 }));
 vi.mock("../../storage", () => ({
   storage: {
@@ -45,6 +46,7 @@ vi.mock("../../storage", () => ({
     listarEventosDoCaso: vi.fn(async () => fake.eventos),
     registrarEventoDeCobranca: vi.fn(async (_p: number, ev: any) => { fake.gravados.push(ev); return { id: 900 + fake.gravados.length, ...ev }; }),
     atualizarCasoDeCobranca: vi.fn(async (_p: number, id: number, patch: any) => { fake.patches.push({ id, patch }); return { id }; }),
+    getRecoveryCases: vi.fn(async () => fake.recuperacoes),
   },
 }));
 // As regras da cobranca vem da rota (exportadas de la); aqui sao substitutas com o mesmo contrato.
@@ -64,7 +66,7 @@ vi.mock("../../routes/cobranca.routes", () => ({
 }));
 vi.mock("../../storage/cobranca.storage", () => ({ carteiraDoStatusErp: vi.fn(() => "ativo") }));
 
-import { casoParaAgente, gerarChaveDoAgente, hashDaChave, provedorDaChave, registrarPromessaDoAgente, registrarTransferenciaDoAgente } from "./chat-agente.service";
+import { casoParaAgente, equipamentoParaAgente, gerarChaveDoAgente, hashDaChave, provedorDaChave, registrarPromessaDoAgente, registrarTransferenciaDoAgente } from "./chat-agente.service";
 
 const CLIENTE = { id: 42, name: "Maria da Silva", phone: "(43) 99999-0000", city: "Londrina", status: "active", totalOverdueAmount: "189.90", maxDaysOverdue: 47, overdueInvoicesCount: 2, contractStartDate: "2024-01-10" };
 const DETALHE = { id: 10, status: "em_contato", carteira: "ativo", valorAtual: 189.9, responsavelNome: "Ana", cliente: { id: 42 } };
@@ -78,7 +80,47 @@ beforeEach(() => {
   fake.eventos = [];
   fake.gravados.length = 0;
   fake.patches.length = 0;
+  fake.recuperacoes = [];
   vi.clearAllMocks();
+});
+
+describe("equipamentoParaAgente", () => {
+  const RECUPERACAO = { id: 7, customerId: 42, status: "pre_recuperacao", createdAt: "2026-09-01T12:00:00Z", closedAt: null, disputedAt: null, deadlineAt: "2026-10-15T03:00:00Z", scheduledAt: null, collectionMethod: null, equipmentType: "ONU", equipmentBrand: "Nokia", equipmentModel: "G-1425G-A", equipmentSerialNumber: "ALCLFC1607CD", equipmentValue: "450.00", customerName: "Maria da Silva" };
+  it("cliente desconhecido: encontrado=false; cliente sem devolucao pendente: caso nulo e instrucao de nao tratar de aparelho", async () => {
+    fake.cliente = undefined;
+    expect((await equipamentoParaAgente(6, "43999990000")).encontrado).toBe(false);
+    fake.cliente = CLIENTE;
+    const r = await equipamentoParaAgente(6, "43999990000");
+    expect(r).toMatchObject({ encontrado: true, caso: null });
+    expect(r.instrucao).toMatch(/nao tem devolucao/);
+  });
+  it("devolucao aberta: aparelho sem valor, serie so o final, prazo e a ordem de combinar retirada; caso encerrado e de outro cliente ficam fora", async () => {
+    fake.recuperacoes = [
+      { ...RECUPERACAO, id: 5, closedAt: "2026-09-02T00:00:00Z" },
+      { ...RECUPERACAO, id: 6, customerId: 99 },
+      RECUPERACAO,
+    ];
+    const r = await equipamentoParaAgente(6, "43999990000");
+    expect(r.caso).toMatchObject({ id: 7, status: "pre_recuperacao", aparelho: { tipo: "ONU", marca: "Nokia", modelo: "G-1425G-A", serieFinal: "07CD" }, contestado: false, agendamento: null });
+    expect(r.instrucao).toMatch(/ONU Nokia G-1425G-A/);
+    expect(r.instrucao).toMatch(/15\/10\/2026/);
+    expect(r.instrucao).toMatch(/pergunte o melhor dia/);
+    expect(r.instrucao).toMatch(/Nunca fale em valor/);
+    const json = JSON.stringify(r);
+    expect(json).not.toContain("450");
+    expect(json).not.toContain("ALCLFC1607CD");
+  });
+  it("retirada ja combinada e contestacao mudam a instrucao", async () => {
+    fake.recuperacoes = [{ ...RECUPERACAO, scheduledAt: "2026-09-20T17:00:00Z", collectionMethod: "retirada no endereco" }];
+    const marcada = await equipamentoParaAgente(6, "43999990000");
+    expect(marcada.caso).toMatchObject({ agendamento: "2026-09-20T17:00:00.000Z", formaDeDevolucao: "retirada no endereco" });
+    expect(marcada.instrucao).toMatch(/Ja existe retirada combinada para 20\/09\/2026/);
+    fake.recuperacoes = [{ ...RECUPERACAO, disputedAt: "2026-09-10T00:00:00Z" }];
+    const contestada = await equipamentoParaAgente(6, "43999990000");
+    expect(contestada.caso!.contestado).toBe(true);
+    expect(contestada.instrucao).toMatch(/CONTESTOU/);
+    expect(contestada.instrucao).not.toMatch(/pergunte o melhor dia/);
+  });
 });
 
 describe("a chave do agente", () => {

@@ -607,7 +607,7 @@ describe("o catálogo da organização nasce pronto", () => {
       expect(a.instrucoes.length, a.id).toBeGreaterThan(10);
     }
     const { skills } = primeira.skills;
-    expect(skills.map((s) => s.nome).sort()).toEqual(["consultarCaso", "registrarPromessa", "registrarTransferencia"]);
+    expect(skills.map((s) => s.nome).sort()).toEqual(["consultarCaso", "consultarEquipamento", "registrarPromessa", "registrarTransferencia"]);
     expect(skills.every((s) => s.daPonte && s.agentes.length > 0 && s.toolNome && s.versao === 1)).toBe(true);
     expect(primeira.versoes).toMatchObject({ ok: true, valor: [{ version: 1, name: "consultarCaso" }] });
     expect(primeira.doAgente.ok && primeira.doAgente.valor.length).toBeGreaterThan(0);

@@ -312,6 +312,91 @@ export async function casoParaAgente(providerId: number, telefone: string | null
   };
 }
 
+/* ── O caso de equipamento, como o agente de devolucao precisa ler ────── */
+
+export interface EquipamentoParaAgente {
+  ok: true;
+  encontrado: boolean;
+  cliente: { primeiroNome: string; nome: string; cidade: string | null } | null;
+  /**
+   * O caso de devolucao ABERTO mais antigo do cliente — e o que a esteira esta
+   * cobrando. NUNCA leva o valor do aparelho, multa ou divida: a conversa de
+   * equipamento e um combinado de retirada, nao uma cobranca (perfil Eduarda;
+   * dono, 11/09/2026: nao baixar aparelho no dia 60, RGC e prazo da prestadora).
+   */
+  caso: {
+    id: number;
+    status: string;
+    aparelho: { tipo: string | null; marca: string | null; modelo: string | null; serieFinal: string | null };
+    prazoDevolucao: string | null;
+    agendamento: string | null;
+    formaDeDevolucao: string | null;
+    contestado: boolean;
+  } | null;
+  /** O que o agente deve fazer, em uma frase. */
+  instrucao: string;
+}
+
+const dataCurta = (d: Date | string | null | undefined) => {
+  if (!d) return null;
+  const t = new Date(d);
+  return Number.isFinite(t.getTime()) ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric" }).format(t) : null;
+};
+const dataEHora = (d: Date | string | null | undefined) => {
+  if (!d) return null;
+  const t = new Date(d);
+  return Number.isFinite(t.getTime()) ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(t) : null;
+};
+
+/**
+ * Le a devolucao pendente do cliente pelo telefone. Sem cliente ou sem caso
+ * aberto, a resposta e honesta e manda nao tratar de aparelho — o agente nao
+ * inventa devolucao, prazo nem forma de retirada.
+ */
+export async function equipamentoParaAgente(providerId: number, telefone: string | null | undefined): Promise<EquipamentoParaAgente> {
+  const fone = normalizarTelefoneParaChat(telefone);
+  const semNada: EquipamentoParaAgente = { ok: true, encontrado: false, cliente: null, caso: null, instrucao: "Cliente nao encontrado pelo telefone. Nao fale de equipamento: pergunte se ele usa outro numero no cadastro e, se preciso, transfira ao atendente." };
+  if (!fone) return semNada;
+  const cliente = await storage.getCustomerByPhoneDigits(providerId, fone);
+  if (!cliente) return semNada;
+  const resumo = { primeiroNome: primeiroNome(cliente.name), nome: cliente.name, cidade: cliente.city ?? null };
+  const abertos = (await storage.getRecoveryCases(providerId))
+    .filter(c => c.customerId === cliente.id && !c.closedAt)
+    .sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime());
+  const c = abertos[0];
+  if (!c) return { ok: true, encontrado: true, cliente: resumo, caso: null, instrucao: "Este telefone nao tem devolucao de equipamento pendente: nao trate de aparelho nem de cobranca. Se o cliente falar de pagamento, fatura ou outro assunto, transfira ao atendente." };
+
+  const serie = c.equipmentSerialNumber?.trim();
+  const aparelho = { tipo: c.equipmentType ?? null, marca: c.equipmentBrand ?? null, modelo: c.equipmentModel ?? null, serieFinal: serie ? serie.slice(-4) : null };
+  const nomeDoAparelho = [aparelho.tipo, aparelho.marca, aparelho.modelo].filter(Boolean).join(" ") || "o aparelho";
+  const prazo = dataCurta(c.deadlineAt);
+  const agendamento = dataEHora(c.scheduledAt);
+  const contestado = !!c.disputedAt;
+
+  const partes: string[] = [`Devolucao pendente de ${nomeDoAparelho}${aparelho.serieFinal ? ` (serie final ${aparelho.serieFinal})` : ""}${prazo ? `, com prazo ate ${prazo}` : ""}.`];
+  if (contestado) partes.push("O cliente CONTESTOU esta devolucao: nao insista nem combine retirada; agradeca e transfira ao atendente.");
+  else if (agendamento) partes.push(`Ja existe retirada combinada para ${agendamento}: confirme o combinado em uma frase e nao marque outra data.`);
+  else partes.push("Sem retirada combinada: pergunte o melhor dia e periodo; so o servidor grava o agendamento, e so quando a acao estiver liberada.");
+  if (c.collectionMethod) partes.push(`Forma combinada: ${c.collectionMethod}.`);
+  partes.push("Nunca fale em valor do aparelho, multa ou divida, e nao misture com fatura. Se o cliente disser que ja devolveu, perdeu, teve roubo, o aparelho quebrou ou ele se mudou, nao presuma ma-fe: agradeca e transfira ao atendente.");
+
+  return {
+    ok: true,
+    encontrado: true,
+    cliente: resumo,
+    caso: {
+      id: c.id,
+      status: c.status,
+      aparelho,
+      prazoDevolucao: c.deadlineAt ? new Date(c.deadlineAt).toISOString() : null,
+      agendamento: c.scheduledAt ? new Date(c.scheduledAt).toISOString() : null,
+      formaDeDevolucao: c.collectionMethod ?? null,
+      contestado,
+    },
+    instrucao: partes.join(" "),
+  };
+}
+
 /* ── O que o agente grava ──────────────────────────────────────────────── */
 
 export interface PromessaDoAgente {

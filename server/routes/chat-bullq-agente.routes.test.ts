@@ -14,6 +14,7 @@ import type { Server } from "node:http";
 const servico = vi.hoisted(() => ({
   provedorDaChave: vi.fn(async (chave?: string | null): Promise<any> => (chave === "isp_ag_valida_1234567890" ? { providerId: 42, organizationId: "org_42" } : null)),
   casoParaAgente: vi.fn(async (): Promise<any> => ({ ok: true, encontrado: true, instrucao: "cobre com cordialidade" })),
+  equipamentoParaAgente: vi.fn(async (): Promise<any> => ({ ok: true, encontrado: true, caso: { id: 7 }, instrucao: "combine a retirada" })),
   registrarPromessaDoAgente: vi.fn(async (): Promise<any> => ({ ok: true, mensagem: "registrada", promessaId: 900 })),
   registrarTransferenciaDoAgente: vi.fn(async (): Promise<any> => ({ ok: true, mensagem: "ok" })),
 }));
@@ -82,6 +83,17 @@ describe("as skills do agente", () => {
     expect(res.status).toBe(200);
     expect(servico.casoParaAgente).toHaveBeenCalledWith(42, "43999990000");
     expect(await res.json()).toMatchObject({ ok: true, encontrado: true });
+  });
+  it("consultar equipamento: mesma chave, telefone da query, e falha responde 200 mandando transferir", async () => {
+    expect((await pedir("GET", "/api/chat-bullq/agente/equipamento?telefone=43999990000")).status).toBe(401);
+    const res = await pedir("GET", "/api/chat-bullq/agente/equipamento?telefone=43999990000", undefined, { "x-chave-agente": CHAVE });
+    expect(res.status).toBe(200);
+    expect(servico.equipamentoParaAgente).toHaveBeenCalledWith(42, "43999990000");
+    expect(await res.json()).toMatchObject({ ok: true, encontrado: true, caso: { id: 7 } });
+    servico.equipamentoParaAgente.mockRejectedValueOnce(new Error("banco fora"));
+    const falha = await pedir("GET", "/api/chat-bullq/agente/equipamento?telefone=43999990000", undefined, { "x-chave-agente": CHAVE });
+    expect(falha.status).toBe(200);
+    expect(await falha.json()).toMatchObject({ ok: false, instrucao: expect.stringContaining("transfira") });
   });
   it("falha do sistema nao vira >= 400: 200 com instrucao de nao citar valores", async () => {
     servico.casoParaAgente.mockRejectedValueOnce(new Error("banco fora"));

@@ -17,7 +17,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { logger } from "../logger";
 import { storage } from "../storage";
-import { casoParaAgente, provedorDaChave, registrarPromessaDoAgente, registrarTransferenciaDoAgente } from "../services/chat/chat-agente.service";
+import { casoParaAgente, equipamentoParaAgente, provedorDaChave, registrarPromessaDoAgente, registrarTransferenciaDoAgente } from "../services/chat/chat-agente.service";
 import { receberRespostaDoCliente } from "../services/chat/chat-atendimento.service";
 import { receberMensagemAutonoma } from "../services/chat/chat-autonomia.service";
 import { autonomiaStorage } from "../storage/chat-autonomia.storage";
@@ -107,6 +107,21 @@ export function registerChatBullqAgenteRoutes(): Router {
       logger.error({ err: e, providerId: req.agente?.providerId }, "Agente do chat: falha ao ler o caso");
       // 200 de proposito: o agente recebe uma instrucao, nao um alerta para a org inteira.
       res.json({ ok: false, encontrado: false, instrucao: "O sistema de cobranca nao respondeu agora. Nao cite valores; diga que vai verificar e transfira ao atendente." });
+    }
+  });
+
+  /**
+   * A skill do perfil de equipamentos (consultarEquipamento, 16/09/2026): a
+   * devolucao pendente pelo telefone, sem valor do aparelho. Ate aqui o perfil
+   * so tinha a leitura do caso de DIVIDA, que nao e assunto dessa conversa.
+   */
+  router.get("/api/chat-bullq/agente/equipamento", exigirChaveDoAgente, async (req: ReqDoAgente, res) => {
+    const telefone = typeof req.query.telefone === "string" ? req.query.telefone : "";
+    try {
+      res.json(await equipamentoParaAgente(req.agente!.providerId, telefone));
+    } catch (e) {
+      logger.error({ err: e, providerId: req.agente?.providerId }, "Agente do chat: falha ao ler o caso de equipamento");
+      res.json({ ok: false, encontrado: false, instrucao: "O sistema de equipamentos nao respondeu agora. Nao combine nada; diga que vai verificar e transfira ao atendente." });
     }
   });
 
