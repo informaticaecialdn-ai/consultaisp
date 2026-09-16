@@ -22,7 +22,7 @@ import { randomBytes } from "node:crypto";
 import { orientarContato } from "@shared/cobranca/contato";
 import { TIPOS_DE_AGENTE, type TipoDeAgente, type PrimeiroContatoPreparado } from "@shared/chat-agentes";
 import { textoNeutroAntesDaIdentificacao } from "@shared/chat-templates";
-import type { CanalWhatsapp, ProvedorWhatsapp } from "@shared/chat-whatsapp";
+import { PROVEDORES_OFERECIDOS, type CanalWhatsapp, type ProvedorWhatsapp } from "@shared/chat-whatsapp";
 import { prescrita } from "@shared/cobranca/regua";
 import { storage } from "../../storage";
 import type { StatusDeIntegracaoDoChat } from "../../storage/chat-bullq.storage";
@@ -167,7 +167,7 @@ export async function garantirIntegracao(providerId: number) {
  * O numero de WhatsApp do provedor: cria o canal (Zappfy/Uazapi) na
  * organizacao dele e testa a conexao. O token vai direto para o Chat BullQ.
  */
-export async function configurarCanalWhatsapp(providerId: number, dados: CanalWhatsapp | { nome: string; token: string; webhookSecret?: string }) {
+export async function configurarCanalWhatsapp(providerId: number, dados: CanalWhatsapp) {
   const resultado = await comTravaDoChat(`config:${providerId}`, () => configurarCanalWhatsappSemTrava(providerId, dados));
   if (!resultado) throw new ErroDaPonteDoChat("CONFLITO", "O número está sendo configurado. Tente novamente em instantes.");
   return resultado;
@@ -199,8 +199,16 @@ function motivoDaConsultaDeConexao(r: { erro: string; status?: number }): string
   return r.status ? `o chat respondeu HTTP ${r.status}` : "o serviço não respondeu";
 }
 
+/**
+ * So o que o dono deixou no sistema (16/09/2026): a Evolution (da plataforma) e a
+ * Datafy. A guarda fica AQUI, e nao so no schema da rota, porque e a ponte que
+ * fala com o fork — quem chegar por outra porta com Zappfy/Uazapi e recusado
+ * antes de qualquer chamada, e nenhum token sai daqui.
+ */
 async function exigirSuporteDoFork(cliente: ChatBullqClient, organizationId: string, provider: ProvedorWhatsapp): Promise<void> {
-  if (provider === "ZAPPFY") return;
+  if (!(PROVEDORES_OFERECIDOS as readonly string[]).includes(provider)) {
+    throw new ErroDaPonteDoChat("CHAT_SEM_SUPORTE", "Zappfy e Uazapi não são mais oferecidos: use o WhatsApp da plataforma (Evolution) ou a Datafy.");
+  }
   const capacidades = await cliente.capacidadesDosCanais(organizationId);
   if (provider === "EVOLUTION") {
     // A Evolution e da PLATAFORMA: o fork so a anuncia quando EVOLUTION_API_URL
@@ -211,8 +219,9 @@ async function exigirSuporteDoFork(cliente: ChatBullqClient, organizationId: str
     }
     return;
   }
-  const suporta = !falhou(capacidades) && (provider === "UAZAPI" ? capacidades.valor.uazapi === true : capacidades.valor.datafy === true);
-  if (!suporta) throw new ErroDaPonteDoChat("CHAT_SEM_SUPORTE", "O chat ainda não aceita este serviço de WhatsApp. Nenhum token foi enviado; peça ao administrador da instalação a atualização de canais.");
+  if (falhou(capacidades) || capacidades.valor.datafy !== true) {
+    throw new ErroDaPonteDoChat("CHAT_SEM_SUPORTE", "O chat ainda não aceita este serviço de WhatsApp. Nenhum token foi enviado; peça ao administrador da instalação a atualização de canais.");
+  }
 }
 
 const TIPOS_DE_CANAL_DE_WHATSAPP = new Set(["WHATSAPP_ZAPPFY", "WHATSAPP_OFFICIAL", "WHATSAPP_EVOLUTION"]);
@@ -231,19 +240,16 @@ export async function removerCanaisAntigosDeWhatsapp(cliente: ChatBullqClient, p
   return { removidos, falhas };
 }
 
-async function configurarCanalWhatsappSemTrava(providerId: number, dados: CanalWhatsapp | { nome: string; token: string; webhookSecret?: string }) {
+async function configurarCanalWhatsappSemTrava(providerId: number, config: CanalWhatsapp) {
   const cliente = clienteDoChat();
   if (!cliente) throw desligado();
   const intg = await garantirIntegracao(providerId);
-  const config: CanalWhatsapp = "provider" in dados ? dados : { ...dados, provider: "ZAPPFY" };
   await exigirSuporteDoFork(cliente, intg.organizationId, config.provider);
-  // Pelo `config`, que o discriminante estreita: o canal da plataforma (Evolution)
-  // nao tem token — o fork cria a instancia e gera as credenciais.
-  const criado = config.provider === "ZAPPFY"
-    ? await cliente.criarCanalZappfy(intg.organizationId, { nome: config.nome, token: config.token, webhookSecret: config.webhookSecret })
-    : config.provider === "EVOLUTION"
-      ? await cliente.criarCanalEvolution(intg.organizationId, { nome: config.nome })
-      : await cliente.criarCanalWhatsapp(intg.organizationId, config);
+  // Pelo discriminante: o canal da plataforma (Evolution) nao tem token — o
+  // fork cria a instancia e gera as credenciais; a Datafy leva as do provedor.
+  const criado = config.provider === "EVOLUTION"
+    ? await cliente.criarCanalEvolution(intg.organizationId, { nome: config.nome })
+    : await cliente.criarCanalWhatsapp(intg.organizationId, config);
   if (falhou(criado)) {
     throw new ErroDaPonteDoChat("CHAT_FALHOU", "O chat não conseguiu salvar a instância. Confira o token e a conexão do serviço.");
   }
@@ -283,12 +289,12 @@ async function configurarCanalWhatsappSemTrava(providerId: number, dados: CanalW
     status,
     ultimoErro,
     canalId: criado.valor.id,
-    canalNome: dados.nome,
+    canalNome: config.nome,
   });
   const anterior = (intg.agenteConfig ?? {}) as Record<string, unknown>;
   await storage.guardarAgenteDoChat(providerId, { agenteConfig: {
     ...anterior,
-    whatsapp: { provider: config.provider, ...(config.provider === "UAZAPI" ? { baseUrl: config.baseUrl } : {}), ...(config.provider === "DATAFY" ? { phoneNumberId: config.phoneNumberId } : {}) },
+    whatsapp: { provider: config.provider, ...(config.provider === "DATAFY" ? { phoneNumberId: config.phoneNumberId } : {}) },
   } });
   return { integracao: atualizada!, canalOk: status === "ativo" };
 }

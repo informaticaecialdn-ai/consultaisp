@@ -2,27 +2,32 @@ import { z } from "zod";
 import { TipoDeAgenteSchema } from "./chat-agentes";
 
 /**
- * `EVOLUTION` é o WhatsApp da PLATAFORMA (a Evolution API na VPS, 11/09/2026):
- * o provedor não digita token nem segredo — o Chat BullQ cria a instância, gera
- * os dois e guarda. Os outros três exigem a credencial do próprio provedor.
+ * LEITURA: os quatro valores que existem em canais já gravados e nas respostas
+ * de status do fork. `EVOLUTION` é o WhatsApp da PLATAFORMA (a Evolution API na
+ * VPS, 11/09/2026): o provedor não digita token nem segredo — o Chat BullQ cria
+ * a instância, gera os dois e guarda.
  */
 export const ProvedorWhatsappSchema = z.enum(["ZAPPFY", "UAZAPI", "DATAFY", "EVOLUTION"]);
 export type ProvedorWhatsapp = z.infer<typeof ProvedorWhatsappSchema>;
+/**
+ * CRIAÇÃO: só estes dois (dono, 16/09/2026: "deixar somente o Datafy e o
+ * Evolution no sistema"). Zappfy e Uazapi não são mais oferecidos; um canal
+ * antigo desses tipos continua legível até ser substituído — e "um número por
+ * provedor" apaga o antigo ao salvar o novo.
+ */
+export const PROVEDORES_OFERECIDOS = ["EVOLUTION", "DATAFY"] as const;
+export type ProvedorOferecido = (typeof PROVEDORES_OFERECIDOS)[number];
 const CredenciaisComuns = {
   nome: z.string().trim().min(2).max(80),
   token: z.string().trim().min(8).max(500),
   webhookSecret: z.string().trim().min(8).max(200).optional(),
 };
-export const CanalWhatsappSchema = z.preprocess(
-  (valor) => valor && typeof valor === "object" && !Array.isArray(valor) ? { provider: "ZAPPFY", ...valor } : valor,
-  z.discriminatedUnion("provider", [
-    z.object({ ...CredenciaisComuns, provider: z.literal("ZAPPFY") }).strict(),
-    // `.strict()` de propósito: token ou segredo mandados por engano são recusados, não ignorados.
-    z.object({ nome: CredenciaisComuns.nome, provider: z.literal("EVOLUTION") }).strict(),
-    z.object({ ...CredenciaisComuns, provider: z.literal("UAZAPI"), baseUrl: z.string().trim().url().max(250).refine(v => { const u = new URL(v); return u.protocol === "https:" && !u.username && !u.password && !u.search && !u.hash && (!u.port || u.port === "443"); }, "Use a URL HTTPS da sua instância Uazapi") }).strict(),
-    z.object({ ...CredenciaisComuns, provider: z.literal("DATAFY"), phoneNumberId: z.string().regex(/^\d{5,30}$/), businessAccountId: z.string().regex(/^\d{5,30}$/).optional(), webhookSecret: z.string().trim().min(12).max(200).regex(/^whsec_/) }).strict(),
-  ]),
-);
+// Sem serviço padrão: quem cria escolhe. `.strict()` de propósito — token ou
+// segredo mandados por engano para a Evolution são recusados, não ignorados.
+export const CanalWhatsappSchema = z.discriminatedUnion("provider", [
+  z.object({ nome: CredenciaisComuns.nome, provider: z.literal("EVOLUTION") }).strict(),
+  z.object({ ...CredenciaisComuns, provider: z.literal("DATAFY"), phoneNumberId: z.string().regex(/^\d{5,30}$/), businessAccountId: z.string().regex(/^\d{5,30}$/).optional(), webhookSecret: z.string().trim().min(12).max(200).regex(/^whsec_/) }).strict(),
+]);
 export type CanalWhatsapp = z.infer<typeof CanalWhatsappSchema>;
 
 export const TemplateDeAberturaSchema = z.object({

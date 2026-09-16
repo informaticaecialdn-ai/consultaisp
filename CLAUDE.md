@@ -724,7 +724,10 @@ conversa no Cliente 360 e no card de retirada. O Chat BullQ é o transporte e o
 histórico; a decisão é sempre daqui.
 ```
 GET  /api/chat-bullq/integracao            # estado (sem credencial: só provider, canal, status)
-POST /api/chat-bullq/integracao/canal      # admin — liga o número (EVOLUTION = WhatsApp da plataforma, sem token · Zappfy · Uazapi · Datafy)
+POST /api/chat-bullq/integracao/canal      # admin — liga o número: EVOLUTION (WhatsApp da plataforma, sem token; o fork cria a
+                                           # instancia na Evolution API) ou DATAFY (API oficial, credencial do provedor). Zappfy e
+                                           # Uazapi NAO sao mais oferecidos (dono, 16/09/2026): canal antigo desses tipos so e lido
+                                           # e some ao salvar o novo (um numero por provedor)
 GET  /api/chat-bullq/atendimentos          # a fila humana; POST :id/acoes = assumir · enviar · encerrar
 GET  /api/chat-bullq/integracao/agentes    # os três perfis e a configuração de cada um
 POST /api/chat-bullq/integracao/agentes/:tipo          # admin — provisiona/atualiza no fork

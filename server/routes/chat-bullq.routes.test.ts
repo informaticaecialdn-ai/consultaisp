@@ -103,9 +103,12 @@ describe("acesso", () => {
   it("valida campos por serviço e mantém token e segredo fora da resposta", async () => {
     sessao = ADMIN;
     const comum = { nome: "Principal", token: "token-sintetico" };
-    expect((await json("POST", "/api/chat-bullq/integracao/canal", { ...comum, provider: "UAZAPI" })).status).toBe(400);
-    expect((await json("POST", "/api/chat-bullq/integracao/canal", { ...comum, provider: "UAZAPI", baseUrl: "https://minha.uazapi.com" })).status).toBe(200);
-    expect(servico.configurarCanalWhatsapp).toHaveBeenLastCalledWith(42, { ...comum, provider: "UAZAPI", baseUrl: "https://minha.uazapi.com" });
+    // Zappfy e Uazapi nao sao mais oferecidos (dono, 16/09/2026): 400 no schema,
+    // mesmo com todos os campos que antes valiam — e sem provider tambem (nao ha mais padrao).
+    expect((await json("POST", "/api/chat-bullq/integracao/canal", { ...comum, provider: "UAZAPI", baseUrl: "https://minha.uazapi.com" })).status).toBe(400);
+    expect((await json("POST", "/api/chat-bullq/integracao/canal", { ...comum, provider: "ZAPPFY" })).status).toBe(400);
+    expect((await json("POST", "/api/chat-bullq/integracao/canal", { ...comum })).status).toBe(400);
+    expect(servico.configurarCanalWhatsapp).not.toHaveBeenCalled();
     expect((await json("POST", "/api/chat-bullq/integracao/canal", { ...comum, provider: "DATAFY", phoneNumberId: "123456789" })).status).toBe(400);
     const r = await json("POST", "/api/chat-bullq/integracao/canal", { ...comum, provider: "DATAFY", phoneNumberId: "123456789", webhookSecret: "whsec_segredo-sintetico" });
     expect(r.status).toBe(200);
@@ -247,11 +250,11 @@ describe("acesso", () => {
     sessao = OPERADOR;
     expect((await json("GET", "/api/chat-bullq/integracao")).status).toBe(200);
     expect((await json("POST", "/api/chat-bullq/cobranca/casos/10/enviar", {})).status).toBe(200);
-    expect((await json("POST", "/api/chat-bullq/integracao/canal", { nome: "Principal", token: "tok_12345678" })).status).toBe(403);
+    expect((await json("POST", "/api/chat-bullq/integracao/canal", { provider: "EVOLUTION", nome: "Principal" })).status).toBe(403);
     expect(servico.configurarCanalWhatsapp).not.toHaveBeenCalled();
     sessao = ADMIN;
-    expect((await json("POST", "/api/chat-bullq/integracao/canal", { nome: "Principal", token: "tok_12345678" })).status).toBe(200);
-    expect(servico.configurarCanalWhatsapp).toHaveBeenCalledWith(42, { provider: "ZAPPFY", nome: "Principal", token: "tok_12345678" });
+    expect((await json("POST", "/api/chat-bullq/integracao/canal", { provider: "EVOLUTION", nome: "Principal" })).status).toBe(200);
+    expect(servico.configurarCanalWhatsapp).toHaveBeenCalledWith(42, { provider: "EVOLUTION", nome: "Principal" });
   });
 });
 
@@ -322,7 +325,7 @@ describe("canal", () => {
     sessao = ADMIN;
     expect((await json("POST", "/api/chat-bullq/integracao/canal", { nome: "P", token: "curto" })).status).toBe(400);
     servico.configurarCanalWhatsapp.mockResolvedValueOnce({ canalOk: false, integracao: { status: "erro", canalId: "ch_1", canalNome: "Principal", ultimoErro: "instancia desconectada" } });
-    const res = await json("POST", "/api/chat-bullq/integracao/canal", { nome: "Principal", token: "tok_12345678" });
+    const res = await json("POST", "/api/chat-bullq/integracao/canal", { provider: "DATAFY", nome: "Principal", token: "tok_12345678", phoneNumberId: "123456789", webhookSecret: "whsec_segredo-sintetico" });
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ canalOk: false, integracao: { status: "erro", ultimoErro: "instancia desconectada" } });
   });

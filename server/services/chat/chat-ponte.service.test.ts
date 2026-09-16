@@ -55,12 +55,15 @@ import { limparChatSimuladoDoProvedor, URL_DO_CHAT_SIMULADO } from "../../demo/c
 function clienteFalso(sobrescritas: Record<string, any> = {}) {
   const c = {
     provisionarOrganizacao: vi.fn(async () => ({ ok: true, valor: { organizationId: "org_1", slug: "isp-6", ownerUserId: "u1", ownerEmail: "dono@nslink.com", created: true } })),
-    criarCanalZappfy: vi.fn(async () => ({ ok: true, valor: { id: "ch_1", type: "WHATSAPP_ZAPPFY", name: "Principal", isActive: true } })),
-    criarCanalWhatsapp: vi.fn(async () => ({ ok: true, valor: { id: "ch_2", type: "WHATSAPP_ZAPPFY", name: "Principal", isActive: true } })),
+    // O WhatsApp da plataforma (Evolution) e o caminho padrao; a Datafy e o unico
+    // servico em que o provedor traz credencial. Zappfy e Uazapi nao sao mais
+    // oferecidos (dono, 16/09/2026).
+    criarCanalEvolution: vi.fn(async () => ({ ok: true, valor: { id: "ch_1", type: "WHATSAPP_EVOLUTION", name: "Principal", isActive: true } })),
+    criarCanalWhatsapp: vi.fn(async () => ({ ok: true, valor: { id: "ch_2", type: "WHATSAPP_OFFICIAL", name: "Oficial", isActive: true } })),
     testarCanal: vi.fn(async () => ({ ok: true, valor: { ok: true } })),
     listarCanais: vi.fn(async () => ({ ok: true, valor: [] })),
     removerCanal: vi.fn(async () => ({ ok: true, valor: undefined })),
-    capacidadesDosCanais: vi.fn(async () => ({ ok: true, valor: { whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", uazapi: true, datafy: true, templateFirstContact: true } })),
+    capacidadesDosCanais: vi.fn(async () => ({ ok: true, valor: { whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", uazapi: false, datafy: true, evolution: true, templateFirstContact: true } })),
     estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: true, valor: { provider: "ZAPPFY", status: "connected", connected: true, loggedIn: true, phone: "5543999990000", qrCode: null, pairCode: null } })),
     ligarAgenteAoCanal: vi.fn(async () => ({ ok: true, valor: undefined })),
     buscarConversaPorTelefone: vi.fn(async () => ({ ok: true, valor: null })),
@@ -78,6 +81,8 @@ function clienteFalso(sobrescritas: Record<string, any> = {}) {
   return c;
 }
 
+/** O canal padrao dos testes: o WhatsApp da plataforma, sem token. */
+const EVO = { provider: "EVOLUTION" as const, nome: "Principal" };
 const CASO = {
   id: 10, status: "aberto", carteira: "ativo", valorAtual: 189.9,
   cliente: { id: 42, nome: "Maria da Silva", cpfCnpj: "12345678909", telefone: "(43) 99999-0000", email: null, cidade: null, bairro: null, statusErp: "active", dividaAtual: 189.9, diasAtraso: 47, faturasAbertas: 2 },
@@ -147,7 +152,7 @@ describe("configurarCanalWhatsapp", () => {
       { id: "ch_email", type: "EMAIL", name: "E-mail", isActive: true },
     ] })) });
     _usarClienteDoChatParaTestes(c as never);
-    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_zap_1234567890", provider: "ZAPPFY" } as never);
+    await configurarCanalWhatsapp(6, EVO);
     expect(c.removerCanal).toHaveBeenCalledTimes(2);
     expect(c.removerCanal).toHaveBeenCalledWith("org_1", "ch_velho", "WhatsApp principal");
     expect(c.removerCanal).toHaveBeenCalledWith("org_1", "ch_datafy", "Oficial");
@@ -159,47 +164,51 @@ describe("configurarCanalWhatsapp", () => {
       removerCanal: vi.fn(async () => ({ ok: false, erro: "HTTP 500" })),
     });
     _usarClienteDoChatParaTestes(c as never);
-    const r = await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_zap_1234567890", provider: "ZAPPFY" } as never);
+    const r = await configurarCanalWhatsapp(6, EVO);
     expect(r.canalOk).toBe(true);
     expect(r.integracao.canalId).toBe("ch_1");
   });
   it("cria o canal, testa, confirma o numero conectado e logado, e so entao marca ativo", async () => {
     const c = clienteFalso();
-    const r = await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
-    expect(c.criarCanalZappfy).toHaveBeenCalledWith("org_1", { nome: "Principal", token: "tok_secreto_123", webhookSecret: undefined });
+    const r = await configurarCanalWhatsapp(6, EVO);
+    expect(c.criarCanalEvolution).toHaveBeenCalledWith("org_1", { nome: "Principal" });
     expect(c.estadoDaConexaoWhatsapp).toHaveBeenCalledWith("org_1", "ch_1");
     expect(r.canalOk).toBe(true);
     expect(fake.integracao).toMatchObject({ status: "ativo", canalId: "ch_1", canalNome: "Principal", ultimoErro: null });
   });
-  it("Zappfy sem pareamento: token valido nao liga o canal — fica aguardando_conexao, e a automacao (que exige 'ativo') nao dispara", async () => {
-    clienteFalso({ estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: true, valor: { provider: "ZAPPFY", status: "connecting", connected: false, loggedIn: false, phone: null, qrCode: null, pairCode: null } })) });
-    const r = await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+  it("Evolution sem pareamento: canal criado nao liga — fica aguardando_conexao, e a automacao (que exige 'ativo') nao dispara", async () => {
+    clienteFalso({ estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: true, valor: { provider: "EVOLUTION", status: "connecting", connected: false, loggedIn: false, phone: null, qrCode: null, pairCode: null } })) });
+    const r = await configurarCanalWhatsapp(6, EVO);
     expect(r.canalOk).toBe(false);
     expect(fake.integracao).toMatchObject({ status: "aguardando_conexao", canalId: "ch_1", ultimoErro: "Aguardando o pareamento do WhatsApp" });
   });
   it("conectado mas nao logado tambem nao e ativo", async () => {
     clienteFalso({ estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: true, valor: { provider: "ZAPPFY", status: "connected", connected: true, loggedIn: false, phone: null, qrCode: null, pairCode: null } })) });
-    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+    await configurarCanalWhatsapp(6, EVO);
     expect(fake.integracao.status).toBe("aguardando_conexao");
   });
   it("connection-status indisponivel: diz a causa medida, nao inventa 'aguardando o pareamento'", async () => {
     clienteFalso({ estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: false, erro: "token=SEGREDO nao encontrado", status: 404 })) });
-    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+    await configurarCanalWhatsapp(6, EVO);
     expect(fake.integracao).toMatchObject({ status: "erro", ultimoErro: "Não foi possível consultar o estado da conexão: o chat respondeu HTTP 404" });
     // O texto bruto do gateway pode carregar credencial: nao vai para a coluna.
     expect(JSON.stringify(fake.integracao)).not.toContain("SEGREDO");
     fake.integracao = undefined;
     clienteFalso({ estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: false, erro: "fetch failed" })) });
-    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+    await configurarCanalWhatsapp(6, EVO);
     expect(fake.integracao).toMatchObject({ status: "erro", ultimoErro: "Não foi possível consultar o estado da conexão: o serviço não respondeu" });
   });
-  it("Uazapi com capability do fork: cria pelo canal generico e tambem exige o numero pareado", async () => {
-    const c = clienteFalso({ estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: true, valor: { provider: "UAZAPI", status: "disconnected", connected: false, loggedIn: false, phone: null, qrCode: null, pairCode: null } })) });
-    const r = await configurarCanalWhatsapp(6, { provider: "UAZAPI", nome: "Principal", token: "tok_secreto_123", baseUrl: "https://minha.uazapi.com" });
-    expect(c.capacidadesDosCanais).toHaveBeenCalledWith("org_1");
-    expect(c.criarCanalWhatsapp).toHaveBeenCalledWith("org_1", expect.objectContaining({ provider: "UAZAPI", baseUrl: "https://minha.uazapi.com" }));
-    expect(r.canalOk).toBe(false);
-    expect(fake.integracao).toMatchObject({ status: "aguardando_conexao", canalId: "ch_2", agenteConfig: { whatsapp: { provider: "UAZAPI", baseUrl: "https://minha.uazapi.com" } } });
+  it.each([
+    ["ZAPPFY", { provider: "ZAPPFY", nome: "Principal", token: "tok_secreto_123" }],
+    ["UAZAPI", { provider: "UAZAPI", nome: "Principal", token: "tok_secreto_123", baseUrl: "https://minha.uazapi.com" }],
+  ])("%s nao e mais oferecido (dono, 16/09/2026): CHAT_SEM_SUPORTE antes de qualquer chamada ao fork, e o token nunca sai daqui", async (_nome, dados) => {
+    const c = clienteFalso();
+    await expect(configurarCanalWhatsapp(6, dados as never)).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE", message: expect.stringContaining("não são mais oferecidos") });
+    expect(c.capacidadesDosCanais).not.toHaveBeenCalled();
+    expect(c.criarCanalWhatsapp).not.toHaveBeenCalled();
+    expect(c.criarCanalEvolution).not.toHaveBeenCalled();
+    expect(fake.integracao.canalId).toBeNull();
+    expect(JSON.stringify([...log.info.mock.calls, ...log.warn.mock.calls, ...log.error.mock.calls])).not.toContain("tok_secreto");
   });
   it("EVOLUTION (o WhatsApp da plataforma): sem token nenhum, o fork cria a instancia; fica aguardando o QR", async () => {
     const c = clienteFalso({
@@ -210,14 +219,13 @@ describe("configurarCanalWhatsapp", () => {
     const r = await configurarCanalWhatsapp(6, { provider: "EVOLUTION", nome: "WhatsApp da plataforma" });
     expect(c.capacidadesDosCanais).toHaveBeenCalledWith("org_1");
     expect(c.criarCanalEvolution).toHaveBeenCalledWith("org_1", { nome: "WhatsApp da plataforma" });
-    expect(c.criarCanalZappfy).not.toHaveBeenCalled();
     expect(c.criarCanalWhatsapp).not.toHaveBeenCalled();
     expect(c.estadoDaConexaoWhatsapp).toHaveBeenCalledWith("org_1", "ch_evo");
     expect(r.canalOk).toBe(false);
     expect(fake.integracao).toMatchObject({ status: "aguardando_conexao", canalId: "ch_evo", canalNome: "WhatsApp da plataforma", agenteConfig: { whatsapp: { provider: "EVOLUTION" } } });
   });
   it("EVOLUTION sem a Evolution configurada no fork: CHAT_SEM_SUPORTE dizendo o que falta, e nada e criado", async () => {
-    const c = clienteFalso({ criarCanalEvolution: vi.fn(async () => ({ ok: true, valor: { id: "ch_evo", type: "WHATSAPP_EVOLUTION", name: "x", isActive: true } })) });
+    const c = clienteFalso({ capacidadesDosCanais: vi.fn(async () => ({ ok: true, valor: { whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", uazapi: false, datafy: true, evolution: false, templateFirstContact: true } })) });
     await expect(configurarCanalWhatsapp(6, { provider: "EVOLUTION", nome: "WhatsApp da plataforma" })).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE", message: expect.stringContaining("Evolution") });
     expect(c.criarCanalEvolution).not.toHaveBeenCalled();
     expect(fake.integracao.canalId).toBeNull();
@@ -227,28 +235,24 @@ describe("configurarCanalWhatsapp", () => {
       { id: "ch_evo_velho", type: "WHATSAPP_EVOLUTION", name: "Plataforma antiga", isActive: true },
       { id: "ch_1", type: "WHATSAPP_ZAPPFY", name: "Principal", isActive: true },
     ] })) });
-    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_zap_1234567890", provider: "ZAPPFY" } as never);
+    await configurarCanalWhatsapp(6, EVO);
     expect(c.removerCanal).toHaveBeenCalledWith("org_1", "ch_evo_velho", "Plataforma antiga");
     expect(c.removerCanal).not.toHaveBeenCalledWith("org_1", "ch_1", expect.anything());
   });
-  it.each([
-    ["UAZAPI", { provider: "UAZAPI" as const, nome: "Principal", token: "tok_secreto_123", baseUrl: "https://minha.uazapi.com" }, { uazapi: false, datafy: true }],
-    ["DATAFY", { provider: "DATAFY" as const, nome: "Oficial", token: "tok_secreto_123", phoneNumberId: "123456789", webhookSecret: "whsec_segredo_datafy_1" }, { uazapi: true, datafy: false }],
-  ])("%s sem a capability no fork: CHAT_SEM_SUPORTE e o token nunca sai daqui", async (_nome, dados, caps) => {
-    const c = clienteFalso({ capacidadesDosCanais: vi.fn(async () => ({ ok: true, valor: { whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", templateFirstContact: true, ...caps } })) });
-    await expect(configurarCanalWhatsapp(6, dados)).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE", message: expect.stringContaining("ainda não aceita este serviço") });
+  it("Datafy sem a capability no fork: CHAT_SEM_SUPORTE e o token nunca sai daqui", async () => {
+    const c = clienteFalso({ capacidadesDosCanais: vi.fn(async () => ({ ok: true, valor: { whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", uazapi: false, datafy: false, evolution: true, templateFirstContact: true } })) });
+    await expect(configurarCanalWhatsapp(6, { provider: "DATAFY", nome: "Oficial", token: "tok_secreto_123", phoneNumberId: "123456789", webhookSecret: "whsec_segredo_datafy_1" })).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE", message: expect.stringContaining("ainda não aceita este serviço") });
     expect(c.criarCanalWhatsapp).not.toHaveBeenCalled();
-    expect(c.criarCanalZappfy).not.toHaveBeenCalled();
+    expect(c.criarCanalEvolution).not.toHaveBeenCalled();
     expect(fake.integracao.canalId).toBeNull();
     expect(JSON.stringify([...log.info.mock.calls, ...log.warn.mock.calls, ...log.error.mock.calls])).not.toContain("tok_secreto");
   });
-  it("fork sem o endpoint de capabilities (404): tambem recusa Uazapi/Datafy; Zappfy nem consulta", async () => {
+  it("fork sem o endpoint de capabilities (404): recusa Datafy E Evolution — os dois dependem do que o fork anuncia, e nada e criado", async () => {
     const c = clienteFalso({ capacidadesDosCanais: vi.fn(async () => ({ ok: false, erro: "404", status: 404 })) });
-    await expect(configurarCanalWhatsapp(6, { provider: "UAZAPI", nome: "Principal", token: "tok_secreto_123", baseUrl: "https://minha.uazapi.com" })).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE" });
+    await expect(configurarCanalWhatsapp(6, { provider: "DATAFY", nome: "Oficial", token: "tok_secreto_123", phoneNumberId: "123456789", webhookSecret: "whsec_segredo_datafy_1" })).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE" });
+    await expect(configurarCanalWhatsapp(6, EVO)).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE" });
     expect(c.criarCanalWhatsapp).not.toHaveBeenCalled();
-    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
-    expect(c.capacidadesDosCanais).toHaveBeenCalledTimes(1);
-    expect(c.criarCanalZappfy).toHaveBeenCalledTimes(1);
+    expect(c.criarCanalEvolution).not.toHaveBeenCalled();
   });
   it("Datafy (API oficial, sem QR): teste ok marca ativo sem consultar connection-status", async () => {
     const c = clienteFalso();
@@ -260,13 +264,13 @@ describe("configurarCanalWhatsapp", () => {
   it("com agente de cobranca ja criado, o numero novo e ligado a ele (o Chat BullQ so liga aos canais que existiam)", async () => {
     const c = clienteFalso();
     fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: null, status: "provisionado", agenteId: "ag_1" };
-    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+    await configurarCanalWhatsapp(6, EVO);
     expect(c.ligarAgenteAoCanal).toHaveBeenCalledWith("org_1", "ag_1", "ch_1", "DISABLED");
   });
   it("canal novo e ligado DISABLED a TODOS os perfis de agente do provedor, sem repetir o legado", async () => {
     const c = clienteFalso();
     fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: null, status: "provisionado", agenteId: "ag-ativos", agenteConfig: AGENTES_PRONTOS };
-    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+    await configurarCanalWhatsapp(6, EVO);
     const vinculos = c.ligarAgenteAoCanal.mock.calls.map(([org, agente, canal, modo]) => [org, agente, canal, modo]);
     expect(vinculos).toHaveLength(3);
     expect(vinculos).toEqual(expect.arrayContaining([["org_1", "ag-ativos", "ch_1", "DISABLED"], ["org_1", "ag-ex", "ch_1", "DISABLED"], ["org_1", "ag-equip", "ch_1", "DISABLED"]]));
@@ -275,7 +279,7 @@ describe("configurarCanalWhatsapp", () => {
   it("perfil sem id ainda nao existe la: nao tenta ligar; vinculo que falha vira aviso sem derrubar o canal", async () => {
     const c = clienteFalso({ ligarAgenteAoCanal: vi.fn(async () => ({ ok: false, erro: "agent not found", status: 404 })) });
     fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: null, status: "provisionado", agenteConfig: { agentes: { cobranca_ativos: { id: "ag-ativos", etapa: "pronto" }, cobranca_ex_clientes: { etapa: "nao_configurado" } } } };
-    const r = await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+    const r = await configurarCanalWhatsapp(6, EVO);
     expect(c.ligarAgenteAoCanal).toHaveBeenCalledTimes(1);
     expect(c.ligarAgenteAoCanal).toHaveBeenCalledWith("org_1", "ag-ativos", "ch_1", "DISABLED");
     expect(r.canalOk).toBe(true);
@@ -283,14 +287,14 @@ describe("configurarCanalWhatsapp", () => {
   });
   it("teste do canal falhou: fica em erro com o motivo, mas o canal fica guardado", async () => {
     const c = clienteFalso({ testarCanal: vi.fn(async () => ({ ok: true, valor: { ok: false, message: "instancia desconectada" } })) });
-    const r = await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+    const r = await configurarCanalWhatsapp(6, EVO);
     expect(r.canalOk).toBe(false);
     expect(c.estadoDaConexaoWhatsapp).not.toHaveBeenCalled();
     expect(fake.integracao).toMatchObject({ status: "erro", ultimoErro: "instancia desconectada", canalId: "ch_1" });
   });
   it("o token nunca aparece no log", async () => {
-    clienteFalso({ criarCanalZappfy: vi.fn(async () => ({ ok: false, erro: "recusado", status: 400 })) });
-    await expect(configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" })).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
+    clienteFalso({ criarCanalWhatsapp: vi.fn(async () => ({ ok: false, erro: "recusado: tok_secreto_123", status: 400 })) });
+    await expect(configurarCanalWhatsapp(6, { provider: "DATAFY", nome: "Oficial", token: "tok_secreto_123", phoneNumberId: "123456789", webhookSecret: "whsec_segredo_datafy_1" })).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
     const tudo = JSON.stringify([...log.info.mock.calls, ...log.warn.mock.calls, ...log.error.mock.calls]);
     expect(tudo).not.toContain("tok_secreto");
   });

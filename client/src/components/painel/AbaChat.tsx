@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ConexaoWhatsapp } from "@/components/chat/ConexaoWhatsapp";
 import { TemplatesDatafy } from "@/components/chat/TemplatesDatafy";
-import type { ProvedorWhatsapp } from "@shared/chat-whatsapp";
+import type { ProvedorOferecido } from "@shared/chat-whatsapp";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ExternalLink, KeyRound, MessageSquareShare, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -24,20 +24,21 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
   const integracao = useMemo(() => lerIntegracaoDoChat(crua), [crua]);
   const pronto = chatProntoParaEnviar(integracao);
 
-  // O padrão é o WhatsApp da PLATAFORMA (Evolution API, 16/09/2026): sem token
-  // nem segredo — o chat cria a instância e o provedor só lê o QR.
-  const [canal, setCanal] = useState({ provider: "EVOLUTION" as ProvedorWhatsapp, nome: "WhatsApp principal", token: "", webhookSecret: "", baseUrl: "", phoneNumberId: "", businessAccountId: "" });
+  // Só dois serviços (dono, 16/09/2026). O padrão é o WhatsApp da PLATAFORMA
+  // (Evolution API): sem token nem segredo — o chat cria a instância e o
+  // provedor só lê o QR. A Datafy (API oficial) é a única com credencial do provedor.
+  const [canal, setCanal] = useState({ provider: "EVOLUTION" as ProvedorOferecido, nome: "WhatsApp principal", token: "", webhookSecret: "", phoneNumberId: "", businessAccountId: "" });
   const [senha, setSenha] = useState({ senha: "", confirmacao: "" });
 
   const ligarCanal = useMutation({
     mutationFn: async () => (await apiRequest("POST", `${API_CHAT_BULLQ}/integracao/canal`, canal.provider === "EVOLUTION"
       ? { provider: "EVOLUTION", nome: canal.nome.trim() }
       : {
-        provider: canal.provider,
+        provider: "DATAFY",
         nome: canal.nome.trim(),
         token: canal.token.trim(),
-        ...(canal.provider === "UAZAPI" ? { baseUrl: canal.baseUrl.trim() } : {}),
-        ...(canal.provider === "DATAFY" ? { phoneNumberId: canal.phoneNumberId.trim(), ...(canal.businessAccountId.trim() ? { businessAccountId: canal.businessAccountId.trim() } : {}) } : {}),
+        phoneNumberId: canal.phoneNumberId.trim(),
+        ...(canal.businessAccountId.trim() ? { businessAccountId: canal.businessAccountId.trim() } : {}),
         ...(canal.webhookSecret.trim() ? { webhookSecret: canal.webhookSecret.trim() } : {}),
       })).json(),
     onSuccess: (r: { canalOk?: boolean; integracao?: { ultimoErro?: string | null } }) => {
@@ -108,15 +109,14 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
             Escolha o serviço que atende seu número. As credenciais ficam no ChatBullQ e o atendimento continua aqui, com o histórico do cliente.
           </p>
           <form className="mt-3 grid gap-3" onSubmit={e => { e.preventDefault(); ligarCanal.mutate(); }}>
-            <Campo rotulo="serviço de WhatsApp"><select className={CONTROLE_CAMPO} value={canal.provider} disabled={!podeAdministrar || ligarCanal.isPending} onChange={e => setCanal(c => ({ ...c, provider: e.target.value as ProvedorWhatsapp, token: "", webhookSecret: "" }))} data-testid="chat-canal-provider"><option value="EVOLUTION">WhatsApp da plataforma (Evolution) · QR, sem token</option><option value="ZAPPFY">Zappfy · instância / QR</option><option value="UAZAPI">Uazapi · instância / QR</option><option value="DATAFY">Datafy · API oficial</option></select></Campo>
+            <Campo rotulo="serviço de WhatsApp"><select className={CONTROLE_CAMPO} value={canal.provider} disabled={!podeAdministrar || ligarCanal.isPending} onChange={e => setCanal(c => ({ ...c, provider: e.target.value as ProvedorOferecido, token: "", webhookSecret: "" }))} data-testid="chat-canal-provider"><option value="EVOLUTION">WhatsApp da plataforma (Evolution) · QR, sem token</option><option value="DATAFY">Datafy · API oficial</option></select></Campo>
             {canal.provider === "EVOLUTION" && <p className="text-xs leading-5 text-[var(--text-muted)]" data-testid="chat-canal-evolution-nota">O número fica na Evolution API da plataforma: não há token a digitar. Salve o canal e pareie o número pelo QR em <b>Conexão do número</b>.</p>}
             <Campo rotulo="nome do canal"><input className={CONTROLE_CAMPO} value={canal.nome} onChange={e => setCanal(c => ({ ...c, nome: e.target.value }))} disabled={!podeAdministrar} data-testid="chat-canal-nome" /></Campo>
-            {canal.provider === "UAZAPI" && <Campo rotulo="URL da instância Uazapi"><input className={CONTROLE_CAMPO} type="url" placeholder="https://sua-instancia.uazapi.com" value={canal.baseUrl} onChange={e => setCanal(c => ({ ...c, baseUrl: e.target.value }))} disabled={!podeAdministrar} data-testid="chat-canal-url" /></Campo>}
             {canal.provider === "DATAFY" && <><Campo rotulo="ID do número (phone_number_id)"><input className={CONTROLE_CAMPO} inputMode="numeric" value={canal.phoneNumberId} onChange={e => setCanal(c => ({ ...c, phoneNumberId: e.target.value }))} disabled={!podeAdministrar} data-testid="chat-canal-phone-id" /></Campo><Campo rotulo="ID da conta WhatsApp Business (opcional)"><input className={CONTROLE_CAMPO} inputMode="numeric" value={canal.businessAccountId} onChange={e => setCanal(c => ({ ...c, businessAccountId: e.target.value }))} disabled={!podeAdministrar} /></Campo><p className="text-xs leading-5 text-[var(--text-muted)]">Conecte o número no painel Datafy e ative a assinatura de webhooks. Use aqui o token sk_live e o segredo whsec do número.</p></>}
-            {canal.provider !== "EVOLUTION" && <Campo rotulo={canal.provider === "DATAFY" ? "token de acesso Datafy" : "token da instância"}><input className={cn(CONTROLE_CAMPO, "font-mono")} type="password" autoComplete="off" value={canal.token} onChange={e => setCanal(c => ({ ...c, token: e.target.value }))} disabled={!podeAdministrar} placeholder={canal.provider === "DATAFY" ? "sk_live_…" : "Token da instância"} data-testid="chat-canal-token" /></Campo>}
-            {canal.provider !== "EVOLUTION" && <Campo rotulo={canal.provider === "DATAFY" ? "segredo de assinatura do webhook" : "segredo do webhook (opcional)"}><input className={cn(CONTROLE_CAMPO, "font-mono")} type="password" autoComplete="off" value={canal.webhookSecret} onChange={e => setCanal(c => ({ ...c, webhookSecret: e.target.value }))} disabled={!podeAdministrar} data-testid="chat-canal-webhook" /></Campo>}
+            {canal.provider === "DATAFY" && <Campo rotulo="token de acesso Datafy"><input className={cn(CONTROLE_CAMPO, "font-mono")} type="password" autoComplete="off" value={canal.token} onChange={e => setCanal(c => ({ ...c, token: e.target.value }))} disabled={!podeAdministrar} placeholder="sk_live_…" data-testid="chat-canal-token" /></Campo>}
+            {canal.provider === "DATAFY" && <Campo rotulo="segredo de assinatura do webhook"><input className={cn(CONTROLE_CAMPO, "font-mono")} type="password" autoComplete="off" value={canal.webhookSecret} onChange={e => setCanal(c => ({ ...c, webhookSecret: e.target.value }))} disabled={!podeAdministrar} data-testid="chat-canal-webhook" /></Campo>}
             <div className="flex items-center gap-2">
-              <button type="submit" className={BOTAO_MARCA} disabled={!podeAdministrar || !integracao?.ligado || ligarCanal.isPending || (canal.provider !== "EVOLUTION" && canal.token.trim().length < 8) || canal.nome.trim().length < 2 || (canal.provider === "UAZAPI" && !canal.baseUrl.trim()) || (canal.provider === "DATAFY" && (!/^\d{5,30}$/.test(canal.phoneNumberId.trim()) || canal.webhookSecret.trim().length < 8))} data-testid="chat-ligar-canal">{ligarCanal.isPending ? "Salvando…" : integracao?.canal ? "Salvar novo canal principal" : "Salvar e testar canal"}</button>
+              <button type="submit" className={BOTAO_MARCA} disabled={!podeAdministrar || !integracao?.ligado || ligarCanal.isPending || canal.nome.trim().length < 2 || (canal.provider === "DATAFY" && (canal.token.trim().length < 8 || !/^\d{5,30}$/.test(canal.phoneNumberId.trim()) || canal.webhookSecret.trim().length < 8))} data-testid="chat-ligar-canal">{ligarCanal.isPending ? "Salvando…" : integracao?.canal ? "Salvar novo canal principal" : "Salvar e testar canal"}</button>
               {!podeAdministrar && <span className="text-[11px] text-[var(--text-faint)]">só o administrador liga o número</span>}
             </div>
           </form>
@@ -125,7 +125,7 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
         </section>
 
         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-4" data-testid="chat-senha">
-          {integracao?.canal ? <ConexaoWhatsapp key={integracao.canal.id} provider={integracao.canal.provider ?? "ZAPPFY"} podeAdministrar={podeAdministrar} /> : <div className="space-y-2"><h3 className="text-sm font-semibold">Conexão do número</h3><p className="text-xs leading-5 text-[var(--text-muted)]">Salve o canal para conferir a conexão. O WhatsApp da plataforma (Evolution), o Zappfy e o Uazapi permitem pareamento por QR ou código; a Datafy usa o número conectado no painel oficial.</p></div>}
+          {integracao?.canal ? <ConexaoWhatsapp key={integracao.canal.id} provider={integracao.canal.provider ?? "ZAPPFY"} podeAdministrar={podeAdministrar} /> : <div className="space-y-2"><h3 className="text-sm font-semibold">Conexão do número</h3><p className="text-xs leading-5 text-[var(--text-muted)]">Salve o canal para conferir a conexão. O WhatsApp da plataforma (Evolution) pareia por QR ou código; a Datafy usa o número conectado no painel oficial.</p></div>}
           <details className="mt-5 border-t border-[var(--border)] pt-4"><summary className="cursor-pointer text-xs font-medium text-[var(--text-2)]">Acesso ao inbox externo</summary>
           <div className="mt-3 flex items-center gap-2"><KeyRound className="h-4 w-4 text-[var(--brand)]" aria-hidden /><h3 className="text-[14px] font-semibold text-[var(--text)]">Senha do inbox</h3></div>
           <p className="mt-1 text-[11.5px] leading-4 text-[var(--text-muted)]">
