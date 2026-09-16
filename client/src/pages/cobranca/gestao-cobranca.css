@@ -33,8 +33,10 @@
 .cobranca-atendimento td,.cobranca-atendimento th { padding:11px 12px; }
 @media(min-width:900px) { .cobranca-atendimento [data-testid="painel-corpo"] { display:block; } }
 @media(max-width:640px) { .cobranca-atendimento[data-testid="painel-do-caso"] { width:calc(100vw - 16px); max-height:calc(100dvh - 20px); } .cobranca-atendimento [data-testid="painel-card-divida"] { width:100%; border-left:0; border-top:1px solid var(--border); padding:14px 0 0; } .cobranca-atendimento [data-testid="painel-identidade"] { padding:18px 42px 18px 18px; } .cobranca-atendimento [data-testid="painel-corpo"] section { padding:18px; } }
-/* The close control remains in the header; the toolbar is reserved for work. */
-.cobranca-atendimento [data-testid="painel-fechar"] { display:none; }
+/* Fechar fica no × do cabeçalho; a barra de ações é para trabalho. Os DOIS controles levam `painel-fechar`
+   (o × em `painel-identidade`, o botão em `painel-acoes`): o seletor desce pela barra — sem isso ele sumia
+   com o × também, e o pop-up só fechava por Esc ou clique fora. */
+.cobranca-atendimento [data-testid="painel-acoes"] [data-testid="painel-fechar"] { display:none; }
 .cobranca-atendimento [data-testid="painel-followup"]>div:first-child span { font-family:inherit; text-transform:none; letter-spacing:0; }
 .cobranca-atendimento [data-testid="painel-identidade"] [data-testid="painel-documento"] { font-family:inherit; }
 .cobranca-atendimento [data-testid="painel-identidade"] [data-testid="painel-tempo-de-casa"] { font-size:12px; }

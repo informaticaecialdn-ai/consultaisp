@@ -1,62 +1,48 @@
-.cliente-360 { --c360-radius: 16px; max-width: 1680px; margin-inline: auto; width: 100%; min-width: 0; gap: 22px; }
+/* O 360 como área de trabalho financeira: identidade compacta, razão contínua e análise legível.
+   Uma iteração só. O arquivo chegou em 12/09/2026 com duas sobrepostas — a segunda reescrevia metade da
+   primeira mais abaixo; o que vale aqui é o que VENCIA no cascade. O mini-card da Economia no Hero
+   continua escondido de propósito: a SecaoR24 completa mostra a Economia logo abaixo do Hero, e os dois
+   um sobre o outro é decisão de layout que ainda não foi tomada — até lá, o visual é o que está no ar. */
+.cliente-360 { --c360-radius: 6px; max-width: none; margin-inline: auto; width: 100%; min-width: 0; gap: 16px; }
 .cliente-360 section { min-width: 0; }
-.cliente-360 [data-testid="cabecalho-360"] { border-radius: 20px; padding: 26px; box-shadow: 0 4px 24px #17255406; background: var(--surface); border-top: 4px solid var(--brand); }
-.cliente-360 .c360-hero-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) repeat(2,minmax(180px,.7fr)); gap: 20px; align-items: start; }
+.cliente-360 [data-testid="cabecalho-360"] { border-radius:6px; padding:20px; box-shadow:none; background: var(--surface); border-top:1px solid var(--border); }
+.cliente-360 .c360-hero-grid { display: grid; grid-template-columns:minmax(0,1.6fr) minmax(150px,.65fr) minmax(150px,.65fr); gap:18px; align-items: start; }
 .cliente-360 .c360-identidade { min-width: 0; display:flex; gap:16px; align-items:flex-start; }
-.cliente-360 [data-testid="nome-cliente"] { font-size: clamp(23px,2vw,30px); letter-spacing: -.035em; line-height: 1.2; overflow-wrap:anywhere; }
-.cliente-360 [data-testid="card-economia"] { grid-column: 1 / -1; min-width: 0; background: var(--surface-2); border-radius:12px; }
+.cliente-360 [data-testid="nome-cliente"] { font-size:24px; letter-spacing:-.02em; line-height: 1.2; overflow-wrap:anywhere; }
+.cliente-360 [data-testid="card-economia"] { grid-column: 1 / -1; min-width: 0; background: var(--surface-2); border-radius:12px; display:none; }
 .cliente-360 [data-testid="card-score"] { min-width:0; border-radius:12px; }
 .cliente-360 .c360-horizontes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; align-items:start; }
-.cliente-360 .c360-horizonte { border-radius:var(--c360-radius); min-width:0; }
-.cliente-360 .c360-horizonte>header { padding:18px 22px; background:var(--surface-2); }
+.cliente-360 .c360-horizonte { border-radius:var(--c360-radius); min-width:0; border-top-width:1px !important; }
+.cliente-360 .c360-horizonte>header { background:var(--surface); padding:16px 20px; }
 .cliente-360 .c360-horizonte>header h3 { font-size:18px; letter-spacing:-.02em; }
-.cliente-360 .c360-horizonte>div { padding:22px; gap:22px; }
+.cliente-360 .c360-horizonte>div { padding:20px; gap:18px; }
 .cliente-360 [data-testid="coluna-futuro"] { grid-column:1/-1; }
 .cliente-360 [data-testid="coluna-futuro"]>div { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr); }
 .cliente-360 .c360-field { min-width:0; }
 .cliente-360 .c360-field-label { font:600 12px/1.5 var(--font-sans, sans-serif); text-transform:none; letter-spacing:.01em; color:var(--text-muted); }
 .cliente-360 .c360-field-value { display:block; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }
-.cliente-360 .c360-nav { display:flex; gap:6px; flex-wrap:wrap; padding:6px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
-.cliente-360 .c360-nav a { padding:9px 14px; border-radius:8px; font-size:13px; font-weight:500; color:var(--text-2); }
+.cliente-360 .c360-nav { display:flex; flex-wrap:wrap; border-radius:4px; background:transparent; border:0; border-bottom:1px solid var(--border); padding:0; gap:12px; }
+.cliente-360 .c360-nav a { border-radius:0; padding:12px 4px; font-size:13px; font-weight:500; color:var(--text-2); }
 .cliente-360 .c360-nav a:hover { background:var(--surface-2); color:var(--brand); }
 .cliente-360 [id] { scroll-margin-top:24px; }
-.cliente-360 #c360-fin { border-radius:var(--c360-radius); padding:24px; }
-.cliente-360 #c360-fin>div.grid { grid-template-columns:minmax(0,1fr); }
-.cliente-360 [data-testid="r24-stats"] { grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr)) !important; }
-.cliente-360 #c360-fin svg[role="img"] { display:block; width:100%; min-height:260px; max-height:380px; overflow:visible; }
-.cliente-360 [data-testid="pagamentos-cliente"] { border-radius:var(--c360-radius); }
-.cliente-360 [data-testid="pagamentos-cliente"] table { min-width:700px; }
-.cliente-360 [data-testid="pagamentos-cliente"] th { background:var(--surface-2); padding:12px; font-weight:600; }
-.cliente-360 [data-testid="pagamentos-cliente"] td { padding:12px; line-height:1.6; }
-.cliente-360 [data-testid="pagamentos-cliente"] tbody tr:nth-child(even) { background:var(--surface-2); }
-.cliente-360 .c360-vazio { padding:24px; border:1px dashed var(--border-strong); border-radius:14px; background:var(--surface-2); }
-@media(min-width:1400px) { .cliente-360 #c360-fin>div.grid:not([data-testid="r24-stats"]) { grid-template-columns:minmax(0,.85fr) minmax(0,1.4fr); } }
-@media(max-width:1050px) { .cliente-360 .c360-hero-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .cliente-360 .c360-identidade { grid-column:1/-1; } }
-@media(max-width:760px) { .cliente-360 [data-testid="cabecalho-360"] { padding:18px; } .cliente-360 .c360-horizontes { grid-template-columns:minmax(0,1fr); } .cliente-360 [data-testid="coluna-futuro"]>div { grid-template-columns:minmax(0,1fr); } .cliente-360 [data-testid="r24-stats"] { grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr)) !important; } .cliente-360 #c360-fin { padding:16px; } .cliente-360 #c360-fin svg[role="img"] { min-height:180px; } }
-@media(prefers-reduced-motion:no-preference) { .cliente-360 .c360-nav a { transition:background .15s,color .15s; } }
-/* Financial workspace: compact identity, continuous ledger and readable analysis. */
-.cliente-360 { --c360-radius: 6px; max-width: none; gap: 16px; }
-.cliente-360 [data-testid="cabecalho-360"] { border-radius:6px; padding:20px; border-top:1px solid var(--border); box-shadow:none; }
-.cliente-360 .c360-hero-grid { grid-template-columns:minmax(0,1.6fr) minmax(150px,.65fr) minmax(150px,.65fr); gap:18px; }
-.cliente-360 [data-testid="nome-cliente"] { font-size:24px; letter-spacing:-.02em; }
-.cliente-360 [data-testid="card-economia"] { display:none; }
 .cliente-360 #c360-fin { padding:22px; border-radius:6px; border-top:3px solid var(--ok); background:var(--surface); }
 .cliente-360 #c360-fin>header { align-items:center; padding-bottom:16px; border-bottom:1px solid var(--border); }
 .cliente-360 #c360-fin>header h2 { font-size:20px; letter-spacing:-.025em; }
-.cliente-360 [data-testid="r24-stats"] { gap:0; margin:0 0 22px; border-bottom:1px solid var(--border); }
+.cliente-360 [data-testid="r24-stats"] { grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr)) !important; gap:0; margin:0 0 22px; border-bottom:1px solid var(--border); }
 .cliente-360 [data-testid="r24-stats"]>div { border:0; border-radius:0; padding:18px 16px; border-bottom:1px solid var(--border-faint); border-right:1px solid var(--border-faint); }
 .cliente-360 [data-testid="r24-stats"]>div>p:first-child { font-family:inherit; font-size:12px; text-transform:none; letter-spacing:0; }
 .cliente-360 [data-testid="r24-stats"]>div>p:nth-child(2) { font-family:inherit; font-variant-numeric:tabular-nums; font-size:25px; font-weight:650; }
 .cliente-360 #c360-fin>div.grid:not([data-testid="r24-stats"]) { grid-template-columns:minmax(0,.85fr) minmax(0,1.3fr); gap:26px; }
 .cliente-360 #c360-fin>div.grid:not([data-testid="r24-stats"])>div { border:0; border-radius:0; padding:0; }
 .cliente-360 #c360-fin h4 { font-family:inherit; font-size:13px; letter-spacing:0; text-transform:none; }
-.cliente-360 #c360-fin svg[role="img"] { min-height:240px; }
-.cliente-360 .c360-nav { border-radius:4px; background:transparent; border:0; border-bottom:1px solid var(--border); padding:0; gap:12px; }
-.cliente-360 .c360-nav a { border-radius:0; padding:12px 4px; }
-.cliente-360 .c360-horizonte>header { background:var(--surface); padding:16px 20px; }
-.cliente-360 .c360-horizonte>div { padding:20px; gap:18px; }
-.cliente-360 .c360-horizonte { border-top-width:1px !important; }
-@media(max-width:1100px) { .cliente-360 #c360-fin>div.grid:not([data-testid="r24-stats"]) { grid-template-columns:minmax(0,1fr); } }
-@media(max-width:760px) { .cliente-360 .c360-hero-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .cliente-360 .c360-identidade { grid-column:1/-1; } .cliente-360 #c360-fin { padding:16px; } .cliente-360 [data-testid="r24-stats"]>div { padding:14px 8px; } .cliente-360 [data-testid="r24-stats"]>div>p:nth-child(2) { font-size:21px; } }
-@media(max-width:1100px) { .cliente-360 .c360-hero-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .cliente-360 .c360-identidade { grid-column:1/-1; } }
+.cliente-360 #c360-fin svg[role="img"] { display:block; width:100%; min-height:240px; max-height:380px; overflow:visible; }
+.cliente-360 [data-testid="pagamentos-cliente"] { border-radius:var(--c360-radius); }
+.cliente-360 [data-testid="pagamentos-cliente"] table { min-width:700px; }
+.cliente-360 [data-testid="pagamentos-cliente"] th { background:var(--surface-2); padding:12px; font-weight:600; }
+.cliente-360 [data-testid="pagamentos-cliente"] td { padding:12px; line-height:1.6; }
+.cliente-360 [data-testid="pagamentos-cliente"] tbody tr:nth-child(even) { background:var(--surface-2); }
+.cliente-360 .c360-vazio { padding:24px; border:1px dashed var(--border-strong); border-radius:14px; background:var(--surface-2); }
+@media(max-width:760px) { .cliente-360 .c360-horizontes { grid-template-columns:minmax(0,1fr); } .cliente-360 [data-testid="coluna-futuro"]>div { grid-template-columns:minmax(0,1fr); } .cliente-360 [data-testid="r24-stats"] { grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr)) !important; } .cliente-360 #c360-fin { padding:16px; } .cliente-360 [data-testid="r24-stats"]>div { padding:14px 8px; } .cliente-360 [data-testid="r24-stats"]>div>p:nth-child(2) { font-size:21px; } }
+@media(prefers-reduced-motion:no-preference) { .cliente-360 .c360-nav a { transition:background .15s,color .15s; } }
+@media(max-width:1100px) { .cliente-360 #c360-fin>div.grid:not([data-testid="r24-stats"]) { grid-template-columns:minmax(0,1fr); } .cliente-360 .c360-hero-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .cliente-360 .c360-identidade { grid-column:1/-1; } }
 @media(max-width:580px) { .cliente-360 .c360-hero-grid { grid-template-columns:minmax(0,1fr); } }

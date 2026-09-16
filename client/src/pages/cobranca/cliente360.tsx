@@ -102,6 +102,45 @@ function Pendente({ motivo, ext }: { motivo: string; ext?: string }) {
 }
 
 /**
+ * O aviso de vulnerabilidade do cabeçalho (Lei 14.181 — superendividamento).
+ *
+ * Esta base não tem coluna de vulnerabilidade, e a régua NÃO pausa sozinha
+ * quando o cliente é vulnerável: quem atende precisa saber disso antes de
+ * cobrar. A revisão de 12/09/2026 tirou o aviso do cabeçalho como se fosse
+ * ruído — é limite de compliance, e volta. Discreto, mas NA TELA, e não só
+ * no `title`, pela mesma razão do `<Pendente>` acima.
+ */
+export function AvisoVulnerabilidade() {
+  return (
+    <p
+      className="mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-[var(--text-muted)]"
+      title="Esta base não tem coluna de vulnerabilidade (Lei 14.181, superendividamento). A régua de cobrança não pausa sozinha por vulnerabilidade: quem atende identifica e registra o caso antes de seguir com a cobrança."
+      data-testid="aviso-vulnerabilidade"
+    >
+      <Shield className="mt-px h-3 w-3 flex-none text-[var(--gated)]" aria-hidden />
+      <span>Lei 14.181 · esta base não registra vulnerabilidade — a régua não pausa sozinha; confira antes de cobrar.</span>
+    </p>
+  );
+}
+
+/**
+ * A dobra "Conexão e equipamentos" (login, MAC, serial, IP e o selo de origem).
+ *
+ * Fora da demonstração nasce FECHADA: o operador abre quando precisa do MAC ou
+ * do serial. Na demonstração pública nasce ABERTA, porque é dentro dela que
+ * vive o selo "Dados fictícios" do bloco CONEXÃO — atrás de um clique, o
+ * visitante leria a tela inteira sem o aviso.
+ */
+export function DetalhesDaConexao({ demonstracao, children }: { demonstracao: boolean; children: ReactNode }) {
+  return (
+    <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4" open={demonstracao} data-testid="detalhes-da-conexao">
+      <summary className="cursor-pointer text-sm font-medium">Conexão e equipamentos · consultar detalhes</summary>
+      {children}
+    </details>
+  );
+}
+
+/**
  * De onde saiu a mensalidade. O numero e o mesmo; o credito que ele merece,
  * nao: um preco que o admin cadastrou e configuracao, e um valor lido das
  * faturas do ERP e observacao. A tela diz qual dos dois esta olhando.
@@ -459,6 +498,7 @@ function FichaDaCarteira() {
                   {dna ? <Pill tone={dnaToneOf(dna.quadrante)} title={dna.abordagem ? `Abordagem: ${dna.abordagem}` : undefined}>{dna.quadrante} · quadrante DNA</Pill> : <SeloCobranca tom="neutro" titulo="Sem DNA: o ERP não informou a data do contrato">DNA —</SeloCobranca>}
                   {ficha.selo && <Pill tone={ficha.selo.tom} title={ficha.selo.motivo}>{ficha.selo.rotulo}</Pill>}
                 </div>
+                <AvisoVulnerabilidade />
                 {ficha.resumo && <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-[1.45] text-[var(--text-2)]" data-testid="resumo-executivo"><Sparkles className="mt-0.5 h-3 w-3 flex-none text-[var(--text-muted)]" aria-hidden /> {ficha.resumo}</p>}
               </div>
 
@@ -526,7 +566,7 @@ function FichaDaCarteira() {
           <QualidadeDoCliente cliente={cliente} snapshot={snapshot} lendo={lendoErp} onConsultar={() => { void relerErp(); }} />
 
           <nav className="c360-nav" aria-label="Seções do cliente"><a href="#c360-passado">Cobrança e acordos</a><a href="#c360-presente">Atendimento</a><a href="#c360-futuro">Relacionamento</a><a href="#c360-fin">Economia do cliente</a><a href="#c360-faturas">Faturas</a><a href="#linha-do-tempo">Histórico</a></nav>
-          <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"><summary className="cursor-pointer text-sm font-medium">Conexão e equipamentos · consultar detalhes</summary>
+          <DetalhesDaConexao demonstracao={demoMode}>
           <IdentificacaoTecnica
             snapshot={snapshot}
             equipamentos={data?.equipamentos ?? []}
@@ -534,7 +574,7 @@ function FichaDaCarteira() {
             statusContrato={vivo?.statusContrato ?? cliente.statusErp}
             demonstracao={demoMode}
           />
-          </details>
+          </DetalhesDaConexao>
 
           {/* 2–4 · Tri-horizonte */}
           <div className="c360-horizontes">

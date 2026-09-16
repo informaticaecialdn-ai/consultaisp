@@ -544,3 +544,83 @@ describe("o suspenso com corte e o historico parcial na tela", () => {
     expect(fonte).toMatch(/suspenso=\{ficha\?\.situacaoReal === "suspenso"\}/);
   });
 });
+
+/* ────────────────────────────────────────────────────────────────────────
+ * O que a revisão de 12/09/2026 tirou do cabeçalho e não podia: o aviso de
+ * vulnerabilidade (Lei 14.181). Esta base não tem coluna de vulnerabilidade,
+ * e a régua NÃO pausa sozinha por ela — quem cobra precisa saber disso ANTES
+ * de cobrar. É limite de compliance, não polimento: volta discreto, mas na
+ * tela, e não só no `title` (a razão é a mesma do `<Pendente>`: tooltip não
+ * sobrevive a print, celular nem leitor de tela).
+ * ──────────────────────────────────────────────────────────────────────── */
+describe("o aviso de vulnerabilidade (Lei 14.181) no cabeçalho", () => {
+  it("diz NA TELA que a régua não pausa sozinha, cita a lei e leva o motivo completo no title", async () => {
+    const { AvisoVulnerabilidade } = await import("./cliente360");
+    const html = renderToStaticMarkup(createElement(AvisoVulnerabilidade));
+    expect(html).toContain('data-testid="aviso-vulnerabilidade"');
+    expect(html).toContain("Lei 14.181");
+    expect(html).toContain("a régua não pausa sozinha");
+    expect(html).toMatch(/title="[^"]*coluna de vulnerabilidade[^"]*"/);
+  });
+
+  it("vive no cabeçalho do 360, junto da identidade — não numa coluna lá embaixo", () => {
+    const aviso = pagina.indexOf("<AvisoVulnerabilidade />");
+    expect(aviso).toBeGreaterThan(pagina.indexOf('data-testid="cabecalho-360"'));
+    expect(aviso).toBeLessThan(pagina.indexOf('data-testid="card-divida"'));
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────
+ * A dobra "Conexão e equipamentos". A revisão a fechou por padrão — e é
+ * dentro dela que vive o selo "Dados fictícios" do bloco CONEXÃO. Na
+ * demonstração pública, o visitante leria a tela inteira sem ver o aviso;
+ * por isso, com `demoMode` a dobra nasce ABERTA. Fora da demo, fechada como
+ * a revisão deixou.
+ * ──────────────────────────────────────────────────────────────────────── */
+describe("a dobra 'Conexão e equipamentos' e a demonstração", () => {
+  it("na demonstração nasce ABERTA: o selo 'Dados fictícios' aparece sem clique", async () => {
+    const { DetalhesDaConexao } = await import("./cliente360");
+    const demo = renderToStaticMarkup(createElement(DetalhesDaConexao, { demonstracao: true }, "conteúdo"));
+    expect(demo).toMatch(/<details[^>]* open=""/);
+    expect(demo).toContain("Conexão e equipamentos");
+    expect(demo).toContain("conteúdo");
+  });
+
+  it("fora da demonstração continua FECHADA, como a revisão deixou", async () => {
+    const { DetalhesDaConexao } = await import("./cliente360");
+    const real = renderToStaticMarkup(createElement(DetalhesDaConexao, { demonstracao: false }, "conteúdo"));
+    expect(real).toContain("<details");
+    expect(real).not.toMatch(/<details[^>]* open/);
+  });
+
+  it("o 360 liga a dobra ao demoMode de useAuth e põe o bloco CONEXÃO dentro dela", () => {
+    expect(pagina).toMatch(/<DetalhesDaConexao demonstracao=\{demoMode\}>\s*<IdentificacaoTecnica/);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────
+ * `cliente360.css` chegou com duas iterações sobrepostas (a segunda
+ * reescrevia metade da primeira). Trava: uma iteração só. O mini-card
+ * "Economia do cliente · R24" do Hero segue escondido por CSS de propósito
+ * (revisão de 16/09/2026): a SecaoR24 completa já mostra a Economia logo
+ * abaixo do Hero, e mostrar os dois um sobre o outro seria mudar a tela de
+ * produção antes da decisão de layout (manter os dois ou tirar um no TSX).
+ * Até lá, o visual é o que está no ar.
+ * ──────────────────────────────────────────────────────────────────────── */
+describe("cliente360.css: a Economia do Hero segue escondida até a decisão de layout, e cada seletor é declarado uma vez", () => {
+  const css = ler("./cliente360.css");
+
+  it("o mini-card card-economia do Hero está escondido por CSS (a SecaoR24 mostra a Economia)", () => {
+    expect(css).toMatch(/card-economia[^{]*\{[^}]*display\s*:\s*none/);
+    // E o TSX continua com os dois: mexer no layout é decisão do Arquiteto, não deste CSS.
+    expect(pagina).toContain('data-testid="card-economia"');
+    expect(pagina).toMatch(/<SecaoR24 /);
+  });
+
+  it("fora das @media, nenhum seletor aparece duas vezes (uma iteração só)", () => {
+    const foraDeMedia = css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^{}]*\}/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    const seletores = Array.from(foraDeMedia.matchAll(/([^{}]+)\{/g), m => m[1].trim());
+    const repetidos = seletores.filter((s, i) => seletores.indexOf(s) !== i);
+    expect(repetidos, repetidos.join(" | ")).toEqual([]);
+  });
+});
