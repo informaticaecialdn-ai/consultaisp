@@ -2109,7 +2109,11 @@ describe("a semeadura conta a mesma historia em todas as telas (Leva 2, fase A d
  */
 describe("a semeadura liga os modulos da leva 2 (fase B do P2)", () => {
   const DIA_MS = 86_400_000;
-  const AGORA = new Date("2026-09-16T18:00:00.000Z");
+  // Congela no instante da rodada (arredondado ao minuto), nunca numa data cravada: o mundo
+  // base foi semeado com o relogio REAL no inicio do processo, e um instante fixo anterior a
+  // ele deixa consultas "no futuro" — o P9 contava 15 avisos em vez de 16 depois das 15h de
+  // 16/09/2026, e a partir do dia seguinte a data cravada ficaria para tras de vez.
+  const AGORA = new Date(Math.floor(Date.now() / 60_000) * 60_000);
   let s: Awaited<ReturnType<typeof criarSandbox>>;
 
   const ms = (valor: unknown): number => new Date(valor as string | Date).getTime();
