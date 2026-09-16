@@ -28,6 +28,8 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { logger } from "../logger";
 import { gerarIdentificadorDeConsulta } from "../services/identificador-consulta";
 import { isSpcConfigured, consultarSpc, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
+import { documentoDaConsultaSpc, nomeDoArquivoDoPdfSpc, MARCA_DAGUA_SIMULADO } from "../services/spc/spc-pdf";
+import { gerarPdfDoDocumento } from "../assinatura/pdf";
 import { emModoDemo } from "../demo/modo-demo";
 import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
@@ -1176,7 +1178,8 @@ export function registerConsultasRoutes(): Router {
         return res.status(402).json({ message: "Saldo insuficiente para a consulta SPC", consultaId });
       }
 
-      return res.json({ consultaId, result: paraTela, credits: saved.provider.ispCredits });
+      // O `id` da linha gravada e com o que a tela monta o link "Salvar PDF".
+      return res.json({ consultaId, id: saved.consultation.id, result: paraTela, credits: saved.provider.ispCredits });
     } catch (error: any) {
       if (error instanceof SpcError) {
         // Nao e erro nosso: e o SPC dizendo algo. Vai com o status certo e a
@@ -1199,6 +1202,42 @@ export function registerConsultasRoutes(): Router {
       }
       logger.error({ consultaId, err: error }, "SPC consultation error");
       return res.status(500).json({ message: getSafeErrorMessage(error), consultaId });
+    }
+  });
+
+  /**
+   * O relatorio da consulta SPC como arquivo, montado da LINHA gravada — o
+   * provedor pagou por ela, e salvar em PDF nunca consulta o SPC de novo. So o
+   * provedor dono da linha a enxerga (o storage procura no tenant da sessao);
+   * de outro tenant e 404, como se nao existisse. O download vai ao log com os
+   * ids, nunca com o documento consultado. Na demonstracao a linha vem marcada
+   * `simulado` e o PDF sai com a marca d'agua.
+   */
+  router.get("/api/spc-consultations/:id/pdf", requireAuth, requireProvider, async (req, res) => {
+    const cru = String(req.params.id);
+    const id = Number(cru);
+    if (!/^\d+$/.test(cru) || !Number.isSafeInteger(id) || id <= 0) {
+      return res.status(400).json({ message: "Consulta invalida" });
+    }
+    const providerId = req.session.providerId!;
+    try {
+      const consulta = await storage.getSpcConsultation(providerId, id);
+      if (!consulta) return res.status(404).json({ message: "Consulta nao encontrada" });
+      const provider = await storage.getProvider(providerId);
+      const documento = documentoDaConsultaSpc({ consulta, provedor: { name: provider?.name ?? "" }, geradoEm: new Date() });
+      const simulado = (consulta.result as { simulado?: unknown } | null)?.simulado === true;
+      const pdf = await gerarPdfDoDocumento(documento, simulado ? { marcaDagua: MARCA_DAGUA_SIMULADO } : {});
+      logger.info(
+        { providerId, userId: req.session.userId, spcConsultationId: consulta.id, consultaId: consulta.consultaId ?? null, bytes: pdf.length, simulado },
+        "CONSULTA SPC PDF baixado",
+      );
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${nomeDoArquivoDoPdfSpc(consulta)}"`);
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.send(pdf);
+    } catch (error: any) {
+      logger.error({ providerId, spcConsultationId: id, err: error }, "CONSULTA SPC PDF falhou");
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

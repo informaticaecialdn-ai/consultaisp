@@ -61,6 +61,15 @@ describe("getRecentConsultationsForDocument — quem mais consultou o documento"
   });
 });
 
+describe("getSpcConsultation — uma consulta SPC do próprio provedor, para o PDF", () => {
+  it("filtra pelo provedor E pelo id: consulta de outro tenant não sai", async () => {
+    await new ConsultationsStorage().getSpcConsultation(42, 91);
+    const q = render(capturado.where[0]);
+    expect(q.sql).toBe('("spc_consultations"."provider_id" = $1 and "spc_consultations"."id" = $2)');
+    expect(q.params).toEqual([42, 91]);
+  });
+});
+
 describe("getRegionalAlertCount — os alertas do benchmark regional", () => {
   it("na demonstração, com o observador: o alerta criado pela consulta de outro visitante não conta", async () => {
     capturado.demo = true;

@@ -551,7 +551,13 @@ esta em `server/sem-importacao-manual.test.ts`, que le o FONTE de `server/` e
 
 ### Consultas (requireAuth)
 GET/POST isp-consultations   // NAO existe rota de lote — nunca foi construida
-GET/POST spc-consultations
+GET/POST spc-consultations   // o POST devolve tambem o `id` da linha gravada
+GET  spc-consultations/:id/pdf   // o relatorio da consulta como anexo PDF (16/09/2026): montado da LINHA
+                                 // gravada (nunca consulta o SPC de novo), so para o provedor dono (outro
+                                 // tenant = 404), nome do arquivo pelo codigo da consulta (nunca o CPF), download
+                                 // no log sem o documento; na demo sai com marca d'agua SIMULADO. Gerador em
+                                 // server/assinatura/pdf.ts (o mesmo da confissao), documento em
+                                 // server/services/spc/spc-pdf.ts
 
 **Uma consulta positiva custa UM crédito** (decisão do dono, 10/09/2026). Até
 essa data `creditsCost` era `externalProviders.size` — um crédito por provedor

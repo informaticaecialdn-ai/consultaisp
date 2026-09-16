@@ -13,7 +13,19 @@ export const LIMITE_DO_PDF_BYTES = 8 * 1024 * 1024;
 
 const MARGEM = 56;
 
-export function gerarPdfDaConfissao(doc: DocumentoRenderizado): Promise<Buffer> {
+export interface OpcoesDoPdf {
+  /**
+   * Texto repetido em CADA página, inclinado e em cinza claro, por baixo do
+   * conteúdo — a demonstração marca o relatório da consulta SPC simulada.
+   */
+  marcaDagua?: string;
+}
+
+/**
+ * O gerador é um só para todo documento em blocos (confissão de dívida,
+ * relatório da consulta SPC): quem monta o documento não sabe de pdfkit.
+ */
+export function gerarPdfDoDocumento(doc: DocumentoRenderizado, opcoes: OpcoesDoPdf = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const pdf = new PDFDocument({
       size: "A4",
@@ -26,12 +38,50 @@ export function gerarPdfDaConfissao(doc: DocumentoRenderizado): Promise<Buffer> 
     pdf.on("end", () => resolve(Buffer.concat(partes)));
     pdf.on("error", reject);
     try {
+      const marca = opcoes.marcaDagua;
+      if (marca) {
+        marcarPagina(pdf, marca);
+        pdf.on("pageAdded", () => marcarPagina(pdf, marca));
+      }
       for (const bloco of doc.blocos) escrever(pdf, bloco);
       pdf.end();
     } catch (e) {
       reject(e);
     }
   });
+}
+
+export function gerarPdfDaConfissao(doc: DocumentoRenderizado): Promise<Buffer> {
+  return gerarPdfDoDocumento(doc);
+}
+
+/**
+ * A marca vai ANTES do conteúdo da página (fica por baixo) e devolve TUDO ao
+ * lugar. `restore()` recupera cor e opacidade no fluxo do PDF, mas não a
+ * posição nem a fonte e o tamanho que o pdfkit guarda em JavaScript — e é com
+ * esses que ele desenha o texto seguinte. Quando a marca entra por
+ * `pageAdded` no meio de um `text()` (parágrafo que quebra de página) ou
+ * antes da primeira linha de tabela da página nova, sem devolvê-los o corpo
+ * saía em 40 pt negrito (medido em 16/09/2026). `lineBreak: false` porque a
+ * marca é uma linha só — quebrada em duas ela viraria dois textos por página.
+ */
+function marcarPagina(pdf: PDFKit.PDFDocument, texto: string): void {
+  const { x, y } = pdf;
+  const estado = pdf as unknown as { _font?: { name?: string }; _fontSize?: number };
+  const fonteAntes = estado._font?.name;
+  const tamanhoAntes = estado._fontSize;
+  const largura = pdf.page.width;
+  const altura = pdf.page.height;
+  pdf.save();
+  pdf.rotate(-30, { origin: [largura / 2, altura / 2] });
+  pdf.font("Helvetica-Bold").fontSize(40).fillColor("#9a9a9a").opacity(0.28)
+    .text(texto, 0, altura / 2 - 20, { width: largura, align: "center", lineBreak: false });
+  pdf.restore();
+  pdf.opacity(1).fillColor("#000000");
+  if (fonteAntes) pdf.font(fonteAntes);
+  if (tamanhoAntes) pdf.fontSize(tamanhoAntes);
+  pdf.x = x;
+  pdf.y = y;
 }
 
 function escrever(pdf: PDFKit.PDFDocument, bloco: BlocoDoDocumento): void {

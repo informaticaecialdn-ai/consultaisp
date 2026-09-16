@@ -166,6 +166,7 @@ export interface IStorage {
   getTopRiskCeps(providerIds: number[], days: number, limit?: number): Promise<Array<{ cep: string; avgScore: number; count: number }>>;
 
   getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]>;
+  getSpcConsultation(providerId: number, id: number): Promise<SpcConsultation | undefined>;
   createSpcConsultation(consultation: InsertSpcConsultation): Promise<SpcConsultation>;
   debitAndCreateSpcConsultation(providerId: number, cost: number, consultation: InsertSpcConsultation): Promise<{ provider: Provider; consultation: SpcConsultation } | null>;
   debitAndCreateIspConsultation(providerId: number, cost: number, consultation: InsertIspConsultation, alertRecord?: InsertAntiFraudAlert): Promise<{ provider: Provider; consultation: IspConsultation; alert?: AntiFraudAlert } | null>;
@@ -511,6 +512,7 @@ class DatabaseStorage implements IStorage {
   getRegionalAlertCount = (providerIds: number[], days: number, observadorId?: number) => this._consultations.getRegionalAlertCount(providerIds, days, observadorId);
   getTopRiskCeps = (providerIds: number[], days: number, limit?: number) => this._consultations.getTopRiskCeps(providerIds, days, limit);
   getSpcConsultationsByProvider = (providerId: number) => this._consultations.getSpcConsultationsByProvider(providerId);
+  getSpcConsultation = (providerId: number, id: number) => this._consultations.getSpcConsultation(providerId, id);
   createSpcConsultation = (consultation: InsertSpcConsultation) => this._consultations.createSpcConsultation(consultation);
   debitAndCreateSpcConsultation = (providerId: number, cost: number, consultation: InsertSpcConsultation) => this._consultations.debitAndCreateSpcConsultation(providerId, cost, consultation);
   debitAndCreateIspConsultation = (providerId: number, cost: number, consultation: InsertIspConsultation, alertRecord?: InsertAntiFraudAlert) => this._consultations.debitAndCreateIspConsultation(providerId, cost, consultation, alertRecord);
