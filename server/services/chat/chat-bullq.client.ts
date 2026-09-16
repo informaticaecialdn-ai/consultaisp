@@ -89,6 +89,22 @@ export interface AgenteIa {
   isActive: boolean;
 }
 
+/**
+ * Uma automacao do fork (`GET /automations` devolve o registro Prisma cru). Os
+ * tres campos do auto-pause vem normalizados: o fork desliga a automacao
+ * depois de 5 falhas seguidas (`enabled=false` + `autoPausedAt`) e nunca
+ * religa sozinho. O resto do registro (actions, description...) e preservado.
+ */
+export interface Automacao {
+  id: string;
+  name: string;
+  trigger: string;
+  enabled: boolean;
+  autoPausedAt: string | null;
+  consecutiveFailures?: number;
+  [campo: string]: unknown;
+}
+
 export interface DadosProvisionamento {
   name: string;
   slug?: string;
@@ -196,6 +212,25 @@ function mensagemDaApi(corpo: unknown): string | null {
 
 function descartar(r: Resultado<unknown>): Resultado<void> {
   return r.ok ? { ok: true, valor: undefined } : r;
+}
+
+/**
+ * O estado de pausa nas duas grafias — camelCase do Prisma (o que o codigo do
+ * fork devolve) e snake_case (o que a sessao que opera a VPS viu). Registro
+ * sem os campos vale como ligada: pausada e uma afirmacao, nao um padrao.
+ */
+function normalizarAutomacao(bruta: Record<string, unknown>): Automacao {
+  const pausadaEm = bruta.autoPausedAt ?? bruta.auto_paused_at;
+  const falhas = bruta.consecutiveFailures ?? bruta.consecutive_failures;
+  return {
+    ...bruta,
+    id: String(bruta.id ?? ""),
+    name: typeof bruta.name === "string" ? bruta.name : "",
+    trigger: typeof bruta.trigger === "string" ? bruta.trigger : "",
+    enabled: bruta.enabled !== false,
+    autoPausedAt: typeof pausadaEm === "string" && pausadaEm ? pausadaEm : null,
+    ...(typeof falhas === "number" ? { consecutiveFailures: falhas } : {}),
+  };
 }
 
 const enc = encodeURIComponent;
@@ -499,8 +534,21 @@ export class ChatBullqClient {
     return this.operacao(orgId, "POST", `/ai-agents/${enc(agenteId)}/first-contact-draft`, { corpo: { context: contexto }, timeoutMs: 30_000 });
   }
 
-  listarAutomacoes(orgId: string): Promise<Resultado<{ id: string; name: string; trigger: string }[]>> {
-    return this.operacao(orgId, "GET", "/automations");
+  /** As automacoes da organizacao, com o auto-pause normalizado. `timeoutMs` encurta a espera quando e so conferencia de tela. */
+  async listarAutomacoes(orgId: string, opcoes: { timeoutMs?: number } = {}): Promise<Resultado<Automacao[]>> {
+    const r = await this.operacao<unknown>(orgId, "GET", "/automations", opcoes.timeoutMs ? { timeoutMs: opcoes.timeoutMs } : {});
+    if (!r.ok) return r;
+    if (!Array.isArray(r.valor)) return { ok: false, erro: "O Chat BullQ devolveu uma lista de automações inválida" };
+    return { ok: true, valor: r.valor.map(a => normalizarAutomacao(a && typeof a === "object" ? a as Record<string, unknown> : {})) };
+  }
+
+  /**
+   * Liga a automacao de novo: `POST /automations/:id/toggle?enabled=true`. O
+   * fork le `enabled` da QUERY e compara com a string 'true' (nao ha corpo);
+   * ligar zera `consecutiveFailures` e `autoPausedAt` la.
+   */
+  async religarAutomacao(orgId: string, automacaoId: string): Promise<Resultado<void>> {
+    return descartar(await this.operacao(orgId, "POST", `/automations/${enc(automacaoId)}/toggle`, { query: { enabled: "true" } }));
   }
 
   criarAgente(orgId: string, dados: DadosAgente): Promise<Resultado<AgenteIa>> {

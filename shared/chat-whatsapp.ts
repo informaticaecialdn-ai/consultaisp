@@ -62,3 +62,21 @@ export type EstadoDaConexaoWhatsapp = z.infer<typeof EstadoDaConexaoWhatsappSche
 export const ConectarWhatsappSchema = z.object({
   phone: z.string().regex(/^55\d{10,11}$/, "Informe o número com DDI 55 e DDD").optional(),
 }).strict();
+
+/**
+ * A automação de retorno ("Consulta ISP · resposta para humano") como o Chat
+ * BullQ a vê NA HORA: é por ela que a resposta do cliente volta para cá. O
+ * fork a pausa sozinho depois de 5 falhas seguidas do webhook e nunca religa
+ * (16/09/2026: as respostas pararam de chegar e ninguém soube).
+ * `ausente` = não está mais lá (ou nunca foi criada); `desconhecido` = não deu
+ * para conferir agora (chat desligado, fork sem resposta).
+ */
+export const RetornoDoChatSchema = z.object({
+  estado: z.enum(["ligada", "pausada", "ausente", "desconhecido"]),
+  /** Quando o fork pausou (ISO), ou null. */
+  autoPausadoEm: z.string().nullable(),
+  /** As falhas seguidas contadas pelo fork, ou null quando ele não informou. */
+  falhas: z.number().int().nullable(),
+});
+export type RetornoDoChat = z.infer<typeof RetornoDoChatSchema>;
+export const RETORNO_DESCONHECIDO: RetornoDoChat = { estado: "desconhecido", autoPausadoEm: null, falhas: null };

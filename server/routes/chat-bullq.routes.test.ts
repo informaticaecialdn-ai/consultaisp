@@ -16,6 +16,8 @@ const servico = vi.hoisted(() => ({
   enviarRecuperacaoParaChat: vi.fn(async (): Promise<any> => ({ conversationId: "conv_9", reaproveitada: false, messageId: "m9", inboxUrl: "https://chat.consultaisp.com.br/inbox" })),
   definirSenhaDoInbox: vi.fn(async (): Promise<any> => ({ ownerEmail: "dono@isp.com" })),
   garantirTransferenciaNaResposta: vi.fn(async () => undefined),
+  religarRetornoSePausado: vi.fn(async (): Promise<any> => ({ estado: "religada" })),
+  retornoDaIntegracao: vi.fn(async (): Promise<any> => ({ estado: "ligada", autoPausadoEm: null, falhas: 0 })),
 }));
 vi.mock("../services/chat/chat-ponte.service", async () => {
   const real = await vi.importActual<typeof import("../services/chat/chat-ponte.service")>("../services/chat/chat-ponte.service");
@@ -330,6 +332,50 @@ describe("conversa do caso e recuperacao", () => {
     const res = await json("POST", "/api/chat-bullq/recuperacao/77/enviar", { texto: "Combinar retirada" });
     expect(res.status).toBe(200);
     expect(servico.enviarRecuperacaoParaChat).toHaveBeenCalledWith(42, 77, 8, "Combinar retirada", false);
+  });
+});
+
+/**
+ * A automação de retorno que o fork pausa (5 falhas do webhook) e nunca religa:
+ * a leitura da integração traz o estado dela e só o admin religa.
+ */
+describe("religar o retorno", () => {
+  it("só admin; a ponte recebe o provedor da sessão e o estado volta como veio; chat desligado é 503, ponte falhou é 502 e erro inesperado é 500 sem detalhe", async () => {
+    sessao = OPERADOR;
+    expect((await json("POST", "/api/chat-bullq/integracao/retorno/religar", {})).status).toBe(403);
+    expect(servico.religarRetornoSePausado).not.toHaveBeenCalled();
+    sessao = ADMIN;
+    const r = await json("POST", "/api/chat-bullq/integracao/retorno/religar", { providerId: 999, automacaoId: "outra" });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ estado: "religada" });
+    expect(servico.religarRetornoSePausado).toHaveBeenCalledExactlyOnceWith(42);
+    servico.religarRetornoSePausado.mockRejectedValueOnce(new ErroDaPonteDoChat("CHAT_DESLIGADO", "O chat nao esta configurado nesta instalacao"));
+    const desligado = await json("POST", "/api/chat-bullq/integracao/retorno/religar");
+    expect(desligado.status).toBe(503);
+    expect(await desligado.json()).toEqual({ codigo: "CHAT_DESLIGADO", message: "O chat nao esta configurado nesta instalacao" });
+    servico.religarRetornoSePausado.mockRejectedValueOnce(new ErroDaPonteDoChat("CHAT_FALHOU", "Não foi possível configurar o recebimento das respostas."));
+    expect((await json("POST", "/api/chat-bullq/integracao/retorno/religar")).status).toBe(502);
+    servico.religarRetornoSePausado.mockRejectedValueOnce(new Error("segredo interno explodiu"));
+    const erro = await json("POST", "/api/chat-bullq/integracao/retorno/religar");
+    expect(erro.status).toBe(500);
+    expect(JSON.stringify(await erro.json())).not.toContain("explodiu");
+  });
+  it("o estado do retorno tem rota PRÓPRIA (só a aba Chat a lê, sem cache): a leitura da integração — de kanban, 360, esteira — continua leve, sem ir ao fork", async () => {
+    sessao = OPERADOR;
+    servico.retornoDaIntegracao.mockResolvedValueOnce({ estado: "pausada", autoPausadoEm: "2026-09-16T17:10:00.000Z", falhas: 5 });
+    const r = await json("GET", "/api/chat-bullq/integracao/retorno?providerId=999");
+    expect(r.status).toBe(200);
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(await r.json()).toEqual({ estado: "pausada", autoPausadoEm: "2026-09-16T17:10:00.000Z", falhas: 5 });
+    expect(servico.retornoDaIntegracao).toHaveBeenCalledExactlyOnceWith(42);
+    const leve = await json("GET", "/api/chat-bullq/integracao");
+    expect(leve.status).toBe(200);
+    expect("retorno" in await leve.json()).toBe(false);
+    expect(servico.estadoDaIntegracao).toHaveBeenCalledExactlyOnceWith(42);
+    expect(servico.retornoDaIntegracao).toHaveBeenCalledTimes(1);
+    // Sem sessão de provedor, nada: a conferência fala com o fork em nome da organização do provedor.
+    sessao = {};
+    expect((await json("GET", "/api/chat-bullq/integracao/retorno")).status).toBe(401);
   });
 });
 

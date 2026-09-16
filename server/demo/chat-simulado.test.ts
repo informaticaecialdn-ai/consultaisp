@@ -277,6 +277,7 @@ describe("todo método público do ChatBullqClient responde sem rede", () => {
       ["estatisticasDaOrganizacao", () => c.estatisticasDaOrganizacao(ORG, "7d"), true],
       ["criarAutomacao", () => c.criarAutomacao(ORG, { nome: "retorno", trigger: "MESSAGE_RECEIVED", actions: [] }), true],
       ["listarAutomacoes", () => c.listarAutomacoes(ORG), true],
+      ["religarAutomacao", () => c.religarAutomacao(ORG, "demo-automacao-resposta-humana"), true],
       ["apagarSkill", () => c.apagarSkill(ORG, ctx.skill), true],
       ["apagarTool", () => c.apagarTool(ORG, ctx.tool), true],
       ["apagarAgente", () => c.apagarAgente(ORG, ctx.agente), true],

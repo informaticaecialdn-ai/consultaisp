@@ -63,6 +63,57 @@ describe("aba Chat", () => {
     // Selo retangular e sem paleta crua do Tailwind (DESIGN_SYSTEM v5).
     expect(aba).not.toMatch(/rounded-full|\b(?:text|bg|border)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/);
   });
+  /**
+   * A automacao de retorno e o que traz a resposta do cliente de volta. O fork
+   * a pausa depois de 5 falhas do webhook e nunca religa (16/09/2026: ninguem
+   * soube). A aba le o estado que a integracao traz, avisa em destaque e o
+   * admin religa daqui.
+   */
+  it("automacao de retorno pausada ou ausente: aviso em destaque no tom de perigo, com o motivo, e o botao de religar so para o admin", () => {
+    expect(aba).toContain('(retorno.estado === "pausada" || retorno.estado === "ausente")');
+    expect(aba).toContain('data-testid="chat-retorno-pausado"');
+    expect(aba).toContain("As respostas dos clientes não estão chegando ao Consulta ISP:");
+    expect(aba).toContain("a automação de retorno do chat está pausada (${motivoDaPausa(retorno)})");
+    expect(aba).toContain("falhas seguidas em ${quando}");
+    expect(aba).toContain("a automação de retorno do chat não existe no Chat BullQ.");
+    // O aviso usa os tokens de perigo da pele, como os avisos que ja existem na aba.
+    const aviso = aba.slice(aba.indexOf('{integracao?.ligado && integracao.canal && (retorno.estado'), aba.indexOf('data-testid="chat-retorno-pausado"'));
+    expect(aviso).toContain("var(--danger");
+    expect(aviso).toContain('role="alert"');
+    // So o admin religa: o botao fica atras de podeAdministrar; quem nao pode le o que fazer.
+    expect(aba).toMatch(/\{podeAdministrar\s*\?\s*<button[^\n]*data-testid="chat-religar-retorno"/);
+    expect(aba).toContain('"Religar retorno"');
+    expect(aba).toContain("só o administrador religa");
+    // Ausente, o gesto e CRIAR (a ponte devolve "recriada"): o botao diz o que faz.
+    expect(aba).toContain('retorno.estado === "ausente" ? "Criar retorno" : "Religar retorno"');
+    // Desligada a mao no inbox (enabled=false, 0 falhas, sem data) nao vira "0 falhas seguidas": zero falha nao e motivo.
+    expect(aba).toMatch(/if \(r\.falhas\) return/);
+    expect(aba).toContain('"desligada no chat"');
+  });
+  it("religar bate na rota nova, invalida a leitura da integracao (e com ela o retorno, pelo prefixo) e conta o resultado em toast", () => {
+    expect(aba).toContain("`${API_CHAT_BULLQ}/integracao/retorno/religar`");
+    const religar = aba.slice(aba.indexOf("const religarRetorno = useMutation"), aba.indexOf("const aguardandoPareamento"));
+    expect(religar).toContain('apiRequest("POST", `${API_CHAT_BULLQ}/integracao/retorno/religar`)');
+    expect(religar).toContain("queryClient.invalidateQueries({ queryKey: [CHAVE_INTEGRACAO] })");
+    expect(religar).toContain('r.estado === "religada"');
+    expect(religar).toContain('variant: "destructive"');
+    expect(religar).toContain("mensagemDoErro(erro)");
+  });
+  it("o retorno tem leitura PROPRIA (GET /integracao/retorno, so com numero ligado): a integracao que kanban/360/esteira leem continua leve", () => {
+    // A chave e [CHAVE_INTEGRACAO, "retorno"] — vira a URL /api/chat-bullq/integracao/retorno (queryClient junta com "/")
+    // e continua casando com as invalidacoes por prefixo de ConexaoWhatsapp/AgentesDoChat/religar (["/api/chat-bullq/integracao"]).
+    expect(aba).toContain('queryKey: [CHAVE_INTEGRACAO, "retorno"]');
+    expect(aba).toMatch(/queryKey: \[CHAVE_INTEGRACAO, "retorno"\][^\n]*enabled: !!integracao\?\.canal/);
+    expect(aba).not.toContain("conferirRetorno");
+  });
+  it("sem conseguir conferir (fork sem resposta): texto neutro, sem alarme; o estado vem do contrato compartilhado, tolerante ao que faltar", () => {
+    expect(aba).toContain('retorno.estado === "desconhecido"');
+    expect(aba).toContain("não foi possível conferir a automação de retorno agora");
+    expect(aba).toContain("RetornoDoChatSchema.safeParse");
+    expect(aba).toContain("RETORNO_DESCONHECIDO");
+    // Sem numero ligado nao ha resposta a perder: nem o aviso nem o texto neutro aparecem.
+    expect(aba).toContain('integracao?.ligado && integracao.canal && retorno.estado === "desconhecido"');
+  });
   it("esta no painel do provedor como aba `chat`, com a permissao do painel", () => {
     expect(CATEGORIAS_PAINEL.flatMap(c=>c.itens).some(i=>i.id==="chat")).toBe(true);
     expect(painel).toContain("<AbaChat podeAdministrar={podeAdministrar} />");

@@ -533,6 +533,81 @@ describe("log", () => {
   });
 });
 
+/**
+ * A automação de retorno vista do fork. O contrato é o de
+ * F:/chat-bullq-vps/api/src/modules/automations: `GET /automations` devolve o
+ * registro Prisma cru (camelCase: `enabled`, `autoPausedAt`,
+ * `consecutiveFailures`) e o toggle é `POST /automations/:id/toggle` lendo
+ * `@Query('enabled')` e comparando com a STRING 'true' — corpo nenhum. A
+ * sessão que opera a VPS viu o estado em snake_case; o cliente aceita as duas.
+ */
+describe("automações de retorno", () => {
+  const PAUSADA = { id: "a1", name: "Consulta ISP · resposta para humano", trigger: "MESSAGE_RECEIVED", enabled: false, autoPausedAt: "2026-09-16T17:10:00.000Z", autoPausedReason: "5 consecutive failures", consecutiveFailures: 5, actions: [{ type: "call_webhook" }] };
+  const LIGADA = { id: "a2", name: "Outra", trigger: "CONVERSATION_CREATED", enabled: true, autoPausedAt: null, consecutiveFailures: 0 };
+
+  it("listarAutomacoes normaliza enabled/autoPausedAt/consecutiveFailures nas duas grafias, sem perder o resto do registro", async () => {
+    const s = servidorComSessao();
+    let vez = 0;
+    s.quando("GET", "/automations", () => ({ corpo: { data: ++vez === 1
+      ? [PAUSADA, LIGADA]
+      : [{ id: "a3", name: "Snake", trigger: "MESSAGE_RECEIVED", enabled: false, auto_paused_at: "2026-09-16T17:10:00.000Z", consecutive_failures: 5 }] } }));
+    const c = cliente(s);
+
+    const camel = await c.listarAutomacoes(ORG);
+    expect(camel.ok).toBe(true);
+    if (!camel.ok) return;
+    expect(camel.valor).toHaveLength(2);
+    expect(camel.valor[0]).toMatchObject({ id: "a1", name: PAUSADA.name, trigger: "MESSAGE_RECEIVED", enabled: false, autoPausedAt: "2026-09-16T17:10:00.000Z", consecutiveFailures: 5, actions: [{ type: "call_webhook" }] });
+    expect(camel.valor[1]).toMatchObject({ id: "a2", enabled: true, autoPausedAt: null, consecutiveFailures: 0 });
+
+    const snake = await c.listarAutomacoes(ORG);
+    expect(snake.ok && snake.valor[0]).toMatchObject({ id: "a3", enabled: false, autoPausedAt: "2026-09-16T17:10:00.000Z", consecutiveFailures: 5 });
+  });
+
+  it("registro sem os campos de pausa vale como ligada e sem contagem — nunca como pausada por omissão", async () => {
+    const s = servidorComSessao();
+    s.quando("GET", "/automations", () => ({ corpo: { data: [{ id: "a9", name: "Antiga", trigger: "MESSAGE_RECEIVED" }] } }));
+    const r = await cliente(s).listarAutomacoes(ORG);
+    expect(r.ok && r.valor[0]).toMatchObject({ id: "a9", enabled: true, autoPausedAt: null });
+    expect(r.ok && "consecutiveFailures" in r.valor[0]).toBe(false);
+  });
+
+  it("lista inválida não vira 'nenhuma automação' (a ponte criaria outra em cima)", async () => {
+    const s = servidorComSessao();
+    s.quando("GET", "/automations", () => ({ corpo: { data: { unexpected: true } } }));
+    expect((await cliente(s).listarAutomacoes(ORG)).ok).toBe(false);
+  });
+
+  it("a conferência da tela pode encurtar o tempo máximo: timeoutMs passa até o fetch", async () => {
+    const pendurado = ((_entrada: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        if (String(_entrada).includes("/token")) return resolve(resposta(200, { data: TOKEN_1 }));
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted", "AbortError")));
+      })) as unknown as typeof fetch;
+    const c = new ChatBullqClient({ baseUrl: "https://chat.example.com", platformKey: CHAVE, fetchImpl: pendurado, timeoutMs: 60_000 });
+    const r = await c.listarAutomacoes(ORG, { timeoutMs: 20 });
+    expect(r).toEqual({ ok: false, erro: "O Chat BullQ não respondeu em 0s" });
+  });
+
+  it("religarAutomacao é POST /automations/:id/toggle com enabled=true na QUERY (string 'true', como o fork compara) e sem corpo", async () => {
+    const s = servidorComSessao();
+    s.quando("POST", "/automations/a1/toggle", () => ({ corpo: { data: { ...PAUSADA, enabled: true, autoPausedAt: null, consecutiveFailures: 0 } } }));
+    const r = await cliente(s).religarAutomacao(ORG, "a1");
+    expect(r).toEqual({ ok: true, valor: undefined });
+    const chamada = s.de("/automations/a1/toggle")[0];
+    expect(chamada.metodo).toBe("POST");
+    expect(chamada.query.get("enabled")).toBe("true");
+    expect(chamada.corpo).toBeUndefined();
+    expect(chamada.headers["authorization"]).toBe(`Bearer ${TOKEN_1.accessToken}`);
+  });
+
+  it("religar recusado vira { ok:false } com a message e o status — o padrão de toda operação, nada do corpo cru", async () => {
+    const s = servidorComSessao();
+    s.quando("POST", "/automations/a1/toggle", () => ({ status: 403, corpo: { message: "Insufficient role", statusCode: 403, detail: { token: "nao-vaza" } } }));
+    expect(await cliente(s).religarAutomacao(ORG, "a1")).toEqual({ ok: false, erro: "Insufficient role", status: 403 });
+  });
+});
+
 describe("remover canal", () => {
   it("DELETE /channels/:id leva o nome exato do canal em confirmName (a confirmacao do fork), na query", async () => {
     const s = servidorComSessao();

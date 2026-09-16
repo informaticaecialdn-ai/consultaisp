@@ -1441,6 +1441,14 @@ const ROTAS: Array<[string, RegExp, Tratador]> = [
     agente.skills = ids.map(skillId => ({ skillId, requiresApproval: false, skill: { name: String(skills.get(skillId)?.name ?? "") } }));
     return ok(CONFIRMADO);
   }],
+  // O toggle do fork lê `enabled` da QUERY (string 'true'); ligar zera o auto-pause, como lá.
+  ["POST", /^\/automations\/([^/]+)\/toggle$/, p => {
+    const r = colecao(p, "automacoes").get(p.params[0]);
+    if (!r) return naoEncontrado("Registro não encontrado na demonstração");
+    const enabled = p.query.get("enabled") === "true";
+    Object.assign(r, { enabled, ...(enabled ? { consecutiveFailures: 0, autoPausedAt: null, autoPausedReason: null } : {}), updatedAt: new Date().toISOString() });
+    return ok(r);
+  }],
   ...crud("/automations", "automacoes"),
 ];
 

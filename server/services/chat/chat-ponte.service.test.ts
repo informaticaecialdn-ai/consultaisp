@@ -19,7 +19,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // sem linha = sem pausa. Os testes de pausa trocam a resposta.
 const banco = vi.hoisted(() => ({ query: vi.fn(async () => ({ rowCount: 0, rows: [] })) }));
 vi.mock("../../db", () => ({ pool: { query: banco.query }, db: {} }));
-vi.mock("./chat-trava", () => ({ comTravaDoChat: async (_chave: string, executar: () => Promise<unknown>) => executar() }));
+// A trava é passagem livre, mas REGISTRA que chaves estão tomadas: os testes da
+// automação de retorno provam que a ida ao fork fica fora de `config:`.
+const travas = vi.hoisted(() => ({ emCurso: [] as string[], tomadas: [] as string[] }));
+vi.mock("./chat-trava", () => ({ comTravaDoChat: async (chave: string, executar: () => Promise<unknown>) => {
+  travas.emCurso.push(chave); travas.tomadas.push(chave);
+  try { return await executar(); } finally { travas.emCurso.splice(travas.emCurso.lastIndexOf(chave), 1); }
+} }));
 vi.mock("./chat-agente.service", () => ({ gerarChaveDoAgente: () => "chave-sintetica", hashDaChave: () => "hash-sintetico" }));
 const log = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), fatal: vi.fn() }));
 vi.mock("../../logger", () => ({ logger: log }));
@@ -58,11 +64,12 @@ import { ChatBullqClient } from "./chat-bullq.client";
 import { storage } from "../../storage";
 import {
   _usarClienteDoChatParaTestes, clienteDoChat, configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarPreAvisoParaChat, enviarRecuperacaoParaChat, ErroDaPonteDoChat,
-  estadoDaIntegracao, garantirIntegracao, garantirAgenteDeCobranca, garantirTransferenciaNaResposta, mensagemDeCobranca, mensagemDeRecuperacao,
+  estadoDaIntegracao, garantirIntegracao, garantirAgenteDeCobranca, garantirTransferenciaNaResposta, mensagemDeCobranca, mensagemDeRecuperacao, religarRetornoSePausado, retornoDaIntegracao,
   urlDaApiDoAgente, urlDoWebhookDeVolta,
 } from "./chat-ponte.service";
 import { limparChatSimuladoDoProvedor, URL_DO_CHAT_SIMULADO } from "../../demo/chat-simulado";
 import { comOrcamentoContato, ErroGestao } from "../cobranca/gestao-operacional.service";
+import { RETORNO_DESCONHECIDO } from "@shared/chat-whatsapp";
 
 function clienteFalso(sobrescritas: Record<string, any> = {}) {
   const c = {
@@ -84,6 +91,7 @@ function clienteFalso(sobrescritas: Record<string, any> = {}) {
     desligarIa: vi.fn(async () => ({ ok: true, valor: undefined })),
     criarAutomacao: vi.fn(async () => ({ ok: true, valor: { id: "auto_resposta" } })),
     listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [] })),
+    religarAutomacao: vi.fn(async () => ({ ok: true, valor: undefined })),
     prepararPrimeiroContato: vi.fn(async (_org: string, id: string, contexto: { nomeCliente: string; nomeProvedor: string }) => ({ ok: true, valor: { texto: `Olá, ${contexto.nomeCliente}! Sou o assistente virtual da ${contexto.nomeProvedor}. Podemos conversar${id === "ag-equip" ? " sobre a devolução do equipamento" : ""}?`, agenteId: id, modelo: "sakana/modelo-real", runId: "draft-1" } })),
     listarMensagens: vi.fn(async () => ({ ok: true, valor: [{ id: "m1", direction: "OUTBOUND", type: "TEXT", content: { text: "Ola" }, status: "SENT", senderName: "NsLink", createdAt: "2026-09-05T10:00:00Z" }] })),
     definirSenhaDoOwner: vi.fn(async () => ({ ok: true, valor: { ownerUserId: "u1", ownerEmail: "dono@nslink.com" } })),
@@ -658,6 +666,224 @@ describe("conversaDoCaso", () => {
   });
 });
 
+/**
+ * A automação de retorno ("Consulta ISP · resposta para humano") é a volta da
+ * resposta do cliente para cá. O fork a pausa sozinho depois de 5 falhas
+ * seguidas do webhook (`enabled=false` + `autoPausedAt`) e nunca religa —
+ * 16/09/2026: nosso webhook devolvia 401, a automação parou e a ponte
+ * devolvia cedo só porque o id estava gravado; nenhuma resposta voltava e
+ * ninguém soube. Agora a ponte confere o estado no fork e religa: ao salvar o
+ * canal (a), quando o agente fica pronto (b — pela transferência que a rota e
+ * `garantirAgenteDeCobranca` chamam logo depois, fora da trava) e em toda
+ * transferência (c). Falha do fork nunca derruba canal nem agente: vira aviso
+ * no log e o estado vai para a aba Chat.
+ */
+const RETORNO_PAUSADO = { id: "a-retorno", name: "Consulta ISP · resposta para humano", trigger: "MESSAGE_RECEIVED", enabled: false, autoPausedAt: "2026-09-16T17:10:00.000Z", consecutiveFailures: 5 };
+const RETORNO_LIGADO = { ...RETORNO_PAUSADO, enabled: true, autoPausedAt: null, consecutiveFailures: 0 };
+const comRetorno = (agenteConfig: Record<string, unknown> = {}) => {
+  fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: "ch_1", canalNome: "Principal", status: "ativo", ultimoErro: null, webhookSecret: "whs_teste", agenteConfig: { respostaHumanaAutomacaoId: "a-retorno", modoAtendimento: "primeira_resposta_humana", ...agenteConfig } };
+};
+const avisos = () => log.warn.mock.calls.map(([dados, msg]) => ({ dados, msg }));
+
+describe("religarRetornoSePausado — a automação de retorno que o fork pausa e nunca religa", () => {
+  it("pausada pelo fork: religa pelo toggle e avisa no log com provedor, automação, quando pausou e quantas falhas", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_PAUSADO] })) }); comRetorno();
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "religada" });
+    expect(c.religarAutomacao).toHaveBeenCalledExactlyOnceWith("org_1", "a-retorno");
+    expect(c.criarAutomacao).not.toHaveBeenCalled();
+    expect(avisos()).toContainEqual({ dados: expect.objectContaining({ providerId: 6, automacaoId: "a-retorno", autoPausedAt: "2026-09-16T17:10:00.000Z", consecutiveFailures: 5 }), msg: expect.stringMatching(/estava pausada pelo fork; religada/) });
+    expect(fake.integracao.agenteConfig.respostaHumanaAutomacaoId).toBe("a-retorno");
+  });
+  it("só autoPausedAt (enabled ainda true) também conta como pausada; enabled=false sem data idem", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [{ ...RETORNO_LIGADO, autoPausedAt: "2026-09-16T17:10:00.000Z" }] })) }); comRetorno();
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "religada" });
+    c.listarAutomacoes.mockResolvedValueOnce({ ok: true, valor: [{ ...RETORNO_LIGADO, enabled: false }] } as never);
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "religada" });
+    expect(c.religarAutomacao).toHaveBeenCalledTimes(2);
+  });
+  it("ligada: nada a fazer — nenhum toggle, nenhuma criação, nenhum aviso", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_LIGADO] })) }); comRetorno();
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "ligada" });
+    expect(c.religarAutomacao).not.toHaveBeenCalled();
+    expect(c.criarAutomacao).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+  it("sumiu do fork (id gravado fora da lista): limpa o id e recria pela mesma criação de sempre, sem herdar o id antigo", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [{ ...RETORNO_LIGADO, id: "outra", name: "Outra coisa" }] })), criarAutomacao: vi.fn(async () => ({ ok: true, valor: { id: "a-nova" } })) }); comRetorno();
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "recriada" });
+    expect(c.religarAutomacao).not.toHaveBeenCalled();
+    expect(c.criarAutomacao).toHaveBeenCalledExactlyOnceWith("org_1", expect.objectContaining({ nome: "Consulta ISP · resposta para humano", trigger: "MESSAGE_RECEIVED", actions: [{ type: "call_webhook", params: expect.objectContaining({ secret: "whs_teste" }) }] }));
+    expect(fake.integracao.agenteConfig).toMatchObject({ respostaHumanaAutomacaoId: "a-nova", modoAtendimento: "primeira_resposta_humana" });
+    expect(avisos()).toContainEqual({ dados: expect.objectContaining({ providerId: 6, automacaoId: "a-retorno" }), msg: expect.stringMatching(/sumiu do fork/) });
+    // A lista que provou o sumiço é a mesma que a criação usa para reencontrar pelo nome: uma ida ao fork, não duas.
+    expect(c.listarAutomacoes).toHaveBeenCalledTimes(1);
+  });
+  it("id gravado apontando para automação com OUTRO gatilho (editada no inbox do fork): não é mais a nossa — não religa às cegas; recria/adota pelo nome", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [{ ...RETORNO_PAUSADO, trigger: "CONVERSATION_CREATED" }, { ...RETORNO_LIGADO, id: "a-certa" }] })) }); comRetorno();
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "recriada" });
+    expect(c.religarAutomacao).not.toHaveBeenCalled();
+    expect(c.criarAutomacao).not.toHaveBeenCalled();
+    expect(fake.integracao.agenteConfig.respostaHumanaAutomacaoId).toBe("a-certa");
+  });
+  it("nunca criada (integração sem id): cria; sem integração nenhuma: sem_integracao e nenhuma chamada ao fork", async () => {
+    const c = clienteFalso({ criarAutomacao: vi.fn(async () => ({ ok: true, valor: { id: "a-nova" } })) });
+    comRetorno({ respostaHumanaAutomacaoId: null });
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "recriada" });
+    expect(c.criarAutomacao).toHaveBeenCalledTimes(1);
+    expect(fake.integracao.agenteConfig.respostaHumanaAutomacaoId).toBe("a-nova");
+    const chamadasAoFork = c.listarAutomacoes.mock.calls.length + c.criarAutomacao.mock.calls.length;
+    fake.integracao = undefined;
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "sem_integracao" });
+    expect(c.listarAutomacoes.mock.calls.length + c.criarAutomacao.mock.calls.length).toBe(chamadasAoFork);
+  });
+  it("fork fora do ar ao listar: aviso e 'desconhecido', sem lançar; toggle recusado: aviso e 'pausada', sem lançar e sem recriar", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: false, erro: "Não foi possível falar com o Chat BullQ" })) }); comRetorno();
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "desconhecido" });
+    expect(c.religarAutomacao).not.toHaveBeenCalled();
+    expect(avisos()).toContainEqual({ dados: expect.objectContaining({ providerId: 6, automacaoId: "a-retorno" }), msg: expect.stringMatching(/conferir a automação de retorno/) });
+    c.listarAutomacoes.mockResolvedValue({ ok: true, valor: [RETORNO_PAUSADO] } as never);
+    c.religarAutomacao.mockResolvedValue({ ok: false, erro: "Insufficient role", status: 403 } as never);
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "pausada" });
+    expect(avisos()).toContainEqual({ dados: expect.objectContaining({ providerId: 6, automacaoId: "a-retorno", autoPausedAt: "2026-09-16T17:10:00.000Z", consecutiveFailures: 5 }), msg: expect.stringMatching(/não foi possível religar/) });
+    expect(c.criarAutomacao).not.toHaveBeenCalled();
+    expect(fake.integracao.agenteConfig.respostaHumanaAutomacaoId).toBe("a-retorno");
+  });
+  it("chat desligado nesta instalação: CHAT_DESLIGADO (a rota vira 503)", async () => {
+    _usarClienteDoChatParaTestes(null); comRetorno();
+    await expect(religarRetornoSePausado(6)).rejects.toMatchObject({ codigo: "CHAT_DESLIGADO" });
+  });
+
+  it("(a) ao salvar o canal: confere DEPOIS de gravar o canal e o serviço de WhatsApp, e religa a automação pausada", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_PAUSADO] })) }); comRetorno();
+    fake.integracao.canalId = null;
+    const r = await configurarCanalWhatsapp(6, EVO);
+    expect(r.canalOk).toBe(true);
+    expect(c.religarAutomacao).toHaveBeenCalledExactlyOnceWith("org_1", "a-retorno");
+    expect(vi.mocked(storage.marcarEstadoDaIntegracaoDoChat).mock.invocationCallOrder[0]).toBeLessThan(c.listarAutomacoes.mock.invocationCallOrder[0]);
+    expect(fake.integracao).toMatchObject({ canalId: "ch_1", status: "ativo", agenteConfig: { whatsapp: { provider: "EVOLUTION" }, respostaHumanaAutomacaoId: "a-retorno" } });
+  });
+  it("(a) falha do fork na conferência — listagem caída ou recriação recusada — não derruba o canal: vira aviso", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: false, erro: "timeout" })) }); comRetorno();
+    fake.integracao.canalId = null;
+    expect((await configurarCanalWhatsapp(6, EVO)).canalOk).toBe(true);
+    expect(fake.integracao.canalId).toBe("ch_1");
+    // Sumiu e a recriação falhou: a criação lança CHAT_FALHOU, o canal fica de pé mesmo assim.
+    c.listarAutomacoes.mockResolvedValue({ ok: true, valor: [] } as never);
+    c.criarAutomacao.mockResolvedValue({ ok: false, erro: "500", status: 500 } as never);
+    fake.integracao.canalId = null;
+    expect((await configurarCanalWhatsapp(6, EVO)).canalOk).toBe(true);
+    expect(fake.integracao.canalId).toBe("ch_1");
+    expect(avisos()).toContainEqual({ dados: expect.objectContaining({ providerId: 6 }), msg: expect.stringMatching(/canal salvo, mas a automação de retorno não foi conferida/) });
+  });
+  it("(c) garantirTransferenciaNaResposta com id gravado não devolve mais cedo: confere e religa; fork caído na conferência não bloqueia", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_PAUSADO] })) }); comRetorno();
+    await garantirTransferenciaNaResposta(6);
+    expect(c.religarAutomacao).toHaveBeenCalledExactlyOnceWith("org_1", "a-retorno");
+    expect(c.criarAutomacao).not.toHaveBeenCalled();
+    c.listarAutomacoes.mockResolvedValueOnce({ ok: false, erro: "timeout" } as never);
+    await expect(garantirTransferenciaNaResposta(6)).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalled();
+  });
+  it("(c) a ida ao fork fica FORA da trava config: ligada, nenhuma trava é tomada; pausada, a listagem roda antes e só o toggle dentro", async () => {
+    // A trava `config:` é compartilhada entre API e worker e não espera (quem
+    // chega com ela ocupada recebe CONFLITO): segurá-la pelo tempo de resposta
+    // do fork em TODO envio faria o operador levar 409 enquanto o worker lista.
+    const dentroAoListar: string[][] = [];
+    let lista: unknown = { ok: true, valor: [RETORNO_LIGADO] };
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => { dentroAoListar.push([...travas.emCurso]); return lista; }) }); comRetorno();
+    travas.tomadas.length = 0;
+    await garantirTransferenciaNaResposta(6);
+    expect(dentroAoListar).toEqual([[]]);
+    expect(travas.tomadas).not.toContain("config:6");
+    // Pausada: a primeira listagem (fora da trava) diz que precisa mexer; a trava só então é tomada, e o toggle roda dentro dela.
+    const dentroAoReligar: string[][] = [];
+    c.religarAutomacao.mockImplementation(async () => { dentroAoReligar.push([...travas.emCurso]); return { ok: true, valor: undefined }; });
+    lista = { ok: true, valor: [RETORNO_PAUSADO] };
+    dentroAoListar.length = 0;
+    await garantirTransferenciaNaResposta(6);
+    expect(dentroAoListar[0]).toEqual([]);
+    expect(dentroAoReligar).toEqual([["config:6"]]);
+    // Fork caído na leitura de fora: aviso e o envio segue — sem tomar a trava para conferir de novo.
+    travas.tomadas.length = 0;
+    lista = { ok: false, erro: "timeout" };
+    await garantirTransferenciaNaResposta(6);
+    expect(travas.tomadas).not.toContain("config:6");
+    expect(avisos()).toContainEqual({ dados: expect.objectContaining({ providerId: 6, automacaoId: "a-retorno" }), msg: expect.stringMatching(/conferir a automação de retorno/) });
+  });
+  it("(c) no envio: o primeiro contato passa pela conferência e a automação pausada é religada ANTES de a mensagem sair", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_PAUSADO] })) }); comRetorno(AGENTES_PRONTOS);
+    await enviarCasoParaCobranca(6, 10, 3);
+    expect(c.religarAutomacao).toHaveBeenCalledExactlyOnceWith("org_1", "a-retorno");
+    expect(c.religarAutomacao.mock.invocationCallOrder[0]).toBeLessThan(c.iniciarConversa.mock.invocationCallOrder[0]);
+  });
+  it("(b) agente aplicado e pronto: a transferência que vem em seguida (fora da trava do agente) confere e religa", async () => {
+    const c = clienteFalso({
+      listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_PAUSADO] })),
+      listarModelosDePrimeiroContato: vi.fn(async () => ({ ok: true, valor: { configured: true, models: [{ id: "sakana/modelo-real" }] } })),
+      listarAgentes: vi.fn(async () => ({ ok: true, valor: [] })),
+      criarAgente: vi.fn(async () => ({ ok: true, valor: { id: "ag-novo", name: "x", kind: "WORKER", modelId: "sakana/modelo-real", isActive: false } })),
+      atualizarAgente: vi.fn(async () => ({ ok: true, valor: { id: "ag-novo" } })),
+    });
+    comRetorno({ agentes: { cobranca_ativos: { modelo: "sakana/modelo-real", instrucoes: "Seja breve", habilitado: true, etapa: "configurado" } } });
+    expect(await garantirAgenteDeCobranca(6)).toEqual({ agenteId: "ag-novo", criado: true });
+    expect(fake.integracao.agenteConfig.agentes.cobranca_ativos).toMatchObject({ id: "ag-novo", etapa: "pronto" });
+    expect(c.religarAutomacao).toHaveBeenCalledExactlyOnceWith("org_1", "a-retorno");
+    expect(c.criarAgente.mock.invocationCallOrder[0]).toBeLessThan(c.religarAutomacao.mock.invocationCallOrder[0]);
+  });
+});
+
+describe("retornoDaIntegracao — o que a aba Chat mostra sobre a volta das respostas", () => {
+  it("a leitura da integração (kanban, 360, esteira, confissão, diagnóstico) continua leve: não bate no fork nem carrega `retorno`", async () => {
+    const c = clienteFalso(); comRetorno();
+    const leve = await estadoDaIntegracao(6);
+    expect("retorno" in leve).toBe(false);
+    expect(c.listarAutomacoes).not.toHaveBeenCalled();
+  });
+  it("lê do fork na hora, com tempo curto: ligada / pausada (quando e falhas) / ausente (sumiu) / desconhecido (fork caiu) — e só olha, nunca religa nem cria", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_LIGADO] })) }); comRetorno();
+    expect(await retornoDaIntegracao(6)).toEqual({ estado: "ligada", autoPausadoEm: null, falhas: 0 });
+    expect(c.listarAutomacoes).toHaveBeenCalledWith("org_1", { timeoutMs: 5000 });
+    c.listarAutomacoes.mockResolvedValueOnce({ ok: true, valor: [RETORNO_PAUSADO] } as never);
+    expect(await retornoDaIntegracao(6)).toEqual({ estado: "pausada", autoPausadoEm: "2026-09-16T17:10:00.000Z", falhas: 5 });
+    c.listarAutomacoes.mockResolvedValueOnce({ ok: true, valor: [] } as never);
+    expect(await retornoDaIntegracao(6)).toEqual({ estado: "ausente", autoPausadoEm: null, falhas: null });
+    c.listarAutomacoes.mockResolvedValueOnce({ ok: false, erro: "timeout" } as never);
+    expect(await retornoDaIntegracao(6)).toEqual(RETORNO_DESCONHECIDO);
+    expect(c.religarAutomacao).not.toHaveBeenCalled();
+    expect(c.criarAutomacao).not.toHaveBeenCalled();
+  });
+  it("sem id gravado (nunca criada) é ausente sem ir ao fork; sem integração ou com o chat desligado é desconhecido", async () => {
+    const c = clienteFalso(); comRetorno({ respostaHumanaAutomacaoId: null });
+    expect(await retornoDaIntegracao(6)).toEqual({ estado: "ausente", autoPausadoEm: null, falhas: null });
+    expect(c.listarAutomacoes).not.toHaveBeenCalled();
+    fake.integracao = undefined;
+    expect(await retornoDaIntegracao(6)).toEqual(RETORNO_DESCONHECIDO);
+    _usarClienteDoChatParaTestes(null); comRetorno();
+    expect(await retornoDaIntegracao(6)).toEqual(RETORNO_DESCONHECIDO);
+  });
+  it("fork fora do ar: o tempo curto vale para a conferência INTEIRA — o token que o cliente pede antes da listagem (15 s, sem sessão em cache) não segura a tela", async () => {
+    // Cliente REAL com um fetch que nunca responde: `listarAutomacoes(…, { timeoutMs })`
+    // só limita o GET /automations; o POST /token que vem antes cai nos 15 s do
+    // cliente — e é exatamente com o fork caído que não há sessão em cache.
+    vi.useFakeTimers();
+    try {
+      const pendurado = ((_entrada: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted", "AbortError")));
+      })) as unknown as typeof fetch;
+      _usarClienteDoChatParaTestes(new ChatBullqClient({ baseUrl: "https://chat.example.com", platformKey: "chave-de-teste", fetchImpl: pendurado }));
+      comRetorno();
+      let resultado: unknown = "pendente";
+      const leitura = retornoDaIntegracao(6).then(r => { resultado = r; });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(resultado).toEqual(RETORNO_DESCONHECIDO);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await leitura;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("definirSenhaDoInbox", () => {
   it("provisiona se preciso e manda a senha ao owner da org; a senha nao vai ao log", async () => {
     const c = clienteFalso();
@@ -870,6 +1096,24 @@ describe("URL da API do agente e do webhook de volta na demonstracao", () => {
         expect(guardadas).toContain(`"url":"${URL_DO_CHAT_SIMULADO}/api/webhooks/chat-bullq"`);
         for (const valor of Object.values(AMBIENTE_REAL)) expect(guardadas).not.toContain(new URL(valor).host);
         expect(guardadas).not.toContain("consultaisp.com.br/api");
+      });
+      expect(rede).not.toHaveBeenCalled();
+    } finally {
+      rede.mockRestore();
+      limparChatSimuladoDoProvedor(6);
+    }
+  });
+
+  it("DEMO_MODE: a automacao de retorno semeada no simulado e vista LIGADA — nenhum sandbox acende o aviso de 'respostas nao chegam' — e religar nao mexe em nada, sem rede", async () => {
+    const rede = vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("a demonstracao nao pode tocar a rede"); });
+    limparChatSimuladoDoProvedor(6);
+    try {
+      await comAmbiente({ DEMO_MODE: "true", ...AMBIENTE_REAL }, async () => {
+        // O id que `agenteConfigDaDemo()` grava no sandbox (server/demo/chat-simulado.ts, AUTOMACAO_DE_RETORNO).
+        fake.integracao = { ...integracaoSemAutomacao(), agenteConfig: { respostaHumanaAutomacaoId: "demo-automacao-resposta-humana", modoAtendimento: "primeira_resposta_humana" } };
+        expect(await retornoDaIntegracao(6)).toEqual({ estado: "ligada", autoPausadoEm: null, falhas: null });
+        expect(await religarRetornoSePausado(6)).toEqual({ estado: "ligada" });
+        expect(fake.integracao.agenteConfig.respostaHumanaAutomacaoId).toBe("demo-automacao-resposta-humana");
       });
       expect(rede).not.toHaveBeenCalled();
     } finally {

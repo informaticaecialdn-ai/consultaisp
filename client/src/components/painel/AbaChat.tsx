@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { ConexaoWhatsapp } from "@/components/chat/ConexaoWhatsapp";
 import { TemplatesDatafy } from "@/components/chat/TemplatesDatafy";
-import type { ProvedorOferecido } from "@shared/chat-whatsapp";
+import { RETORNO_DESCONHECIDO, RetornoDoChatSchema, type ProvedorOferecido, type RetornoDoChat } from "@shared/chat-whatsapp";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ExternalLink, KeyRound, MessageSquareShare, Smartphone } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +16,18 @@ import { useAuth } from "@/lib/auth";
 
 const CHAVE_INTEGRACAO = `${API_CHAT_BULLQ}/integracao`;
 
+/**
+ * "5 falhas seguidas em 16/09/2026 14:10" — o que o fork contou e quando pausou.
+ * Zero falha não é motivo (o fork sempre manda o número): sem falhas é alguém
+ * que desligou à mão no inbox — "desligada no chat".
+ */
+function motivoDaPausa(r: RetornoDoChat): string {
+  const data = r.autoPausadoEm ? new Date(r.autoPausadoEm) : null;
+  const quando = data && !Number.isNaN(data.getTime()) ? data.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : null;
+  if (r.falhas) return quando ? `${r.falhas} falhas seguidas em ${quando}` : `${r.falhas} falhas seguidas`;
+  return quando ? `pausada pelo chat em ${quando}` : "desligada no chat";
+}
+
 export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
   const { toast } = useToast();
   // Na demonstração o chat é o simulado: não há inbox externo, e a senha do dono é recusada com 403.
@@ -23,6 +35,19 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
   const { data: crua, isLoading, isError, error } = useQuery<unknown>({ queryKey: [CHAVE_INTEGRACAO], staleTime: 60_000 });
   const integracao = useMemo(() => lerIntegracaoDoChat(crua), [crua]);
   const pronto = chatProntoParaEnviar(integracao);
+  // A automação de retorno vista do fork na hora: é por ela que a resposta do
+  // cliente volta para cá. O fork a pausa depois de 5 falhas do webhook e
+  // nunca religa; a aba avisa e o admin religa daqui. Leitura PRÓPRIA (a
+  // integração acima é lida por kanban/360/esteira e não pode pagar uma ida ao
+  // fork), só com número ligado — sem canal não há resposta a perder. A chave
+  // [CHAVE_INTEGRACAO, "retorno"] vira a URL e continua dentro do prefixo que
+  // as invalidações da integração (canal, agentes, religar) já usam. O que o
+  // servidor não mandar (ou mandar torto) vale como "não deu para conferir".
+  const { data: retornoCru } = useQuery<unknown>({ queryKey: [CHAVE_INTEGRACAO, "retorno"], staleTime: 60_000, enabled: !!integracao?.canal });
+  const retorno = useMemo(() => {
+    const r = RetornoDoChatSchema.safeParse(retornoCru);
+    return r.success ? r.data : RETORNO_DESCONHECIDO;
+  }, [retornoCru]);
 
   // Só dois serviços (dono, 16/09/2026). O padrão é o WhatsApp da PLATAFORMA
   // (Evolution API): sem token nem segredo — o chat cria a instância e o
@@ -63,6 +88,19 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
     onError: (erro: Error) => toast({ title: "Não foi possível definir a senha", description: mensagemDoErro(erro), variant: "destructive" }),
   });
 
+  const religarRetorno = useMutation({
+    mutationFn: async () => (await apiRequest("POST", `${API_CHAT_BULLQ}/integracao/retorno/religar`)).json(),
+    onSuccess: (r: { estado?: string }) => {
+      queryClient.invalidateQueries({ queryKey: [CHAVE_INTEGRACAO] });
+      if (r.estado === "religada" || r.estado === "recriada" || r.estado === "ligada") {
+        toast({ title: r.estado === "ligada" ? "A automação de retorno já estava ligada" : r.estado === "recriada" ? "Automação de retorno recriada no chat" : "Automação de retorno religada", description: "As respostas dos clientes voltam a chegar ao Consulta ISP." });
+      } else {
+        toast({ title: "Não foi possível religar o retorno", description: r.estado === "sem_integracao" ? "Configure a integração do chat antes." : "O chat não confirmou. Tente de novo em instantes.", variant: "destructive" });
+      }
+    },
+    onError: (erro: Error) => toast({ title: "Não foi possível religar o retorno", description: mensagemDoErro(erro), variant: "destructive" }),
+  });
+
   // O canal existe e o token vale; falta o cliente ler o QR. Não é erro — e o
   // que a coluna guarda como "último erro" nesse estado é o próprio recado de
   // pareamento, que não deve aparecer em vermelho como falha.
@@ -97,6 +135,19 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
               {integracao?.ultimoErro && <p className="mt-2 text-[12px] text-[var(--danger)]" data-testid="chat-ultimo-erro">último erro: {integracao.ultimoErro}</p>}
               {integracao?.ligado && !pronto && <p className="mt-2 text-[12px] text-[var(--gated)]">Sem número ativo, os botões de envio não aparecem nas telas.</p>}
             </>}
+        {/* A volta da resposta do cliente. Só com número ligado: sem canal não há resposta a perder. */}
+        {integracao?.ligado && integracao.canal && (retorno.estado === "pausada" || retorno.estado === "ausente") && (
+          <div className="mt-3 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[12px] leading-5 text-[var(--danger)]" role="alert" data-testid="chat-retorno-pausado">
+            <b>As respostas dos clientes não estão chegando ao Consulta ISP:</b>{" "}
+            {retorno.estado === "pausada"
+              ? `a automação de retorno do chat está pausada (${motivoDaPausa(retorno)}).`
+              : "a automação de retorno do chat não existe no Chat BullQ."}
+            {podeAdministrar
+              ? <button type="button" className={cn(BOTAO_SECUNDARIO, "ml-2 h-7 text-[11.5px]")} disabled={religarRetorno.isPending} onClick={() => religarRetorno.mutate()} data-testid="chat-religar-retorno">{religarRetorno.isPending ? (retorno.estado === "ausente" ? "Criando…" : "Religando…") : retorno.estado === "ausente" ? "Criar retorno" : "Religar retorno"}</button>
+              : <span className="ml-2 text-[11px] text-[var(--text-faint)]">só o administrador religa</span>}
+          </div>
+        )}
+        {integracao?.ligado && integracao.canal && retorno.estado === "desconhecido" && <p className="mt-2 text-[12px] text-[var(--text-muted)]" data-testid="chat-retorno-desconhecido">não foi possível conferir a automação de retorno agora</p>}
 
         {/* O agente de IA de cobrança: primeiro contato no WhatsApp, dentro da política e do tom do DNA; transfere ao atendente. */}
         <div className="mt-3 flex flex-wrap gap-3 text-xs font-semibold text-[var(--brand)]"><Link href="/cobranca/chat?carteira=ativo">Conversas de cobrança →</Link><Link href="/equipamentos/chat">Conversas de equipamentos →</Link></div>

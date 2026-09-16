@@ -19,6 +19,8 @@ import {
   configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarRecuperacaoParaChat, estadoDaIntegracao, ErroDaPonteDoChat,
   garantirAgenteDeCobranca,
   garantirTransferenciaNaResposta,
+  religarRetornoSePausado,
+  retornoDaIntegracao,
 } from "../services/chat/chat-ponte.service";
 import { AutomacaoChatSchema, lerAutomacaoChat } from "@shared/cobranca/automacao-chat";
 import { contextoDoAtendimento, segundaViaDoAtendimento } from "../services/chat/chat-contexto.service";
@@ -195,6 +197,30 @@ export function registerChatBullqRoutes(): Router {
   router.get("/api/chat-bullq/integracao", requireAuth, requireProvider, async (req, res) => {
     try {
       res.json(await estadoDaIntegracao(providerDaSessao(req)));
+    } catch (e) {
+      falha(res, e);
+    }
+  });
+
+  /**
+   * A automacao de retorno vista do fork na hora — rota PROPRIA: a leitura da
+   * integracao acima e de todo mundo (kanban, 360, esteira: decide os botoes
+   * de envio) e nao pode pagar uma ida ao fork; so a aba Chat pergunta isto,
+   * mostra o aviso e religa.
+   */
+  router.get("/api/chat-bullq/integracao/retorno", requireAuth, requireProvider, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try { res.json(await retornoDaIntegracao(providerDaSessao(req))); } catch (e) { falha(res, e); }
+  });
+
+  /**
+   * O admin religa a automacao de retorno que o fork pausou (a aba Chat le o
+   * estado em `retorno`). Mesma trava da configuracao: a ponte pode recriar.
+   */
+  router.post("/api/chat-bullq/integracao/retorno/religar", requireAuth, requireProvider, exigirAdmin("religar o retorno do chat"), async (req, res) => {
+    try {
+      const providerId = providerDaSessao(req);
+      res.json(await comTravaDaConfiguracaoDoChat(providerId, () => religarRetornoSePausado(providerId)));
     } catch (e) {
       falha(res, e);
     }

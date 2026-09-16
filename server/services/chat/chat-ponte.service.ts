@@ -25,14 +25,14 @@ import { TIPOS_DE_AGENTE, type TipoDeAgente, type PrimeiroContatoPreparado } fro
 import { textoNeutroAntesDaIdentificacao } from "@shared/chat-templates";
 import { lerFuncionariaDigital } from "@shared/chat-autonomia";
 import { RECUSA_DE_AGENTE_NAO_CONTROLADO, SEPARADOR_DE_BALOES } from "./chat-envio-funcionaria";
-import { PROVEDORES_OFERECIDOS, type CanalWhatsapp, type ProvedorWhatsapp } from "@shared/chat-whatsapp";
+import { PROVEDORES_OFERECIDOS, RETORNO_DESCONHECIDO, type CanalWhatsapp, type ProvedorWhatsapp, type RetornoDoChat } from "@shared/chat-whatsapp";
 import { prescrita } from "@shared/cobranca/regua";
 import { janelaDoChat } from "@shared/cobranca/automacao-chat";
 import { pool } from "../../db";
 import { storage } from "../../storage";
 import type { StatusDeIntegracaoDoChat } from "../../storage/chat-bullq.storage";
 import { baseLegalDaEtapa } from "../../storage/cobranca-comunicacao.storage";
-import { ChatBullqClient, normalizarTelefoneParaChat, type Resultado } from "./chat-bullq.client";
+import { ChatBullqClient, normalizarTelefoneParaChat, type Automacao, type Resultado } from "./chat-bullq.client";
 import { comTravaDoChat } from "./chat-trava";
 import { emModoDemo } from "../../demo/modo-demo";
 import { fetchDoChatSimulado, URL_DO_CHAT_SIMULADO } from "../../demo/chat-simulado";
@@ -112,8 +112,14 @@ export interface EstadoDaIntegracaoDoChat {
   webhookDatafyUrl?: string | null;
 }
 
+/**
+ * So o que esta no banco: esta leitura e de todo mundo (kanban, 360, esteira,
+ * confissao, diagnostico) e decide os botoes de envio — nao paga uma chamada
+ * ao fork. A automacao de retorno vista de la e `retornoDaIntegracao`.
+ */
 export async function estadoDaIntegracao(providerId: number): Promise<EstadoDaIntegracaoDoChat> {
-  const ligado = clienteDoChat() !== null;
+  const cliente = clienteDoChat();
+  const ligado = cliente !== null;
   const intg = await storage.getIntegracaoDoChat(providerId);
   const whatsapp = (intg?.agenteConfig as { whatsapp?: { provider?: ProvedorWhatsapp } } | null)?.whatsapp;
   return {
@@ -128,6 +134,17 @@ export async function estadoDaIntegracao(providerId: number): Promise<EstadoDaIn
     inboxUrl: urlDoInbox(),
     webhookDatafyUrl: urlPublicaDoWebhookDatafy(),
   };
+}
+
+/**
+ * A automacao de retorno vista do fork NA HORA, para a aba Chat (rota propria:
+ * so ela mostra o aviso e religa). So olha, nunca religa nem cria; sem
+ * integracao, chat desligado ou fork sem resposta no tempo curto = desconhecido.
+ */
+export async function retornoDaIntegracao(providerId: number): Promise<RetornoDoChat> {
+  const cliente = clienteDoChat();
+  const intg = cliente ? await storage.getIntegracaoDoChat(providerId) : null;
+  return cliente && intg ? retornoVistoDoFork(cliente, intg) : RETORNO_DESCONHECIDO;
 }
 
 function urlPublicaDoWebhookDatafy(): string | null {
@@ -308,6 +325,14 @@ async function configurarCanalWhatsappSemTrava(providerId: number, config: Canal
     ...anterior,
     whatsapp: { provider: config.provider, ...(config.provider === "DATAFY" ? { phoneNumberId: config.phoneNumberId } : {}) },
   } });
+  // Numero novo, resposta tem que voltar: se o fork pausou a automacao de
+  // retorno (5 falhas do webhook), religa agora — depois do canal gravado, com
+  // a integracao ja completa. Falha aqui e aviso: o canal esta de pe.
+  try {
+    await religarRetornoSePausado(providerId);
+  } catch (e) {
+    logger.warn({ providerId, err: e }, "Chat: canal salvo, mas a automação de retorno não foi conferida");
+  }
   return { integracao: atualizada!, canalOk: status === "ativo" };
 }
 
@@ -345,10 +370,30 @@ function segredoAleatorio(): string {
   return `whs_${randomBytes(32).toString("hex")}`;
 }
 
-/** Pode atualizar organizações provisionadas antes do inbox interno, sem recriar agentes. */
+/**
+ * Pode atualizar organizações provisionadas antes do inbox interno, sem recriar agentes.
+ *
+ * Roda em TODO envio, e a trava `config:` e compartilhada entre API e worker
+ * sem espera (chat-trava.ts: quem chega com ela ocupada recebe CONFLITO). Por
+ * isso a ida ao fork fica FORA dela — so leitura; a trava so e tomada para
+ * religar ou recriar, quando a automacao de retorno de fato nao esta ligada.
+ */
 export async function garantirTransferenciaNaResposta(providerId: number): Promise<void> {
+  if (!(await retornoPrecisaDeAcao(providerId))) return;
   const { comTravaDaConfiguracaoDoChat } = await import("./chat-agentes.service");
   return umaOperacao(`config:${providerId}`, () => comTravaDaConfiguracaoDoChat(providerId, () => configurarTransferenciaNaResposta(providerId)));
+}
+/** (c) so leitura, fora da trava: false = ligada no fork (nada a fazer) ou fork sem resposta (aviso; o envio nao cai por isso). */
+async function retornoPrecisaDeAcao(providerId: number): Promise<boolean> {
+  const cliente = clienteDoChat();
+  const intg = cliente ? await storage.getIntegracaoDoChat(providerId) : null;
+  if (!cliente || !intg || intg.providerId !== providerId) return true; // a trava responde com o erro certo (desligado / SEM_CANAL / CONFLITO)
+  const r = await automacaoDeRetornoNoFork(cliente, intg);
+  if (r.situacao === "falhou") {
+    logger.warn({ providerId, automacaoId: r.automacaoId, erro: r.erro }, "Chat: não foi possível conferir a automação de retorno no fork");
+    return false;
+  }
+  return r.situacao !== "encontrada" || automacaoPausada(r.automacao);
 }
 async function configurarTransferenciaNaResposta(providerId: number): Promise<void> {
   const cliente = clienteDoChat();
@@ -356,14 +401,121 @@ async function configurarTransferenciaNaResposta(providerId: number): Promise<vo
   const intg = await storage.getIntegracaoDoChat(providerId);
   if (!intg) throw new ErroDaPonteDoChat("SEM_CANAL", "Configure a integração antes do atendimento");
   if (intg.providerId !== providerId) throw new ErroDaPonteDoChat("CONFLITO", "Integração de outro provedor");
+  // (c) O id gravado nao prova que o fork ainda a tem ligada: em vez de
+  // devolver cedo, confere — e religa ou recria — antes de qualquer envio.
+  if (idDaAutomacaoDeRetorno(intg.agenteConfig)) { await religarRetornoSePausado(providerId); return; }
+  await criarAutomacaoDeRetorno(providerId, cliente);
+}
+
+const NOME_DA_AUTOMACAO_DE_RETORNO = "Consulta ISP · resposta para humano";
+/** Tempo maximo da conferencia feita para a TELA: a aba Chat nao espera os 15 s do cliente por um fork fora do ar. */
+const TIMEOUT_DA_CONFERENCIA_MS = 5_000;
+
+function idDaAutomacaoDeRetorno(agenteConfig: unknown): string | null {
+  const id = agenteConfig && typeof agenteConfig === "object" ? (agenteConfig as Record<string, unknown>).respostaHumanaAutomacaoId : null;
+  return typeof id === "string" && id.trim() ? id : null;
+}
+/** O fork auto-pausa com `enabled=false` E `autoPausedAt`; qualquer um dos dois ja e "as respostas nao voltam". */
+const automacaoPausada = (a: Automacao): boolean => a.enabled === false || a.autoPausedAt !== null;
+
+type AutomacaoDeRetornoNoFork =
+  | { situacao: "sem_id" }
+  | { situacao: "falhou"; erro: string; automacaoId: string }
+  | { situacao: "sumiu"; automacaoId: string; automacoes: Automacao[] }
+  | { situacao: "encontrada"; automacao: Automacao };
+
+/**
+ * A automacao de retorno como o fork a ve AGORA (uma chamada), ou por que nao
+ * deu para saber. E a nossa so com o id gravado E o gatilho MESSAGE_RECEIVED:
+ * editada no inbox do fork para outro gatilho, ja nao e o retorno — religa-la
+ * as cegas nao traria resposta nenhuma; vale como "sumiu" (recria/adota pelo nome).
+ */
+async function automacaoDeRetornoNoFork(cliente: ChatBullqClient, intg: { organizationId: string; agenteConfig: unknown }, timeoutMs?: number): Promise<AutomacaoDeRetornoNoFork> {
+  const automacaoId = idDaAutomacaoDeRetorno(intg.agenteConfig);
+  if (!automacaoId) return { situacao: "sem_id" };
+  const lista = await cliente.listarAutomacoes(intg.organizationId, timeoutMs ? { timeoutMs } : {});
+  if (falhou(lista)) return { situacao: "falhou", erro: lista.erro, automacaoId };
+  const automacao = lista.valor.find(a => a.id === automacaoId && a.trigger === "MESSAGE_RECEIVED");
+  return automacao ? { situacao: "encontrada", automacao } : { situacao: "sumiu", automacaoId, automacoes: lista.valor };
+}
+
+/**
+ * Para a aba Chat: so olha, nunca religa nem cria. Fork sem resposta =
+ * desconhecido, e a tela nao espera por isso: o relogio daqui vale para a
+ * conferencia INTEIRA — o `timeoutMs` da listagem nao cobre o token que o
+ * cliente pede antes dela (15 s, e sem sessao em cache justamente quando o
+ * fork esta fora do ar).
+ */
+async function retornoVistoDoFork(cliente: ChatBullqClient, intg: { organizationId: string; agenteConfig: unknown }): Promise<RetornoDoChat> {
+  let temporizador: NodeJS.Timeout | undefined;
+  const esgotou = new Promise<null>(resolve => { temporizador = setTimeout(() => resolve(null), TIMEOUT_DA_CONFERENCIA_MS); });
+  const r = await Promise.race([automacaoDeRetornoNoFork(cliente, intg, TIMEOUT_DA_CONFERENCIA_MS), esgotou]).finally(() => clearTimeout(temporizador));
+  if (r === null || r.situacao === "falhou") return RETORNO_DESCONHECIDO;
+  if (r.situacao !== "encontrada") return { estado: "ausente", autoPausadoEm: null, falhas: null };
+  return { estado: automacaoPausada(r.automacao) ? "pausada" : "ligada", autoPausadoEm: r.automacao.autoPausedAt, falhas: r.automacao.consecutiveFailures ?? null };
+}
+
+export type EstadoDoReligamento = "ligada" | "religada" | "recriada" | "sem_integracao" | "pausada" | "desconhecido";
+
+/**
+ * Religa a automacao de retorno se o fork a pausou. O Chat BullQ desliga a
+ * automacao depois de 5 falhas seguidas do webhook (`enabled=false` +
+ * `autoPausedAt`) e nunca religa sozinho — foi assim que, em 16/09/2026, as
+ * respostas dos clientes pararam de voltar sem ninguem saber. Se ela sumiu de
+ * la (ou nunca foi criada), cria de novo pela mesma criacao de sempre — e por
+ * isso salvar o canal (a) ja provisiona a automacao de retorno num provedor
+ * novo: e o buraco que esta conferencia fecha, e "ausente" na aba nunca vira
+ * um botao sem efeito.
+ *
+ * Falha do fork ao listar ou religar nao lanca: vira aviso no log e o estado
+ * (`pausada`/`desconhecido`) aparece na aba Chat por `estadoDaIntegracao`.
+ * A recriacao lanca como sempre lancou (CHAT_FALHOU/CONFLITO) — quem chama
+ * decide se e fatal (o envio) ou aviso (o canal).
+ *
+ * Sem trava propria: roda dentro da trava de quem chama (canal, transferencia,
+ * a rota de religar) — a trava `config:` nao e reentrante.
+ */
+export async function religarRetornoSePausado(providerId: number): Promise<{ estado: EstadoDoReligamento }> {
+  const cliente = clienteDoChat();
+  if (!cliente) throw desligado();
+  const intg = await storage.getIntegracaoDoChat(providerId);
+  if (!intg || intg.providerId !== providerId) return { estado: "sem_integracao" };
+  const r = await automacaoDeRetornoNoFork(cliente, intg);
+  if (r.situacao === "falhou") {
+    logger.warn({ providerId, automacaoId: r.automacaoId, erro: r.erro }, "Chat: não foi possível conferir a automação de retorno no fork");
+    return { estado: "desconhecido" };
+  }
+  if (r.situacao === "encontrada") {
+    if (!automacaoPausada(r.automacao)) return { estado: "ligada" };
+    const { autoPausedAt, consecutiveFailures } = r.automacao;
+    const religada = await cliente.religarAutomacao(intg.organizationId, r.automacao.id);
+    if (falhou(religada)) {
+      logger.warn({ providerId, automacaoId: r.automacao.id, autoPausedAt, consecutiveFailures, erro: religada.erro }, "Chat: automação de retorno está pausada pelo fork e não foi possível religar");
+      return { estado: "pausada" };
+    }
+    logger.warn({ providerId, automacaoId: r.automacao.id, autoPausedAt, consecutiveFailures }, "Chat: automação de retorno estava pausada pelo fork; religada");
+    return { estado: "religada" };
+  }
+  if (r.situacao === "sumiu") {
+    // O id gravado nao existe mais la: sem ele, a criacao reencontra pelo nome (na lista que ja veio) ou cria outra.
+    logger.warn({ providerId, automacaoId: r.automacaoId }, "Chat: automação de retorno sumiu do fork; recriando");
+    await storage.guardarAgenteDoChat(providerId, { agenteConfig: { ...((intg.agenteConfig ?? {}) as Record<string, unknown>), respostaHumanaAutomacaoId: null } });
+    await criarAutomacaoDeRetorno(providerId, cliente, r.automacoes);
+  } else await criarAutomacaoDeRetorno(providerId, cliente);
+  return { estado: "recriada" };
+}
+
+/** A criacao de sempre: segredo do webhook, reencontro pelo nome no fork (`automacoes`, quando quem chama acabou de listar) ou `POST /automations` com o call_webhook de volta. */
+async function criarAutomacaoDeRetorno(providerId: number, cliente: ChatBullqClient, automacoes?: Automacao[]): Promise<void> {
+  const intg = await storage.getIntegracaoDoChat(providerId);
+  if (!intg) throw new ErroDaPonteDoChat("SEM_CANAL", "Configure a integração antes do atendimento");
   const config = (intg.agenteConfig ?? {}) as Record<string, unknown>;
-  if (config.respostaHumanaAutomacaoId) return;
   const secret = intg.webhookSecret || segredoAleatorio();
   await storage.guardarAgenteDoChat(providerId, { webhookSecret: secret });
-  const nome = "Consulta ISP · resposta para humano";
-  const automacoes = await cliente.listarAutomacoes(intg.organizationId);
-  if (!automacoes.ok) throw new ErroDaPonteDoChat("CHAT_FALHOU", "Não foi possível conferir a automação de retorno antes de criar");
-  const existentes = automacoes.valor.filter(a => a.name === nome && a.trigger === "MESSAGE_RECEIVED");
+  const nome = NOME_DA_AUTOMACAO_DE_RETORNO;
+  const lista = automacoes ? { ok: true as const, valor: automacoes } : await cliente.listarAutomacoes(intg.organizationId);
+  if (!lista.ok) throw new ErroDaPonteDoChat("CHAT_FALHOU", "Não foi possível conferir a automação de retorno antes de criar");
+  const existentes = lista.valor.filter(a => a.name === nome && a.trigger === "MESSAGE_RECEIVED");
   if (existentes.length > 1) throw new ErroDaPonteDoChat("CONFLITO", "Revise as automações de retorno duplicadas no Chat BullQ");
   if (existentes[0]) {
     await storage.guardarAgenteDoChat(providerId, { agenteConfig: { ...config, respostaHumanaAutomacaoId: existentes[0].id, modoAtendimento: "primeira_resposta_humana" } });
