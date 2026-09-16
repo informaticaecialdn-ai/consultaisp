@@ -21,7 +21,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { MapPin, X, Save, Users, Loader2, Search, Globe, ChevronDown, ChevronUp } from "lucide-react";
+import { MapPin, X, Save, Users, Loader2, Search, Globe, ChevronDown, ChevronUp, Network } from "lucide-react";
 
 const BRAZILIAN_UFS = [
   "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
@@ -45,10 +45,14 @@ interface MyCidadesResponse {
   mesorregioes?: string[];
 }
 
+/**
+ * Um vizinho de regiao, como `GET /api/regional/providers` o entrega: o codigo
+ * pareado que a rede gera para ESTE provedor (nunca nome nem id do outro) e
+ * so as cidades em comum.
+ */
 interface RegionalProvider {
-  id: number;
-  name: string;
-  cidadesAtendidas: string[];
+  codigo: string;
+  cidadesEmComum: string[];
 }
 
 export default function ConfiguracoesRegionalizacaoPage() {
@@ -188,11 +192,6 @@ export default function ConfiguracoesRegionalizacaoPage() {
     } finally {
       setLoadingMeso(null);
     }
-  };
-
-  // Find shared cities between current provider and a regional provider
-  const getSharedCities = (providerCities: string[]) => {
-    return providerCities.filter((c) => selectedCities.includes(c));
   };
 
   if (isLoadingCidades) {
@@ -399,7 +398,7 @@ export default function ConfiguracoesRegionalizacaoPage() {
           Provedores Regionais
         </h2>
         <p className="text-sm text-muted-foreground">
-          Outros provedores que atendem as mesmas cidades que voce
+          Outros provedores que atendem as mesmas cidades que voce. Cada um aparece pelo codigo que a rede gera para o seu provedor — o nome nao e exibido.
         </p>
 
         {isLoadingProviders ? (
@@ -408,19 +407,21 @@ export default function ConfiguracoesRegionalizacaoPage() {
           </div>
         ) : providers && providers.length > 0 ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            {providers.map((provider) => {
-              const shared = getSharedCities(provider.cidadesAtendidas);
+            {providers.map((vizinho) => {
+              const emComum = vizinho.cidadesEmComum.length;
               return (
-                <Card key={provider.id} className="p-4 space-y-2">
+                <Card key={vizinho.codigo} className="p-4 space-y-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-sm font-bold text-indigo-700 dark:text-indigo-300">
-                      {((provider as any).tradeName || provider.name || "").charAt(0).toUpperCase()}
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-indigo-700 dark:text-indigo-300">
+                      <Network className="w-4 h-4" aria-hidden="true" />
                     </div>
-                    <span className="font-medium text-sm">{(provider as any).tradeName || provider.name}</span>
+                    <span className="text-sm">
+                      Provedor parceiro · <span className="font-mono tabular-nums">{vizinho.codigo}</span>
+                    </span>
                   </div>
-                  {shared.length > 0 && (
+                  {emComum > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {shared.map((city) => (
+                      {vizinho.cidadesEmComum.map((city) => (
                         <Badge
                           key={city}
                           variant="outline"
@@ -432,8 +433,7 @@ export default function ConfiguracoesRegionalizacaoPage() {
                     </div>
                   )}
                   <p className="text-xs text-muted-foreground">
-                    {provider.cidadesAtendidas.length} cidade{provider.cidadesAtendidas.length !== 1 ? "s" : ""} atendida{provider.cidadesAtendidas.length !== 1 ? "s" : ""}
-                    {shared.length > 0 && ` (${shared.length} em comum)`}
+                    {emComum} cidade{emComum !== 1 ? "s" : ""} em comum
                   </p>
                 </Card>
               );

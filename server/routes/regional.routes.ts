@@ -85,7 +85,9 @@ export function registerRegionalRoutes(): Router {
   });
 
   // GET /api/regional/providers
-  // Returns providers in the same region as the authenticated provider
+  // Os vizinhos de regiao do provedor da sessao, cada um como codigo pareado +
+  // cidades em comum (`VizinhoRegional`) — nunca nome nem id de outro tenant.
+  // O observador do codigo e o providerId da SESSAO, nunca um da URL.
   router.get("/api/regional/providers", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
