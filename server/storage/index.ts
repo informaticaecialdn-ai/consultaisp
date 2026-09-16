@@ -312,7 +312,7 @@ export interface IStorage {
   // (etapa, responsavel, encerramento, acordo, parcela) na mesma transacao.
   getPoliticaDeCobranca(providerId: number): Promise<CobrancaPolitica | undefined>;
   upsertPoliticaDeCobranca(providerId: number, dados: PatchDePolitica): Promise<CobrancaPolitica>;
-  listarCasosDeCobranca(providerId: number, filtros?: FiltrosDaCarteira, paginacao?: Paginacao): Promise<{ linhas: LinhaDaCarteira[]; total: number }>;
+  listarCasosDeCobranca(providerId: number, filtros?: FiltrosDaCarteira, paginacao?: Paginacao): Promise<{ linhas: LinhaDaCarteira[]; total: number; valorTotal?: number }>;
   obterCasoDeCobranca(providerId: number, id: number): Promise<LinhaDaCarteira | undefined>;
   casoAbertoDoCliente(providerId: number, customerId: number): Promise<CobrancaCaso | undefined>;
   abrirCasoDeCobranca(providerId: number, dados: AberturaDeCaso): Promise<CobrancaCaso>;

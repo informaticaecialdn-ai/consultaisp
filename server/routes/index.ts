@@ -1,3 +1,4 @@
+import { registerGestaoCobrancaRoutes } from "./cobranca-gestao.routes";
 import type { Express } from "express";
 import type { Server } from "http";
 import { sessionMiddleware } from "../auth";
@@ -8,6 +9,7 @@ import { registerDashboardRoutes } from "./dashboard.routes";
 import { registerConsultasRoutes } from "./consultas.routes";
 import { registerAntiFraudeRoutes } from "./antifraude.routes";
 import { registerEquipamentosRoutes } from "./equipamentos.routes";
+import { registerRecoveryFieldRoutes } from "./recovery-field.routes";
 import { registerBigdataRoutes } from "./bigdata.routes";
 import { registerHeatmapRoutes } from "./heatmap.routes";
 import { registerLocalizacaoRoutes } from "./localizacao.routes";
@@ -37,7 +39,13 @@ import { registerChatBullqAgenteRoutes } from "./chat-bullq-agente.routes";
 import { registerWebhooksZapSignRoutes } from "./webhooks-zapsign.routes";
 import { registerChatConsoleRoutes } from "./chat-console.routes";
 import { registerChatAutonomiaRoutes } from "./chat-autonomia.routes";
+import { registerChatOperacaoRoutes } from "./chat-operacao.routes";
+import { registerChatMulticanalRoutes } from "./chat-multicanal.routes";
+import { registerWebhooksCanaisRoutes } from "./webhooks-canais.routes";
 import { registerDemoRoutes } from "./demo.routes";
+import canaisCobrancaRoutes from "./cobranca-canais.routes";
+import { registerAvisosFaturasRoutes } from "./avisos-faturas.routes";
+import { registerComunicacaoRoutes } from "./cobranca-comunicacao.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -60,6 +68,10 @@ export async function registerRoutes(
   app.use(registerConsultasRoutes());
   app.use(registerAntiFraudeRoutes());
   app.use(registerEquipamentosRoutes());
+  app.use(registerRecoveryFieldRoutes());
+  app.use(registerChatOperacaoRoutes());
+  app.use(registerChatMulticanalRoutes());
+  registerWebhooksCanaisRoutes(app);
   app.use(registerBigdataRoutes());
   app.use(registerHeatmapRoutes());
   app.use(registerLocalizacaoRoutes());
@@ -85,6 +97,10 @@ export async function registerRoutes(
   app.use(registerCadastroRoutes());
   app.use(registerPrecosRoutes());
   app.use(registerCobrancaRoutes());
+  app.use(registerGestaoCobrancaRoutes());
+  app.use(canaisCobrancaRoutes);
+  app.use(registerAvisosFaturasRoutes());
+  app.use(registerComunicacaoRoutes());
   // Os indicadores da cobranca (o que a automacao fez, quanto se recuperou).
   // Router proprio: os caminhos sao `/api/cobranca/indicadores/*` e nenhuma
   // rota do de cima usa parametro nessa posicao, entao a ordem e indiferente.

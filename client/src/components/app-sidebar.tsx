@@ -455,7 +455,7 @@ export const NAV_PROVEDOR: Array<{
         filhos: [
           // "Carteira" desde 09/09/2026 (pedido do dono): e a lista da carteira, nao um resumo.
           { label: "Carteira", url: caminhoNaCarteira("/cobranca/ativos", "ativo"), Icone: Wallet, testId: "link-cobranca-ativos" },
-          { label: "Esteira", url: caminhoNaCarteira("/cobranca/esteira", "ativo"), Icone: Kanban, testId: "link-cobranca-ativos-kanban" },
+          { label: "Gestão de cobranças", url: caminhoNaCarteira("/cobranca/esteira", "ativo"), Icone: Kanban, testId: "link-cobranca-ativos-kanban" },
           { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ativo"), Icone: Route, testId: "link-cobranca-ativos-regua" },
         ],
       },
@@ -463,7 +463,7 @@ export const NAV_PROVEDOR: Array<{
         label: "Ex-Clientes", url: "/cobranca/ex-clientes", Icone: UserX, testId: "menu-cobranca-ex-clientes",
         filhos: [
           { label: "Carteira", url: caminhoNaCarteira("/cobranca/ex-clientes", "ex_cliente"), Icone: Wallet, testId: "link-cobranca-ex-clientes" },
-          { label: "Esteira", url: caminhoNaCarteira("/cobranca/esteira", "ex_cliente"), Icone: Kanban, testId: "link-cobranca-ex-clientes-kanban" },
+          { label: "Gestão de cobranças", url: caminhoNaCarteira("/cobranca/esteira", "ex_cliente"), Icone: Kanban, testId: "link-cobranca-ex-clientes-kanban" },
           { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ex_cliente"), Icone: Route, testId: "link-cobranca-ex-clientes-regua" },
         ],
       },

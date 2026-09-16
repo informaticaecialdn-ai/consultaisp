@@ -167,6 +167,8 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   }
   const { iniciarPrimeirosContatos, pararPrimeirosContatos } = await import("./services/chat/chat-primeiro-contato.service");
   iniciarPrimeirosContatos();
+  const { iniciarComunicacoes, pararComunicacoes } = await import("./services/cobranca/comunicacao.service");
+  iniciarComunicacoes();
 
   // A limpeza de sandboxes da demonstração pública: só faz sentido na
   // instância de demonstração, ao contrário das agendas acima (que rodam
@@ -264,6 +266,15 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   };
   await tentarLigarAutonomia();
 
+  // Presença do processo no painel; o diário continua sendo a prova de entrega.
+  let presencaChat: { encerrar(): Promise<void> } | null = null;
+  try {
+    const { iniciarPresencaDoChat } = await import("./services/chat/chat-worker-presenca");
+    presencaChat = await iniciarPresencaDoChat("envio");
+  } catch (err) {
+    logger.warn({ err }, "[Worker] Diagnóstico de presença do chat indisponível");
+  }
+
   /**
    * Espera o sync em voo antes de fechar o pool.
    *
@@ -278,6 +289,8 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "[Worker] Shutdown signal received");
     await pararPrimeirosContatos();
+    await pararComunicacoes();
+    await presencaChat?.encerrar();
     if (emModoDemo?.() === true) {
       const { pararLimpezaDaDemo } = await import("./demo/limpeza.service");
       await pararLimpezaDaDemo();
