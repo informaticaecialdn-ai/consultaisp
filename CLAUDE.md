@@ -797,6 +797,15 @@ vai datada, com ordem de transferir quem disser que já pagou.
 dono, quando), inclusive quando o assistente transfere. Encerrar sem follow-up é
 recusado, exceto em caso já pago/cancelado.
 
+**Identidade antes de qualquer valor** (`chat-autonomia-identidade.ts`, desafio
+determinístico do SERVIDOR — o modelo nunca confirma nem vê o documento): o
+titular confere com o **primeiro nome + um sobrenome** do cadastro e os **4
+últimos dígitos do CPF**, exatos, dentro de 5 min do desafio; vale 15 min. Três
+palpites errados → atendente. **Mensagem sem dígito não é palpite** ("pode", "é
+sobre o quê?") — repete o desafio, explica o motivo quando é pergunta e não gasta
+tentativa (16/09/2026: o primeiro cliente real gastou 2 das 3 perguntando do que
+se tratava). Antes exigia o nome completo como o ERP guarda; ninguém digita assim.
+
 **O fork** vive em `integrations/chat-bullq/` (patches 000→003, com teste de
 aplicação). A linhagem da VPS é outra (prompt sem Bravy, `call_webhook`,
 transferência completa, modelos por env) — ver a memória `chat-bullq-analise` e

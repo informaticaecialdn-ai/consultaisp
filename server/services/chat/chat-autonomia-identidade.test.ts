@@ -21,6 +21,30 @@ describe("identidade do cliente validada pelo servidor", () => {
     expect(avaliar(desafio, "Maria de Souza 12345678909").acao).toBe("desafiar");
     expect(avaliar(desafio, "Maria de Souza 8909", "m1").acao).not.toBe("confirmada");
   });
+  it("primeiro nome e um sobrenome bastam; o primeiro nome sozinho, não", () => {
+    const desafio = avaliar(null, "oi", "m1").estado;
+    expect(avaliar(desafio, "Maria Souza 8909").acao).toBe("confirmada");
+    expect(avaliar(desafio, "sou a maria souza, final 8909").acao).toBe("confirmada");
+    expect(avaliar(desafio, "MARIA DE SOUZA - 8909").acao).toBe("confirmada");
+    const soPrimeiroNome = avaliar(desafio, "Maria 8909");
+    expect(soPrimeiroNome.acao).toBe("desafiar");
+    expect(soPrimeiroNome.estado?.tentativas).toBe(1);
+    expect(avaliar(desafio, "Souza 8909").acao).toBe("desafiar");
+  });
+  it("mensagem sem dígito não é tentativa: explica o motivo quando é pergunta e não gasta erro", () => {
+    const desafio = avaliar(null, "oi", "m1").estado;
+    const pergunta = avaliar(desafio, "E sobre o que?", "m2");
+    expect(pergunta.acao).toBe("desafiar");
+    expect(pergunta.mensagem).toContain("assunto da sua conta");
+    expect(pergunta.mensagem).toContain("últimos 4");
+    expect(pergunta.mensagem).not.toMatch(/d[íi]vida|fatura|boleto|pagamento|cobran/i);
+    expect(pergunta.estado?.tentativas).toBe(0);
+    const pode = avaliar(pergunta.estado, "pode", "m3");
+    expect(pode.mensagem).not.toContain("assunto da sua conta");
+    expect(pode.estado?.tentativas).toBe(0);
+    expect(avaliar(pode.estado, "Maria Souza 8909", "m4").acao).toBe("confirmada");
+    expect(JSON.stringify(pergunta)).not.toContain("12345678909");
+  });
   it("limita três erros e não reinicia tentativas ao expirar desafio", () => {
     let e = avaliar(null, "oi", "m1").estado;
     e = avaliar(e, "Maria 0000", "m2").estado;
