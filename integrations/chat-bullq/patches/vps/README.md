@@ -1,12 +1,11 @@
 # Patches para a linhagem da VPS
 
-> **A chave da OpenAI está VAZIA na VPS (medido em 06/09/2026: o valor de
-> `OPENAI_API_KEY` tem comprimento zero, no `.env.api` e dentro do container).**
-> Os dois endpoints sobem e respondem, mas o catálogo devolve `configured:false`
-> e a preparação/planejamento devolvem 503 até alguém preencher a chave — isso é
-> decisão de dinheiro do dono, não uma falha do patch. Confira com
-> `npx tsx script/diagnostico-chat.ts <providerId>` no Consulta ISP: a linha
-> "credencial de IA configurada" responde por este ponto.
+> A chave da OpenAI esteve VAZIA na VPS de 06/09 a 16/09/2026 (o valor de
+> `OPENAI_API_KEY` tinha comprimento zero, no `.env.api` e dentro do container):
+> os endpoints subiam, mas o catálogo devolvia `configured:false` e a
+> preparação/planejamento davam 503. O dono preencheu a chave em 16/09/2026.
+> Confira com `npx tsx script/diagnostico-chat.ts <providerId>` no Consulta ISP:
+> a linha "credencial de IA configurada" responde por este ponto.
 
 ## Existem duas linhagens do Chat BullQ
 
@@ -37,12 +36,23 @@ mão, o catálogo de modelos ficaria **vazio** na VPS, porque o filtro de lá é
 | `../003-autonomous-plan.patch` | **só** a linhagem do repositório |
 | `vps/002-agentes-primeiro-contato.patch` | **só** a linhagem da VPS |
 | `vps/003-autonomous-plan.patch` | **só** a linhagem da VPS |
+| `vps/008-planejador-so-repassa.patch` | **só** a linhagem da VPS (`git format-patch` do commit `827abce`; aplica com `git am` ou `git apply`) |
 
 ## Ordem de aplicação na VPS
 
 Base obrigatória: `12d97ae` (linhagem própria da VPS + patch 001). Depois, em
-ordem, **`vps/002` e então `vps/003`** — o 003 edita arquivos que o 002 cria
-(`agents/first-contact.service.ts`) e por isso não aplica sozinho.
+ordem, **`vps/002`, `vps/003` e então `vps/008`** — o 003 edita arquivos que o
+002 cria (`agents/first-contact.service.ts`) e o 008 edita arquivos que o 003
+cria, por isso nenhum deles aplica sozinho.
+
+Entre o 003 e o 008 a VPS recebeu três correções que **não** viraram patch aqui
+porque não tocam o módulo `ai-agents` — estão no git do fork, com tag
+`antes-00N-*`/`patch-00N-*` e imagem `chat-bullq-api:antes-00N` para voltar:
+`d3b3039` (005: corpo JSON do webhook até 10 MB — a Evolution manda o
+`jpegThumbnail` em bytes e estourava os 100 KB padrão), `ea25b4b` (006: a
+máquina de estados aceita OPEN/WAITING → BOT, o "devolver ao assistente") e
+`9af6a24` (007: OPEN/WAITING → PENDING, a volta à fila humana). Quem reconstruir
+o fork a partir de `12d97ae` precisa delas também (`git cherry-pick` das tags).
 
 ## O que muda em relação aos patches originais
 
@@ -100,6 +110,22 @@ já existem.
    (o modelo real da VPS) e `OPENAI_API_KEY`, e ganharam casos para o snapshot
    datado e para o provedor indisponível.
 
+8. **008 — o planejador só repassa o que o Consulta ISP lê (16/09/2026).**
+   Medido em produção com o `gpt-4o` e a persona real: em **5 de 6** planos de
+   `responder` o modelo escrevia a mensagem ao cliente em `texto` (com o valor,
+   "R$ 189,90") ou ecoava `valor`/`faturaId` do contexto numa ação que não os
+   usa — e o `parsePlan` do 003 recusava o plano inteiro (503 *"A IA não
+   produziu um plano válido"*), então toda conversa ia ao atendente. Nada disso
+   é decisão: `respostaControlada` (Consulta ISP) redige o texto final a partir
+   da categoria `resposta` e do saldo que o próprio servidor leu; `valor` só é
+   lido em `promessa` e `faturaId` só em `segunda_via`. O 008 faz o `parsePlan`
+   **manter só os campos que cada ação usa** (`texto` nunca sai; `motivo` fora
+   do limite é descartado) e **continuar recusando** o que seria decisão errada:
+   ação fora de `allowedActions`, `resposta` fora do catálogo, data/valor/fatura
+   malformados. O prompt do planejador deixou de oferecer o campo `texto`. O
+   contrato `PlanoRespostaSchema` do Consulta ISP não mudou (`texto` continua
+   opcional lá, só nunca chega).
+
 ## Como foi validado
 
 Tudo num **clone descartável**, nunca em `/var/www/chat-bullq`:
@@ -114,3 +140,13 @@ Tudo num **clone descartável**, nunca em `/var/www/chat-bullq`:
   todos verdes** — inclusive o `llm.service.spec.ts` que já existia no fork.
 - No repositório, `server/services/chat/chat-bullq-vps-patches.test.ts` executa
   de verdade os arquivos novos dos dois patches (22 testes).
+- **008** (16/09/2026): aplicado direto em `/var/www/chat-bullq/chat-bullq-api`
+  (commit `827abce`, tags `antes-008-planejador`/`patch-008-planejador`, imagem
+  `chat-bullq-api:antes-008` para voltar) com o mesmo roteiro guardado: `docker
+  build --target builder` (o `nest build` é o tsc) e `jest` dos specs do
+  planejador dentro do builder (**2 suítes, 17 testes**), só então a imagem de
+  produção e o `--force-recreate`. Depois, pelo MESMO cliente da ponte
+  (`planejarAutonomia`), 8 pedidos de 8 voltaram plano válido (informar dívida,
+  promessa com data e valor, transferir com motivo). No repositório o teste
+  aplica os hunks do 008 sobre o texto do 003 antes de executar — contexto que
+  não casa derruba o teste, como o `git apply --check`.

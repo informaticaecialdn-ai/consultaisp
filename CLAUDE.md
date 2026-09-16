@@ -799,7 +799,12 @@ recusado, exceto em caso já pago/cancelado.
 
 **O fork** vive em `integrations/chat-bullq/` (patches 000→003, com teste de
 aplicação). A linhagem da VPS é outra (prompt sem Bravy, `call_webhook`,
-transferência completa, modelos por env) — ver a memória `chat-bullq-analise`.
+transferência completa, modelos por env) — ver a memória `chat-bullq-analise` e
+`integrations/chat-bullq/patches/vps/README.md`. **O planejador do fork só
+repassa o que o Consulta ISP lê** (`vps/008`, 16/09/2026): o modelo escreve a
+mensagem ao cliente em `texto` e ecoa valor/fatura na ação errada em 5 de 6
+planos, e isso é descartado, não recusado — recusar mandava toda conversa ao
+atendente. Quem redige o texto final é `respostaControlada`, com o saldo lido.
 
 ### Mapa de Calor (requireAuth)
 GET heatmap/provider, heatmap/regional, heatmap/city-ranking, heatmap/sync-info, heatmap/cache-status

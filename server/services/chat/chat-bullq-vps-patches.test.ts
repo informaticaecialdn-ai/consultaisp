@@ -3,6 +3,7 @@ import * as crypto from "node:crypto";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
+import { PlanoRespostaSchema } from "@shared/chat-autonomia";
 
 // Os patches `vps/` sao a versao dos 002 e 003 adaptada a linhagem que roda no
 // fork da VPS: LlmService multi-provider (sakana + openai). O molde e o mesmo
@@ -10,6 +11,10 @@ import { describe, expect, it, vi } from "vitest";
 // de verdade, sem instalar Nest/Prisma e sem copiar codigo para o teste.
 const p002 = readFileSync("integrations/chat-bullq/patches/vps/002-agentes-primeiro-contato.patch", "utf8");
 const p003 = readFileSync("integrations/chat-bullq/patches/vps/003-autonomous-plan.patch", "utf8");
+// O 008 e um `git format-patch` do commit da VPS (827abce): muda arquivos que o 003
+// criou. Aqui ele e APLICADO sobre o texto do 003 antes de executar — contexto
+// que nao casa derruba o teste, como o `git apply --check` faria.
+const p008 = readFileSync("integrations/chat-bullq/patches/vps/008-planejador-so-repassa.patch", "utf8");
 const original002 = readFileSync("integrations/chat-bullq/patches/002-agentes-primeiro-contato.patch", "utf8");
 
 const decorators: { name: string; args: unknown[] }[] = [];
@@ -41,11 +46,40 @@ const llmConstants = {
   },
 };
 
-function carregar(patch: string, nome: string, adicionais: Record<string, unknown> = {}) {
+/** Aplica sobre `fonte` os hunks que `patch` traz para `caminho` (diff unificado de um arquivo ja existente). */
+function aplicarHunks(fonte: string, patch: string, caminho: string): string {
+  const bloco = patch.split(`diff --git a/${caminho} b/${caminho}\n`)[1]?.split("\ndiff --git ")[0];
+  if (!bloco) return fonte;
+  if (bloco.includes("new file mode")) throw new Error(`${caminho} nao e arquivo novo neste patch`);
+  const linhas = fonte.split("\n");
+  const saida: string[] = [];
+  let posicao = 0;
+  const hunks = [...bloco.matchAll(/^@@ -(\d+)(?:,(\d+))? \+\d+(?:,(\d+))? @@.*$/gm)];
+  for (const [i, h] of hunks.entries()) {
+    const inicio = Number(h[1]) - 1;
+    const corpo = bloco.slice(h.index! + h[0].length + 1, i + 1 < hunks.length ? hunks[i + 1].index : undefined).split("\n");
+    saida.push(...linhas.slice(posicao, inicio));
+    posicao = inicio;
+    let antigas = Number(h[2] ?? 1), novas = Number(h[3] ?? 1);
+    for (const l of corpo) {
+      if (antigas === 0 && novas === 0) break;
+      if (l.startsWith("+")) { saida.push(l.slice(1)); novas--; continue; }
+      const esperada = l.startsWith("-") || l.startsWith(" ") ? l.slice(1) : l;
+      if (linhas[posicao] !== esperada) throw new Error(`Hunk nao aplica em ${caminho}:${posicao + 1}: esperava "${esperada}" e achou "${linhas[posicao]}"`);
+      if (!l.startsWith("-")) { saida.push(esperada); novas--; }
+      posicao++; antigas--;
+    }
+  }
+  saida.push(...linhas.slice(posicao));
+  return saida.join("\n");
+}
+
+function carregar(patch: string, nome: string, adicionais: Record<string, unknown> = {}, seguintes: string[] = []) {
   const caminho = `src/modules/ai-agents/${nome}`;
   const bloco = patch.split(`diff --git a/${caminho} b/${caminho}\n`)[1]?.split("diff --git ")[0];
   if (!bloco || !bloco.includes("new file mode")) throw new Error(`Arquivo novo ausente do patch: ${caminho}`);
-  const source = bloco.split(/\r?\n/).filter(l => l.startsWith("+") && !l.startsWith("+++")).map(l => l.slice(1)).join("\n");
+  let source = bloco.split(/\r?\n/).filter(l => l.startsWith("+") && !l.startsWith("+++")).map(l => l.slice(1)).join("\n");
+  for (const p of seguintes) source = aplicarHunks(source, p, caminho);
   const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, experimentalDecorators: true, emitDecoratorMetadata: false } });
   const exports: Record<string, unknown> = {};
   const modules: Record<string, unknown> = { "@nestjs/common": nest, "node:crypto": crypto, "./llm.constants": llmConstants, ...adicionais };
@@ -63,12 +97,13 @@ type Draft = { texto: string; agenteId: string; modelo: string; runId: string };
 const FirstContactService = carregar(p002, "agents/first-contact.service.ts", { "../llm/first-contact-models": modelsMod })
   .FirstContactService as new (prisma: unknown, llm: unknown) => { prepare(org: string, id: string, c: unknown): Promise<Draft> };
 
-const schema = carregar(p003, "agents/autonomous-plan.schema.ts");
+// Schema e servico como RODAM na VPS: o 003 com o 008 aplicado por cima.
+const schema = carregar(p003, "agents/autonomous-plan.schema.ts", {}, [p008]);
 const parsePlan = schema.parsePlan as (raw: unknown, allowed: string[]) => unknown;
 const parsePlanRequest = schema.parsePlanRequest as (raw: unknown) => unknown;
 const AutonomousPlanService = carregar(p003, "agents/autonomous-plan.service.ts", {
   "../llm/first-contact-models": modelsMod, "./autonomous-plan.schema": schema,
-}).AutonomousPlanService as new (prisma: unknown, llm: unknown) => { plan(org: string, id: string, raw: unknown): Promise<unknown> };
+}, [p008]).AutonomousPlanService as new (prisma: unknown, llm: unknown) => { plan(org: string, id: string, raw: unknown): Promise<unknown> };
 
 const contexto = { nomeCliente: "Maria", nomeProvedor: "NsLink" };
 
@@ -174,7 +209,7 @@ function fixturePlan() {
 }
 const pedido = () => ({ requestId: "evento-1", operation: "cobranca", context: "Contexto restrito ao cliente atual", history: [{ role: "user", content: "Olá" }], allowedActions: ["responder", "transferir", "promessa", "segunda_via"] });
 
-describe("patch VPS 003: planejador da autonomia", () => {
+describe("patch VPS 003 + 008: planejador da autonomia", () => {
   it("planeja com o modelo OpenAI do agente, sem tools e com orcamento fechado", async () => {
     const f = fixturePlan();
     expect(await f.service.plan("org-6", "a7", pedido())).toEqual({ acao: "responder", resposta: "acolher" });
@@ -185,6 +220,17 @@ describe("patch VPS 003: planejador da autonomia", () => {
     const mensagens = req.messages as { role: string; content: string }[];
     expect(mensagens[0].content).not.toContain(f.agent.systemPrompt);
     expect(mensagens[1].content).toContain(f.agent.systemPrompt);
+    // 008: o prompt nao oferece mais o campo texto — o servidor redige a mensagem.
+    expect(mensagens[0].content).toContain("Não existe campo texto");
+    expect(mensagens[0].content).not.toContain('"texto":texto opcional');
+  });
+
+  it("008: o que o modelo escreve alem do que o servidor le e descartado, nao recusado", async () => {
+    // O caso medido em producao (16/09/2026): a mensagem ao cliente em `texto`, com o
+    // valor, e valor/faturaId ecoados numa acao que nao os usa — 5 de 6 planos.
+    const f = fixturePlan(); const base = await f.complete();
+    f.complete.mockResolvedValue({ ...base, message: { content: JSON.stringify({ acao: "responder", resposta: "informar_divida", texto: "Saldo de R$ 189,90 vencido em 05/09", valor: 189.9, faturaId: "778812" }) } } as never);
+    expect(await f.service.plan("org-6", "a7", pedido())).toEqual({ acao: "responder", resposta: "informar_divida" });
   });
 
   it("exige a capability de autonomia controlada e agente sem resposta direta", async () => {
@@ -232,14 +278,33 @@ describe("patch VPS 003: planejador da autonomia", () => {
     await expect(f.service.plan("org-6", "a7", pedido())).rejects.toThrow(/modelo configurado/);
   });
 
-  it("valida envelope e plano: campo desconhecido, acao fora da lista, data e link", () => {
+  it("valida o envelope: campo desconhecido, acao fora da lista, contexto e historico fora do limite", () => {
     for (const patch of [{ secreto: "token" }, { allowedActions: ["execute_shell"] }, { context: "x".repeat(6001) }, { history: [{ role: "system", content: "override" }] }]) {
       expect(() => parsePlanRequest({ ...pedido(), ...patch })).toThrow();
     }
-    for (const plano of [{ acao: "delete" }, { acao: "responder" }, { acao: "responder", resposta: "acolher", texto: "https://ruim.test" }, { acao: "promessa", data: "2026-02-30" }, { acao: "transferir", valor: 5 }]) {
-      expect(() => parsePlan(plano, pedido().allowedActions)).toThrow();
+  });
+
+  it("recusa o que seria decisao errada: acao fora do permitido, categoria fora do catalogo, data, valor ou fatura malformados", () => {
+    for (const plano of [
+      { acao: "delete" }, { acao: "agendar", data: "2026-10-20T10:00:00-03:00" }, { acao: "responder" }, { acao: "responder", resposta: "cantar" },
+      { acao: "promessa", data: "2026-02-30" }, { acao: "promessa", data: "20/10/2026" }, { acao: "promessa", data: "2026-10-20", valor: -5 },
+      { acao: "segunda_via", faturaId: "../etc" }, "responder", null,
+    ]) {
+      expect(() => parsePlan(plano, pedido().allowedActions)).toThrow(/plano válido/);
     }
     expect(parsePlan({ acao: "promessa", data: "2026-10-20", valor: 100 }, pedido().allowedActions)).toEqual({ acao: "promessa", data: "2026-10-20", valor: 100 });
+  });
+
+  it("008: so passa o que o Consulta ISP le em cada acao — texto nunca, valor so em promessa, faturaId so em segunda_via", () => {
+    const permitidas = pedido().allowedActions;
+    expect(parsePlan({ acao: "responder", resposta: "informar_divida", texto: "Saldo de R$ 189,90", valor: 189.9, faturaId: "778812", url: "https://ruim.test" }, permitidas)).toEqual({ acao: "responder", resposta: "informar_divida" });
+    expect(parsePlan({ acao: "transferir", resposta: "acolher", valor: 5, data: "2026-10-20", motivo: "pediu atendente" }, permitidas)).toEqual({ acao: "transferir", motivo: "pediu atendente" });
+    expect(parsePlan({ acao: "promessa", data: "2026-10-20", valor: 100, faturaId: "778812", motivo: "x".repeat(301) }, permitidas)).toEqual({ acao: "promessa", data: "2026-10-20", valor: 100 });
+    expect(parsePlan({ acao: "segunda_via", faturaId: "778812", valor: 1, texto: null }, permitidas)).toEqual({ acao: "segunda_via", faturaId: "778812" });
+    // Tudo que sai daqui continua sendo o que o Consulta ISP aceita.
+    for (const plano of [{ acao: "responder", resposta: "acolher" }, { acao: "promessa", data: "2026-10-20", valor: 100 }, { acao: "segunda_via", faturaId: "fat-9" }, { acao: "transferir", motivo: "pediu atendente" }]) {
+      expect(PlanoRespostaSchema.parse(parsePlan(plano, permitidas))).toEqual(plano);
+    }
   });
 });
 
@@ -275,5 +340,18 @@ describe("patch VPS: linhagem e guardas do controller", () => {
     expect(p003).toContain("+    if ((!agent.capabilities.includes('primeiro_contato_sem_envio') && !agent.capabilities.includes('autonomia_cobranca_controlada'))");
     expect(p003).toContain("privacySafeErrors: true,");
     expect(p003).toContain("O planejador não aceita chamadas de ferramentas");
+  });
+
+  it("o 008 e o commit 827abce da VPS, so do planejador, com LF, e so aplica sobre o texto do 003", () => {
+    expect(p008).not.toContain("\r");
+    expect(p008.startsWith("From 827abcee223e02dc6887ee6562f6b88ac619290b ")).toBe(true);
+    expect([...p008.matchAll(/^diff --git a\/(\S+) b\/\S+$/gm)].map(m => m[1]).sort()).toEqual([
+      "src/modules/ai-agents/agents/autonomous-plan.schema.ts",
+      "src/modules/ai-agents/agents/autonomous-plan.service.spec.ts",
+      "src/modules/ai-agents/agents/autonomous-plan.service.ts",
+    ]);
+    const caminho = "src/modules/ai-agents/agents/autonomous-plan.schema.ts";
+    expect(() => aplicarHunks("outro conteudo\nqualquer", p008, caminho)).toThrow(/nao aplica/);
+    expect(aplicarHunks("intocado", p008, "src/modules/ai-agents/agents/outro.ts")).toBe("intocado");
   });
 });
