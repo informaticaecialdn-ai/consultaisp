@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const m=vi.hoisted(()=>({query:vi.fn(),connect:vi.fn(),release:vi.fn()}));
 vi.mock("../db",()=>({pool:m}));
-import { configComunicacao,candidatosComunicacao,reservarComunicacao,concluirComunicacao,faturaAtualComunicacao,diarioComunicacao,pausarComunicacao } from "./cobranca-comunicacao.storage";
+import { configComunicacao,candidatosComunicacao,reservarComunicacao,concluirComunicacao,faturaAtualComunicacao,diarioComunicacao,pausarComunicacao,baseLegalDaEtapa } from "./cobranca-comunicacao.storage";
 beforeEach(()=>{vi.resetAllMocks();m.query.mockResolvedValue({rows:[],rowCount:0});m.connect.mockResolvedValue(m);});
 describe("persistência da comunicação",()=>{
   it("configuração ausente ou corrompida falha fechada",async()=>{
@@ -31,8 +31,42 @@ describe("persistência da comunicação",()=>{
     expect(sql).toContain("where provider_id=$1 and id=$2 and status='enviando'");
     expect(sql).toContain("update cobranca_casos k set ultimo_contato_em");
     expect(sql).toContain("a.status in ('enviado','incerto')");
-    expect(params).toEqual([7,50,"incerto","Verifique",null]);
+    expect(params.slice(0,5)).toEqual([7,50,"incerto","Verifique",null]);
     expect(m.query.mock.calls[2]).toEqual(["commit"]);expect(m.release).toHaveBeenCalled();
+  });
+  it("evento de SMS/e-mail carrega a etapa do caso e a base legal da régua",async()=>{
+    await concluirComunicacao(7,50,{status:"enviado",providerMessageId:"SM1"});
+    const [sql,params]=m.query.mock.calls[1];
+    // A etapa vem do CASO, não do chamador: quem envia não precisa conhecer a régua,
+    // e o evento fica auditável mesmo quando o serviço que disparou já mudou.
+    expect(sql).toContain("left join cobranca_casos k on k.provider_id=a.provider_id and k.id=a.caso_id and k.customer_id=a.customer_id");
+    expect(sql).toContain("'etapa',k.etapa_atual");
+    expect(sql).toContain("$6::jsonb->k.carteira->k.etapa_atual");
+    expect(sql).toContain("'baseLegal'");expect(sql).toContain("'motivoLegal'");
+    const catalogo=JSON.parse(params[5]);
+    expect(catalogo.ativo.aviso_suspensao.baseLegal).toContain("765/2023");
+    expect(catalogo.ativo.pre_negativacao.baseLegal).toContain("359");
+    expect(catalogo.ativo.lembrete_atraso).toEqual({baseLegal:null,motivoLegal:'Etapa "Lembrete de atraso" da régua de cobrança'});
+    expect(catalogo.ativo.fim_de_linha.motivoLegal).toContain("CC art. 206");
+    // Ex-cliente: a conciliação não é o aviso formal da Súmula 359, e não há serviço a suspender.
+    expect(catalogo.ex_cliente.pre_negativacao.baseLegal).toBeNull();
+    expect(catalogo.ex_cliente.pre_negativacao.motivoLegal).toContain("Conciliação de pendências");
+    expect(catalogo.ex_cliente).not.toHaveProperty("aviso_suspensao");
+    expect(catalogo.ex_cliente).not.toHaveProperty("lembrete_pre_vencimento");
+  });
+  it("a base legal derivada em JS é a MESMA do catálogo que vai ao SQL — para o evento gravado fora da régua",async()=>{
+    // Envio manual de SMS/e-mail, reforço multicanal e primeiro contato por WhatsApp gravam
+    // o evento sem passar por concluirComunicacao; a derivação é uma só.
+    await concluirComunicacao(7,50,{status:"enviado"});
+    const catalogo=JSON.parse(m.query.mock.calls[1][1][5]);
+    for(const carteira of ["ativo","ex_cliente"] as const)for(const etapa of Object.keys(catalogo[carteira]))
+      expect(baseLegalDaEtapa(carteira,etapa)).toEqual({etapa,...catalogo[carteira][etapa]});
+    const semEtapa={etapa:null,baseLegal:null,motivoLegal:"Caso sem etapa da régua definida no envio"};
+    expect(baseLegalDaEtapa("ativo",null)).toEqual(semEtapa);
+    expect(baseLegalDaEtapa(null,"aviso_suspensao")).toEqual({...semEtapa,etapa:"aviso_suspensao"});
+    expect(baseLegalDaEtapa("ex_cliente","aviso_suspensao")).toEqual({...semEtapa,etapa:"aviso_suspensao"});
+    expect(baseLegalDaEtapa("outra","aviso_suspensao")).toEqual({...semEtapa,etapa:"aviso_suspensao"});
+    expect(m.query.mock.calls[1][0]).toContain(`'motivoLegal','${semEtapa.motivoLegal}'`);
   });
   it("erro na conclusão desfaz a transação e preserva reserva",async()=>{
     m.query.mockImplementation(async(sql:string)=>{if(sql.startsWith("with atualizado"))throw new Error("DB falhou");return {rows:[]};});

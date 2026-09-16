@@ -4,11 +4,9 @@ import { Link } from 'wouter';
 import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog,DialogContent,DialogHeader,DialogTitle } from '@/components/ui/dialog';
-import { taxaCoorte } from '@shared/cobranca/gestao-operacional';
+import { taxaCoorte,type PainelGestao } from '@shared/cobranca/gestao-operacional';
 import { lerEquipe } from './tipos';
-import type { painelGestao } from '../../../../server/services/cobranca/gestao-operacional.service';
 
-type Painel=Awaited<ReturnType<typeof painelGestao>>;
 const BASE='/api/cobranca/gestao';
 const dinheiro=(n:number|null|undefined)=>n==null?'—':n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const dia=(v:string)=>v.slice(0,10).split('-').reverse().join('/');
@@ -29,7 +27,7 @@ export function CentroGestao({carteira}:{carteira:'ativo'|'ex_cliente'}){
   </section>;
 }
 function ConteudoCentro({carteira,secao}:{carteira:'ativo'|'ex_cliente';secao:Secao}){
-  const q=useQuery({queryKey:[BASE,carteira],queryFn:()=>ler<Painel>(`${BASE}?carteira=${carteira}`),staleTime:15000});
+  const q=useQuery({queryKey:[BASE,carteira],queryFn:()=>ler<PainelGestao>(`${BASE}?carteira=${carteira}`),staleTime:15000});
   const [nova,setNova]=useState(false),[resolver,setResolver]=useState<number|null>(null);
   const [decisao,setDecisao]=useState('improcedente'),[justificativa,setJustificativa]=useState('');
   const qc=useQueryClient(),{toast}=useToast();

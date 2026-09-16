@@ -25,8 +25,36 @@ de rede, timeout, HTTP 408/5xx ou sucesso sem ID resultam em `incerto`: não
 repetir automaticamente. HTTP 4xx restantes resultam em `falhou`. O retorno
 guarda `providerMessageId` para conferência no painel do fornecedor.
 
-Não há webhook de entrega ou entrada neste módulo. Respostas a SMS não aparecem
-no Consulta ISP; respostas a e-mail vão para a caixa indicada pelo provedor.
+Não há webhook de **entrega**: `enviado` continua sendo "aceito pelo fornecedor".
+
+## Respostas do cliente (entrada)
+
+Respostas de SMS entram no chat quando a URL de recebimento estiver configurada
+na Twilio **e** aqui; senão o canal é só envio. Respostas de e-mail vão para a
+caixa indicada em `responderPara`, ou para o chat quando o domínio de
+recebimento e o segredo do webhook estiverem configurados. As rotas vivem em
+`server/routes/webhooks-canais.routes.ts` e o retorno é gravado por
+`persistirRetornoMulticanal` (a conversa sai do assistente, o cliente ganha
+pausa de 48 horas e o caso passa a "Responder no chat").
+
+- **SMS:** `POST /api/webhooks/canais/sms/:providerId`, corpo
+  `application/x-www-form-urlencoded`. `sms.webhookUrl` é a URL HTTPS exata
+  (sem parâmetros) cadastrada no número Twilio em "A message comes in"; a
+  assinatura `X-Twilio-Signature` é conferida com o `authToken` sobre essa URL
+  mais os parâmetros ordenados. Sem `ativado`, `authToken` ou `webhookUrl`, ou
+  com assinatura inválida, a requisição recebe 401; `AccountSid` ou `To`
+  diferentes da conta e do `remetente` configurados recebem 400. O texto só entra
+  na conversa de um cliente identificado pelo telefone completo (DDI 55) que já
+  recebeu um SMS de saída dela; o resto é aceito e descartado.
+- **E-mail:** `POST /api/webhooks/canais/email/:providerId`, evento
+  `email.received` do Resend, verificado (Svix) com `email.webhookSecret`
+  (`whsec_…`) sobre o corpo cru. O reply-to das mensagens do chat é
+  `chat+<token>@<receivingDomain>`; a resposta é buscada na API do Resend com
+  a `apiKey` e ligada à conversa pelo token. Exige `ativado`, `apiKey`,
+  `receivingDomain` e `webhookSecret`.
+
+Os dois segredos (`authToken`, `webhookSecret`) nunca são devolvidos pela API;
+`GET /api/cobranca/canais` informa só `recebimentoConfigurado` por canal.
 
 Referências oficiais consultadas:
 

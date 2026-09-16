@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../../db';
-import { avaliarContato, ConfigGestaoSchema, ContestacaoSchema, ResolverContestacaoSchema, simularEconomia } from '@shared/cobranca/gestao-operacional';
+import { avaliarContato, ConfigGestaoSchema, ContestacaoSchema, ResolverContestacaoSchema, simularEconomia, type PainelGestao } from '@shared/cobranca/gestao-operacional';
 
 export class ErroGestao extends Error {}
 /** Um bloqueio anterior ao transporte não pode aparecer como mensagem em trânsito. */
@@ -86,7 +86,7 @@ type ClienteResumo={id:number;nome:string;saldo:number;sincronizadoEm:string|nul
 type DisputaResumo={id:number;customerId:number;nome:string;faturaId:number;valor:number;motivo:string;relato:string;evidencia:string;prazo:string;status:string;responsavel:string;criadoEm:string;resolvidoEm:string|null;justificativa:string|null};
 type ParcelaResumo={id:number;customerId:number;nome:string;data:string;valor:number;status:string;pagoEm:string|null;valorPago:number|null;acordoId:number};
 type PromessaResumo={customerId:number;nome:string;data:string;registradaEm:string};
-export async function painelGestao(pid:number,carteira:'ativo'|'ex_cliente'){
+export async function painelGestao(pid:number,carteira:'ativo'|'ex_cliente'):Promise<PainelGestao>{
   const cfg=await configGestao(pid);
   const [clientes,disputas,agenda,promessas,coortes,preventivo,contatos,configPreventivo]=await Promise.all([
     pool.query<ClienteResumo>(`SELECT c.id,c.name nome,c.total_overdue_amount::float8 saldo,c.last_sync_at "sincronizadoEm",

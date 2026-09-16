@@ -4,6 +4,7 @@ import { requireAuth, requireProvider, requireAdmin } from "../auth";
 import { ComunicacaoConfigSchema } from "@shared/cobranca/comunicacao";
 import { configComunicacao,salvarComunicacao,diarioComunicacao,pausarComunicacao } from "../storage/cobranca-comunicacao.storage";
 import { previaComunicacao } from "../services/cobranca/comunicacao.service";
+import { podeAdministrarOProvedor } from "./provider.routes";
 import { logger } from "../logger";
 
 export function registerComunicacaoRoutes() {
@@ -29,6 +30,10 @@ export function registerComunicacaoRoutes() {
     const p=z.object({acao:z.enum(['respondeu','pagamento_informado','nao_contatar','retomar'])}).safeParse(req.body);
     const id=Number(req.params.id);
     if(!p.success||!Number.isSafeInteger(id)||id<=0){res.status(400).json({message:'Informe cliente e ação válidos.'});return;}
+    // Só "retomar" desfaz um "não contatar". Pausar é pró-cliente e qualquer
+    // operador pode; voltar a contatar quem pediu para não ser contatado é
+    // decisão de quem responde pelo provedor (o superadmin em janela de suporte conta).
+    if(p.data.acao==='retomar'&&!podeAdministrarOProvedor(req.session)){res.status(403).json({message:'Apenas administradores podem retomar o contato automático de um cliente.'});return;}
     try{
       const ok=await pausarComunicacao(req.session.providerId!,id,req.session.userId!,p.data.acao);
       res.status(ok?200:404).json({message:ok?'Preferência registrada. Nenhuma baixa financeira foi realizada.':'Cliente não encontrado.'});

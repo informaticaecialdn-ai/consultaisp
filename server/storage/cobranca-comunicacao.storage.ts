@@ -1,5 +1,30 @@
 import { pool } from "../db";
 import { lerComunicacaoConfig, type ComunicacaoConfig, type CandidatoComunicacao } from "@shared/cobranca/comunicacao";
+import { etapasDaCarteira } from "@shared/cobranca/regua";
+
+/**
+ * Base legal por carteira e etapa, lida do catálogo da régua. Rótulo e base
+ * legal são fatos do sistema (o provedor não os edita), então o mapa é fixo e
+ * vai inteiro à consulta: o evento nasce com a base legal da etapa em que o
+ * CASO estava no envio, sem o chamador precisar conhecer a régua. Ex-cliente
+ * tem apresentação própria (a conciliação não é o aviso formal da Súmula 359).
+ */
+type BaseLegalDoEvento = { baseLegal: string | null; motivoLegal: string };
+const CATALOGO_BASE_LEGAL: Record<"ativo" | "ex_cliente", Record<string, BaseLegalDoEvento>> = Object.fromEntries((["ativo", "ex_cliente"] as const).map(carteira => [carteira,
+  Object.fromEntries(etapasDaCarteira(carteira).map(e => [e.id, { baseLegal: e.baseLegal ?? null, motivoLegal: `Etapa "${e.rotulo}" da régua de cobrança${e.baseLegal ? ` · ${e.baseLegal}` : ""}` }]))])) as Record<"ativo" | "ex_cliente", Record<string, BaseLegalDoEvento>>;
+const SEM_ETAPA: BaseLegalDoEvento = { baseLegal: null, motivoLegal: "Caso sem etapa da régua definida no envio" };
+const BASE_LEGAL_POR_ETAPA = JSON.stringify(CATALOGO_BASE_LEGAL);
+/**
+ * A mesma derivação de `concluirComunicacao`, para quem grava o evento de
+ * contato fora da régua (envio manual de SMS/e-mail, reforço multicanal,
+ * primeiro contato por WhatsApp): dois contatos ao mesmo cliente no mesmo dia
+ * precisam carregar a MESMA base legal, senão a auditoria fica coxa. Carteira
+ * ou etapa desconhecida cai no mesmo fallback do SQL.
+ */
+export function baseLegalDaEtapa(carteira: string | null | undefined, etapa: string | null | undefined): { etapa: string | null } & BaseLegalDoEvento {
+  const daCarteira = carteira === "ativo" || carteira === "ex_cliente" ? CATALOGO_BASE_LEGAL[carteira] : undefined;
+  return { etapa: etapa ?? null, ...((etapa && daCarteira?.[etapa]) || SEM_ETAPA) };
+}
 
 export async function configComunicacao(providerId: number) {
   const r = await pool.query<{ config: unknown }>("select config from cobranca_comunicacao_config where provider_id=$1", [providerId]);
@@ -51,11 +76,13 @@ export async function concluirComunicacao(providerId:number,id:number,r:{status:
         from atualizado a where k.provider_id=a.provider_id and k.id=a.caso_id and k.customer_id=a.customer_id
         and a.status in ('enviado','incerto') returning k.id)
       insert into cobranca_eventos(provider_id,caso_id,customer_id,tipo,canal,resultado,notas,metadata)
-      select provider_id,caso_id,customer_id,case when status='enviado' then 'contato' else 'nota' end,canal,
-      case when status='enviado' then 'mensagem_enviada' else null end,
-      case when status='enviado' then 'Mensagem aceita pelo fornecedor; entrega e resposta ainda não confirmadas.' else coalesce(motivo,'Envio sem confirmação') end,
-      jsonb_build_object('comunicacaoId',id,'status',status,'providerMessageId',provider_message_id)
-      from atualizado where caso_id is not null`,[providerId,id,r.status,r.motivo?.slice(0,250) ?? null,r.providerMessageId ?? null]);
+      select a.provider_id,a.caso_id,a.customer_id,case when a.status='enviado' then 'contato' else 'nota' end,a.canal,
+      case when a.status='enviado' then 'mensagem_enviada' else null end,
+      case when a.status='enviado' then 'Mensagem aceita pelo fornecedor; entrega e resposta ainda não confirmadas.' else coalesce(a.motivo,'Envio sem confirmação') end,
+      jsonb_build_object('comunicacaoId',a.id,'status',a.status,'providerMessageId',a.provider_message_id,'etapa',k.etapa_atual)
+        || coalesce($6::jsonb->k.carteira->k.etapa_atual,jsonb_build_object('baseLegal',null::text,'motivoLegal','${SEM_ETAPA.motivoLegal}'))
+      from atualizado a left join cobranca_casos k on k.provider_id=a.provider_id and k.id=a.caso_id and k.customer_id=a.customer_id
+      where a.caso_id is not null`,[providerId,id,r.status,r.motivo?.slice(0,250) ?? null,r.providerMessageId ?? null,BASE_LEGAL_POR_ETAPA]);
     await c.query("commit");
   } catch (e) { await c.query("rollback"); throw e; } finally { c.release(); }
 }

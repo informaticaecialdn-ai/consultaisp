@@ -32,3 +32,26 @@ export function simularEconomia(entrada:z.infer<typeof SimulacaoSchema>){
   return {recuperacaoEsperada,retencaoEstimada,resultado:cent(recuperacaoEsperada+retencaoEstimada-e.custo)};
 }
 export const taxaCoorte=(confirmados:number,elegiveis:number)=>elegiveis>0?Math.round(confirmados/elegiveis*1000)/10:null;
+
+/**
+ * A resposta de GET /api/cobranca/gestao. Mora aqui para o client e o serviço
+ * lerem o MESMO contrato: antes o CentroGestao importava o tipo de dentro de
+ * server/, o que amarrava o bundle do navegador ao código do servidor. Datas
+ * chegam como texto ISO (é o que o JSON transporta).
+ */
+const ClienteDoPainelSchema=z.object({id:z.number(),nome:z.string(),saldo:z.number(),sincronizadoEm:z.string().nullable(),saldoFaturas:z.number(),aguardandoConfirmacao:z.number(),pagamentosParciais:z.number(),valorContestado:z.number(),
+  divergencia:z.boolean(),syncPendente:z.boolean(),elegivel:z.number(),simulacao:z.object({recuperacaoEsperada:z.number(),retencaoEstimada:z.number(),resultado:z.number()})});
+export const PainelGestaoSchema=z.object({
+  config:ConfigGestaoSchema,carteira:z.enum(['ativo','ex_cliente']),geradoEm:z.string(),
+  limites:z.object({clientes:z.boolean(),contestacoes:z.boolean(),agenda:z.boolean(),promessas:z.boolean()}),
+  contestacoes:z.array(z.object({id:z.number(),customerId:z.number(),nome:z.string(),faturaId:z.number(),valor:z.number(),motivo:z.string(),relato:z.string(),evidencia:z.string(),prazo:z.string(),status:z.string(),responsavel:z.string(),criadoEm:z.string(),resolvidoEm:z.string().nullable(),justificativa:z.string().nullable()})),
+  agenda:z.array(z.object({id:z.number(),customerId:z.number(),nome:z.string(),data:z.string(),valor:z.number(),status:z.string(),pagoEm:z.string().nullable(),valorPago:z.number().nullable(),acordoId:z.number()})),
+  promessas:z.array(z.object({customerId:z.number(),nome:z.string(),data:z.string(),registradaEm:z.string()})),
+  diagnostico:z.array(ClienteDoPainelSchema),prioridades:z.array(ClienteDoPainelSchema),
+  coortes:z.array(z.object({dias:z.number(),elegiveis:z.number(),regularizados:z.number()})),
+  resultados:z.object({confirmado:z.number(),faturasPagas:z.number(),diasConferencia:z.number().nullable(),parcelasVencidas:z.number(),parcelasCumpridas:z.number()}),
+  preventivo:z.object({faturas:z.number(),clientes:z.number(),semTelefone:z.number(),pausadas:z.number(),avisadas:z.number(),
+    config:z.object({ligada:z.boolean().optional(),canal:z.string().optional(),incluirLinkFatura:z.boolean().optional(),limiteDiario:z.number().optional()})}).nullable(),
+  contatos:z.array(z.object({canal:z.string(),tentativas:z.number(),enviados:z.number(),falhas:z.number(),incertos:z.number()})),
+});
+export type PainelGestao=z.infer<typeof PainelGestaoSchema>;
