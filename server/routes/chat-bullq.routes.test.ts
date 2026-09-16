@@ -111,6 +111,13 @@ describe("acesso", () => {
     expect(r.status).toBe(200);
     const body = await r.text(); expect(body).not.toContain(comum.token); expect(body).not.toContain("whsec_");
   });
+  it("WhatsApp da plataforma (EVOLUTION): sem token nem segredo — o fork gera tudo; token enviado é recusado", async () => {
+    sessao = ADMIN;
+    expect((await json("POST", "/api/chat-bullq/integracao/canal", { provider: "EVOLUTION", nome: "WhatsApp da plataforma" })).status).toBe(200);
+    expect(servico.configurarCanalWhatsapp).toHaveBeenLastCalledWith(42, { provider: "EVOLUTION", nome: "WhatsApp da plataforma" });
+    expect((await json("POST", "/api/chat-bullq/integracao/canal", { provider: "EVOLUTION", nome: "WhatsApp da plataforma", token: "token-sintetico" })).status).toBe(400);
+    expect((await json("POST", "/api/chat-bullq/integracao/canal", { provider: "EVOLUTION", nome: "WhatsApp da plataforma", webhookSecret: "segredo-sintetico" })).status).toBe(400);
+  });
   it("catálogo é consultável pelo operador; configurar/provisionar/testar exige admin e sessão", async () => {
     sessao = OPERADOR;
     expect((await json("GET", "/api/chat-bullq/integracao/agentes")).status).toBe(200);

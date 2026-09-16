@@ -265,7 +265,19 @@ export class ChatBullqClient {
     });
   }
 
-  criarCanalWhatsapp(orgId: string, dados: CanalWhatsapp): Promise<Resultado<Canal>> {
+  /**
+   * O WhatsApp da plataforma: o fork cria a instancia na Evolution API, gera o
+   * nome dela, o token e o segredo do webhook — daqui vai so tipo e nome. O
+   * `config` vazio e exigido pelo DTO do fork (`@IsObject`), e ignorado por ele.
+   */
+  criarCanalEvolution(orgId: string, dados: { nome: string }): Promise<Resultado<Canal>> {
+    return this.operacao<Canal>(orgId, "POST", "/channels", {
+      corpo: { type: "WHATSAPP_EVOLUTION", name: dados.nome, config: {} },
+    });
+  }
+
+  /** Os servicos em que o PROVEDOR traz a credencial. A Evolution (da plataforma) tem metodo proprio, sem token. */
+  criarCanalWhatsapp(orgId: string, dados: Exclude<CanalWhatsapp, { provider: "EVOLUTION" }>): Promise<Resultado<Canal>> {
     const config = dados.provider === "DATAFY"
       ? { provider: "DATAFY", accessToken: dados.token, phoneNumberId: dados.phoneNumberId, ...(dados.businessAccountId ? { businessAccountId: dados.businessAccountId } : {}) }
       : { provider: dados.provider, token: dados.token, ...(dados.provider === "UAZAPI" ? { baseUrl: dados.baseUrl } : {}) };
@@ -283,7 +295,7 @@ export class ChatBullqClient {
     return { ok: true, valor: ok ? { ok: true } : { ok: false, message } };
   }
 
-  capacidadesDosCanais(orgId: string): Promise<Resultado<{ whatsappUnofficial: boolean; instanceConnect: boolean; instanceStatus: boolean; provider: string; uazapi: boolean; datafy: boolean; templateFirstContact: boolean }>> {
+  capacidadesDosCanais(orgId: string): Promise<Resultado<{ whatsappUnofficial: boolean; instanceConnect: boolean; instanceStatus: boolean; provider: string; uazapi: boolean; datafy: boolean; evolution?: boolean; templateFirstContact: boolean }>> {
     return this.operacao(orgId, "GET", "/channels/capabilities");
   }
 

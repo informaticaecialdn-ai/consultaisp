@@ -201,6 +201,36 @@ describe("configurarCanalWhatsapp", () => {
     expect(r.canalOk).toBe(false);
     expect(fake.integracao).toMatchObject({ status: "aguardando_conexao", canalId: "ch_2", agenteConfig: { whatsapp: { provider: "UAZAPI", baseUrl: "https://minha.uazapi.com" } } });
   });
+  it("EVOLUTION (o WhatsApp da plataforma): sem token nenhum, o fork cria a instancia; fica aguardando o QR", async () => {
+    const c = clienteFalso({
+      capacidadesDosCanais: vi.fn(async () => ({ ok: true, valor: { whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", uazapi: true, datafy: true, evolution: true, templateFirstContact: true } })),
+      criarCanalEvolution: vi.fn(async () => ({ ok: true, valor: { id: "ch_evo", type: "WHATSAPP_EVOLUTION", name: "WhatsApp da plataforma", isActive: true } })),
+      estadoDaConexaoWhatsapp: vi.fn(async () => ({ ok: true, valor: { provider: "EVOLUTION", status: "connecting", connected: false, loggedIn: false, phone: null, qrCode: null, pairCode: null } })),
+    });
+    const r = await configurarCanalWhatsapp(6, { provider: "EVOLUTION", nome: "WhatsApp da plataforma" });
+    expect(c.capacidadesDosCanais).toHaveBeenCalledWith("org_1");
+    expect(c.criarCanalEvolution).toHaveBeenCalledWith("org_1", { nome: "WhatsApp da plataforma" });
+    expect(c.criarCanalZappfy).not.toHaveBeenCalled();
+    expect(c.criarCanalWhatsapp).not.toHaveBeenCalled();
+    expect(c.estadoDaConexaoWhatsapp).toHaveBeenCalledWith("org_1", "ch_evo");
+    expect(r.canalOk).toBe(false);
+    expect(fake.integracao).toMatchObject({ status: "aguardando_conexao", canalId: "ch_evo", canalNome: "WhatsApp da plataforma", agenteConfig: { whatsapp: { provider: "EVOLUTION" } } });
+  });
+  it("EVOLUTION sem a Evolution configurada no fork: CHAT_SEM_SUPORTE dizendo o que falta, e nada e criado", async () => {
+    const c = clienteFalso({ criarCanalEvolution: vi.fn(async () => ({ ok: true, valor: { id: "ch_evo", type: "WHATSAPP_EVOLUTION", name: "x", isActive: true } })) });
+    await expect(configurarCanalWhatsapp(6, { provider: "EVOLUTION", nome: "WhatsApp da plataforma" })).rejects.toMatchObject({ codigo: "CHAT_SEM_SUPORTE", message: expect.stringContaining("Evolution") });
+    expect(c.criarCanalEvolution).not.toHaveBeenCalled();
+    expect(fake.integracao.canalId).toBeNull();
+  });
+  it("um numero por provedor vale para a Evolution: o canal Evolution antigo sai do fork ao salvar outro", async () => {
+    const c = clienteFalso({ listarCanais: vi.fn(async () => ({ ok: true, valor: [
+      { id: "ch_evo_velho", type: "WHATSAPP_EVOLUTION", name: "Plataforma antiga", isActive: true },
+      { id: "ch_1", type: "WHATSAPP_ZAPPFY", name: "Principal", isActive: true },
+    ] })) });
+    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_zap_1234567890", provider: "ZAPPFY" } as never);
+    expect(c.removerCanal).toHaveBeenCalledWith("org_1", "ch_evo_velho", "Plataforma antiga");
+    expect(c.removerCanal).not.toHaveBeenCalledWith("org_1", "ch_1", expect.anything());
+  });
   it.each([
     ["UAZAPI", { provider: "UAZAPI" as const, nome: "Principal", token: "tok_secreto_123", baseUrl: "https://minha.uazapi.com" }, { uazapi: false, datafy: true }],
     ["DATAFY", { provider: "DATAFY" as const, nome: "Oficial", token: "tok_secreto_123", phoneNumberId: "123456789", webhookSecret: "whsec_segredo_datafy_1" }, { uazapi: true, datafy: false }],

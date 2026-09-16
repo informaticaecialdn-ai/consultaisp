@@ -202,11 +202,20 @@ function motivoDaConsultaDeConexao(r: { erro: string; status?: number }): string
 async function exigirSuporteDoFork(cliente: ChatBullqClient, organizationId: string, provider: ProvedorWhatsapp): Promise<void> {
   if (provider === "ZAPPFY") return;
   const capacidades = await cliente.capacidadesDosCanais(organizationId);
+  if (provider === "EVOLUTION") {
+    // A Evolution e da PLATAFORMA: o fork so a anuncia quando EVOLUTION_API_URL
+    // e EVOLUTION_API_KEY estao no ar la. Sem isso nao ha token a proteger, mas
+    // o POST /channels criaria um canal sem instancia — um numero que nunca conecta.
+    if (falhou(capacidades) || capacidades.valor.evolution !== true) {
+      throw new ErroDaPonteDoChat("CHAT_SEM_SUPORTE", "O chat desta instalação não tem a Evolution API configurada. Peça ao administrador da instalação para ligar o WhatsApp da plataforma.");
+    }
+    return;
+  }
   const suporta = !falhou(capacidades) && (provider === "UAZAPI" ? capacidades.valor.uazapi === true : capacidades.valor.datafy === true);
   if (!suporta) throw new ErroDaPonteDoChat("CHAT_SEM_SUPORTE", "O chat ainda não aceita este serviço de WhatsApp. Nenhum token foi enviado; peça ao administrador da instalação a atualização de canais.");
 }
 
-const TIPOS_DE_CANAL_DE_WHATSAPP = new Set(["WHATSAPP_ZAPPFY", "WHATSAPP_OFFICIAL"]);
+const TIPOS_DE_CANAL_DE_WHATSAPP = new Set(["WHATSAPP_ZAPPFY", "WHATSAPP_OFFICIAL", "WHATSAPP_EVOLUTION"]);
 
 /** Remove no fork todo canal de WhatsApp da organizacao que nao seja o atual. Falha vira aviso: o canal novo ja esta de pe. */
 export async function removerCanaisAntigosDeWhatsapp(cliente: ChatBullqClient, providerId: number, organizationId: string, canalAtualId: string): Promise<{ removidos: number; falhas: number }> {
@@ -228,9 +237,13 @@ async function configurarCanalWhatsappSemTrava(providerId: number, dados: CanalW
   const intg = await garantirIntegracao(providerId);
   const config: CanalWhatsapp = "provider" in dados ? dados : { ...dados, provider: "ZAPPFY" };
   await exigirSuporteDoFork(cliente, intg.organizationId, config.provider);
+  // Pelo `config`, que o discriminante estreita: o canal da plataforma (Evolution)
+  // nao tem token — o fork cria a instancia e gera as credenciais.
   const criado = config.provider === "ZAPPFY"
-    ? await cliente.criarCanalZappfy(intg.organizationId, { nome: dados.nome, token: dados.token, webhookSecret: dados.webhookSecret })
-    : await cliente.criarCanalWhatsapp(intg.organizationId, config);
+    ? await cliente.criarCanalZappfy(intg.organizationId, { nome: config.nome, token: config.token, webhookSecret: config.webhookSecret })
+    : config.provider === "EVOLUTION"
+      ? await cliente.criarCanalEvolution(intg.organizationId, { nome: config.nome })
+      : await cliente.criarCanalWhatsapp(intg.organizationId, config);
   if (falhou(criado)) {
     throw new ErroDaPonteDoChat("CHAT_FALHOU", "O chat não conseguiu salvar a instância. Confira o token e a conexão do serviço.");
   }

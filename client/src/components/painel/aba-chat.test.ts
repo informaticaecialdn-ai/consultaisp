@@ -23,6 +23,16 @@ describe("aba Chat", () => {
     expect(aba).toContain('setSenha({ senha: "", confirmacao: "" })');
     expect(aba).not.toMatch(/localStorage|console\.log/);
   });
+  it("WhatsApp da plataforma (Evolution): opcao no seletor, sem token nem segredo — o fork cria a instancia", () => {
+    expect(aba).toContain('<option value="EVOLUTION">');
+    // O corpo enviado leva so o servico e o nome: nao ha token a digitar.
+    expect(aba).toContain('{ provider: "EVOLUTION", nome: canal.nome.trim() }');
+    // Os campos de token e segredo nao aparecem, e o botao nao exige token.
+    expect(aba).toContain('{canal.provider !== "EVOLUTION" && <Campo rotulo={canal.provider === "DATAFY" ? "token de acesso Datafy" : "token da instância"}>');
+    expect(aba).toContain('{canal.provider !== "EVOLUTION" && <Campo rotulo={canal.provider === "DATAFY" ? "segredo de assinatura do webhook" : "segredo do webhook (opcional)"}>');
+    expect(aba).toContain('(canal.provider !== "EVOLUTION" && canal.token.trim().length < 8)');
+    expect(aba).toContain("pareie o número pelo QR");
+  });
   it("so o administrador liga o numero e define a senha", () => {
     expect((aba.match(/disabled=\{!podeAdministrar/g) ?? []).length).toBeGreaterThanOrEqual(5);
     expect(aba).toContain("só o administrador liga o número");

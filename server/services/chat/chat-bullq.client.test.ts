@@ -385,6 +385,17 @@ describe("gestao da conversa e agentes", () => {
     expect(await c.ligarAgenteAoCanal(ORG, "ag-1", "canal-2", "AUTONOMOUS", "OFF_HOURS")).toEqual({ ok: true, valor: undefined });
     expect(s.de("/ai-agents/ag-1/channels")[0].corpo).toEqual({ channelId: "canal-2", mode: "AUTONOMOUS", trigger: "OFF_HOURS" });
   });
+
+  it("canal Evolution (o WhatsApp da plataforma): so tipo e nome — instancia, token e segredo sao do fork; o config vai vazio porque o DTO o exige", async () => {
+    const s = servidorComSessao();
+    const canal = { id: "canal-evo", type: "WHATSAPP_EVOLUTION", name: "WhatsApp da plataforma", isActive: true };
+    s.quando("POST", "/channels", () => ({ corpo: { data: canal } }));
+    const c = cliente(s);
+
+    expect(await c.criarCanalEvolution(ORG, { nome: "WhatsApp da plataforma" })).toEqual({ ok: true, valor: canal });
+    expect(s.de("/channels")[0].corpo).toEqual({ type: "WHATSAPP_EVOLUTION", name: "WhatsApp da plataforma", config: {} });
+    expect(JSON.stringify(s.de("/channels")[0].corpo)).not.toMatch(/token|secret/i);
+  });
 });
 
 describe("falhas", () => {

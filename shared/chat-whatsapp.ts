@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { TipoDeAgenteSchema } from "./chat-agentes";
 
-export const ProvedorWhatsappSchema = z.enum(["ZAPPFY", "UAZAPI", "DATAFY"]);
+/**
+ * `EVOLUTION` é o WhatsApp da PLATAFORMA (a Evolution API na VPS, 11/09/2026):
+ * o provedor não digita token nem segredo — o Chat BullQ cria a instância, gera
+ * os dois e guarda. Os outros três exigem a credencial do próprio provedor.
+ */
+export const ProvedorWhatsappSchema = z.enum(["ZAPPFY", "UAZAPI", "DATAFY", "EVOLUTION"]);
 export type ProvedorWhatsapp = z.infer<typeof ProvedorWhatsappSchema>;
 const CredenciaisComuns = {
   nome: z.string().trim().min(2).max(80),
@@ -12,6 +17,8 @@ export const CanalWhatsappSchema = z.preprocess(
   (valor) => valor && typeof valor === "object" && !Array.isArray(valor) ? { provider: "ZAPPFY", ...valor } : valor,
   z.discriminatedUnion("provider", [
     z.object({ ...CredenciaisComuns, provider: z.literal("ZAPPFY") }).strict(),
+    // `.strict()` de propósito: token ou segredo mandados por engano são recusados, não ignorados.
+    z.object({ nome: CredenciaisComuns.nome, provider: z.literal("EVOLUTION") }).strict(),
     z.object({ ...CredenciaisComuns, provider: z.literal("UAZAPI"), baseUrl: z.string().trim().url().max(250).refine(v => { const u = new URL(v); return u.protocol === "https:" && !u.username && !u.password && !u.search && !u.hash && (!u.port || u.port === "443"); }, "Use a URL HTTPS da sua instância Uazapi") }).strict(),
     z.object({ ...CredenciaisComuns, provider: z.literal("DATAFY"), phoneNumberId: z.string().regex(/^\d{5,30}$/), businessAccountId: z.string().regex(/^\d{5,30}$/).optional(), webhookSecret: z.string().trim().min(12).max(200).regex(/^whsec_/) }).strict(),
   ]),

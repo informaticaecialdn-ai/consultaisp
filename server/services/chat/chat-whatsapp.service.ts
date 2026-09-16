@@ -15,7 +15,8 @@ export async function consultarOuConectarWhatsapp(
   const resultado = await comTravaDoChat(`config:${providerId}`, async () => {
     const integracao = await storage.getIntegracaoDoChat(providerId);
     if (!integracao?.canalId || integracao.providerId !== providerId) {
-      throw new ErroDaPonteDoChat("SEM_CANAL", "Salve o token da instância antes de conectar o número");
+      // "canal", nao "token": o WhatsApp da plataforma (Evolution) nao tem token a salvar.
+      throw new ErroDaPonteDoChat("SEM_CANAL", "Salve o canal de WhatsApp antes de conectar o número");
     }
     const capacidades = await cliente.capacidadesDosCanais(integracao.organizationId);
     if (!capacidades.ok || !capacidades.valor.whatsappUnofficial || !capacidades.valor.instanceConnect || !capacidades.valor.instanceStatus) {

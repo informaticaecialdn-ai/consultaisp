@@ -1062,10 +1062,12 @@ const ROTAS: Array<[string, RegExp, Tratador]> = [
 
   // ── canais
   ["GET", /^\/channels$/, () => ok([CANAL_DA_DEMO])],
-  // Só Zappfy: Datafy exige template aprovado para abrir conversa, e o simulado
-  // não tem template — um canal Datafy salvo ficaria "ativo" com todo envio
-  // falhando. Sem a capability, a ponte recusa antes de gravar qualquer coisa.
-  ["GET", /^\/channels\/capabilities$/, () => ok({ whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", uazapi: false, datafy: false, templateFirstContact: false })],
+  // Zappfy e o WhatsApp da plataforma (Evolution): os dois pareiam por QR, e o
+  // canal único da demonstração serve aos dois. Datafy exige template aprovado
+  // para abrir conversa, e o simulado não tem template — um canal Datafy salvo
+  // ficaria "ativo" com todo envio falhando. Sem a capability, a ponte recusa
+  // antes de gravar qualquer coisa.
+  ["GET", /^\/channels\/capabilities$/, () => ok({ whatsappUnofficial: true, instanceConnect: true, instanceStatus: true, provider: "ZAPPFY", uazapi: false, datafy: false, evolution: true, templateFirstContact: false })],
   // Um canal só, sempre o mesmo id: as conversas semeadas apontam para ele, e a limpeza de "canais antigos" da ponte não tem o que apagar.
   ["POST", /^\/channels$/, p => criado({ ...CANAL_DA_DEMO, name: typeof p.corpo.name === "string" && p.corpo.name ? p.corpo.name : CANAL_DA_DEMO.name })],
   ["DELETE", /^\/channels\/([^/]+)$/, () => ok(CONFIRMADO)],
