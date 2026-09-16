@@ -1,4 +1,5 @@
 import type { PlanoResposta, PropostaAutonomia } from "@shared/chat-autonomia";
+import type { Carteira } from "@shared/cobranca/estados";
 
 export function confirmacaoExplicita(texto: string): boolean {
   return /^(sim|confirmo|confirmado|pode registrar|pode agendar|combinado|isso mesmo)[.!\s]*$/i.test(texto.trim());
@@ -58,23 +59,50 @@ export function textoDaProposta(p: PropostaAutonomia): string {
  * ninguém mediu nesta rodada. Nenhum ramo desta função inventa número a partir
  * de null — sem leitura, a frase não cita valor e a conferência vai ao atendente.
  */
-export function respostaControlada(plano: PlanoResposta, saldo: number | null, recuperacao: boolean, orientacao: { tom?: string | null; vulneravel?: boolean } = {}): string {
+export interface ContextoDaResposta {
+  tom?: string | null;
+  vulneravel?: boolean;
+  carteira?: Carteira | null;
+  permitirPromessa?: boolean;
+  permitirSegundaVia?: boolean;
+  permitirAgendamento?: boolean;
+}
+export function respostaControlada(plano: PlanoResposta, saldo: number | null, recuperacao: boolean, orientacao: ContextoDaResposta = {}): string {
   const aberturas: Record<string, string> = {
     boas_vindas: "Vou orientar você. ", parceiro: "Vamos conferir juntos. ", acolhedor: "Obrigado pela parceria. ",
     orientador: "Vamos organizar os próximos passos. ", firme_gentil: "Podemos organizar a regularização. ", cuidado: "Vamos conversar com tranquilidade. ",
     firme_objetivo: "Vamos conferir a situação e definir o próximo passo. ", recuperacao: "Vamos avaliar uma solução. ", negociar_reter: "Queremos encontrar uma solução que preserve nossa relação. ",
     humanizado_vulneravel: "Vamos conversar com tranquilidade e respeitar suas possibilidades. ",
+    ex_esclarecedor: "Posso esclarecer a pendência do contrato encerrado. ", ex_respeitoso: "Vamos conferir a pendência com atenção. ",
+    ex_acolhedor: "Vamos buscar uma solução para a pendência que ficou. ", ex_orientador: "Vamos organizar os próximos passos para regularizar a dívida. ",
+    ex_firme_gentil: "Podemos organizar a regularização da dívida. ", ex_cuidado: "Vamos conversar com tranquilidade sobre a pendência. ",
+    ex_objetivo: "Vamos conferir a dívida e o próximo passo. ", ex_assertivo: "Vamos avaliar uma solução para a dívida. ",
+    ex_conciliador: "Vamos buscar uma solução para encerrar a pendência. ",
   };
-  const abertura = aberturas[orientacao.vulneravel ? "humanizado_vulneravel" : orientacao.tom ?? ""] ?? "";
-  return abertura + respostaFactual(plano, saldo, recuperacao);
+  const tom = orientacao.tom ?? "";
+  const tomCompativel = !recuperacao && tom.startsWith("ex_") === (orientacao.carteira === "ex_cliente") ? tom : "";
+  const abertura = aberturas[orientacao.vulneravel ? "humanizado_vulneravel" : tomCompativel] ?? "";
+  return abertura + respostaFactual(plano, saldo, recuperacao, orientacao);
 }
-function respostaFactual(plano: PlanoResposta, saldo: number | null, recuperacao: boolean): string {
+function respostaFactual(plano: PlanoResposta, saldo: number | null, recuperacao: boolean, permissoes: ContextoDaResposta): string {
+  const pedirData = recuperacao
+    ? permissoes.permitirAgendamento === true
+      ? "Qual dia e horário você propõe para a devolução? Informe a data no formato dia/mês e o horário como 14:00."
+      : "A equipe pode orientar a devolução do equipamento. Posso encaminhar ao atendente?"
+    : permissoes.permitirPromessa === true
+      ? "Para qual data você pretende pagar? Informe dia e mês, por exemplo, no formato dia/mês."
+      : "Posso esclarecer a pendência ou encaminhar ao atendente para avaliar sua solicitação.";
+  const opcoes = [
+    permissoes.permitirSegundaVia === true ? "consultar a segunda via do ERP" : null,
+    permissoes.permitirPromessa === true ? "registrar uma promessa de pagamento pelo valor integral, após sua confirmação" : null,
+  ].filter(Boolean);
+  const ajuda = opcoes.length ? `Posso ${opcoes.join(" ou ")}. Como você prefere seguir?` : "Posso esclarecer a pendência ou encaminhar ao atendente.";
   switch (plano.resposta) {
-    case "informar_divida": return !recuperacao && saldo !== null && saldo > 0 ? `O ERP informa ${brl(saldo)} em aberto na leitura de agora. Posso consultar a segunda via ou registrar uma promessa de pagamento pelo valor integral. Para qual data você pretende pagar?` : "Vou encaminhar a conferência da situação ao atendente.";
-    case "pedir_data": return recuperacao ? "Qual dia e horário você propõe para a devolução? Informe a data no formato dia/mês e o horário como 14:00." : "Para qual data você pretende pagar? Informe dia e mês, por exemplo, no formato dia/mês.";
-    case "orientar_devolucao": return "Posso registrar um agendamento local de devolução para acompanhamento da equipe. Qual dia e horário você propõe?";
+    case "informar_divida": return !recuperacao && saldo !== null && Number.isFinite(saldo) && saldo > 0 ? `O ERP informa ${brl(saldo)} em aberto na leitura de agora, referente ao contrato ${permissoes.carteira === "ex_cliente" ? "encerrado" : "vigente"}. ${ajuda}` : "Vou encaminhar a conferência da situação ao atendente.";
+    case "pedir_data": return pedirData;
+    case "orientar_devolucao": return recuperacao ? pedirData : "A equipe de equipamentos pode orientar a devolução. Posso encaminhar ao atendente?";
     case "agradecer": return "Obrigado pelo retorno. Se precisar de acompanhamento, posso encaminhar ao atendente.";
-    case "pedir_confirmacao": return "Para registrar, preciso primeiro combinar a data com você. Pode informar dia e mês?";
-    default: return recuperacao ? "Sou o assistente virtual e posso ajudar a combinar a devolução do equipamento. Qual dia e horário fica adequado?" : "Sou o assistente virtual. Posso consultar a segunda via, informar a pendência ou combinar uma promessa de pagamento. Como posso ajudar?";
+    case "pedir_confirmacao": return pedirData;
+    default: return recuperacao ? pedirData : `Sou o assistente virtual. ${ajuda}`;
   }
 }

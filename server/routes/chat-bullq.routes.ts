@@ -25,7 +25,7 @@ import { contextoDoAtendimento, segundaViaDoAtendimento } from "../services/chat
 import { podeAdministrarOProvedor } from "./provider.routes";
 import { storage } from "../storage";
 import { exigirEscopoDoChat } from "./chat-escopo";
-import { acaoNaConversa, detalheDoAtendimento, ErroDeDadosDoAtendimento, midiaDoAtendimento, TAMANHO_MAXIMO_DA_ACAO } from "../services/chat/chat-atendimento.service";
+import { acaoNaConversa, detalheDoAtendimento, diagnosticoDoAtendimento, ErroDeDadosDoAtendimento, midiaDoAtendimento, TAMANHO_MAXIMO_DA_ACAO } from "../services/chat/chat-atendimento.service";
 import { ConfiguracaoDeAgenteSchema, TipoDeAgenteSchema, type TipoDeAgente } from "@shared/chat-agentes";
 import { comTravaDaConfiguracaoDoChat, configurarAgenteDoChat, exigirAgentesProntos, listarAgentesDoChat, modelosDosAgentesDoChat, prepararPrimeiroContatoDoAgente, promptDoAgenteDoChat, provisionarAgenteDoChat } from "../services/chat/chat-agentes.service";
 
@@ -88,6 +88,10 @@ const AcaoDoAtendimentoSchema = z.discriminatedUnion("acao", [
 
 export function registerChatBullqRoutes(): Router {
   const router = Router();
+  router.get("/api/chat-bullq/integracao/diagnostico", requireAuth, requireProvider, async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try { res.json(await diagnosticoDoAtendimento(providerDaSessao(req))); } catch (e) { falha(res, e); }
+  });
   router.get("/api/chat-bullq/integracao/canal/templates", requireAuth, requireProvider, exigirAdmin("consultar templates do WhatsApp"), async (req, res) => {
     try { res.json(await catalogoTemplatesWhatsapp(providerDaSessao(req))); } catch (e) { falha(res, e); }
   });
@@ -223,7 +227,8 @@ export function registerChatBullqRoutes(): Router {
     const tipo = TipoDeAgenteSchema.safeParse(req.params.tipo);
     const dados = ConfiguracaoDeAgenteSchema.safeParse(req.body);
     if (!tipo.success || !dados.success) return res.status(400).json({ message: "Informe o papel, o modelo, até 500 caracteres de descrição, 6.000 de instruções e 8.000 de contexto operacional; temperatura de 0 a 1 e de 160 a 1.200 tokens", erros: dados.success ? [] : dados.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) });
-    try { res.json(await configurarAgenteDoChat(providerDaSessao(req), tipo.data, dados.data)); } catch (e) { falha(res, e); }
+    // O serviço mescla o perfil existente; defaults do parse apagariam campos omitidos.
+    try { res.json(await configurarAgenteDoChat(providerDaSessao(req), tipo.data, req.body)); } catch (e) { falha(res, e); }
   });
   /**
    * O prompt final que o agente recebe — as regras da casa, as preferências do provedor e o contexto do dia.

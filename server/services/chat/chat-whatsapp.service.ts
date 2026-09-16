@@ -18,6 +18,9 @@ export async function consultarOuConectarWhatsapp(
       throw new ErroDaPonteDoChat("SEM_CANAL", "Salve o token da instância antes de conectar o número");
     }
     const capacidades = await cliente.capacidadesDosCanais(integracao.organizationId);
+    if (!capacidades.ok && capacidades.status !== 404) {
+      throw new ErroDaPonteDoChat("CHAT_FALHOU", "O serviço de conversas não está disponível para verificar o WhatsApp. Tente novamente quando a conexão for restabelecida.");
+    }
     if (!capacidades.ok || !capacidades.valor.whatsappUnofficial || !capacidades.valor.instanceConnect || !capacidades.valor.instanceStatus) {
       throw new ErroDaPonteDoChat("CONFLITO", "Esta instalação do ChatBullQ precisa da atualização de conexão por QR. O administrador da instalação pode aplicar o patch de WhatsApp não oficial.");
     }
@@ -32,6 +35,9 @@ export async function consultarOuConectarWhatsapp(
       // "disconnected by API" e, quatro minutos depois, "Pair Code timeout").
       // Le o estado antes; conectado e logado, nao pede nada.
       const atual = lido(await ler());
+      if (!atual?.success || atual.data.status === "unknown") {
+        throw new ErroDaPonteDoChat("CHAT_FALHOU", "Não foi possível confirmar a sessão atual do WhatsApp. Verifique a conexão antes de gerar um novo QR ou código.");
+      }
       if (atual?.success && atual.data.connected && atual.data.loggedIn) {
         remoto = { ok: true, valor: atual.data };
         aviso = "O número já está conectado. Gerar um novo QR ou código derrubaria a sessão atual — para trocar de aparelho, desconecte antes em WhatsApp → Aparelhos conectados.";

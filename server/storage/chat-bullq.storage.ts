@@ -11,6 +11,7 @@
 import { and, asc, desc, eq, isNotNull, isNull, ilike, ne, notExists, gt, count, gte, sql, inArray, or } from "drizzle-orm";
 import { db } from "../db";
 import { carteiraDoStatusErp, clienteDaCarteira } from "./cobranca.storage";
+import { normalizarTelefoneParaChat } from "../services/chat/chat-bullq.client";
 import {
   chatBullqConversas, chatBullqIntegracoes, customers, cobrancaCasos, equipmentRecoveryCases, equipmentRecoveryEvents, cobrancaEventos, invoices, contracts,
   type ChatBullqConversa, type ChatBullqIntegracao,
@@ -167,7 +168,7 @@ export class ChatBullqStorage {
     return linhas.sort((a, b) => b.em.getTime() - a.em.getTime()).slice(0, teto);
   }
 
-  async candidatosAoPrimeiroContato(providerId: number) {
+  async candidatosAoPrimeiroContato(providerId: number, aposId = 0) {
     // Conversa ABERTA no chat: a ponte reaproveita a conversa do telefone e nada
     // sai. Enquanto ela viver o caso nao e candidato; encerrada, volta a ser —
     // antes a exclusao olhava QUALQUER linha e o caso ficava sem primeiro
@@ -186,14 +187,20 @@ export class ChatBullqStorage {
         sql`${equipmentRecoveryEvents.metadata}->>'enviado' = 'true'`,
       )),
     );
-    const cobranca = await db.select({ id: cobrancaCasos.id, diasAtraso: customers.maxDaysOverdue, carteira: cobrancaCasos.carteira, tom: cobrancaCasos.tom, quadrante: cobrancaCasos.quadranteDna })
+    const cobranca = await db.select({ id: cobrancaCasos.id, diasAtraso: customers.maxDaysOverdue,
+      carteira: sql<string | null>`case when ${customers.status} in ('active', 'suspended') then 'ativo' when ${customers.status} in ('cancelled', 'inactive') then 'ex_cliente' else null end`,
+      carteiraDoCaso: cobrancaCasos.carteira, proximoContatoEm: cobrancaCasos.proximoContatoEm,
+      telefone: customers.phone,
+      tom: cobrancaCasos.tom, quadrante: cobrancaCasos.quadranteDna })
       .from(cobrancaCasos).innerJoin(customers, and(eq(customers.id, cobrancaCasos.customerId), eq(customers.providerId, providerId)))
-      .where(and(eq(cobrancaCasos.providerId, providerId), eq(cobrancaCasos.status, "aberto"), isNull(cobrancaCasos.ultimoContatoEm), gt(customers.totalOverdueAmount, "0"), isNotNull(customers.phone), semConversaAberta(cobrancaCasos.customerId)))
-      .orderBy(asc(cobrancaCasos.abertoEm), asc(cobrancaCasos.id)).limit(100);
+      .where(and(eq(cobrancaCasos.providerId, providerId), gt(cobrancaCasos.id, aposId), eq(cobrancaCasos.status, "aberto"), isNull(cobrancaCasos.ultimoContatoEm), gt(customers.totalOverdueAmount, "0"), semConversaAberta(cobrancaCasos.customerId),
+        sql`not exists(select 1 from cobranca_preferencias_contato p where p.provider_id=${providerId} and p.customer_id=${customers.id} and (p.nao_contatar or p.pausa_ate>now()))`,
+        sql`not exists(select 1 from cobranca_comunicacoes m where m.provider_id=${providerId} and m.customer_id=${customers.id} and m.status in('enviando','enviado','incerto') and m.criado_em>now()-interval '3 days')`))
+      .orderBy(asc(cobrancaCasos.id)).limit(201);
     const equipamentos = await db.select({ id: equipmentRecoveryCases.id }).from(equipmentRecoveryCases)
       .where(and(eq(equipmentRecoveryCases.providerId, providerId), isNull(equipmentRecoveryCases.closedAt), isNull(equipmentRecoveryCases.disputedAt), eq(equipmentRecoveryCases.status, "pre_recuperacao"), semConversaAberta(equipmentRecoveryCases.customerId), semContatoEnviado))
       .orderBy(asc(equipmentRecoveryCases.createdAt), asc(equipmentRecoveryCases.id)).limit(100);
-    return { cobranca, equipamentos };
+    return { cobranca: cobranca.slice(0, 200).map(({ telefone, ...c }) => ({ ...c, telefoneValido: normalizarTelefoneParaChat(telefone) !== null })), equipamentos, proximoId: cobranca.length > 200 ? cobranca[199].id : null };
   }
   async getIntegracaoDoChat(providerId: number): Promise<ChatBullqIntegracao | undefined> {
     const [linha] = await db.select().from(chatBullqIntegracoes).where(eq(chatBullqIntegracoes.providerId, providerId)).limit(1);

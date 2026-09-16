@@ -7,7 +7,7 @@ import { confirmacaoExplicita } from "./chat-autonomia-politica";
 
 interface RodadaNegociacao extends EntradaOfertaAutonomia {
   providerId: number; conversationId: string; casoId: number; texto: string; messageId: string;
-  permitir: boolean; ofertas: OfertasAutonomia | null; agora?: Date;
+  permitir: boolean; permitirSegundaVia?: boolean; ofertas: OfertasAutonomia | null; agora?: Date;
 }
 type ResultadoNegociacao = { acao: "humano"; motivo: string } | { acao: "responder"; resposta: string; precisaEmissao?: boolean } | null;
 /** A oferta nunca é escolhida pelo LLM: opção, data e consentimento vêm do cliente. */
@@ -27,7 +27,9 @@ export async function processarNegociacaoAutonoma(d: RodadaNegociacao): Promise<
   if (!ofertas.ofertas.length || !ofertaAindaValida(ofertas, d, politica, agora)) return humano("A oferta expirou ou saldo, política ou cadastro mudaram; refazer com o atendente");
   if (pedidoForaDaFaixa(d.texto, ofertas)) return humano("Cliente pediu uma condição fora da faixa da política");
   if (!d.ofertas) {
-    if (politica.acordo[d.carteira].origemDaCobranca === "nao_definida") return { acao: "responder", resposta: `A política permite somente o pagamento integral de ${brl(d.saldo)} pela segunda via do ERP. Posso consultar a segunda via; condições diferentes precisam do atendente.` };
+    if (politica.acordo[d.carteira].origemDaCobranca === "nao_definida") return d.permitirSegundaVia === true
+      ? { acao: "responder", resposta: `A política permite somente o pagamento integral de ${brl(d.saldo)} pela segunda via do ERP. Posso consultar a segunda via; condições diferentes precisam do atendente.` }
+      : humano("Condições diferentes exigem atendente e a segunda via automática não está autorizada");
     await segurancaAutonomiaStorage.ofertas(d.providerId, d.conversationId, ofertas);
     return { acao: "responder", resposta: textoDasOfertas(ofertas) };
   }

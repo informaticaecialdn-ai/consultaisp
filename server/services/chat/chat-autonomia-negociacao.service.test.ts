@@ -7,7 +7,7 @@ vi.mock("../../storage/chat-autonomia-seguranca.storage", () => ({ segurancaAuto
 import { processarNegociacaoAutonoma } from "./chat-autonomia-negociacao.service";
 let politica = structuredClone(POLITICA_PADRAO);
 const agora = new Date("2026-09-08T15:00:00Z");
-const base = { providerId: 42, conversationId: "c1", casoId: 10, customerId: 7, carteira: "ex_cliente" as const, saldo: 400, diasAtraso: 200, mensalidade: 100, vulneravel: false, permitir: true, agora };
+const base = { providerId: 42, conversationId: "c1", casoId: 10, customerId: 7, carteira: "ex_cliente" as const, saldo: 400, diasAtraso: 200, mensalidade: 100, vulneravel: false, permitir: true, permitirSegundaVia: true, agora };
 beforeEach(() => {
   vi.resetAllMocks(); politica = structuredClone(POLITICA_PADRAO); politica.acordo.ex_cliente.origemDaCobranca = "manual";
   fake.getPoliticaDeCobranca.mockImplementation(async () => politica);
@@ -44,6 +44,12 @@ describe("acordo autônomo: oferta, seleção, consentimento e gravação", () =
     politica.acordo.ex_cliente.origemDaCobranca = "nao_definida";
     const r = await rodada("tem desconto?", "m1");
     expect(r).toMatchObject({ acao: "responder", resposta: expect.stringContaining("segunda via do ERP") });
+    expect(fake.ofertas).not.toHaveBeenCalled();
+    expect(fake.criarNegociacao).not.toHaveBeenCalled();
+  });
+  it("sem origem definida e segunda via desautorizada transfere sem oferecer a função", async () => {
+    politica.acordo.ex_cliente.origemDaCobranca = "nao_definida";
+    expect(await processarNegociacaoAutonoma({ ...base, permitirSegundaVia: false, texto: "tem desconto?", messageId: "m1", ofertas: null })).toMatchObject({ acao: "humano" });
     expect(fake.ofertas).not.toHaveBeenCalled();
     expect(fake.criarNegociacao).not.toHaveBeenCalled();
   });

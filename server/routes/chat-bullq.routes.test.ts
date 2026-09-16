@@ -23,7 +23,7 @@ vi.mock("../services/chat/chat-ponte.service", async () => {
 });
 vi.hoisted(() => { process.env.SESSION_SECRET ||= "segredo-de-teste-sem-nenhum-valor-real"; });
 vi.mock("../db", () => ({ pool: { query: async () => ({ rows: [] }), on: () => undefined, connect: async () => ({ release: () => undefined }) }, db: {} }));
-const inbox = vi.hoisted(() => ({ acaoNaConversa: vi.fn(async () => ({ statusConversa: "OPEN" })), detalheDoAtendimento: vi.fn(async () => ({ mensagens: [] })), midiaDoAtendimento: vi.fn() }));
+const inbox = vi.hoisted(() => ({ diagnosticoDoAtendimento: vi.fn(async () => ({ codigo: "SERVICO_INDISPONIVEL", mensagem: "Serviço indisponível", servicoDisponivel: false, canalConfigurado: true, estadoCanal: null })), acaoNaConversa: vi.fn(async () => ({ statusConversa: "OPEN" })), detalheDoAtendimento: vi.fn(async () => ({ mensagens: [] })), midiaDoAtendimento: vi.fn() }));
 const whatsapp = vi.hoisted(() => ({ consultarOuConectarWhatsapp: vi.fn(async () => ({ provider: "ZAPPFY", status: "connecting", qrCode: "data:image/png;base64,iVBORw0KGgo=" })) }));
 vi.mock("../services/chat/chat-whatsapp.service", () => whatsapp);
 const agentes = vi.hoisted(() => ({
@@ -85,6 +85,16 @@ const json = (method: string, caminho: string, corpo?: unknown) =>
   fetch(`${base}${caminho}`, { method, headers: corpo === undefined ? {} : { "content-type": "application/json" }, body: corpo === undefined ? undefined : JSON.stringify(corpo) });
 
 describe("acesso", () => {
+  it("diagnóstico é autenticado, sem cache, e usa o provedor da sessão", async () => {
+    const caminho = "/api/chat-bullq/integracao/diagnostico?providerId=999";
+    expect((await json("GET", caminho)).status).toBe(401);
+    sessao = OPERADOR;
+    const r = await json("GET", caminho);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(await r.json()).toMatchObject({ codigo: "SERVICO_INDISPONIVEL" });
+    expect(inbox.diagnosticoDoAtendimento).toHaveBeenCalledWith(42);
+  });
   it("QR e status exigem administrador e usam somente o canal da sessão", async () => {
     expect((await json("GET", "/api/chat-bullq/integracao/canal/conexao")).status).toBe(401);
     sessao = OPERADOR;
@@ -119,7 +129,7 @@ describe("acesso", () => {
     expect((await json("PUT", "/api/chat-bullq/integracao/agentes/cobranca_ativos", {})).status).toBe(403);
     sessao = ADMIN;
     expect((await json("PUT", "/api/chat-bullq/integracao/agentes/cobranca_ativos", { modelo: "sakana/real", instrucoes: "Breve", habilitado: true })).status).toBe(200);
-    expect(agentes.configurarAgenteDoChat).toHaveBeenCalledWith(42, "cobranca_ativos", { modelo: "sakana/real", instrucoes: "Breve", habilitado: true, descricao: "", contextoOperacional: "" });
+    expect(agentes.configurarAgenteDoChat).toHaveBeenCalledWith(42, "cobranca_ativos", { modelo: "sakana/real", instrucoes: "Breve", habilitado: true });
     expect((await json("POST", "/api/chat-bullq/integracao/agentes/cobranca_ativos/provisionar", { providerId: 999 })).status).toBe(200);
     expect(agentes.provisionarAgenteDoChat).toHaveBeenCalledWith(42, "cobranca_ativos");
     expect((await json("PUT", "/api/chat-bullq/integracao/agentes/cobranca_ativos", { modelo: "x", providerId: 999 })).status).toBe(400);
@@ -172,7 +182,7 @@ describe("acesso", () => {
     expect(servico.garantirTransferenciaNaResposta).not.toHaveBeenCalled();
     sessao = ADMIN;
     lista.getIntegracaoDoChat.mockResolvedValue({ canalId: "ch1", status: "ativo", agenteConfig: { respostaHumanaAutomacaoId: "a1" } });
-    expect((await json("PUT", "/api/chat-bullq/automacao", { ligada: true, limiteDiario: 101 })).status).toBe(400);
+    expect((await json("PUT", "/api/chat-bullq/automacao", { ligada: true, limiteDiario: 10001 })).status).toBe(400);
     expect((await json("PUT", "/api/chat-bullq/automacao", { ligada: true, limiteDiario: 5, providerId: 999 })).status).toBe(200);
     expect(servico.garantirTransferenciaNaResposta).toHaveBeenCalledExactlyOnceWith(42);
     expect(lista.guardarAgenteDoChat).toHaveBeenCalledWith(42, { agenteConfig: expect.objectContaining({ respostaHumanaAutomacaoId: "a1", primeiroContatoUserId: 7, primeiroContato: expect.objectContaining({ ligada: true, limiteDiario: 5 }) }) });

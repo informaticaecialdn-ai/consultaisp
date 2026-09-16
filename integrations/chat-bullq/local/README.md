@@ -7,7 +7,7 @@ ficam em `127.0.0.1`; o PostgreSQL do Consulta ISP na porta 5432 não é utiliza
 ## Preparar do zero
 
 Requisitos: Docker com Compose, Node.js compatível com o Chat BullQ, checkout da
-API no commit documentado e patches `000`, `001` e `002` aplicados em ordem.
+API no commit documentado e patches `000`, `001`, `002` e `003` aplicados em ordem.
 O destino padrão da API é `work/references/chat-bullq-api`; outro checkout pode ser
 informado com `--api-dir CAMINHO_ABSOLUTO`.
 
@@ -46,6 +46,26 @@ arquivo privado antes de iniciar. Ao mudar a porta PostgreSQL, atualize também
 
 `work/chat-bullq-local.json` registra PID, URL, containers, volumes e caminhos dos
 logs. Não contém valores de segredos. Os arquivos de runtime são ignorados pelo Git.
+
+O campo `state` do manifesto registra a última execução; sozinho não prova que a
+API continua funcionando após reiniciar o computador. Confira `processRunning`
+no comando `status` e a API na porta 3002. Se o processo parou, execute `start`
+novamente antes de `start-consultaisp-local.ps1`. PostgreSQL e Redis saudáveis
+não substituem o processo da API.
+
+Na tela **Conversas**, o aviso de conexão consulta
+`GET /api/chat-bullq/integracao/diagnostico` com a sessão do provedor. Esse
+diagnóstico distingue serviço indisponível, acesso recusado, canal ausente/inativo
+e WhatsApp desconectado. Ele consulta o canal atual sem iniciar pareamento nem
+enviar mensagem; não devolve token, telefone, QR ou IDs internos. A fila continua
+mostrando os vínculos locais existentes quando o transporte está indisponível.
+Uma lista vazia representa ausência de conversas vinculadas à carteira, e não
+uma confirmação de que o WhatsApp esteja conectado.
+
+`SEM_CANAL` exige cadastrar o canal com a credencial real no Painel do Provedor.
+`AGUARDANDO_CONEXAO` exige concluir o pareamento. `CONEXAO_NAO_CONFIRMADA`
+exige verificar instância/credenciais; um estado desconhecido nunca inicia
+automaticamente um novo pareamento sobre a sessão existente.
 
 Para conectar o Consulta ISP, use `CHAT_BULLQ_URL=http://127.0.0.1:3002` e copie
 localmente `PLATFORM_API_KEY` do arquivo privado para `CHAT_BULLQ_PLATFORM_KEY`.

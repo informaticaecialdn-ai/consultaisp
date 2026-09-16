@@ -28,6 +28,20 @@ const executavel = (fonte: string) => fonte.replace(/\/\*[\s\S]*?\*\//g, "").rep
 
 const fonte = executavel(ler("Atendimento.tsx"));
 
+describe("WhatsApp permanece como compositor principal", () => {
+  it("ações de SMS e e-mail abrem diálogos sem trocar o canal do compositor", () => {
+    const complementar = executavel(ler("MulticanalDaConversa.tsx"));
+    expect(fonte).not.toContain("setCanal");
+    expect(fonte).not.toContain('aria-label="Canal de envio"');
+    expect(fonte).toContain('aria-label="Ações complementares da conversa"');
+    expect(fonte).toContain('data-testid="chat-enviar"');
+    expect(fonte).toContain("WhatsApp do provedor · atendimento humano");
+    expect(complementar).toContain("<Dialog open={aberto} onOpenChange={setAberto}>");
+    expect(complementar).toContain('data-testid={`chat-abrir-${canal}`}');
+    expect(complementar).toContain('data-testid={`chat-dialogo-${canal}`}');
+  });
+});
+
 describe("encerrar passa pelo follow-up", () => {
   it("o diálogo existe, com ação e data obrigatórias e os chips das ações comuns", () => {
     expect(fonte).toContain('data-testid="dialogo-followup-chat"');
@@ -157,7 +171,7 @@ describe("a janela de 24 h do WhatsApp é honesta", () => {
 
   it("o cabeçalho escreve os três estados, com o motivo no title", () => {
     expect(fonte).toContain('data-testid="chat-janela"');
-    expect(fonte).toContain("const janela = janelaDaConversa(mensagens)");
+    expect(fonte).toContain("const janela = janelaDaConversa(mensagensWhatsapp)");
     expect(fonte).toContain("title={janela?.motivo ?? MOTIVO_JANELA_DESCONHECIDA}");
     expect(fonte).toContain('"janela —"');
     expect(fonte).toContain('"janela aberta · 24h"');

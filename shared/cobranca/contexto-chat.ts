@@ -23,6 +23,8 @@ export interface ContextoDoChat {
     uf: string | null;
     cep: string | null;
     statusContrato: string;
+    /** Carteira segundo o status lido nesta consulta. Null = status desconhecido; não autoriza escolher um agente. */
+    carteira?: "ativo" | "ex_cliente" | null;
     clienteDesde: string | null;
     plano: string | null;
     mensalidade: number | null;
@@ -52,6 +54,8 @@ export interface ContextoDoChat {
     /** Quando o ERP foi consultado nesta chamada — não é a data do valor exibido. Para isso, `lidoEm`. */
     atualizadoEm: string;
     status: "disponivel" | "parcial" | "indisponivel";
+    /** Status contratual reconhecido e lido no ERP nesta consulta; a carteira da base não basta para atendimento autônomo. */
+    carteiraAoVivo?: boolean;
     mensagem: string | null;
     /**
      * `true` só quando `cliente.divida`, `cliente.diasAtraso` e `faturas` saíram

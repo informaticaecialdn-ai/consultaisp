@@ -27,6 +27,13 @@ beforeEach(() => {
   ponte.enviarRecuperacaoParaChat.mockResolvedValue({ conversationId: "c2", enviado: true });
 });
 describe("agenda de primeiros contatos", () => {
+  it("executa candidato depois de 200 bloqueados sem contatar os vulneráveis", async () => {
+    fake.candidatosAoPrimeiroContato
+      .mockResolvedValueOnce({ cobranca: Array.from({ length: 200 }, (_, i) => ({ id: i + 1, carteira: "ativo", diasAtraso: 12, tom: "humanizado_vulneravel" })), equipamentos: [], proximoId: 200 })
+      .mockResolvedValueOnce({ cobranca: [{ id: 201, carteira: "ativo", diasAtraso: 12 }], equipamentos: [], proximoId: null });
+    await executarPrimeirosContatos(duranteExpediente);
+    expect(ponte.enviarCasoParaCobranca).toHaveBeenCalledExactlyOnceWith(6, 201, 3);
+  });
   it("pré-aviso usa o mesmo teto diário e exige opção explícita", async () => {
     await executarPrimeirosContatos(duranteExpediente);
     expect(pre.executarPreAviso).not.toHaveBeenCalled();

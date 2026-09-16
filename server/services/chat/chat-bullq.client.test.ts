@@ -260,6 +260,11 @@ describe("sessao", () => {
 });
 
 describe("buscarConversaPorTelefone", () => {
+  it("resposta inválida não vira ausência de conversa e não autoriza abertura duplicada", async () => {
+    const s = servidorComSessao();
+    s.quando("GET", "/conversations", () => ({ corpo: { data: { unexpected: true } } }));
+    expect((await cliente(s).buscarConversaPorTelefone(ORG, TELEFONE)).ok).toBe(false);
+  });
   it("casa o telefone com e sem 55 e devolve a mais recente por lastMessageAt", async () => {
     const s = servidorComSessao();
     s.quando("GET", "/conversations", () => ({
@@ -328,6 +333,12 @@ describe("iniciarConversa e enviarTexto", () => {
 
     expect(r).toEqual({ ok: true, valor: { messageId: "msg-2", status: "QUEUED" } });
     expect(s.de("/messages")[0].corpo).toEqual({ conversationId: "conv-1", type: "TEXT", content: { text: "Segunda via em anexo." } });
+  });
+
+  it("resposta inválida de mensagens não vira histórico vazio", async () => {
+    const s = servidorComSessao();
+    s.quando("GET", "/messages", () => ({ corpo: { data: { unexpected: true } } }));
+    expect((await cliente(s).listarMensagens(ORG, "conv-1")).ok).toBe(false);
   });
 
   it("listarMensagens aceita o envelope e o array cru", async () => {

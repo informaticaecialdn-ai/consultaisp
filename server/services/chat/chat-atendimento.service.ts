@@ -1,3 +1,4 @@
+import { comOrcamentoContato } from "../cobranca/gestao-operacional.service";
 /**
  * O atendimento humano dentro do modulo: assumir, responder, encerrar, e a
  * chegada da resposta do cliente quando o assistente nao a tratou.
@@ -29,6 +30,8 @@ import { casoFechado } from "@shared/cobranca/estados";
 import { comTravaDoChat } from "./chat-trava";
 import { autonomiaStorage } from "../../storage/chat-autonomia.storage";
 import type { ChatBullqConversa } from "@shared/schema";
+import type { DiagnosticoDoChat } from "@shared/chat-diagnostico";
+import { EstadoDaConexaoWhatsappSchema } from "@shared/chat-whatsapp";
 
 /** O que o caso ganha quando o cliente escreve e ninguem respondeu ainda. */
 export const ACAO_AO_RECEBER_MENSAGEM = "Responder no chat";
@@ -180,6 +183,34 @@ async function casoVivoDaConversa(providerId: number, vinculo: ChatBullqConversa
 }
 
 /* ── Leitura ───────────────────────────────────────────────────────── */
+
+/** A fila local não prova que o transporte está disponível. Só consulta; nunca pareia nem envia. */
+export async function diagnosticoDoAtendimento(providerId: number): Promise<DiagnosticoDoChat> {
+  const cliente = clienteDoChat();
+  const base = { servicoDisponivel: null, canalConfigurado: false, estadoCanal: null };
+  if (!cliente) return { ...base, codigo: "CHAT_DESLIGADO", mensagem: "O serviço de conversas não está configurado nesta instalação. Solicite a configuração ao administrador." };
+  const integracao = await storage.getIntegracaoDoChat(providerId);
+  if (!integracao || integracao.providerId !== providerId) return { ...base, codigo: "SEM_CONFIGURACAO", mensagem: "Configure o WhatsApp do provedor no Painel do Provedor para iniciar os atendimentos." };
+  const canais = await cliente.listarCanais(integracao.organizationId);
+  const configurado = { ...base, canalConfigurado: !!integracao.canalId };
+  if (!canais.ok) return {
+    ...configurado, servicoDisponivel: false,
+    codigo: canais.status === 401 || canais.status === 403 || canais.status === 404 ? "ACESSO_RECUSADO" : "SERVICO_INDISPONIVEL",
+    mensagem: canais.status === 401 || canais.status === 403 || canais.status === 404
+      ? "O serviço de conversas recusou o acesso do provedor. O administrador precisa revisar a integração."
+      : "O serviço de conversas está indisponível. O histórico local continua listado, mas novas mensagens não podem ser consultadas ou enviadas.",
+  };
+  if (!Array.isArray(canais.valor)) return { ...configurado, servicoDisponivel: true, codigo: "RESPOSTA_INVALIDA", mensagem: "O serviço de conversas devolveu uma resposta inválida. Tente verificar novamente." };
+  const canal = canais.valor.find(c => c?.id === integracao.canalId);
+  if (!canal) return { ...base, servicoDisponivel: true, codigo: "SEM_CANAL", mensagem: "O provedor ainda não tem um canal de WhatsApp disponível. Configure o canal no Painel do Provedor." };
+  const disponivel = { ...configurado, canalConfigurado: true, servicoDisponivel: true };
+  if (!canal.isActive) return { ...disponivel, codigo: "CANAL_INATIVO", mensagem: "O canal de WhatsApp está inativo. Revise a conexão no Painel do Provedor." };
+  const remoto = await cliente.estadoDaConexaoWhatsapp(integracao.organizationId, canal.id);
+  const estado = remoto.ok ? EstadoDaConexaoWhatsappSchema.safeParse(remoto.valor) : null;
+  if (!estado?.success || estado.data.status === "unknown") return { ...disponivel, codigo: "CONEXAO_NAO_CONFIRMADA", mensagem: "O serviço está disponível, mas não foi possível confirmar a conexão do WhatsApp. Verifique a instância e as credenciais no Painel do Provedor." };
+  if (!estado.data.connected || !estado.data.loggedIn) return { ...disponivel, estadoCanal: estado.data.status, codigo: "AGUARDANDO_CONEXAO", mensagem: "O WhatsApp não está conectado. Conclua o pareamento no Painel do Provedor para receber e enviar mensagens." };
+  return { ...disponivel, estadoCanal: estado.data.status, codigo: "PRONTO", mensagem: "Serviço de conversas disponível e WhatsApp conectado." };
+}
 
 export async function detalheDoAtendimento(
   providerId: number,
@@ -352,7 +383,7 @@ async function acaoNaConversaSobTrava(
   valor(await cliente.desligarIa(org, conversationId));
   if (acao.acao === "enviar") {
     const enviada = valor(
-      await cliente.enviarTexto(org, conversationId, acao.texto.trim()),
+      await comOrcamentoContato(providerId, vinculo.customerId, "whatsapp", false, () => cliente.enviarTexto(org, conversationId, acao.texto.trim())),
     );
     await storage.atualizarConversaDoChat(providerId, conversationId, {});
     await storage.registrarEventoDoChat(

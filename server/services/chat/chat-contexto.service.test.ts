@@ -9,7 +9,7 @@ import { contextoDoAtendimento, segundaViaDoAtendimento } from "./chat-contexto.
 const cliente = { id: 42, nome: "Maria", documento: "12345678909", telefone: "0000000000", endereco: "Rua Exemplo", numero: "100", statusContrato: "active", credito: 600, risco: "low", divida: "200", diasAtraso: 20 };
 beforeEach(() => {
   vi.resetAllMocks();
-  fake.getConversaDoChat.mockResolvedValue({ customerId: 42 });
+  fake.getConversaDoChat.mockResolvedValue({ providerId: 6, conversationId: "c1", customerId: 42 });
   fake.clienteDoAtendimento.mockResolvedValue(cliente);
   fake.contextoFinanceiroDoChat.mockResolvedValue({ faturas: [], temMaisFaturas: false, pagamentos: { pagas: 4, comData: 2, pontuais: 1 }, contrato: null, ordens: [] });
   fake.getErpIntegrations.mockResolvedValue([{ providerId: 6, erpSource: "sgp", isEnabled: true }]);
@@ -17,6 +17,36 @@ beforeEach(() => {
   erp.segundaVia.mockResolvedValue({ link: "https://erp.example/b/123", pix: null, linhaDigitavel: null, valor: 102, vencimento: "2026-09-10" });
 });
 describe("ficha financeira dentro do chat", () => {
+  it.each([
+    ["active", "ativo"], ["suspended", "ativo"], ["cancelled", "ex_cliente"], ["inactive", "ex_cliente"], ["desconhecido", null],
+  ])("status atual %s informa carteira %s sem transformar desconhecido em ex-cliente", async (statusContrato, carteira) => {
+    fake.clienteDoAtendimento.mockResolvedValue({ ...cliente, statusContrato: "active" });
+    erp.snapshot.mockResolvedValue({ ok: true, erpSource: "sgp", lidoEm: "2026-09-06T12:00:00Z", cliente: { statusContrato, dividaAtual: 100, diasAtraso: 10, faturas: [] } });
+    expect((await contextoDoAtendimento(6, "c1")).cliente).toMatchObject({ statusContrato, carteira });
+  });
+  it("financeiro malformado não vira leitura ao vivo autorizada para o agente", async () => {
+    erp.snapshot.mockResolvedValue({ ok: true, erpSource: "sgp", lidoEm: "2026-09-06T12:00:00Z", cliente: { dividaAtual: NaN, diasAtraso: 10, faturas: [{ ref: "123", valor: 100, vencimento: "2026-09-01" }] } });
+    const r = await contextoDoAtendimento(6, "c1");
+    expect(r.erp.financeiroAoVivo).toBe(false);
+    expect(r.cliente.divida).toBe(200);
+  });
+  it("nega vínculo inconsistente de conversa antes de ler dados do cliente", async () => {
+    fake.getConversaDoChat.mockResolvedValue({ providerId: 7, conversationId: "c1", customerId: 42 });
+    await expect(contextoDoAtendimento(6, "c1")).rejects.toMatchObject({ codigo: "CASO_NAO_ENCONTRADO" });
+    expect(fake.clienteDoAtendimento).not.toHaveBeenCalled();
+    expect(erp.snapshot).not.toHaveBeenCalled();
+  });
+  it("nega cliente diferente do vínculo antes de ler financeiro ou ERP", async () => {
+    fake.clienteDoAtendimento.mockResolvedValue({ ...cliente, id: 43 });
+    await expect(contextoDoAtendimento(6, "c1")).rejects.toMatchObject({ codigo: "CASO_NAO_ENCONTRADO" });
+    expect(fake.contextoFinanceiroDoChat).not.toHaveBeenCalled();
+    expect(erp.snapshot).not.toHaveBeenCalled();
+  });
+  it("não busca segunda via com credencial de outro provedor", async () => {
+    fake.getErpIntegrations.mockResolvedValue([{ providerId: 7, erpSource: "sgp", isEnabled: true }]);
+    await expect(segundaViaDoAtendimento(6, "c1", "123")).rejects.toMatchObject({ codigo: "CONFLITO" });
+    expect(erp.segundaVia).not.toHaveBeenCalled();
+  });
   it("usa cadastro da conversa e apenas pagamentos confirmados com data na taxa", async () => {
     const r = await contextoDoAtendimento(6, "c1");
     expect(fake.clienteDoAtendimento).toHaveBeenCalledWith(6, 42);

@@ -15,6 +15,7 @@
  * zero no lugar de "não sei".
  */
 import { useEffect, useState } from "react";
+import type { DiagnosticoDoChat } from "@shared/chat-diagnostico";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { MessageCircle, MessageSquare, MessageSquarePlus, Plug, Search, ArrowLeft } from "lucide-react";
@@ -187,7 +188,7 @@ function LinhaDaConversa({
  * onde a tela navega em seguida.
  */
 export const MOTIVO_CHAT_DESLIGADO =
-  "Esta instalação não tem o Chat BullQ configurado (CHAT_BULLQ_URL). Nenhuma conversa sai daqui enquanto isso.";
+  "O serviço de conversas não está configurado nesta instalação. Solicite a configuração ao administrador.";
 export const MOTIVO_SEM_CANAL =
   "O WhatsApp do provedor ainda não está conectado: sem um número pareado, não há de onde mandar a mensagem.";
 
@@ -340,6 +341,12 @@ export default function ChatOperacional() {
     queryFn: async () => (await apiRequest("GET", url)).json(),
     refetchInterval: 10000,
   });
+  const transporte = useQuery<DiagnosticoDoChat>({
+    queryKey: [`${API_CHAT_BULLQ}/integracao/diagnostico`],
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: false,
+  });
   const esqueleto = useSkeletonAtrasado(fila.isPending);
   return (
     <main
@@ -371,6 +378,18 @@ export default function ChatOperacional() {
         </div>
 
       </header>
+      {(transporte.isError || (transporte.data && transporte.data.codigo !== "PRONTO")) && (
+        <div role="status" className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--gated-border)] bg-[var(--gated-bg)] px-4 py-2 text-xs text-[var(--text-2)]" data-testid="chat-diagnostico-transporte">
+          <Plug aria-hidden className="h-4 w-4 shrink-0 text-[var(--gated)]" />
+          <p className="min-w-0 flex-1">
+            {transporte.isError ? "Não foi possível verificar a conexão do chat. O estado do serviço ainda não foi confirmado." : transporte.data?.mensagem}
+          </p>
+          <button type="button" className={cn(ALVO_TEXTO, FOCO, DESABILITAVEL, "rounded underline")} disabled={transporte.isFetching} onClick={() => transporte.refetch()}>
+            {transporte.isFetching ? "Verificando…" : "Verificar novamente"}
+          </button>
+          <Link href="/painel-provedor?tab=chat" className={cn(LINK_CHAT, "text-xs")}>Configurar WhatsApp →</Link>
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 overflow-hidden bg-[var(--surface)]">
         <aside
           className={cn(
@@ -431,7 +450,7 @@ export default function ChatOperacional() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             {fila.isError ? (
               <p className="p-4 text-sm text-[var(--danger)]" role="alert">
-                Não foi possível carregar a fila.{" "}
+                Não foi possível carregar a fila. {mensagemDoErro(fila.error)}{" "}
                 <button
                   type="button"
                   onClick={() => fila.refetch()}

@@ -222,7 +222,7 @@ export function AutomacaoPrimeiroContato({
             <input
               type="number"
               min={1}
-              max={100}
+              max={10000}
               value={config.limiteDiario}
               onChange={(e) =>
                 setConfig((c) => ({

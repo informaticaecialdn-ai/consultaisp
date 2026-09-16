@@ -76,6 +76,8 @@ import {
   PerfilDoCliente,
 } from "./PerfilDoCliente";
 import { PagamentosDoChat } from "./PagamentosDoChat";
+import { MulticanalDaConversa, ReforcosDaConversa, useMulticanalDaConversa } from "./MulticanalDaConversa";
+import { unirHistorico } from "./multicanal";
 import { DialogoNegociacao } from "@/components/cobranca/DialogoNegociacao";
 import { lerPolitica } from "@/components/cobranca/politica-form";
 import { API_POLITICA } from "@/components/cobranca/tipos";
@@ -402,6 +404,7 @@ export function Atendimento({
   const pertoDoFim = useRef(true);
   const url = `${API_ATENDIMENTOS}/${encodeURIComponent(conversationId)}`;
   const escopo = new URLSearchParams({ origem, ...(carteira ? { carteira } : {}) }).toString();
+  const multicanal = useMulticanalDaConversa(url, escopo);
   const contexto = useQuery<ContextoDoChat>({
     queryKey: [`${url}/contexto?${escopo}`],
     queryFn: async () => {
@@ -461,7 +464,7 @@ export function Atendimento({
         : null,
     [dados?.cobranca?.id, dados?.cobranca?.valor, dados?.cliente?.nome],
   );
-  const mensagens = Array.from(
+  const mensagensWhatsapp = Array.from(
     new Map(
       (query.data?.pages.flatMap((p) => p.mensagens) ?? []).map((m) => [
         m.id,
@@ -469,6 +472,7 @@ export function Atendimento({
       ]),
     ).values(),
   ).sort((a, b) => a.em.localeCompare(b.em));
+  const mensagens = unirHistorico(mensagensWhatsapp, multicanal.data?.mensagens ?? []);
   const ultima = mensagens.at(-1)?.id;
   useEffect(() => {
     const elemento = historico.current;
@@ -582,7 +586,7 @@ export function Atendimento({
   // A janela de 24 h do WhatsApp sai do que o servidor mandou (direção + instante
   // de cada mensagem). Sem recebimento no histórico carregado ela é DESCONHECIDA,
   // e o cabeçalho escreve "janela —" com o porquê no title.
-  const janela = janelaDaConversa(mensagens);
+  const janela = janelaDaConversa(mensagensWhatsapp);
   const pedirEncerrar = () => {
     // Sem caso de cobrança ou caso fechado não há onde gravar o follow-up: encerra direto.
     if (encerrarDispensaFollowUp(c)) acao.mutate({ acao: "encerrar" });
@@ -664,7 +668,7 @@ export function Atendimento({
           <button
             type="button"
             className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE)}
-            onClick={() => query.refetch()}
+            onClick={() => { query.refetch(); multicanal.refetch(); }}
             aria-label="Atualizar mensagens"
           >
             <RefreshCw
@@ -783,6 +787,7 @@ export function Atendimento({
               novoDia ||
               !anterior ||
               anterior.direcao !== m.direcao ||
+              anterior.canal !== m.canal ||
               (anterior.quem ?? "") !== (m.quem ?? "") ||
               !dentroDaJanelaDeGrupo(anterior.em, m.em);
             const autor = m.quem ?? (meu ? "Provedor" : nomeDoCliente);
@@ -812,9 +817,10 @@ export function Atendimento({
                 >
                   {novoGrupo && (
                     <p className="mb-0.5 text-[10px] font-semibold text-[var(--text-2)]">
-                      {autor}
+                      {autor} · {m.canal === "whatsapp" ? "WhatsApp" : m.canal === "sms" ? "SMS" : "E-mail"}
                     </p>
                   )}
+                  {m.assunto && <p className="mb-1 text-xs font-semibold">{m.assunto}</p>}
                   <p className="whitespace-pre-wrap break-words">
                     {m.texto ||
                       (m.tipo === "TEMPLATE"
@@ -897,6 +903,13 @@ export function Atendimento({
               </button>
             </p>
           )}
+          {multicanal.isError && <p role="alert" className="text-xs text-[var(--gated)]">Não foi possível atualizar SMS e e-mail. O histórico destes canais pode estar incompleto.</p>}
+          {multicanal.data && <ReforcosDaConversa key={`${conversationId}:${escopo}`} url={url} escopo={escopo} dados={multicanal.data} />}
+          {emAtendimento && <div className="flex flex-wrap items-center gap-3" aria-label="Ações complementares da conversa">
+            {(["sms", "email"] as const).map((opcao) => (
+              <MulticanalDaConversa key={`${conversationId}:${escopo}:${opcao}`} url={url} escopo={escopo} canal={opcao} dados={multicanal.data} bloqueado={multicanal.isError || query.isError} />
+            ))}
+          </div>}
           {!emAtendimento ? (
             <p className="text-xs text-[var(--text-muted)]">
               {dados.conversa.status === "WAITING"

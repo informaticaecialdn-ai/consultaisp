@@ -30,6 +30,7 @@ import { AbaExecucoes, AbaResumo } from "@/components/agentes/AbaExecucoes";
 import { AgentesDoChat } from "@/components/chat/AgentesDoChat";
 import { AutomacaoPrimeiroContato } from "@/components/chat/AutomacaoPrimeiroContato";
 import { AutonomiaDoChat } from "@/components/chat/AutonomiaDoChat";
+import { OperacaoDaCobranca } from "@/components/chat/OperacaoDaCobranca";
 import { ABAS_DO_CONSOLE, abaValida, ROTA_AGENTES, type AbaDoConsole } from "@/components/agentes/tipos";
 
 interface EstadoDaIntegracao { ligado?: boolean; canal?: { id: string } | null }
@@ -95,6 +96,7 @@ export function AbaAgentesDeIa({ podeAdministrar }: { podeAdministrar: boolean }
       {aba === "resumo" && <AbaResumo />}
       {aba === "cobranca" && (
         <div className="space-y-4" data-testid="console-operacao-cobranca">
+          <OperacaoDaCobranca podeAdministrar={podeAdministrar} />
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
             <h3 className="text-sm font-semibold">Da régua ao atendimento</h3>
             <ol className="mt-2 grid gap-3 text-xs leading-5 text-[var(--text-2)] md:grid-cols-3">

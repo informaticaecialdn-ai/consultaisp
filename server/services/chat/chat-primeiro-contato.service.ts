@@ -4,7 +4,8 @@ import {
   lerAutomacaoChat,
   janelaDoChat,
 } from "@shared/cobranca/automacao-chat";
-import { orientarContato } from "@shared/cobranca/contato";
+import { avaliarCandidatoAoContato } from "@shared/cobranca/elegibilidade-chat";
+import { listarCandidatosDoChat } from "./chat-elegibilidade.service";
 import { resolverEtapas } from "@shared/cobranca/regua";
 import {
   enviarCasoParaCobranca,
@@ -50,7 +51,7 @@ export async function executarPrimeirosContatos(
           (await usadosNoDia()),
       );
       if (restantes <= 0) return;
-      const candidatos = await storage.candidatosAoPrimeiroContato(
+      const candidatos = await listarCandidatosDoChat(
         intg.providerId,
       );
       const etapas = resolverEtapas(politica);
@@ -65,14 +66,7 @@ export async function executarPrimeirosContatos(
           ? candidatos.cobranca
               .filter(
                 (c) =>
-                  automacao.carteiras.some(
-                    (carteira) => carteira === c.carteira,
-                  ) &&
-                  orientarContato({
-                    ...c,
-                    diasAtraso: c.diasAtraso ?? 0,
-                    etapas,
-                  }).automatizavel,
+                  avaliarCandidatoAoContato(c, automacao.carteiras, etapas, agora).elegivel,
               )
               .map((c) => ({ origem: "cobranca" as const, carteira: c.carteira,
                 executar: () => enviarCasoParaCobranca(intg.providerId, c.id, userId) }))

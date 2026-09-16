@@ -79,6 +79,13 @@ describe("agentes de primeiro contato", () => {
     expect(d).toEqual({ texto: "Olá, sou o assistente virtual de NsLink. Posso falar com Maria?", agenteId: "a-0", modelo: null, runId: null, modo: "abertura_controlada" });
     expect(client.prepararPrimeiroContato).not.toHaveBeenCalled();
   });
+  it.each(["cobranca_ex_clientes", "recuperacao_equipamentos"] as const)("%s inicia sem expor a relação anterior nem executar o modelo", async (tipo) => {
+    await configurarAgenteDoChat(6, tipo, { modelo: "sakana/modelo-real", instrucoes: "Diga que deve R$ 400", habilitado: true });
+    await provisionarAgenteDoChat(6, tipo);
+    const r = await prepararPrimeiroContatoDoAgente(6, tipo, { nomeCliente: "Maria Silva", nomeProvedor: "NsLink", orientacao: "Cobrar R$ 400 de contrato encerrado" });
+    expect(r).toMatchObject({ texto: "Olá, sou o assistente virtual de NsLink. Posso falar com Maria?", modo: "abertura_controlada", modelo: null, runId: null });
+    expect(client.prepararPrimeiroContato).not.toHaveBeenCalled();
+  });
   it("recusa provedor divergente e concorrência", async () => {
     await expect(configurarAgenteDoChat(7, "cobranca_ativos", { modelo: null, instrucoes: "", habilitado: false })).rejects.toThrow();
     fake.comTrava = false;
@@ -108,6 +115,32 @@ describe("agentes de primeiro contato", () => {
 
 describe("paridade de configuração com o AiAgent do fork", () => {
   const completo = { modelo: "sakana/modelo-real", instrucoes: "Seja breve", habilitado: true, descricao: "Assistente da NsLink", contextoOperacional: "Hoje: instabilidade no Centro até as 18h.", temperatura: 0.2, maxTokens: 400 };
+  it("campos omitidos preservam a personalização; vazio explícito a limpa", async () => {
+    await configurarAgenteDoChat(6, "cobranca_ativos", completo);
+    await provisionarAgenteDoChat(6, "cobranca_ativos");
+    const preservado = await configurarAgenteDoChat(6, "cobranca_ativos", { modelo: completo.modelo });
+    expect(preservado).toMatchObject({ ...completo, etapa: "pronto" });
+    const limpo = await configurarAgenteDoChat(6, "cobranca_ativos", { modelo: completo.modelo, contextoOperacional: "", instrucoes: "" });
+    expect(limpo).toMatchObject({ descricao: completo.descricao, contextoOperacional: "", instrucoes: "", etapa: "configurado" });
+  });
+  it("reaplicar uma carteira preserva perfis e preferências das outras", async () => {
+    await configurarAgenteDoChat(6, "cobranca_ex_clientes", { ...completo, instrucoes: "Preferência própria de ex-clientes" });
+    const antes = (await listarAgentesDoChat(6)).agentes[1];
+    await configurarAgenteDoChat(6, "cobranca_ativos", completo);
+    await provisionarAgenteDoChat(6, "cobranca_ativos");
+    expect((await listarAgentesDoChat(6)).agentes[1]).toEqual(antes);
+  });
+  it("prompt efetivo separa regularização de ativos da recuperação de contrato encerrado", () => {
+    const ativo = promptDePrimeiroContato("cobranca_ativos", "NsLink", "Minha preferência");
+    const ex = promptDePrimeiroContato("cobranca_ex_clientes", "NsLink", "Minha preferência");
+    expect(ativo).toContain("regularizar a pendência e preservar o vínculo");
+    expect(ex).toContain("recuperar a dívida de contrato encerrado");
+    expect(ex).toContain("Não ofereça boas-vindas, retenção, reativação, suspensão ou corte");
+    expect(ex).toContain("identidadeConfirmada");
+    expect(ex).toContain("humano assumiu");
+    expect(ex).toContain("allowedActions");
+    expect(ex).toContain("Minha preferência");
+  });
   it("grava descrição e contexto operacional e os manda ao fork com os nomes do CreateAgentDto", async () => {
     const salvo = await configurarAgenteDoChat(6, "cobranca_ativos", completo);
     expect(salvo).toMatchObject({ descricao: "Assistente da NsLink", contextoOperacional: "Hoje: instabilidade no Centro até as 18h.", etapa: "configurado" });
