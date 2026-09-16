@@ -125,7 +125,8 @@ export async function executarComunicacoes(agora=new Date()) {
           const canalEnvio=vigente.canal;
           const r=await contatoComResultado(()=>comOrcamentoContato(providerId,aviso.customerId,canalEnvio,true,()=>enviarComunicacaoCobranca(providerId,{canal:canalEnvio,destinatario:destinoFinal,assunto:`Faturas · ${nome}`,texto,idempotencyKey:`cisp:${providerId}:${id}`}),`diario:${id}`));
           await diario.concluirComunicacao(providerId,id,r);
-          await fila.concluirPreAviso(providerId,aviso.id,{status:r.status==='enviado'?'enviado':r.status==='incerto'?'incerto':'ignorado',messageId:r.providerMessageId,motivo:r.motivo??'Mensagem aceita pelo fornecedor; entrega não confirmada'});
+          // Bloqueio anterior ao transporte não tem id do fornecedor: nada saiu.
+          await fila.concluirPreAviso(providerId,aviso.id,{status:r.status==='enviado'?'enviado':r.status==='incerto'?'incerto':'ignorado',messageId:'providerMessageId' in r?r.providerMessageId:undefined,motivo:r.motivo??'Mensagem aceita pelo fornecedor; entrega não confirmada'});
           vagas--;
         }
       }

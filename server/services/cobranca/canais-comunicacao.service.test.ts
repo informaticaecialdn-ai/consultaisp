@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 const mocks = vi.hoisted(() => ({ query: vi.fn(), connect: vi.fn(), release: vi.fn(), fetch: vi.fn() }));
 vi.mock("../../db", () => ({ pool: mocks }));
 import { encryptField, decryptField } from "../../utils/crypto";
-import { enviarComunicacaoCobranca, obterConfiguracaoCanais, salvarConfiguracaoCanais } from "./canais-comunicacao.service";
+import { enviarComunicacaoCobranca, MOTIVO_DEMO_NAO_ENVIA, obterConfiguracaoCanais, salvarConfiguracaoCanais } from "./canais-comunicacao.service";
 import type { ConfiguracaoCanais, MensagemCobranca } from "@shared/cobranca/canais-comunicacao";
 
 const config = (): ConfiguracaoCanais => ({
@@ -73,6 +73,18 @@ describe("transportes de cobrança por provedor", () => {
   it("200 sem ID é incerto", async () => {
     mocks.fetch.mockResolvedValue(new Response("{}", { status: 200 }));
     expect((await enviarComunicacaoCobranca(9, mensagem())).status).toBe("incerto");
+  });
+  it("demonstração não chama Twilio nem Resend: falha com motivo claro e nenhum fetch; fora dela o mesmo envio sai", async () => {
+    vi.stubEnv("DEMO_MODE", "true");
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ id: "nunca-deveria-sair" })));
+    for (const canal of ["email", "sms"] as const) {
+      expect(await enviarComunicacaoCobranca(9, mensagem(canal), { html: "<p>x</p>" })).toEqual({ status: "falhou", motivo: MOTIVO_DEMO_NAO_ENVIA });
+    }
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    // O outro lado: só a variável separa a demonstração da produção; com ela desligada o transporte fala com o fornecedor.
+    vi.stubEnv("DEMO_MODE", "false");
+    expect((await enviarComunicacaoCobranca(9, mensagem())).status).toBe("enviado");
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
   });
   it("rejeita destino/canal desativado antes de qualquer requisição", async () => {
     expect((await enviarComunicacaoCobranca(9, { ...mensagem("sms"), destinatario: "11999999999" })).status).toBe("falhou");

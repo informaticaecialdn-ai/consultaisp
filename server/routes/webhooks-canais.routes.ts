@@ -2,9 +2,39 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Express } from "express";
 import { Resend } from "resend";
 import { z } from "zod";
-import { createRateLimiter } from "../middleware/rate-limiter.middleware";
+import { chaveDoLimite, createRateLimiter } from "../middleware/rate-limiter.middleware";
+import { emModoDemo } from "../demo/modo-demo";
 import { obterConfiguracaoCanaisInterna } from "../services/cobranca/canais-comunicacao.service";
 import { persistirRetornoMulticanal } from "../services/chat/chat-multicanal.service";
+
+/**
+ * Quem paga a cota dos retornos: o PROVEDOR da URL — e, por cima, o IP.
+ *
+ * Twilio e Resend chamam de poucos IPs, compartilhados por todos os provedores.
+ * Com só o balde por IP (120/min), um tenant movimentado gastava a cota dos
+ * outros e a resposta de um cliente por SMS voltava 429 — e resposta perdida
+ * não volta. Chavear pelo provedor só depois de validar o inteiro: lixo de URL
+ * (`abc`, `0`, `1.5`) cai no balde do IP em vez de abrir um balde novo a cada
+ * variação.
+ *
+ * Só o balde por provedor, porém, tirou o teto por IP num endpoint público
+ * cujo `providerId` quem manda é o remetente: um IP rotacionando o inteiro
+ * abria um balde novo de 600/min a cada id, e cada requisição pagava uma
+ * leitura em cobranca_canais_config (SELECT + decifrar) antes do 401. Por isso
+ * os DOIS limitadores encadeados (`registerWebhooksCanaisRoutes`): o do IP com
+ * teto alto o bastante para um fornecedor entregar os retornos de todos os
+ * tenants, o do provedor com a cota dele. Contar só falhas de assinatura por
+ * IP seria mais fino, mas exigiria um contador em cada recusa dos dois
+ * handlers; fica como evolução.
+ */
+export function chaveDoWebhookDeCanal(req: import("express").Request): string {
+  const providerId = Number(req.params.providerId);
+  return Number.isSafeInteger(providerId) && providerId > 0 ? `webhook-canal:${providerId}` : chaveDoLimite(req);
+}
+/** Por provedor: a cota de UM tenant, não a soma de todos. */
+export const LIMITE_POR_PROVEDOR_DOS_WEBHOOKS = 600;
+/** Por IP: cinco tenants movimentados no mesmo IP da Twilio ainda cabem; um só IP variando a URL não passa disso. */
+export const LIMITE_POR_IP_DOS_WEBHOOKS = 3000;
 
 /** Twilio signs the exact configured URL plus every alphabetically sorted form parameter. */
 export function verificarAssinaturaSms(url: string, parametros: Record<string, string>, token: string, assinatura: string): boolean {
@@ -27,6 +57,10 @@ const EmailRecebidoSchema = z.object({
 });
 /** Fixed host, bounded stream, no redirects or attachment downloads. */
 export async function buscarEmailRecebido(id: string, apiKey: string): Promise<z.infer<typeof EmailRecebidoSchema>> {
+  // A demonstração não fala com o Resend: a chave gravada lá é falsa e a
+  // consulta sairia para a rede. Recusar antes do fetch vira 503 no handler —
+  // sem canal de recebimento real configurado, nenhum evento legítimo chega aqui.
+  if (emModoDemo()) throw new Error("Demonstração não consulta o fornecedor de e-mail");
   const resposta = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(id)}?html_format=cid`, {
     headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(15000), redirect: "error",
   });
@@ -47,8 +81,10 @@ export async function buscarEmailRecebido(id: string, apiKey: string): Promise<z
 }
 
 export function registerWebhooksCanaisRoutes(app: Express): void {
-  const limite = createRateLimiter({ windowMs: 60000, maxRequests: 120 });
-  app.post("/api/webhooks/canais/sms/:providerId", limite, async (req, res) => {
+  // Dois baldes, o do IP primeiro: sem sessão a chave padrão é o IP — ver `chaveDoWebhookDeCanal`.
+  const limitePorIp = createRateLimiter({ windowMs: 60000, maxRequests: LIMITE_POR_IP_DOS_WEBHOOKS });
+  const limitePorProvedor = createRateLimiter({ windowMs: 60000, maxRequests: LIMITE_POR_PROVEDOR_DOS_WEBHOOKS, chave: chaveDoWebhookDeCanal });
+  app.post("/api/webhooks/canais/sms/:providerId", limitePorIp, limitePorProvedor, async (req, res) => {
     const providerId = Number(req.params.providerId);
     if (!Number.isSafeInteger(providerId) || providerId <= 0) return res.sendStatus(401);
     try {
@@ -61,7 +97,7 @@ export function registerWebhooksCanaisRoutes(app: Express): void {
       return res.type("text/xml").send("<Response></Response>");
     } catch { return res.sendStatus(503); }
   });
-  app.post("/api/webhooks/canais/email/:providerId", limite, async (req, res) => {
+  app.post("/api/webhooks/canais/email/:providerId", limitePorIp, limitePorProvedor, async (req, res) => {
     const providerId = Number(req.params.providerId);
     if (!Number.isSafeInteger(providerId) || providerId <= 0) return res.sendStatus(401);
     try {

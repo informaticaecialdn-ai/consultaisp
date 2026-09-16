@@ -9,10 +9,20 @@ import { conectarPresencaDoChat } from "./services/chat/chat-worker-presenca";
 import { listarCandidatosDoChat } from "./services/chat/chat-elegibilidade.service";
 import { executarComunicacoes } from "./services/cobranca/comunicacao.service";
 import { executarReforcosMulticanal } from "./services/chat/chat-multicanal.service";
+import { emModoDemo } from "./demo/modo-demo";
 
 /** Processo dedicado ao chat. Ensaio não chama transportes nem consome a fila. */
 async function main() {
   const modo = process.argv.includes("--enviar") ? "envio" : "ensaio";
+  // A demonstração não envia nada: o transporte já recusa, mas um motor de envio
+  // rodando contra o sandbox só produziria falhas em série no diário e na fila
+  // do WhatsApp. Recusa antes de tocar o banco, com saída 0 — não é erro, é o
+  // ambiente errado. O ensaio (sem --enviar) segue: ele só lê a fila.
+  if (modo === "envio" && emModoDemo()) {
+    logger.warn("Demonstração não envia: o motor em modo envio (--enviar) não sobe com DEMO_MODE=true. Suba sem --enviar para o ensaio.");
+    await pool.end();
+    return;
+  }
   const tabelas = await autonomiaStorage.tabelasExistem();
   if (!tabelas.ok) throw new Error("Aplique as migrações da API antes de iniciar o motor de atendimento");
   const presenca = await conectarPresencaDoChat(modo);

@@ -5,6 +5,7 @@ import { pool } from '../../db';
 import { storage } from '../../storage';
 import { autonomiaStorage } from '../../storage/chat-autonomia.storage';
 import { comTravaDoChat } from './chat-trava';
+import { ErroDaPonteDoChat } from './chat-ponte.service';
 import { enviarComunicacaoCobranca, obterConfiguracaoCanais, obterConfiguracaoCanaisInterna } from '../cobranca/canais-comunicacao.service';
 import { orientarContato } from '@shared/cobranca/contato';
 import { resolverEtapas } from '@shared/cobranca/regua';
@@ -14,9 +15,10 @@ import * as diario from '../../storage/cobranca-comunicacao.storage';
 export class ErroMulticanal extends Error {}
 export const ConfigMulticanal = z.object({reforcoAtivo:z.boolean(),intervaloHoras:z.number().int().min(24).max(720),canais:z.array(z.enum(['sms','email'])).min(1).max(2)});
 export const EnvioMulticanal = z.object({canal:z.enum(['sms','email']),texto:z.string().trim().max(10000).default(''),assunto:z.string().trim().max(200).optional(),propostaId:z.number().int().positive().optional(),confirmarProposta:z.boolean().optional(),chave:z.string().uuid()});
-type Vinculo = {customer_id:number;caso_id:number|null;status:string;name:string;email:string|null;phone:string|null;provider_name:string};
+type Vinculo = {customer_id:number;caso_id:number|null;status:string;name:string;email:string|null;phone:string|null;provider_name:string;etapa_atual:string|null;carteira:string|null};
 async function vinculo(pid:number,cid:string):Promise<Vinculo>{
- const r=await pool.query<Vinculo>(`SELECT v.customer_id,v.caso_id,v.status,c.name,c.email,c.phone,p.name provider_name FROM chat_bullq_conversas v JOIN customers c ON c.id=v.customer_id AND c.provider_id=v.provider_id JOIN providers p ON p.id=v.provider_id WHERE v.provider_id=$1 AND v.conversation_id=$2 AND p.status='active'`,[pid,cid]);
+ // A etapa e a carteira do CASO da conversa: é delas que sai a base legal do evento de contato.
+ const r=await pool.query<Vinculo>(`SELECT v.customer_id,v.caso_id,v.status,c.name,c.email,c.phone,p.name provider_name,k.etapa_atual,k.carteira FROM chat_bullq_conversas v JOIN customers c ON c.id=v.customer_id AND c.provider_id=v.provider_id JOIN providers p ON p.id=v.provider_id LEFT JOIN cobranca_casos k ON k.provider_id=v.provider_id AND k.id=v.caso_id WHERE v.provider_id=$1 AND v.conversation_id=$2 AND p.status='active'`,[pid,cid]);
  if(!r.rows[0])throw new ErroMulticanal('Conversa não encontrada');return r.rows[0];
 }
 async function config(pid:number,cid:string){
@@ -54,8 +56,17 @@ export async function enviarMulticanal(pid:number,cid:string,userId:number|null,
  const resultado=await comTravaDoChat(`autonomia:${pid}:${cid}`,async()=>{
   const v=await vinculo(pid,cid);
   if(!automatico&&v.status!=='OPEN')throw new ErroMulticanal('Assuma a conversa antes de enviar');
-  const impedimento=await pool.query(`SELECT 1 FROM cobranca_preferencias_contato WHERE provider_id=$1 AND customer_id=$2 AND (nao_contatar OR (pausa_ate>now() AND $3))`,[pid,v.customer_id,automatico]);
-  if(impedimento.rowCount)throw new ErroMulticanal('Contato pausado para este cliente');
+  // A pausa (cliente respondeu, informou pagamento, conferência) foi o cliente quem
+  // pediu: vale para o atendente igual, não só para o reforço automático.
+  const impedimento=await pool.query(`SELECT 1 FROM cobranca_preferencias_contato WHERE provider_id=$1 AND customer_id=$2 AND (nao_contatar OR pausa_ate>now())`,[pid,v.customer_id]);
+  if(impedimento.rowCount)throw new ErroDaPonteDoChat('CONFLITO','Contato pausado para este cliente: pedido de não contato, resposta recente ou pagamento informado. Aguarde a pausa terminar antes de enviar.');
+  if(!automatico){
+   // Horário de contato é limite duro (CDC art. 42 / Anatel 765) e vale para a mão
+   // humana: SMS e e-mail chegam ao cliente na mesma hora. O reforço automático já
+   // passou pela janela em podeReforcar.
+   const politica=await storage.getPoliticaDeCobranca(pid);
+   if(!janelaDoChat(new Date(),politica?.janelaContato).permitida)throw new ErroDaPonteDoChat('CONFLITO','Fora do horário de contato da política de cobrança (CDC art. 42 / Anatel 765). SMS e e-mail só saem dentro da janela permitida.');
+  }
   if(automatico&&!await podeReforcar(pid,cid))return {status:'ignorado'};
   let texto=e.texto,assunto=e.assunto,html:string|undefined;
   if(e.propostaId){if(e.canal!=='email'||!e.confirmarProposta)throw new ErroMulticanal('Revise e confirme a proposta antes do envio');const p=await propostaMulticanal(pid,cid,e.propostaId);({texto,assunto,html}=p);}
@@ -71,11 +82,14 @@ export async function enviarMulticanal(pid:number,cid:string,userId:number|null,
   if(automatico)await pool.query(`UPDATE chat_multicanal_config SET ultimo_reforco_em=now() WHERE provider_id=$1 AND conversation_id=$2`,[pid,cid]);
   const r=await contatoComResultado(()=>comOrcamentoContato(pid,v.customer_id,e.canal,automatico,()=>enviarComunicacaoCobranca(pid,{canal:e.canal,destinatario,texto,assunto,idempotencyKey:`chat:${pid}:${id}`},{html,replyTo}),`chat:${pid}:${id}`));
   const conn=await pool.connect();try{await conn.query('BEGIN');
-   await conn.query(`UPDATE chat_multicanal_mensagens SET status=$3,external_id=$4 WHERE provider_id=$1 AND id=$2`,[pid,id,r.status,r.providerMessageId||null]);
+   // Bloqueio anterior ao transporte não tem id do fornecedor: nada saiu.
+   await conn.query(`UPDATE chat_multicanal_mensagens SET status=$3,external_id=$4 WHERE provider_id=$1 AND id=$2`,[pid,id,r.status,('providerMessageId' in r&&r.providerMessageId)||null]);
    await conn.query(`UPDATE chat_bullq_conversas SET ultimo_evento_em=now() WHERE provider_id=$1 AND conversation_id=$2`,[pid,cid]);
    if(automatico)await conn.query(`UPDATE chat_multicanal_config SET ultimo_reforco_em=now() WHERE provider_id=$1 AND conversation_id=$2`,[pid,cid]);
    if(v.caso_id&&r.status==='enviado'){
-    await conn.query(`INSERT INTO cobranca_eventos(provider_id,caso_id,customer_id,user_id,tipo,canal,resultado,notas) VALUES($1,$2,$3,$4,'contato',$5,'mensagem_enviada',$6)`,[pid,v.caso_id,v.customer_id,userId,e.canal,automatico?'Reforço automático aceito pelo canal':'Mensagem do atendente aceita pelo canal']);
+    // `etapa`/`baseLegal`/`motivoLegal` como no evento da régua (`concluirComunicacao`): a
+    // auditoria lê a mesma base legal no contato do atendente, no reforço e na régua.
+    await conn.query(`INSERT INTO cobranca_eventos(provider_id,caso_id,customer_id,user_id,tipo,canal,resultado,notas,metadata) VALUES($1,$2,$3,$4,'contato',$5,'mensagem_enviada',$6,$7::jsonb)`,[pid,v.caso_id,v.customer_id,userId,e.canal,automatico?'Reforço automático aceito pelo canal':'Mensagem do atendente aceita pelo canal',JSON.stringify(diario.baseLegalDaEtapa(v.carteira,v.etapa_atual))]);
     await conn.query(`UPDATE cobranca_casos SET ultimo_contato_em=now(),updated_at=now(),proxima_acao=CASE WHEN $3 THEN proxima_acao ELSE 'Aguardar resposta do cliente' END,proximo_contato_em=CASE WHEN $3 THEN proximo_contato_em ELSE now()+interval '1 day' END WHERE provider_id=$1 AND id=$2`,[pid,v.caso_id,automatico]);
    }await conn.query('COMMIT');
   }catch(err){await conn.query('ROLLBACK');throw err;}finally{conn.release();}
@@ -116,6 +130,10 @@ export async function persistirRetornoMulticanal(pid:number,e:{canal:'sms'|'emai
 }
 
 export async function podeReforcar(pid:number,cid:string,agora=new Date()){
+ // O interruptor geral de SMS/e-mail (Comunicações → ligada) manda no reforço:
+ // desligar o canal tem de desligar o reforço por conversa também, senão a
+ // configuração da conversa vira um canal paralelo que ninguém desligou.
+ if(!(await diario.configComunicacao(pid)).ligada)return false;
  const politica=await storage.getPoliticaDeCobranca(pid);if(politica?.pausada||!janelaDoChat(agora,politica?.janelaContato).permitida)return false;
  const r=await pool.query(`SELECT cli.max_days_overdue AS atraso,c.carteira,c.status,c.tom,c.quadrante_dna AS quadrante FROM chat_multicanal_config cfg JOIN chat_bullq_conversas v USING(provider_id,conversation_id) JOIN cobranca_casos c ON c.id=v.caso_id AND c.provider_id=v.provider_id JOIN customers cli ON cli.id=v.customer_id AND cli.provider_id=v.provider_id LEFT JOIN chat_autonomia_estado a ON a.provider_id=v.provider_id AND a.conversation_id=v.conversation_id LEFT JOIN cobranca_preferencias_contato p ON p.provider_id=v.provider_id AND p.customer_id=v.customer_id WHERE cfg.provider_id=$1 AND cfg.conversation_id=$2 AND cfg.reforco_ativo AND v.status IN ('BOT','WAITING') AND NOT coalesce(a.humano,false) AND c.encerrado_em IS NULL AND c.status='aberto' AND cli.total_overdue_amount>0 AND coalesce(c.tom,'') NOT LIKE '%vulneravel%' AND NOT coalesce(p.nao_contatar,false) AND (p.pausa_ate IS NULL OR p.pausa_ate<now()) AND greatest(coalesce(cfg.ultimo_reforco_em,v.aberta_em),coalesce(c.ultimo_contato_em,v.aberta_em)) < now()-make_interval(hours=>cfg.intervalo_horas) AND NOT EXISTS(SELECT 1 FROM chat_multicanal_mensagens m WHERE m.provider_id=v.provider_id AND m.conversation_id=v.conversation_id AND m.direcao='entrada')`,[pid,cid]);const c=r.rows[0];return Boolean(c && orientarContato({diasAtraso:Number(c.atraso),carteira:c.carteira,status:c.status,tom:c.tom,quadrante:c.quadrante,etapas:resolverEtapas(politica)}).automatizavel);
 }
@@ -129,8 +147,9 @@ export async function executarReforcosMulticanal(){
   const canal=canais.find(x=>x!==anteriores.rows[0]?.canal)||canais[0];if(!canal)return;
   const politica=await storage.getPoliticaDeCobranca(c.provider_id);
   const dia=janelaDoChat(new Date(),politica?.janelaContato).dia;
+  // Relido aqui, depois das leituras lentas: o interruptor pode ter sido desligado entre podeReforcar e a reserva.
   const limites=await diario.configComunicacao(c.provider_id);
-  if(await diario.consumoComunicacao(c.provider_id,dia,'cobranca')>=limites.limiteDiario)return;
+  if(!limites.ligada||await diario.consumoComunicacao(c.provider_id,dia,'cobranca')>=limites.limiteDiario)return;
   const reserva=await diario.reservarComunicacao({providerId:c.provider_id,customerId:v.customer_id,casoId:v.caso_id,faturaId:null,canal,finalidade:'cobranca',dia,chave:`reforco:${c.conversation_id}:${dia}`});
   if(!reserva)return;
   const {randomUUID}=await import('node:crypto');

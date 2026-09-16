@@ -30,8 +30,14 @@ export function chaveDoLimite(req: Request): string {
   return `ip:${req.ip || "unknown"}`;
 }
 
-export function createRateLimiter(options: { windowMs: number; maxRequests: number }) {
-  const { windowMs, maxRequests } = options;
+/**
+ * `chave` troca quem paga a conta. O padrao (`chaveDoLimite`) serve a rota com
+ * sessao; um webhook nao tem sessao e cairia sempre no IP do fornecedor, que e
+ * o mesmo para todos os provedores — a rota que sabe de quem e o balde passa a
+ * funcao aqui em vez de reinventar o contador.
+ */
+export function createRateLimiter(options: { windowMs: number; maxRequests: number; chave?: (req: Request) => string }) {
+  const { windowMs, maxRequests, chave = chaveDoLimite } = options;
   const store = new Map<string, RateLimitEntry>();
 
   // Periodic cleanup of expired entries
@@ -46,7 +52,7 @@ export function createRateLimiter(options: { windowMs: number; maxRequests: numb
   cleanup.unref();
 
   return (req: Request, res: Response, next: NextFunction) => {
-    const key = chaveDoLimite(req);
+    const key = chave(req);
     const now = Date.now();
     const entry = store.get(key);
 

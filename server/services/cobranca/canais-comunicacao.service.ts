@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { pool } from "../../db";
 import { decryptField, encryptField } from "../../utils/crypto";
+import { emModoDemo } from "../../demo/modo-demo";
 import { ConfiguracaoCanaisSchema, MensagemCobrancaSchema, type ConfiguracaoCanais, type MensagemCobranca, type ResumoCanais, type ResultadoComunicacao } from "@shared/cobranca/canais-comunicacao";
+
+/** O motivo que a demonstração grava no diário e devolve ao atendente: a mensagem existe, a rede não foi tocada. */
+export const MOTIVO_DEMO_NAO_ENVIA = "Demonstração não envia: nenhuma requisição saiu para o fornecedor.";
 
 const vazio = (): ConfiguracaoCanais => ({ sms: { ativado: false, accountSid: "", remetente: "" }, email: { ativado: false, remetente: "", nomeRemetente: "", responderPara: "" } });
 function decifrar(valor?: string): ConfiguracaoCanais {
@@ -55,6 +59,12 @@ export async function salvarConfiguracaoCanais(providerId: number, entrada: Conf
  * Timeout/5xx são incertos e NUNCA autorizam reenvio automático. Enviado = aceito,
  * não entregue; entrega depende do operador/caixa postal do destinatário. */
 export async function enviarComunicacaoCobranca(providerId: number, entrada: MensagemCobranca, formato?: { html?: string; replyTo?: string; headers?: Record<string, string> }): Promise<ResultadoComunicacao> {
+  // A demonstração aceita credencial falsa no PUT /api/cobranca/canais e o
+  // visitante manda mensagem pela tela: nada disso pode virar chamada ao Twilio
+  // ou ao Resend. A guarda é a PRIMEIRA linha — nem a mensagem nem a
+  // configuração decidem — e o resultado é `falhou` com motivo legível, para o
+  // ledger de quem chamou fechar a tentativa em vez de deixá-la "enviando".
+  if (emModoDemo()) return { status: "falhou", motivo: MOTIVO_DEMO_NAO_ENVIA };
   const validada = MensagemCobrancaSchema.safeParse(entrada);
   if (!validada.success) return { status: "falhou", motivo: "Mensagem ou destinatário inválido para o canal." };
   if (formato?.replyTo && !z.string().email().safeParse(formato.replyTo).success) return { status: "falhou", motivo: "Endereço de resposta inválido." };

@@ -1,4 +1,3 @@
-BEGIN;
 CREATE TABLE IF NOT EXISTS cobranca_gestao_config (
  provider_id integer PRIMARY KEY REFERENCES providers(id), config jsonb NOT NULL DEFAULT '{}', updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -19,4 +18,3 @@ CREATE TABLE IF NOT EXISTS cobranca_contatos_orcamento (
  criado_em timestamptz NOT NULL DEFAULT now(), atualizado_em timestamptz NOT NULL DEFAULT now(), UNIQUE(provider_id,chave)
 );
 CREATE INDEX IF NOT EXISTS cobranca_orcamento_cliente ON cobranca_contatos_orcamento(provider_id,customer_id,criado_em DESC);
-COMMIT;

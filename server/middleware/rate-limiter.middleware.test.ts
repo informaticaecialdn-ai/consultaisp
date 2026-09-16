@@ -107,6 +107,21 @@ describe("createRateLimiter", () => {
     expect(next).toHaveBeenCalledTimes(2);
   });
 
+  // Um webhook nao tem sessao: pelo padrao todo fornecedor cairia no proprio IP,
+  // que e o mesmo para todos os provedores. A rota que sabe de quem e o balde
+  // passa a funcao; o padrao continua sendo `chaveDoLimite`.
+  it("a rota pode dizer quem paga a conta com `chave`", () => {
+    const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 1, chave: (r) => `webhook:${(r as any).params.providerId}` });
+    const bloqueada = res();
+
+    limiter({ ...req(undefined, "203.0.113.7"), params: { providerId: "9" } } as any, res(), next);
+    limiter({ ...req(undefined, "203.0.113.7"), params: { providerId: "8" } } as any, res(), next);
+    limiter({ ...req(undefined, "198.51.100.1"), params: { providerId: "9" } } as any, bloqueada, next);
+
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(bloqueada.status).toHaveBeenCalledWith(429);
+  });
+
   it("a cota do revendedor e por pessoa, nao por marca", () => {
     const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 1 });
 
