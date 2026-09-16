@@ -6,7 +6,7 @@ if (!process.env.DATABASE_URL) {
 
 export default defineConfig({
   out: "./migrations",
-  schema: ["./shared/schema.ts", "./shared/crm-schema.ts"],
+  schema: ["./shared/schema.ts", "./shared/crm-schema.ts", "./shared/schema-comunicacao.ts", "./shared/schema-cobranca-faturas.ts", "./shared/schema-gestao-cobranca.ts"],
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL,
