@@ -483,6 +483,10 @@ faltando, sai, e o pm2 o religa. Foi o que aconteceu no primeiro deploy (um
 reinício do worker, com `missing critical columns` no log). Com a API primeiro
 e o worker só depois de `/api/health` responder, os dois sobem com zero.
 
+**Toda leva que muda a SEMEADURA do sandbox avança `MUNDO_DO_SANDBOX_DESDE`**
+(`server/demo/sandbox.service.ts`) no mesmo commit: os sandboxes vivos não migram
+no deploy — `GET /demo` troca os anteriores a essa data, e a faixa oferece renovar.
+
 ---
 
 ## 11. Reverter / desligar a demo

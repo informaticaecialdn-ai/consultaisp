@@ -76,6 +76,13 @@ interface AuthState {
    * dois sozinho.
    */
   demoMode: boolean;
+  /**
+   * "Este sandbox nasceu antes do mundo atual da demonstração?" — vem de
+   * `GET /api/auth/me` e do login, só quando verdadeiro (fora da demo a chave
+   * nem existe). `FaixaDemonstracao` oferece renovar; quem troca o sandbox é o
+   * servidor, em `GET /demo`.
+   */
+  demoDesatualizada: boolean;
   isLoading: boolean;
   /** `lembrar` = "manter conectado por 30 dias"; quem decide o prazo e o servidor. */
   login: (email: string, password: string, lembrar?: boolean) => Promise<{ code?: string; email?: string } | void>;
@@ -116,6 +123,7 @@ export function estadoAposLogin(data: {
   marca?: MarcaDaSessao | null;
   mustChangePassword?: boolean;
   demoMode?: boolean;
+  demoDesatualizada?: boolean;
 }): {
   user: AuthState["user"];
   provider: Provider | null;
@@ -123,6 +131,7 @@ export function estadoAposLogin(data: {
   personificando: false;
   mustChangePassword: boolean;
   demoMode: boolean;
+  demoDesatualizada: boolean;
 } {
   return {
     user: data.user,
@@ -146,6 +155,7 @@ export function estadoAposLogin(data: {
     personificando: false,
     mustChangePassword: data.mustChangePassword || false,
     demoMode: data.demoMode === true,
+    demoDesatualizada: data.demoDesatualizada === true,
   };
 }
 
@@ -159,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [personificando, setPersonificando] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
+  const [demoDesatualizada, setDemoDesatualizada] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
@@ -173,6 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setPersonificando(data.personificando === true);
         setMustChangePassword(data.mustChangePassword || false);
         setDemoMode(data.demoMode === true);
+        setDemoDesatualizada(data.demoDesatualizada === true);
       }
     } catch {
     } finally {
@@ -209,6 +221,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // próximo `checkAuth()` — nunca no instante em que a pessoa acabou de
     // entrar.
     setDemoMode(proximo.demoMode);
+    setDemoDesatualizada(proximo.demoDesatualizada);
   };
 
   const register = async (data: { email: string; password: string; name: string; phone?: string; responsavelCpf: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => {
@@ -236,7 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearMustChangePassword = () => setMustChangePassword(false);
 
   return (
-    <AuthContext.Provider value={{ user, provider, marca, partnerCode, personificando, mustChangePassword, demoMode, isLoading, login, register, logout, clearMustChangePassword, recarregar: checkAuth }}>
+    <AuthContext.Provider value={{ user, provider, marca, partnerCode, personificando, mustChangePassword, demoMode, demoDesatualizada, isLoading, login, register, logout, clearMustChangePassword, recarregar: checkAuth }}>
       {children}
     </AuthContext.Provider>
   );

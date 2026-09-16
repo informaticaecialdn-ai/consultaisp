@@ -17,6 +17,7 @@ vi.hoisted(() => {
 
 const storageMock = vi.hoisted(() => ({
   getUserByEmail: vi.fn(async (): Promise<any> => null),
+  getUser: vi.fn(async (): Promise<any> => undefined),
   getProvider: vi.fn(async (): Promise<any> => null),
   getMarca: vi.fn(async (): Promise<any> => undefined),
 }));
@@ -485,5 +486,82 @@ describe("POST /api/auth/login — demoMode", () => {
 
     expect(res.status).toBe(200);
     expect((await res.json()).demoMode).toBe(false);
+  });
+});
+
+/**
+ * `demoDesatualizada` — o mundo versionado da demonstração (16/09/2026). O
+ * navegador do dono guardava o cookie de um sandbox criado ANTES do deploy que
+ * mudou a semeadura, e nada na tela dizia por que a Economia do cliente e o
+ * chat simulado não apareciam. A chave só existe quando é verdadeira: fora da
+ * demo (e para um provedor de verdade, ou um sandbox do mundo atual) a
+ * resposta de `/me` e do login fica IDÊNTICA à de antes. A regra de data
+ * (`sandboxDesatualizado`, server/demo/sandbox.service.ts) é a real aqui.
+ */
+describe("demoDesatualizada — sandbox anterior ao mundo atual, no login e no /me", () => {
+  const DEMO_MODE_ORIGINAL = process.env.DEMO_MODE;
+  const CRIADO_ANTES_DO_MUNDO_ATUAL = new Date("2026-09-10T12:00:00.000Z");
+  const SANDBOX_ANTIGO = { id: 7, subdomain: "sandbox-abc123", marcaId: null, status: "active", createdAt: CRIADO_ANTES_DO_MUNDO_ATUAL };
+  const SANDBOX_ATUAL = { ...SANDBOX_ANTIGO, createdAt: new Date() };
+  const PROVEDOR_DE_VERDADE_ANTIGO = { ...SANDBOX_ANTIGO, subdomain: "nslink" };
+
+  const me = () => fetch(`${base}/api/auth/me`);
+
+  afterEach(() => {
+    if (DEMO_MODE_ORIGINAL === undefined) delete process.env.DEMO_MODE;
+    else process.env.DEMO_MODE = DEMO_MODE_ORIGINAL;
+  });
+
+  beforeEach(() => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getUser.mockResolvedValue({ ...USUARIO_BASE });
+  });
+
+  it("login: true quando em modo demo, o provedor e sandbox e nasceu antes do mundo atual", async () => {
+    process.env.DEMO_MODE = "true";
+    storageMock.getProvider.mockResolvedValue(SANDBOX_ANTIGO);
+
+    const res = await login();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).demoDesatualizada).toBe(true);
+  });
+
+  it("/me: true nas mesmas condicoes — e a leitura que a faixa faz a cada montagem", async () => {
+    process.env.DEMO_MODE = "true";
+    sessao = { userId: 42, providerId: 7 };
+    storageMock.getProvider.mockResolvedValue(SANDBOX_ANTIGO);
+
+    const res = await me();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).demoDesatualizada).toBe(true);
+  });
+
+  it("sandbox do mundo ATUAL: a chave nem existe (login e /me)", async () => {
+    process.env.DEMO_MODE = "true";
+    sessao = { userId: 42, providerId: 7 };
+    storageMock.getProvider.mockResolvedValue(SANDBOX_ATUAL);
+
+    expect(await (await login()).json()).not.toHaveProperty("demoDesatualizada");
+    expect(await (await me()).json()).not.toHaveProperty("demoDesatualizada");
+  });
+
+  it("provedor de verdade (sem o prefixo sandbox-) em modo demo, mesmo antigo: a chave nem existe", async () => {
+    process.env.DEMO_MODE = "true";
+    sessao = { userId: 42, providerId: 7 };
+    storageMock.getProvider.mockResolvedValue(PROVEDOR_DE_VERDADE_ANTIGO);
+
+    expect(await (await login()).json()).not.toHaveProperty("demoDesatualizada");
+    expect(await (await me()).json()).not.toHaveProperty("demoDesatualizada");
+  });
+
+  it("fora da demo (producao), sandbox antigo ou nao: a chave nem existe — a resposta fica identica a de antes", async () => {
+    delete process.env.DEMO_MODE;
+    sessao = { userId: 42, providerId: 7 };
+    storageMock.getProvider.mockResolvedValue(SANDBOX_ANTIGO);
+
+    expect(await (await login()).json()).not.toHaveProperty("demoDesatualizada");
+    expect(await (await me()).json()).not.toHaveProperty("demoDesatualizada");
   });
 });

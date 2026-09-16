@@ -22,6 +22,24 @@ describe("faixa de demonstracao", () => {
     expect(faixa).toContain("Quero no meu provedor");
   });
 
+  /**
+   * O mundo versionado da demonstração (16/09/2026): um sandbox criado antes
+   * do deploy que mudou a semeadura não mostra o produto inteiro, e nada na
+   * tela dizia por quê. Com `demoDesatualizada` (de `/api/auth/me` e do
+   * login) a faixa avisa e oferece renovar — o link é o `/demo` de sempre: é
+   * o servidor quem troca o sandbox, a tela só leva até lá.
+   */
+  it("com demoDesatualizada, avisa que e de uma versao anterior e leva ao /demo para renovar", () => {
+    expect(faixa).toContain("demoDesatualizada");
+    expect(faixa).toContain("Esta demonstração é de uma versão anterior: alguns recursos não aparecem.");
+    expect(faixa).toContain("Renovar demonstração");
+    expect(faixa).toMatch(/href="\/demo"/);
+    // Pede acao: o tom de atencao da pele (o solido, que da AA sobre o fundo da faixa), nao o mesmo cinza do "expira em".
+    const aviso = faixa.slice(faixa.indexOf("{demoDesatualizada && ("), faixa.indexOf('data-testid="text-demonstracao-desatualizada"'));
+    expect(aviso).toContain("text-[var(--gated-solid)]");
+    expect(aviso).toContain("font-medium");
+  });
+
   it("so tokens do design system — nada de paleta default nem pill", () => {
     expect(faixa).not.toMatch(/\b(bg|text|border)-(slate|gray|blue|emerald|red|amber|zinc)-\d{2,3}\b/);
     expect(faixa).not.toContain("rounded-full");

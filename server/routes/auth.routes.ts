@@ -11,10 +11,28 @@ import { hostPertenceAoProvider, hostPertenceAMarca, resolverMarcaPorId, urlDeEn
 import { MENSAGEM_PROVEDOR_SUSPENSO, encerrarPersonificacao, duracaoDaSessao } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import { cnpjCru } from "@shared/cnpj";
-import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
+import { PREFIXO_SANDBOX, sandboxDesatualizado } from "../demo/sandbox.service";
 import { emModoDemo } from "../demo/modo-demo";
 import crypto from "crypto";
 import { z } from "zod";
+
+/**
+ * `demoDesatualizada: true` no login e no `/me` — SO quando verdadeiro; fora
+ * da demonstracao a chave nem existe, e a resposta fica identica a de antes.
+ *
+ * O mundo versionado da demonstracao (16/09/2026): o navegador do dono guardava
+ * o cookie de um sandbox criado ANTES do deploy que mudou a semeadura, e nada
+ * na tela dizia por que a Economia do cliente e o chat simulado nao apareciam.
+ * Os MESMOS dois sinais de `FaixaDemonstracao` (`emModoDemo()` E o prefixo
+ * `PREFIXO_SANDBOX` do provedor da sessao), mais a data de corte do mundo
+ * (`sandboxDesatualizado`, server/demo/sandbox.service.ts). Um provedor de
+ * verdade, por mais antigo, nunca e "demonstracao desatualizada".
+ */
+function demoDesatualizada(provider: { subdomain?: string | null; createdAt?: Date | string | null } | null | undefined): { demoDesatualizada: true } | Record<string, never> {
+  if (!emModoDemo() || !provider) return {};
+  if (!(provider.subdomain ?? "").toLowerCase().startsWith(PREFIXO_SANDBOX)) return {};
+  return sandboxDesatualizado(provider.createdAt) ? { demoDesatualizada: true } : {};
+}
 
 /**
  * Avisa o DONO DA CONTA que a senha dela mudou.
@@ -304,6 +322,8 @@ export function registerAuthRoutes(): Router {
         // acabou de entrar. `client/src/lib/auth.tsx` (`estadoAposLogin`) le
         // este campo.
         demoMode: emModoDemo(),
+        // So quando verdadeiro — ver `demoDesatualizada`, no topo do arquivo.
+        ...demoDesatualizada(provider),
       });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -783,6 +803,8 @@ export function registerAuthRoutes(): Router {
        * toda sessão autenticada.
        */
       demoMode: emModoDemo(),
+      // So quando verdadeiro — ver `demoDesatualizada`, no topo do arquivo.
+      ...demoDesatualizada(provider),
     });
   });
 

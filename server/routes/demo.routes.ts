@@ -1,6 +1,6 @@
 import { Router } from "express";
 import pLimit from "p-limit";
-import { contarSandboxesVivos, criarSandbox, PREFIXO_SANDBOX, TETO_DE_SANDBOXES_VIVOS } from "../demo/sandbox.service";
+import { apagarSandbox, contarSandboxesVivos, criarSandbox, PREFIXO_SANDBOX, sandboxDesatualizado, TETO_DE_SANDBOXES_VIVOS } from "../demo/sandbox.service";
 import { emModoDemo } from "../demo/modo-demo";
 import { cpfsDeExemplo } from "../demo/exemplos.service";
 import { normalizarHost } from "../tenant";
@@ -8,6 +8,7 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
+import { logger } from "../logger";
 import { paginaDeErroDaPorta } from "./demo-porta-html";
 
 /**
@@ -53,6 +54,17 @@ const MENSAGEM_DEMO_CONCORRIDA = "A demonstração está muito concorrida agora.
 
 /** Sinaliza "no teto" para fora de `filaDeCriacaoDoSandbox` sem confundir com qualquer outra falha (500 genérico). */
 class TetoDeSandboxesAtingidoError extends Error {}
+
+/**
+ * O sandbox antigo ja foi apagado e o novo nao nasceu (teto batido, criacao
+ * falhou): o cookie nao pode continuar apontando para usuario e provedor que
+ * nao existem — `/api/auth/me` viraria 401 e a SPA cairia na tela de login
+ * ate o visitante voltar a esta porta. Sessao esquecida, o proximo clique em
+ * "Ver demonstracao" e uma primeira visita como outra qualquer.
+ */
+function esquecerSessao(req: import("express").Request): Promise<void> {
+  return new Promise((resolve) => req.session.destroy(() => resolve()));
+}
 
 /**
  * `/demo` é a PORTA: quem chega aqui é sempre uma pessoa clicando num link,
@@ -122,6 +134,11 @@ export function registerDemoRoutes(): Router {
       return res.status(404).json({ message: "Nao encontrado" });
     }
 
+    // O sandbox anterior ao mundo atual que esta requisicao substitui, e se a
+    // exclusao dele de fato aconteceu — fora do `try`: o catch-all precisa
+    // saber se a sessao ficou apontando para o nada (`esquecerSessao`).
+    let sandboxSubstituido: number | null = null;
+    let sandboxAntigoApagado = false;
     try {
       // Sessao ja aberta por uma visita anterior a esta mesma porta: reaproveita
       // o sandbox que ja existe em vez de fabricar outro a cada acesso — MAS so
@@ -133,20 +150,52 @@ export function registerDemoRoutes(): Router {
       // depois que o sandbox já morreu. Sem esta conferencia, o reaproveitamento
       // redirecionaria para "/" apontando para dado que nao existe mais — a
       // exata promessa que esta rota existe para cumprir, quebrada.
+      //
+      // E so depois de confirmar que ele e do MUNDO ATUAL (`sandboxDesatualizado`,
+      // 16/09/2026): o dono viu "nao aparece a Economia do cliente" e "nao tem
+      // simulacao do chat" porque o navegador dele guardava o cookie de um
+      // sandbox criado ANTES do deploy que mudou a semeadura. O mundo dos
+      // sandboxes vivos nao migra nos deploys — sandbox e descartavel: o
+      // anterior ao mundo atual e apagado e o visitante segue pelo caminho
+      // normal de criacao (fila, teto, sessao e cookie novos), como se
+      // chegasse pela primeira vez. So SANDBOX (prefixo, como no /me e no
+      // login): em modo demo o dono entra no provedor-modelo pelo login
+      // normal, e a data dele nao diz nada — redireciona como sempre.
       if (req.session.userId && req.session.providerId) {
         const sandboxAindaExiste = await storage.getProvider(req.session.providerId);
-        if (sandboxAindaExiste) {
+        const ehSandbox = (sandboxAindaExiste?.subdomain ?? "").toLowerCase().startsWith(PREFIXO_SANDBOX);
+        if (sandboxAindaExiste && (!ehSandbox || !sandboxDesatualizado(sandboxAindaExiste.createdAt))) {
           return res.redirect("/");
         }
-        // Sessao orfa: cai para criar um sandbox novo abaixo, do zero.
+        if (sandboxAindaExiste) sandboxSubstituido = sandboxAindaExiste.id;
+        // Sessao orfa (ou sandbox desatualizado): cai para criar um sandbox
+        // novo abaixo, do zero.
       }
 
       // Item 5 da rodada seguinte: recusa CEDO, antes de entrar na fila, se
       // ela já estiver funda demais — nunca deixa o pedido esperar perto do
       // timeout do proxy só para descobrir "demonstração concorrida" no
       // fim. Ver a justificativa completa em `PROFUNDIDADE_MAXIMA_DA_FILA`.
+      // E ANTES de apagar o sandbox antigo: recusado aqui, o visitante segue
+      // no sandbox que tem (a faixa continua oferecendo renovar) — nada orfao.
       if (filaDeCriacaoDoSandbox.pendingCount > PROFUNDIDADE_MAXIMA_DA_FILA) {
         return res.status(503).json({ message: MENSAGEM_DEMO_CONCORRIDA });
+      }
+
+      if (sandboxSubstituido !== null) {
+        // Apagado ANTES de criar o novo: devolve a vaga no teto de vivos
+        // primeiro. Falha na limpeza nao impede o novo — a limpeza horaria
+        // (limpeza.service.ts) termina o servico quando o antigo expirar.
+        try {
+          await apagarSandbox(sandboxSubstituido);
+          sandboxAntigoApagado = true;
+        } catch (err) {
+          const erro = err as Error | null | undefined;
+          logger.warn(
+            { evento: "demo.sandbox_antigo_nao_apagado", providerId: sandboxSubstituido, erroNome: erro?.name, erroMensagem: erro?.message },
+            "demo: nao foi possivel apagar o sandbox anterior ao mundo atual — o novo segue; a limpeza horaria termina o servico",
+          );
+        }
       }
 
       // Teto de sandboxes VIVOS ao mesmo tempo — ver a justificativa de
@@ -169,6 +218,7 @@ export function registerDemoRoutes(): Router {
         });
       } catch (error) {
         if (error instanceof TetoDeSandboxesAtingidoError) {
+          if (sandboxAntigoApagado) await esquecerSessao(req);
           return res.status(503).json({ message: MENSAGEM_DEMO_CONCORRIDA });
         }
         throw error;
@@ -204,8 +254,17 @@ export function registerDemoRoutes(): Router {
         req.session.save((err) => (err ? reject(err) : resolve()));
       });
 
+      if (sandboxSubstituido !== null) {
+        // `antigoApagado: false` = a sessao trocou, mas o antigo segue vivo ate a limpeza horaria (o warn acima diz por que).
+        logger.info(
+          { evento: "demo.sandbox_substituido", providerAntigo: sandboxSubstituido, providerNovo: sandbox.providerId, antigoApagado: sandboxAntigoApagado },
+          "demo: sandbox anterior ao mundo atual substituído",
+        );
+      }
+
       return res.redirect("/");
     } catch (error) {
+      if (sandboxAntigoApagado) await esquecerSessao(req);
       // A mesma troca do 429 acima: quem chega em "/demo" é sempre uma pessoa
       // clicando num link, e uma falha ao montar o sandbox merece uma página,
       // não um blob de JSON. `getSafeErrorMessage` continua sendo quem decide

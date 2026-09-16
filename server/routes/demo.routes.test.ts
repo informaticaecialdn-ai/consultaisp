@@ -47,8 +47,20 @@ const sandboxMock = vi.hoisted(() => ({
   // Constante de verdade (nao ha comportamento a espionar) — precisa existir
   // no mock porque este arquivo substitui o MODULO inteiro.
   PREFIXO_SANDBOX: "sandbox-",
+  // O mundo versionado (16/09/2026): por padrao o sandbox da sessao e do
+  // mundo ATUAL — a maioria dos testes quer o reaproveitamento de sempre. A
+  // regra de data em si e pura e provada em `sandbox.service.test.ts`; aqui o
+  // que importa e o que a ROTA faz com a resposta dela (e com qual `createdAt`
+  // ela e perguntada).
+  sandboxDesatualizado: vi.fn((_createdAt: unknown) => false),
+  apagarSandbox: vi.fn(async (_providerId: number) => undefined),
 }));
 vi.mock("../demo/sandbox.service", () => sandboxMock);
+
+const loggerMock = vi.hoisted(() => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+vi.mock("../logger", () => loggerMock);
 
 const storageMock = vi.hoisted(() => ({
   // Por padrao, o sandbox "ainda existe" e esta ATIVO — a maioria dos testes
@@ -210,6 +222,185 @@ describe("GET /demo em DEMO_MODE", () => {
     // NAO reaproveitou a sessao orfa — criou um sandbox NOVO em vez de
     // redirecionar para "/" apontando para dado que nao existe mais.
     expect(sandboxMock.criarSandbox).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * O mundo versionado da demonstração (16/09/2026): o dono viu "não aparece a
+   * Economia do cliente" e "não tem simulação do chat" — o navegador dele
+   * guardava o cookie de um sandbox criado ANTES do deploy que mudou a
+   * semeadura, e a rota reaproveitava só conferindo que ele ainda existia. O
+   * mundo dos sandboxes vivos não migra nos deploys (sandbox é descartável):
+   * um sandbox anterior ao mundo atual é APAGADO e substituído por um novo,
+   * pelo mesmo caminho de criação de sempre (fila, teto, sessão e cookie novos).
+   */
+  describe("sandbox anterior ao mundo atual e substituido", () => {
+    const CRIADO_ANTES_DO_MUNDO_ATUAL = new Date("2026-09-10T12:00:00.000Z");
+
+    function sessaoVivaNoSandboxAntigo() {
+      sessao = { save: (cb: (e?: unknown) => void) => cb(), destroy: vi.fn((cb: (e?: unknown) => void) => cb()), userId: 7, providerId: 42, role: "admin", hostLogin: HOST_DA_DEMO, subdomain: "sandbox-abc123" };
+      storageMock.getProvider.mockResolvedValueOnce({ id: 42, subdomain: "sandbox-abc123", status: "active", createdAt: CRIADO_ANTES_DO_MUNDO_ATUAL });
+      sandboxMock.sandboxDesatualizado.mockReturnValueOnce(true);
+      sandboxMock.criarSandbox.mockResolvedValueOnce({
+        providerId: 43, userId: 8, subdomain: "sandbox-def456",
+        expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      });
+    }
+
+    it("sessao viva + sandbox criado antes do mundo atual: apaga o antigo, cria um novo e a sessao passa a apontar para ele", async () => {
+      sessaoVivaNoSandboxAntigo();
+
+      const res = await pedirDemo();
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get("location")).toBe("/");
+      // A pergunta e feita com o `createdAt` do PROVEDOR da sessao — nunca com
+      // o relogio, nem com outro campo.
+      expect(sandboxMock.sandboxDesatualizado).toHaveBeenCalledWith(CRIADO_ANTES_DO_MUNDO_ATUAL);
+      expect(sandboxMock.apagarSandbox).toHaveBeenCalledWith(42);
+      expect(sandboxMock.criarSandbox).toHaveBeenCalledTimes(1);
+      // A sessao e REGRAVADA com o sandbox novo — e assim que o cookie antigo
+      // deixa de apontar para o mundo velho.
+      expect(sessao).toMatchObject({ userId: 8, providerId: 43, subdomain: "sandbox-def456" });
+      expect(loggerMock.logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({ providerAntigo: 42, providerNovo: 43, antigoApagado: true }),
+        "demo: sandbox anterior ao mundo atual substituído",
+      );
+      // A sessao foi REGRAVADA, nao destruida: o cookie aponta para o novo.
+      expect(sessao.destroy).not.toHaveBeenCalled();
+    });
+
+    it("sessao de provedor de VERDADE (sem prefixo sandbox-) com createdAt antigo: redireciona para / como sempre — nada e apagado nem criado por cima da sessao", async () => {
+      // Em modo demo o dono entra no provedor-modelo pelo login normal; a
+      // regra de data e SO para sandbox (como no /me e no login).
+      sessao = { save: (cb: (e?: unknown) => void) => cb(), destroy: vi.fn((cb: (e?: unknown) => void) => cb()), userId: 1, providerId: 5, role: "admin", hostLogin: HOST_DA_DEMO, subdomain: "nslink" };
+      storageMock.getProvider.mockResolvedValueOnce({ id: 5, subdomain: "nslink", status: "active", createdAt: CRIADO_ANTES_DO_MUNDO_ATUAL });
+      sandboxMock.sandboxDesatualizado.mockReturnValueOnce(true);
+      try {
+        const res = await pedirDemo();
+
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe("/");
+        // O prefixo decide antes da data: a pergunta nem e feita.
+        expect(sandboxMock.sandboxDesatualizado).not.toHaveBeenCalled();
+        expect(sandboxMock.apagarSandbox).not.toHaveBeenCalled();
+        expect(sandboxMock.criarSandbox).not.toHaveBeenCalled();
+        expect(sessao).toMatchObject({ userId: 1, providerId: 5, subdomain: "nslink" });
+        expect(sessao.destroy).not.toHaveBeenCalled();
+        expect(loggerMock.logger.info).not.toHaveBeenCalled();
+        expect(loggerMock.logger.warn).not.toHaveBeenCalled();
+      } finally {
+        // O `Once` nao consumido nao pode vazar para o proximo teste.
+        sandboxMock.sandboxDesatualizado.mockReset();
+        sandboxMock.sandboxDesatualizado.mockImplementation((_createdAt: unknown) => false);
+      }
+    });
+
+    it("fila funda: recusa com 503 ANTES de apagar o antigo — a sessao continua no sandbox antigo (a faixa segue oferecendo renovar), nada fica orfao", async () => {
+      const liberar: Array<() => void> = [];
+      const tarefaTravada = () => new Promise<void>((resolve) => { liberar.push(resolve); });
+      for (let i = 0; i < 20; i++) void filaDeCriacaoDoSandbox(tarefaTravada);
+      try {
+        sessaoVivaNoSandboxAntigo();
+
+        const res = await pedirDemo();
+
+        expect(res.status).toBe(503);
+        expect(sandboxMock.apagarSandbox).not.toHaveBeenCalled();
+        expect(sandboxMock.criarSandbox).not.toHaveBeenCalled();
+        expect(sessao).toMatchObject({ userId: 7, providerId: 42 });
+        expect(sessao.destroy).not.toHaveBeenCalled();
+      } finally {
+        // O mesmo dreno do teste da fila, mais abaixo: libera o que ja tem, cede um tick, repete ate zerar.
+        while (filaDeCriacaoDoSandbox.pendingCount > 0 || filaDeCriacaoDoSandbox.activeCount > 0) {
+          while (liberar.length > 0) liberar.shift()!();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        sandboxMock.criarSandbox.mockReset();
+        sandboxMock.criarSandbox.mockImplementation(async () => ({
+          providerId: 42, userId: 7, subdomain: "sandbox-abc123", expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        }));
+      }
+    });
+
+    it("o antigo ja apagado e o novo nao nasceu (criacao falhou): 500 e a sessao e ESQUECIDA — o cookie nao pode apontar para o nada", async () => {
+      sessaoVivaNoSandboxAntigo();
+      sandboxMock.criarSandbox.mockReset();
+      sandboxMock.criarSandbox.mockRejectedValueOnce(new Error("boom"));
+
+      const res = await pedirDemo();
+
+      expect(res.status).toBe(500);
+      expect(sandboxMock.apagarSandbox).toHaveBeenCalledWith(42);
+      expect(sessao.destroy).toHaveBeenCalledTimes(1);
+      sandboxMock.criarSandbox.mockImplementation(async () => ({
+        providerId: 42, userId: 7, subdomain: "sandbox-abc123", expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }));
+    });
+
+    it("o antigo e apagado ANTES de o novo ser criado — a vaga no teto de vivos e devolvida primeiro", async () => {
+      sessaoVivaNoSandboxAntigo();
+      const ordem: string[] = [];
+      sandboxMock.apagarSandbox.mockImplementationOnce(async () => { ordem.push("apagar"); });
+      sandboxMock.criarSandbox.mockReset();
+      sandboxMock.criarSandbox.mockImplementationOnce(async () => {
+        ordem.push("criar");
+        return { providerId: 43, userId: 8, subdomain: "sandbox-def456", expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000) };
+      });
+
+      await pedirDemo();
+
+      expect(ordem).toEqual(["apagar", "criar"]);
+      sandboxMock.criarSandbox.mockImplementation(async () => ({
+        providerId: 42, userId: 7, subdomain: "sandbox-abc123", expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }));
+    });
+
+    it("sandbox do mundo ATUAL (createdAt novo): reaproveita como sempre, sem apagar nada", async () => {
+      const CRIADO_NO_MUNDO_ATUAL = new Date();
+      sessao = { save: (cb: (e?: unknown) => void) => cb(), userId: 7, providerId: 42, role: "admin", hostLogin: HOST_DA_DEMO, subdomain: "sandbox-abc123" };
+      storageMock.getProvider.mockResolvedValueOnce({ id: 42, subdomain: "sandbox-abc123", status: "active", createdAt: CRIADO_NO_MUNDO_ATUAL });
+
+      const res = await pedirDemo();
+
+      expect(res.status).toBe(302);
+      expect(sandboxMock.sandboxDesatualizado).toHaveBeenCalledWith(CRIADO_NO_MUNDO_ATUAL);
+      expect(sandboxMock.apagarSandbox).not.toHaveBeenCalled();
+      expect(sandboxMock.criarSandbox).not.toHaveBeenCalled();
+      expect(sessao.providerId).toBe(42);
+    });
+
+    it("falha ao apagar o antigo NAO impede o novo: vira aviso no log e a limpeza horaria termina o servico", async () => {
+      sessaoVivaNoSandboxAntigo();
+      sandboxMock.apagarSandbox.mockRejectedValueOnce(new Error("deadlock detected"));
+
+      const res = await pedirDemo();
+
+      expect(res.status).toBe(302);
+      expect(sandboxMock.criarSandbox).toHaveBeenCalledTimes(1);
+      expect(sessao).toMatchObject({ userId: 8, providerId: 43 });
+      expect(loggerMock.logger.warn).toHaveBeenCalledTimes(1);
+      expect(loggerMock.logger.warn.mock.calls[0][0]).toMatchObject({ providerId: 42, erroMensagem: "deadlock detected" });
+      // O info diz que a sessao trocou, e que o antigo continua vivo ate a limpeza.
+      expect(loggerMock.logger.info).toHaveBeenCalledWith(expect.objectContaining({ providerAntigo: 42, providerNovo: 43, antigoApagado: false }), "demo: sandbox anterior ao mundo atual substituído");
+    });
+
+    it("sandbox desatualizado tambem passa pelo teto de vivos — e, com o antigo ja apagado e o teto batido, a sessao e ESQUECIDA em vez de apontar para o nada", async () => {
+      sessaoVivaNoSandboxAntigo();
+      sandboxMock.contarSandboxesVivos.mockResolvedValueOnce(150);
+
+      const res = await pedirDemo();
+
+      expect(res.status).toBe(503);
+      expect(sandboxMock.apagarSandbox).toHaveBeenCalledWith(42);
+      expect(sandboxMock.criarSandbox).not.toHaveBeenCalled();
+      expect(sessao.destroy).toHaveBeenCalledTimes(1);
+      // `criarSandbox` recebeu um `mockResolvedValueOnce` que nao foi consumido
+      // (o teto barrou antes) — descarta, para o proximo teste nao herdar o 43.
+      sandboxMock.criarSandbox.mockReset();
+      sandboxMock.criarSandbox.mockImplementation(async () => ({
+        providerId: 42, userId: 7, subdomain: "sandbox-abc123", expiraEm: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }));
+    });
   });
 
   it("500 com mensagem segura quando a criacao do sandbox falha, sem gravar sessao", async () => {

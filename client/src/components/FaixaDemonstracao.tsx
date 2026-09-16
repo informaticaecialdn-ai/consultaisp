@@ -87,7 +87,7 @@ export function tempoRestanteEmTexto(ms: number): string {
 }
 
 export function FaixaDemonstracao() {
-  const { provider, demoMode } = useAuth();
+  const { provider, demoMode, demoDesatualizada } = useAuth();
   const ehSandbox = ehInstanciaDeDemonstracao(demoMode, provider?.subdomain);
 
   // O hook roda em TODA sessão autenticada (as regras de hooks não deixam
@@ -138,6 +138,23 @@ export function FaixaDemonstracao() {
             </>
           )}
         </span>
+        {/* O mundo versionado da demonstração (16/09/2026): um sandbox criado
+            antes do deploy que mudou a semeadura não mostra o produto inteiro.
+            O link é o `/demo` de sempre — é o servidor quem troca o sandbox
+            (server/routes/demo.routes.ts); a tela só leva até lá. Navegação
+            completa (não é rota da SPA), por isso `<a>` e não `<Link>`. */}
+        {demoDesatualizada && (
+          <span className="text-[12.5px] font-medium text-[var(--gated-solid)]" data-testid="text-demonstracao-desatualizada">
+            Esta demonstração é de uma versão anterior: alguns recursos não aparecem.{" "}
+            <a
+              href="/demo"
+              className={`${FOCO} font-semibold underline underline-offset-2 hover:opacity-80 motion-safe:transition-opacity`}
+              data-testid="link-demonstracao-renovar"
+            >
+              Renovar demonstração
+            </a>
+          </span>
+        )}
       </div>
 
       <a

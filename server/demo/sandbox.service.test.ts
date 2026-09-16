@@ -139,6 +139,8 @@ import {
   sandboxesExpirados,
   contarSandboxesVivos,
   apagarSandbox,
+  sandboxDesatualizado,
+  MUNDO_DO_SANDBOX_DESDE,
   SALDO_INICIAL,
 } from "./sandbox.service";
 import { custosInformados, validarPolitica, type Economia } from "@shared/cobranca/politica";
@@ -630,6 +632,44 @@ async function envelhecer(providerId: number, ms: number): Promise<void> {
   if (!linha) throw new Error(`Provider nao encontrado: ${providerId}`);
   linha.createdAt = new Date(Date.now() - ms);
 }
+
+/**
+ * O mundo versionado da demonstração (16/09/2026): o dono viu "não aparece a
+ * Economia do cliente" e "não tem simulação do chat" porque o navegador dele
+ * guardava o cookie de um sandbox criado ANTES do deploy que mudou a
+ * semeadura. `sandboxDesatualizado` é a única pergunta que `/demo` e o `/me`
+ * fazem para decidir trocar o sandbox — pura, para que a data de corte seja
+ * comparada de um jeito só.
+ */
+describe("sandboxDesatualizado — o sandbox nasceu antes do mundo atual?", () => {
+  const UM_SEGUNDO = 1_000;
+
+  it("criado ANTES da data de corte: desatualizado", () => {
+    expect(sandboxDesatualizado(new Date(MUNDO_DO_SANDBOX_DESDE.getTime() - UM_SEGUNDO))).toBe(true);
+  });
+
+  it("criado DEPOIS da data de corte: atual", () => {
+    expect(sandboxDesatualizado(new Date(MUNDO_DO_SANDBOX_DESDE.getTime() + UM_SEGUNDO))).toBe(false);
+  });
+
+  it("criado NO instante exato do corte: atual — a data marca o primeiro sandbox do mundo novo, e ele nao pode ser trocado", () => {
+    expect(sandboxDesatualizado(new Date(MUNDO_DO_SANDBOX_DESDE.getTime()))).toBe(false);
+  });
+
+  it("sem createdAt (null/undefined): desatualizado — sem prova de que e do mundo atual, troca", () => {
+    expect(sandboxDesatualizado(null)).toBe(true);
+    expect(sandboxDesatualizado(undefined)).toBe(true);
+  });
+
+  it("aceita a data como string ISO (o /me e a faixa recebem JSON, nao Date)", () => {
+    expect(sandboxDesatualizado(new Date(MUNDO_DO_SANDBOX_DESDE.getTime() - UM_SEGUNDO).toISOString())).toBe(true);
+    expect(sandboxDesatualizado(new Date(MUNDO_DO_SANDBOX_DESDE.getTime() + UM_SEGUNDO).toISOString())).toBe(false);
+  });
+
+  it("a data de corte e a do deploy de 16/09/2026 que mudou a semeadura (avanca a cada leva que a muda)", () => {
+    expect(MUNDO_DO_SANDBOX_DESDE.toISOString()).toBe("2026-09-16T18:30:00.000Z");
+  });
+});
 
 describe("sandbox do visitante", () => {
   it("nasce com a carteira de um provedor de verdade", async () => {

@@ -165,6 +165,35 @@ export const PREFIXO_SANDBOX = "sandbox-";
 export const VIDA_DO_SANDBOX_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * O instante em que a SEMEADURA mudou de forma que um sandbox criado antes já
+ * não mostra o produto inteiro — Economia do cliente, conversas simuladas,
+ * agentes prontos, demo-canal (deploys 3c906f01/5b676ace de 16/09/2026). O
+ * mundo dos sandboxes vivos não migra nos deploys, e não deve: sandbox é
+ * descartável. Em vez disso, `GET /demo` (demo.routes.ts) troca um sandbox
+ * anterior a esta data por um novo, e `/api/auth/me` avisa a faixa
+ * (`demoDesatualizada`) para oferecer a troca.
+ *
+ * Toda leva que muda a semeadura AVANÇA esta data no mesmo commit — é ela, e
+ * não o `git log`, quem decide se o sandbox que o visitante guarda no cookie
+ * ainda conta a história atual.
+ */
+export const MUNDO_DO_SANDBOX_DESDE = new Date("2026-09-16T18:30:00.000Z");
+
+/**
+ * O sandbox nasceu antes do mundo atual? Pura: `createdAt` do provedor contra
+ * `MUNDO_DO_SANDBOX_DESDE`. Sem `createdAt` (ou uma data que não se lê) a
+ * resposta é "sim" — sem prova de que é do mundo atual, troca; o custo de um
+ * sandbox a mais é segundos, o de um visitante vendo o produto pela metade é
+ * a demonstração inteira.
+ */
+export function sandboxDesatualizado(createdAt: Date | string | null | undefined): boolean {
+  if (createdAt == null) return true;
+  const instante = new Date(createdAt).getTime();
+  if (!Number.isFinite(instante)) return true;
+  return instante < MUNDO_DO_SANDBOX_DESDE.getTime();
+}
+
+/**
  * O saldo do visitante mora TODO em `isp_credits`; `spc_credits` nasce em
  * zero. `providers` ainda tem os dois campos (`shared/schema.ts`), mas desde o
  * crédito único (`migrations/0008_credito_unico.sql`) nenhum caminho de

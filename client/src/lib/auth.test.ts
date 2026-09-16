@@ -26,6 +26,15 @@ describe("estadoAposLogin", () => {
     expect(estadoAposLogin({ user: USUARIO, provider: null }).demoMode).toBe(false);
   });
 
+  it("liga demoDesatualizada quando o servidor informa true — a faixa oferece renovar ja no instante do login", () => {
+    expect(estadoAposLogin({ user: USUARIO, provider: null, demoMode: true, demoDesatualizada: true }).demoDesatualizada).toBe(true);
+  });
+
+  it("demoDesatualizada ausente (o caso normal: sandbox atual, ou fora da demo) vira false", () => {
+    expect(estadoAposLogin({ user: USUARIO, provider: null, demoMode: true }).demoDesatualizada).toBe(false);
+    expect(estadoAposLogin({ user: USUARIO, provider: null }).demoDesatualizada).toBe(false);
+  });
+
   it("zera marca quando a resposta nao traz uma (login de provedor por cima de sessao de revendedor)", () => {
     expect(estadoAposLogin({ user: USUARIO, provider: null }).marca).toBeNull();
   });
