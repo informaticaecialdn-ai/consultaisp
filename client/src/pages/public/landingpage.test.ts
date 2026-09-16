@@ -102,12 +102,49 @@ describe("porta da demonstração", () => {
    * `--neg`, não um vermelho novo colado à mão. O teste amarra os dois pontos:
    * se o mock trocar de token, o botão do topo não fica para trás; e ninguém
    * substitui o token por um `#` solto sem o teste reclamar.
+   *
+   * Trava o PAR, não só o fundo: quem sustenta os 7,78:1 é `--neg` por baixo
+   * COM `--dark-ink` por cima. Prender só o fundo deixava a metade que importa
+   * solta — apagar a linha da cor não deixa o texto sem cor nenhuma, deixa ele
+   * herdando `--ink` (`.lp { color: var(--ink) }` + `.lp a { color: inherit }`,
+   * css L58-69), ou seja, tinta quase preta sobre o vermelho cheio: 2,25:1,
+   * reprovado na AA — e um teste só do fundo continuaria verde.
    */
   it("o vermelho do topo é o mesmo do REJEITAR do mock — token, não hex novo", () => {
     const tag = landing.match(/<div className="nav-right">(?:(?!<\/div>)[\s\S])*?(<a href=\{DEMO\}[^>]*>)/)?.[1] ?? "";
     expect(tag).toContain('className="btn btn-demo"');
     expect(css).toMatch(/\.lp \.btn-demo \{[^}]*background: var\(--neg\);/);
+    expect(css).toMatch(/\.lp \.btn-demo \{[^}]*color: var\(--dark-ink\);/);
     expect(css).toMatch(/\.lp \.mock-suggestion \{[^}]*background: var\(--neg\);/);
+    expect(css).toMatch(/\.lp \.mock-suggestion \{[^}]*color: var\(--dark-ink\);/);
+  });
+
+  /**
+   * O corte que tira os links do menu tem que ficar ACIMA da largura que a
+   * barra cheia exige — senão ele não elimina a faixa quebrada, só a encolhe e
+   * desloca, e o comentário do CSS passa a descrever um defeito que continua lá.
+   *
+   * Números medidos no app rodando (Inter carregada de verdade, cada largura no
+   * seu próprio iframe para as media queries valerem): a barra inteira pede
+   * 948,89px de layout — logo 160,17 + links 364,44 + nav-right 336,28 + os dois
+   * gaps de 20 + 48 de padding — e a 947px de layout os CINCO links quebram em
+   * duas linhas DENTRO da barra. A fonte de fallback pede só 894px, então o
+   * pior caso é justamente o normal, com Inter.
+   *
+   * Por que o corte não pode ser o próprio 949: a media query compara a largura
+   * da janela COM a barra de rolagem, e o layout recebe essa largura MENOS a
+   * barra (medido: 5px, que o app fixa em `client/src/index.css:920`; uma barra
+   * clássica come ~12px). O piso abaixo é o 949 medido mais essa margem.
+   *
+   * O teto existe para ninguém "resolver" a faixa escondendo o menu num laptop
+   * ou num tablet deitado que ainda comporta a barra inteira com folga.
+   */
+  it("os links saem ACIMA da largura que a barra cheia exige — a faixa quebrada não sobra", () => {
+    const corte = Number(
+      css.match(/@media \(max-width: (\d+)px\) \{\s*\.lp \.nav-links \{ display: none; \}/)?.[1]
+    );
+    expect(corte).toBeGreaterThanOrEqual(955);
+    expect(corte).toBeLessThanOrEqual(1024);
   });
 
   it("o cadastro continua sendo a acao principal", () => {

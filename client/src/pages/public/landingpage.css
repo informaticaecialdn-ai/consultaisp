@@ -379,13 +379,25 @@
   .lp .nav-right { display: flex; align-items: center; gap: 12px; }
 
   /*
-   * O botão da demonstração acrescenta ~180px ao lado direito. Com os cinco
-   * links ainda na barra, o conjunto (logo ~160 + links ~355 + os dois botões
-   * ~330 + as folgas) passa de 930px: entre 860 e 940 a barra estourava —
-   * ou espremia os links em duas linhas e empurrava a logo. O ponto em que os
-   * links saem sobe junto com o botão que entrou.
+   * O botão da demonstração acrescenta ~180px ao lado direito, então o ponto em
+   * que os links saem sobe junto com ele — antes era 860px, com folga de sobra.
+   *
+   * O número é MEDIDO no app rodando, com Inter carregada (a primeira versão
+   * disto chutou "~930px" por contagem de caracteres e errou para menos, o que
+   * só encolhia a faixa quebrada em vez de acabar com ela): a barra cheia pede
+   * 948,89px de layout — logo 160,17 + links 364,44 + nav-right 336,28 + os dois
+   * gaps de 20 + 48 de padding. `.nav-inner` é flex `nowrap` e `.btn` é
+   * `white-space: nowrap`, então nada disso encolhe: faltando espaço, quem cede
+   * são os cinco links, que quebram em duas linhas DENTRO da barra (medido:
+   * a 947px de layout já estão quebrados; a 949px voltam para uma linha).
+   *
+   * O corte não é o próprio 949 porque a media query compara a largura da janela
+   * COM a barra de rolagem, enquanto o layout recebe essa largura MENOS a barra
+   * (5px aqui, que o app fixa em `client/src/index.css:920`; uma barra clássica
+   * come ~12px). 980 deixa ~26px de folga sobre o pior caso medido, que é o
+   * normal — com fonte de fallback a barra pede só 894px.
    */
-  @media (max-width: 940px) {
+  @media (max-width: 980px) {
     .lp .nav-links { display: none; }
   }
 
