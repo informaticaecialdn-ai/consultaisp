@@ -1220,6 +1220,13 @@ describe("complemento sobre o mundo base no FORMATO ANTIGO (o banco da demo publ
     expect(fotografiaDaRede()).toEqual(antes);
   });
 
+  /*
+   * Teto proprio de 60 s, como os beforeAll deste arquivo: este teste semeia o
+   * mundo inteiro (7.500 clientes, faturas e equipamentos) DENTRO do `it`, e nao
+   * num beforeAll. Com a suite inteira rodando junto, os 5 s padrao do vitest
+   * estouram sem que nada de errado tenha acontecido — o mesmo teste passa em
+   * 33 s quando o arquivo roda sozinho (visto em 16/09/2026).
+   */
   it("escreve so depois de pg_advisory_xact_lock e confere de novo depois do lock: duas criacoes simultaneas aplicam uma vez so", async () => {
     zerarBanco();
     await semearMundoBase(agora);
@@ -1235,7 +1242,7 @@ describe("complemento sobre o mundo base no FORMATO ANTIGO (o banco da demo publ
     expect(lock).toBeGreaterThanOrEqual(0);
     expect(primeiraEscrita).toBeGreaterThan(lock);
     expect(fotografiaDaRede()).toEqual(mundoNovo);
-  });
+  }, 60_000);
 });
 
 /**
