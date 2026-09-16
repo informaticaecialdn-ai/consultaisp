@@ -105,12 +105,13 @@ describe("configuracao", () => {
     expect((await json("PUT", "/api/chat-bullq/autonomia", { ...CONFIG, tipos: [] })).status).toBe(400);
     expect(servico.configurarAutonomia).toHaveBeenCalledTimes(1);
   });
-  it("agente sem estar pronto: o CONFLITO do servico vira 409 com a frase dele", async () => {
+  it("tipo marcado sem agente provisionado: o CONFLITO do servico vira 409 dizendo QUAL agente (a frase que o servico monta pelo catalogo)", async () => {
     sessao = ADMIN;
-    servico.configurarAutonomia.mockRejectedValueOnce(new ErroDaPonteDoChat("CONFLITO", "Configure a credencial de IA e deixe os agentes selecionados prontos antes de ativar a autonomia"));
+    const frase = "O agente “Recuperação de equipamentos” ainda não está provisionado. Provisione-o em Agentes do chat ou desmarque-o.";
+    servico.configurarAutonomia.mockRejectedValueOnce(new ErroDaPonteDoChat("CONFLITO", frase));
     const r = await json("PUT", "/api/chat-bullq/autonomia", CONFIG);
     expect(r.status).toBe(409);
-    expect((await r.json()).message).toMatch(/agentes selecionados prontos/);
+    expect(await r.json()).toEqual({ message: frase, codigo: "CONFLITO" });
   });
   it("banco sem a fila: 503 — nunca um estado inventado", async () => {
     sessao = ADMIN;
@@ -118,6 +119,50 @@ describe("configuracao", () => {
     expect((await json("GET", "/api/chat-bullq/autonomia")).status).toBe(503);
     servico.configurarAutonomia.mockRejectedValueOnce(new Error("banco fora"));
     expect((await json("PUT", "/api/chat-bullq/autonomia", CONFIG)).status).toBe(503);
+  });
+  /**
+   * O que a VPS mostrou em 16/09/2026: o fork recusou o OPEN→BOT com 400 e a
+   * tela leu "confira as migracoes (0028/0034)". A recusa do Chat BullQ e
+   * CHAT_FALHOU → 502 com a frase que o servico montou (razao + o que fazer),
+   * e fica no log com a razao — senao so o operador a ve, no toast.
+   */
+  it("o Chat BullQ recusou (CHAT_FALHOU): 502 com a frase do servico, no PUT e no devolver, e a razao vai ao log", async () => {
+    sessao = ADMIN;
+    const frase = "Não foi possível devolver a conversa ao assistente: a conversa está em atendimento humano no Chat BullQ e de lá não passa direto a ficar com o assistente. Confira o status dela lá e tente de novo.";
+    servico.devolverAoAssistente.mockRejectedValueOnce(new ErroDaPonteDoChat("CHAT_FALHOU", frase, 400));
+    const d = await json("POST", "/api/chat-bullq/autonomia/conversas/conv_1/devolver");
+    expect(d.status).toBe(502);
+    expect(await d.json()).toEqual({ message: frase, codigo: "CHAT_FALHOU" });
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.objectContaining({ codigo: "CHAT_FALHOU", status: 400, razao: frase }), expect.stringContaining("conversa não devolvida"));
+    servico.configurarAutonomia.mockRejectedValueOnce(new ErroDaPonteDoChat("CHAT_FALHOU", "O Chat BullQ precisa do recurso de preparação de primeiro contato e da credencial do modelo: O Chat BullQ respondeu 404"));
+    const p = await json("PUT", "/api/chat-bullq/autonomia", CONFIG);
+    expect(p.status).toBe(502);
+    expect(await p.json()).toMatchObject({ codigo: "CHAT_FALHOU", message: expect.stringContaining("credencial do modelo") });
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.objectContaining({ codigo: "CHAT_FALHOU", razao: expect.stringContaining("credencial do modelo") }), expect.stringContaining("configura"));
+  });
+  /**
+   * A frase das migracoes (0028/0034) so para o caso REAL — tabela ausente,
+   * `42P01` do Postgres. Banco fora, timeout ou trava: 503 com uma frase que o
+   * operador consegue agir ("tente de novo; se persistir, avise o suporte"),
+   * sem numero de migracao. O `err` completo continua no log.
+   */
+  it("503: tabela ausente (42P01) cita as migracoes; qualquer outro erro que nao e da ponte, nao — e o operador le o que fazer", async () => {
+    sessao = ADMIN;
+    servico.devolverAoAssistente.mockRejectedValueOnce(Object.assign(new Error('relation "chat_autonomia_fila" does not exist'), { code: "42P01" }));
+    const m = await json("POST", "/api/chat-bullq/autonomia/conversas/conv_1/devolver");
+    expect(m.status).toBe(503);
+    expect((await m.json()).message).toMatch(/migrações .*\(0028\/0034\)/);
+    servico.devolverAoAssistente.mockRejectedValueOnce(new Error("connection timeout"));
+    const t = await json("POST", "/api/chat-bullq/autonomia/conversas/conv_1/devolver");
+    expect(t.status).toBe(503);
+    const corpo = await t.json();
+    expect(corpo.message).not.toMatch(/0028|migra/);
+    expect(corpo.message).toMatch(/Tente novamente.*suporte/);
+    expect(loggerMock.warn).toHaveBeenCalledWith(expect.objectContaining({ err: expect.any(Error) }), expect.stringContaining("conversa não devolvida"));
+    servico.filaDaAutonomia.mockRejectedValueOnce(Object.assign(new Error("undefined_table"), { code: "42P01" }));
+    const f = await json("GET", "/api/chat-bullq/autonomia/estado");
+    expect(f.status).toBe(503);
+    expect((await f.json()).message).toMatch(/0028\/0034/);
   });
 });
 

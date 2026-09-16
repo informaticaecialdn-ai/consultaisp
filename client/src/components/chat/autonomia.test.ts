@@ -14,6 +14,7 @@ const ler = (caminho: string) => readFileSync(new URL(caminho, import.meta.url),
 const executavel = (fonte: string) => fonte.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 const tela = executavel(ler("./AutonomiaDoChat.tsx"));
 const aba = executavel(ler("../painel/AbaAgentesDeIa.tsx"));
+const catalogo = executavel(ler("./AgentesDoChat.tsx"));
 
 describe("AutonomiaDoChat", () => {
   it("le a configuracao e a fila, e grava, pelas rotas da autonomia", () => {
@@ -21,7 +22,9 @@ describe("AutonomiaDoChat", () => {
     expect(tela).toContain("export const API_AUTONOMIA_ESTADO = `${API_AUTONOMIA}/estado`;");
     expect(tela).toContain("useQuery<unknown>({ queryKey: [API_AUTONOMIA]");
     expect(tela).toContain("useQuery<unknown>({ queryKey: [API_AUTONOMIA_ESTADO]");
-    expect(tela).toContain('apiRequest("PUT", API_AUTONOMIA, config)');
+    // O PUT leva a configuracao como esta na tela; so com a autonomia LIGADA os tipos sem agente operavel saem — a regra do servidor, que so confere agentes quando `ativa`.
+    expect(tela).toContain('apiRequest("PUT", API_AUTONOMIA, { ...config, tipos: tiposEnviados })');
+    expect(tela).toContain("const tiposEnviados = config.tipos.filter(podeMarcar);");
     expect(tela).not.toMatch(/fetch\(/);
   });
   it("oferece liga/desliga, os tipos de conversa, o maximo de rodadas e as tres permissoes", () => {
@@ -31,6 +34,30 @@ describe("AutonomiaDoChat", () => {
     expect(tela).toContain("min={1} max={20}");
     for (const chave of ["permitirSegundaVia", "permitirPromessa", "permitirAgendamento"]) expect(tela).toContain(`chave: "${chave}"`);
     expect(tela).toContain('data-testid={`autonomia-${p.chave}`}');
+  });
+  it("com a autonomia ligada, so o agente que pode operar (o MESMO predicado do servidor) e marcavel; o bloqueado diz por que, ao lado do nome e na ajuda, e a marcacao gravada reaparece ao provisionar", () => {
+    // A mesma lista (mesma chave) do catalogo "Agentes do chat" logo acima: uma leitura so.
+    expect(catalogo).toContain('export const API_AGENTES_DO_CHAT = "/api/chat-bullq/integracao/agentes";');
+    expect(tela).toContain('import { API_AGENTES_DO_CHAT } from "@/components/chat/AgentesDoChat";');
+    expect(tela).toContain("useQuery<{ agentes: AgenteDoChat[] }>({ queryKey: [API_AGENTES_DO_CHAT]");
+    // Um predicado so, compartilhado com o servidor: pronto E habilitado E com id e modelo — o agente "pausado" nao entra.
+    expect(tela).toMatch(/import \{[^}]*\bagentePodeOperar\b[^}]*\} from "@shared\/chat-agentes";/);
+    expect(tela).toContain("if (!a || agentePodeOperar(a)) return null;");
+    expect(tela).toContain('return a.etapa === "pronto" && a.id && a.modelo ? "pausado" : "não provisionado";');
+    // Desligada, a marcacao e livre (o servidor ignora `tipos` sem `ativa`) — ligar a autonomia com tudo desmarcavel nao pode travar o "desligar".
+    expect(tela).toContain("const podeMarcar = (tipo: TipoDeAgente) => !config.ativa || !bloqueio(tipo);");
+    expect(tela).toContain("checked={config.tipos.includes(tipo) && podeMarcar(tipo)} disabled={!podeMarcar(tipo)}");
+    // A explicacao nao vive so no `title` (hover): marca visivel ao lado do nome e a linha de ajuda diz o que falta e onde.
+    expect(tela).toContain("{bloqueio(tipo) && <span");
+    expect(tela).toContain("· {bloqueio(tipo)}");
+    expect(tela).toContain("provisione ou habilite em “Agentes do chat”, acima");
+    expect(tela).not.toContain("Agentes de IA");
+    // O estado nao e podado: filtrar so no envio faz a marcacao gravada reaparecer sozinha quando o agente fica pronto.
+    expect(tela).not.toContain("tipos: c.tipos.filter");
+    // Ligada e sem nenhum agente operavel marcado, Salvar fica desabilitado com a dica — em vez do 400 "Configuração inválida" do `tipos.min(1)`.
+    expect(tela).toContain("const semAgente = config.ativa && tiposEnviados.length === 0;");
+    expect(tela).toContain("disabled={semAgente}");
+    expect(tela).toContain("provisione ao menos um agente em “Agentes do chat” para ligar a autonomia");
   });
   it("so o administrador grava; a leitura e de todos", () => {
     expect(tela).toContain("const bloqueado = !podeAdministrar || estado.isPending || estado.isError || salvar.isPending;");

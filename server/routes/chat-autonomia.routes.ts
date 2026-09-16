@@ -24,14 +24,32 @@ import { logger } from "../logger";
 const providerDaSessao = (req: Request): number => req.session.providerId as number;
 const userDaSessao = (req: Request): number | null => (typeof req.session.userId === "number" ? req.session.userId : null);
 
-/** O erro da ponte vira o status certo; o resto e 503 — a tela mostra o traco, nunca um zero. */
+/** O codigo da ponte vira o HTTP: 404 conversa de outro provedor, 503 chat desligado, 502 o Chat BullQ recusou (a razao dele vai no `message`), 409 o resto. */
+const statusDaPonte = (e: ErroDaPonteDoChat) => e.codigo === "CASO_NAO_ENCONTRADO" ? 404 : e.codigo === "CHAT_DESLIGADO" ? 503 : e.codigo === "CHAT_FALHOU" ? 502 : 409;
+
+/**
+ * O erro da ponte vira a resposta. A recusa do Chat BullQ (CHAT_FALHOU) fica
+ * no log com a razao — o cliente da ponte loga so metodo/caminho/status, e
+ * senao a recusa em producao so seria vista se o operador copiasse o toast.
+ * A razao e o `message` da API ou a frase que o servico montou: sem PII.
+ */
+function respostaDaPonte(res: Response, e: ErroDaPonteDoChat, contexto: string) {
+  if (e.codigo === "CHAT_FALHOU") logger.warn({ codigo: e.codigo, status: e.status, razao: e.message }, `Autonomia do chat: o Chat BullQ recusou — ${contexto}`);
+  return res.status(statusDaPonte(e)).json({ message: e.message, codigo: e.codigo });
+}
+/** `undefined_table` do Postgres — a unica prova, aqui, de que a migracao nao rodou. */
+const tabelaAusente = (e: unknown) => (e as { code?: unknown } | null)?.code === "42P01";
+
+/**
+ * O erro da ponte vira o status certo; o resto e 503 — a tela mostra o traco, nunca um zero.
+ * A frase das migracoes so no caso REAL (tabela ausente, 42P01): banco fora,
+ * timeout ou trava recebem uma frase em que o operador consegue agir — ele
+ * nao sabe o que e a migracao 0028. O `err` completo continua no log.
+ */
 function falha(res: Response, e: unknown, contexto: string) {
-  if (e instanceof ErroDaPonteDoChat) {
-    const status = e.codigo === "CASO_NAO_ENCONTRADO" ? 404 : e.codigo === "CHAT_DESLIGADO" ? 503 : e.codigo === "CHAT_FALHOU" ? 502 : 409;
-    return res.status(status).json({ message: e.message, codigo: e.codigo });
-  }
+  if (e instanceof ErroDaPonteDoChat) return respostaDaPonte(res, e, contexto);
   logger.warn({ err: e }, `Autonomia do chat: ${contexto}`);
-  res.status(503).json({ message: "Autonomia indisponível. Confira as migrações da fila e da confirmação de identidade (0028/0034)." });
+  res.status(503).json({ message: tabelaAusente(e) ? "Autonomia indisponível. Confira as migrações da fila e da confirmação de identidade (0028/0034)." : "Autonomia indisponível agora. Tente novamente em instantes; se persistir, avise o suporte." });
 }
 
 const ConversaSchema = z.string().trim().min(1).max(120);
@@ -50,7 +68,7 @@ export function registerChatAutonomiaRoutes() {
     if (!r.success) return res.status(400).json({ message: "Configuração de autonomia inválida", erros: r.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) });
     try { res.json(await configurarAutonomia(providerDaSessao(req), r.data, userDaSessao(req))); }
     catch (e) {
-      if (e instanceof ErroDaPonteDoChat) return res.status(409).json({ message: e.message, codigo: e.codigo });
+      if (e instanceof ErroDaPonteDoChat) return respostaDaPonte(res, e, "configuração não gravada");
       logger.warn({ err: e, providerId: providerDaSessao(req) }, "Não foi possível configurar autonomia");
       res.status(503).json({ message: "Autonomia indisponível. A configuração não foi confirmada." });
     }

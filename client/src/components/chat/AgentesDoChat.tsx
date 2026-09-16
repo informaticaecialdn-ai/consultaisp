@@ -8,7 +8,8 @@ import { mensagemDoErro, SeloCobranca } from "@/components/cobranca/ui";
 import { cn } from "@/lib/utils";
 import { AGENT_PROMPT_MAX, ConfiguracaoDeAgenteSchema, LIMITES_DO_AGENTE, NOME_DA_PERSONA_MAX, ORIGENS_DE_MODELO, tamanhoDoPromptFinal, type AgenteDoChat, type ModeloDoAgente, type ModelosDosAgentes, type PrimeiroContatoPreparado, type PromptDoAgente } from "@shared/chat-agentes";
 
-const API = "/api/chat-bullq/integracao/agentes";
+export const API_AGENTES_DO_CHAT = "/api/chat-bullq/integracao/agentes";
+const API = API_AGENTES_DO_CHAT;
 const ESTADOS = { nao_configurado: "aguardando configuração", configurado: "aguardando provisionamento", criando: "criando no Chat BullQ", criado: "finalizando vínculos", pronto: "pronto para preparar", erro: "precisa de atenção" };
 /** Vai ao `<select>` e à legenda do provedor: sem nome da nossa infraestrutura (a chave `openai_vps` é só contrato com o serviço). */
 const ROTULO_DA_ORIGEM = { chat_bullq: "credencial do Chat BullQ", openai_vps: "OpenAI · não confirmado" } as const;

@@ -114,6 +114,13 @@ export interface AgenteDoChat extends ConfiguracaoDeAgente {
   criacaoIniciada?: boolean;
   importadoDe?: { id: string; nome: string } | null;
 }
+/**
+ * O agente que a autonomia pode usar: provisionado (pronto, com id e modelo no
+ * Chat BullQ) E habilitado. É UM predicado, lido pela tela da autonomia e pelo
+ * servidor — o card "pausado" (habilitado=false) não opera, e a tela não pode
+ * deixar marcar o que o servidor vai recusar.
+ */
+export const agentePodeOperar = (a: Pick<AgenteDoChat, "etapa" | "habilitado" | "id" | "modelo">): boolean => a.etapa === "pronto" && a.habilitado && !!a.id && !!a.modelo;
 export interface AgenteImportavel { id: string; nome: string; modelo: string }
 
 /**

@@ -19,7 +19,8 @@ import { BOTAO_MARCA, CONTROLE_CAMPO, LinhasSkeleton } from "@/components/painel
 import { mensagemDoErro, SeloCobranca } from "@/components/cobranca/ui";
 import { Kicker } from "@/components/localizacao/ui";
 import { Switch } from "@/components/ui/switch";
-import { CATALOGO_DE_AGENTES, TIPOS_DE_AGENTE, type TipoDeAgente } from "@shared/chat-agentes";
+import { API_AGENTES_DO_CHAT } from "@/components/chat/AgentesDoChat";
+import { agentePodeOperar, CATALOGO_DE_AGENTES, TIPOS_DE_AGENTE, type AgenteDoChat, type TipoDeAgente } from "@shared/chat-agentes";
 import { FuncionariaDigitalSchema, lerConfigAutonomia, lerFilaDaAutonomia, O_QUE_A_IA_NUNCA_FAZ, ROTULOS_DA_FILA, STATUS_DA_FILA, type ConfigAutonomia } from "@shared/chat-autonomia";
 
 export const API_AUTONOMIA = "/api/chat-bullq/autonomia";
@@ -46,11 +47,30 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
   const qc = useQueryClient();
   const estado = useQuery<unknown>({ queryKey: [API_AUTONOMIA], staleTime: 30_000, retry: false });
   const fila = useQuery<unknown>({ queryKey: [API_AUTONOMIA_ESTADO], staleTime: 15_000, refetchInterval: 30_000, retry: false });
+  // A mesma lista (mesma chave) do catálogo "Agentes do chat", logo acima. Com
+  // a autonomia LIGADA só entra o agente que pode operar — o MESMO predicado do
+  // servidor (`agentePodeOperar`): o card "pausado" também fica de fora, e o
+  // motivo do bloqueio vai escrito ao lado do nome. Desligada, a marcação é
+  // livre, como no servidor (que só confere agentes quando `ativa`) — senão
+  // um tenant sem agente provisionado não conseguia nem DESLIGAR a autonomia.
+  // Lista ainda não lida ou falhou: nada é bloqueado; quem decide é o servidor.
+  const agentes = useQuery<{ agentes: AgenteDoChat[] }>({ queryKey: [API_AGENTES_DO_CHAT], staleTime: 30_000 });
+  const bloqueio = (tipo: TipoDeAgente): "pausado" | "não provisionado" | null => {
+    const a = agentes.data?.agentes.find(x => x.tipo === tipo);
+    if (!a || agentePodeOperar(a)) return null;
+    return a.etapa === "pronto" && a.id && a.modelo ? "pausado" : "não provisionado";
+  };
   const [config, setConfig] = useState<ConfigAutonomia>(() => lerConfigAutonomia(null));
   useEffect(() => { if (estado.data) setConfig(lerConfigAutonomia((estado.data as { config?: unknown }).config)); }, [estado.dataUpdatedAt]);
+  const podeMarcar = (tipo: TipoDeAgente) => !config.ativa || !bloqueio(tipo);
+  // O estado guarda a marcação como veio do servidor; só o ENVIO filtra — assim a
+  // marcação gravada reaparece sozinha quando o agente é provisionado.
+  const tiposEnviados = config.tipos.filter(podeMarcar);
+  const semAgente = config.ativa && tiposEnviados.length === 0;
+  const bloqueados = TIPOS_DE_AGENTE.filter(t => bloqueio(t));
 
   const salvar = useMutation({
-    mutationFn: async () => (await apiRequest("PUT", API_AUTONOMIA, config)).json(),
+    mutationFn: async () => (await apiRequest("PUT", API_AUTONOMIA, { ...config, tipos: tiposEnviados })).json(),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: [API_AUTONOMIA] });
       await qc.invalidateQueries({ queryKey: [API_AUTONOMIA_ESTADO] });
@@ -108,13 +128,18 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
             <Kicker>tipos de conversa</Kicker>
             <div className="mt-2 flex flex-wrap gap-4 text-xs text-[var(--text-2)]">
               {TIPOS_DE_AGENTE.map(tipo => (
-                <label key={tipo} className="flex items-center gap-2">
-                  <input type="checkbox" checked={config.tipos.includes(tipo)} onChange={e => alternarTipo(tipo, e.target.checked)} data-testid={`autonomia-tipo-${tipo}`} />
+                <label key={tipo} className={cn("flex items-center gap-2", !podeMarcar(tipo) && "opacity-60")} title={podeMarcar(tipo) ? undefined : `Agente ${bloqueio(tipo)}: provisione ou habilite em “Agentes do chat”, acima`}>
+                  <input type="checkbox" checked={config.tipos.includes(tipo) && podeMarcar(tipo)} disabled={!podeMarcar(tipo)} onChange={e => alternarTipo(tipo, e.target.checked)} data-testid={`autonomia-tipo-${tipo}`} />
                   {CATALOGO_DE_AGENTES[tipo].nome}
+                  {bloqueio(tipo) && <span className="text-[var(--text-faint)]" data-testid={`autonomia-tipo-${tipo}-bloqueio`}>· {bloqueio(tipo)}</span>}
                 </label>
               ))}
             </div>
-            <p className="mt-1 text-[11px] leading-4 text-[var(--text-faint)]">O agente da carteira precisa estar pronto e habilitado; sem ele, a conversa vai ao atendente.</p>
+            <p className="mt-1 text-[11px] leading-4 text-[var(--text-faint)]">
+              {bloqueados.length
+                ? <>Faltam: {bloqueados.map(t => `“${CATALOGO_DE_AGENTES[t].nome}” (${bloqueio(t)})`).join(", ")} — provisione ou habilite em “Agentes do chat”, acima. Sem o agente pronto e habilitado, a conversa dessa carteira vai ao atendente.</>
+                : "O agente da carteira precisa estar pronto e habilitado; sem ele, a conversa vai ao atendente."}
+            </p>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
@@ -138,8 +163,9 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <button type="button" onClick={() => salvar.mutate()} className={BOTAO_MARCA} data-testid="autonomia-salvar">{salvar.isPending ? "Salvando…" : "Salvar autonomia"}</button>
+            <button type="button" onClick={() => salvar.mutate()} className={BOTAO_MARCA} disabled={semAgente} data-testid="autonomia-salvar">{salvar.isPending ? "Salvando…" : "Salvar autonomia"}</button>
             {!podeAdministrar && <span className="text-[11px] text-[var(--text-faint)]">só o administrador configura a autonomia</span>}
+            {semAgente && <span className="text-[11px] text-[var(--text-faint)]" data-testid="autonomia-sem-agente">provisione ao menos um agente em “Agentes do chat” para ligar a autonomia</span>}
           </div>
         </fieldset>
       )}

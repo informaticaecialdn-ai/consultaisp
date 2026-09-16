@@ -3,7 +3,7 @@
  * com os limites travados aqui — a UI, a rota e o serviço leem deste schema.
  */
 import { describe, expect, it } from "vitest";
-import { AGENT_PROMPT_MAX, AVISOS_MAX, CABECALHO_DOS_AVISOS, CATALOGO_DE_AGENTES, ConfiguracaoDeAgenteSchema, INSTRUCOES_PADRAO, LIMITES_DO_AGENTE, MODELOS_OPENAI_DA_VPS, NOME_DA_PERSONA_MAX, ORIGENS_DE_MODELO, PADRAO_DE_MODELO_DO_FORK, RESERVA_DA_CASA, TIPOS_DE_AGENTE, catalogoDeModelos, juntarPromptFinal, nomeDaPersonaValido, tamanhoDoPromptFinal } from "./chat-agentes";
+import { AGENT_PROMPT_MAX, AVISOS_MAX, CABECALHO_DOS_AVISOS, CATALOGO_DE_AGENTES, ConfiguracaoDeAgenteSchema, INSTRUCOES_PADRAO, LIMITES_DO_AGENTE, MODELOS_OPENAI_DA_VPS, NOME_DA_PERSONA_MAX, ORIGENS_DE_MODELO, PADRAO_DE_MODELO_DO_FORK, RESERVA_DA_CASA, TIPOS_DE_AGENTE, agentePodeOperar, catalogoDeModelos, juntarPromptFinal, nomeDaPersonaValido, tamanhoDoPromptFinal } from "./chat-agentes";
 
 const base = { modelo: "openai/gpt-4o-mini", instrucoes: "Seja breve", habilitado: true };
 
@@ -134,5 +134,17 @@ describe("catálogo de papéis", () => {
       expect(CATALOGO_DE_AGENTES[tipo].papel).toBeTruthy();
       expect("descricao" in CATALOGO_DE_AGENTES[tipo]).toBe(false);
     }
+  });
+});
+
+describe("agentePodeOperar — o predicado único da tela da autonomia e do servidor", () => {
+  it("só o agente pronto, habilitado, com id e modelo opera; pausado (habilitado=false) ou sem provisionar, não", () => {
+    const pronto = { etapa: "pronto" as const, habilitado: true, id: "ag_1", modelo: "openai/gpt-4o-mini" };
+    expect(agentePodeOperar(pronto)).toBe(true);
+    expect(agentePodeOperar({ ...pronto, habilitado: false })).toBe(false);
+    expect(agentePodeOperar({ ...pronto, etapa: "configurado" })).toBe(false);
+    expect(agentePodeOperar({ ...pronto, etapa: "criado" })).toBe(false);
+    expect(agentePodeOperar({ ...pronto, id: null })).toBe(false);
+    expect(agentePodeOperar({ ...pronto, modelo: null })).toBe(false);
   });
 });

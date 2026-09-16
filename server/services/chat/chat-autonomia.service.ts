@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { ConfigAutonomiaSchema, lerFuncionariaDigital, type ConfigAutonomia, type FuncionariaDigital, type PedidoPlanoAutonomia, type PlanoResposta, type PropostaAutonomia } from "@shared/chat-autonomia";
-import type { AgenteDoChat, TipoDeAgente } from "@shared/chat-agentes";
+import { agentePodeOperar, CATALOGO_DE_AGENTES, type AgenteDoChat, type TipoDeAgente } from "@shared/chat-agentes";
 import type { OfertasAutonomia } from "@shared/chat-autonomia-seguranca";
 import { mensagemDePagamento } from "@shared/cobranca/pagamento-chat";
 import { lerAutomacaoChat } from "@shared/cobranca/automacao-chat";
@@ -34,7 +34,45 @@ import { casoFechado } from "@shared/cobranca/estados";
 import type { ChatBullqConversa, ChatBullqIntegracao } from "@shared/schema";
 import type { Resultado } from "./chat-bullq.client";
 
-const valor = <T>(r: Resultado<T>): T => { if (!r.ok) throw new Error("Operação do chat não confirmada"); return r.valor; };
+/**
+ * A recusa do Chat BullQ sobe como erro da ponte, com a razão que o cliente
+ * já devolve segura (só o `message` da API, nunca o corpo cru) e o HTTP de
+ * lá — a rota responde 502 com ela. Como `Error` genérico, a rota a escondia
+ * atrás do 503 "confira as migrações" (VPS, 16/09/2026: era um 400 da máquina
+ * de estados do fork ao OPEN→BOT).
+ */
+const valor = <T>(r: Resultado<T>): T => { if (!r.ok) throw new ErroDaPonteDoChat("CHAT_FALHOU", r.erro || "O Chat BullQ recusou a operação", r.status); return r.valor; };
+/** Os status da conversa no Chat BullQ, como o operador os lê — depois de "está" e de "ficar". */
+const ESTADO_NO_CHAT: Record<string, string> = { PENDING: "na fila", OPEN: "em atendimento humano", BOT: "com o assistente", WAITING: "aguardando o cliente", CLOSED: "encerrada" };
+/**
+ * A razão do fork em português quando é a máquina de estados dele — a string
+ * REAL é "Invalid transition: OPEN → BOT" (`conversation-fsm.service.ts`), que
+ * chegava crua ao toast do operador. O resto já é só o `message` da API ou a
+ * frase fixa do cliente ("O Chat BullQ respondeu 500") e passa como veio.
+ */
+function razaoDoChat(mensagem: string): string {
+  const m = /^Invalid transition: (\w+) → (\w+)$/.exec(mensagem);
+  return m ? `a conversa está ${ESTADO_NO_CHAT[m[1]] ?? m[1]} no Chat BullQ e de lá não passa direto a ficar ${ESTADO_NO_CHAT[m[2]] ?? m[2]}` : mensagem;
+}
+/** "“A”", "“A” e “B”", "“A”, “B” e “C”". */
+const nomesDe = (tipos: TipoDeAgente[]) => { const n = tipos.map(t => `“${CATALOGO_DE_AGENTES[t].nome}”`); return n.length === 1 ? n[0] : `${n.slice(0, -1).join(", ")} e ${n.at(-1)}`; };
+/**
+ * A recusa diz QUAL agente e POR QUÊ, no vocabulário da tela ("agente", seção
+ * "Agentes do chat"): sem provisionar (provisione) ou provisionado mas pausado
+ * (habilite) — o mesmo predicado da tela, `agentePodeOperar`. Vazio quando
+ * todos os marcados operam.
+ */
+function recusaPorAgente(agentes: AgenteDoChat[], tipos: TipoDeAgente[]): string {
+  const de = (tipo: TipoDeAgente) => agentes.find(a => a.tipo === tipo);
+  const pausados = tipos.filter(t => { const a = de(t); return a && !agentePodeOperar(a) && a.etapa === "pronto" && a.id && a.modelo; });
+  const semProvisao = tipos.filter(t => { const a = de(t); return !pausados.includes(t) && !(a && agentePodeOperar(a)); });
+  const frases: string[] = [];
+  if (semProvisao.length === 1) frases.push(`O agente ${nomesDe(semProvisao)} ainda não está provisionado. Provisione-o em Agentes do chat ou desmarque-o.`);
+  else if (semProvisao.length) frases.push(`Os agentes ${nomesDe(semProvisao)} ainda não estão provisionados. Provisione-os em Agentes do chat ou desmarque-os.`);
+  if (pausados.length === 1) frases.push(`O agente ${nomesDe(pausados)} está pausado. Marque “Habilitado para abrir contato” em Agentes do chat ou desmarque-o aqui.`);
+  else if (pausados.length) frases.push(`Os agentes ${nomesDe(pausados)} estão pausados. Marque “Habilitado para abrir contato” em Agentes do chat ou desmarque-os aqui.`);
+  return frases.join(" ");
+}
 const faturasDaAutonomia = new FaturasStorage();
 export const chaveDaAutonomia = (providerId: number, conversationId: string) => `autonomia:${providerId}:${conversationId}`;
 
@@ -71,8 +109,14 @@ export async function devolverAoAssistente(providerId: number, conversationId: s
     if (!config.ativa) throw new ErroDaPonteDoChat("CONFLITO", "Ative a autonomia antes de devolver a conversa ao assistente");
     const c = clienteDoChat(); const intg = await storage.getIntegracaoDoChat(providerId);
     if (!c || !intg) throw new ErroDaPonteDoChat("CHAT_DESLIGADO", "Configure o Chat BullQ no Painel do Provedor para atender por aqui");
-    valor(await c.desligarIa(intg.organizationId, conversationId));
-    valor(await c.atribuir(intg.organizationId, conversationId, { status: "BOT" }));
+    try {
+      valor(await c.desligarIa(intg.organizationId, conversationId));
+      valor(await c.atribuir(intg.organizationId, conversationId, { status: "BOT" }));
+    } catch (e) {
+      if (!(e instanceof ErroDaPonteDoChat) || e.codigo !== "CHAT_FALHOU") throw e;
+      // O que o operador lê no toast: o que se tentava, a razão em português e o que fazer — não "Invalid transition: OPEN → BOT".
+      throw new ErroDaPonteDoChat("CHAT_FALHOU", `Não foi possível devolver a conversa ao assistente: ${razaoDoChat(e.message)}. Confira o status dela lá e tente de novo.`, e.status);
+    }
     await segurancaAutonomiaStorage.revogar(providerId, conversationId);
     await marcarLidasPeloAtendente(providerId, conversationId);
     await autonomiaStorage.devolver(providerId, conversationId, "Atendente devolveu a conversa ao assistente");
@@ -88,8 +132,11 @@ export async function configurarAutonomia(providerId: number, dados: ConfigAuton
   return comTravaDaConfiguracaoDoChat(providerId, async () => {
     if (config.ativa) {
       const [{ agentes }, modelos] = await Promise.all([listarAgentesDoChat(providerId), modelosDosAgentesDoChat(providerId)]);
-      if (!modelos.configured || config.tipos.some(tipo => !agentes.some(a => a.tipo === tipo && a.etapa === "pronto" && a.habilitado && a.id && a.modelo)))
-        throw new ErroDaPonteDoChat("CONFLITO", "Configure a credencial de IA e deixe os agentes selecionados prontos antes de ativar a autonomia");
+      if (!modelos.configured) throw new ErroDaPonteDoChat("CONFLITO", "Configure a credencial de IA no Chat BullQ antes de ativar a autonomia");
+      // A recusa diz QUAL agente e por quê (sem provisionar ou pausado), pelo nome
+      // do catálogo: a frase genérica mandava "deixar os agentes prontos" sem dizer qual.
+      const recusa = recusaPorAgente(agentes, config.tipos);
+      if (recusa) throw new ErroDaPonteDoChat("CONFLITO", recusa);
     }
     if (config.permitirNegociacao) {
       const autor = userId ? await storage.getUser(userId) : null;

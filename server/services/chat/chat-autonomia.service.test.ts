@@ -97,6 +97,7 @@ const seguranca = vi.hoisted(() => ({
 vi.mock("../../storage/chat-autonomia-seguranca.storage", () => ({ segurancaAutonomiaStorage: seguranca }));
 import { avaliarIdentidade } from "./chat-autonomia-identidade";
 import { POLITICA_PADRAO } from "@shared/cobranca/politica";
+import type { ConfigAutonomia } from "@shared/chat-autonomia";
 
 import { configurarAutonomia, devolverAoAssistente, executarFilaAutonomia, historicoDoPlanejador, iniciarAutonomia, pararAutonomia, receberMensagemAutonoma } from "./chat-autonomia.service";
 import { ErroDaPonteDoChat } from "./chat-ponte.service";
@@ -1504,11 +1505,71 @@ describe("devolver ao assistente", () => {
     expect(fila.devolver).not.toHaveBeenCalled();
     expect(cliente.atribuir).not.toHaveBeenCalled();
   });
-  it("se o Chat BullQ não confirmar o BOT, o humano continua dono: o estado local não muda", async () => {
-    cliente.atribuir.mockResolvedValueOnce({ ok: false, erro: "fora do ar" });
-    await expect(devolverAoAssistente(42, "conv_1", 8)).rejects.toThrow();
+  /**
+   * A recusa do fork (VPS, 16/09/2026: a máquina de estados de lá respondeu 400
+   * ao OPEN→BOT) subia como `Error` genérico, e a rota a escondia atrás do 503
+   * "confira as migrações". Agora sobe como CHAT_FALHOU com o HTTP de lá e uma
+   * frase de operador: o que se tentava, a razão em português (a máquina de
+   * estados do fork fala "Invalid transition: OPEN → BOT" — a string REAL de
+   * `conversation-fsm.service.ts`) e o que fazer. Nunca o jargão cru no toast.
+   */
+  it("se o Chat BullQ recusar o BOT, a recusa sobe como CHAT_FALHOU com a razão em português, o que fazer e o HTTP dele; o humano continua dono", async () => {
+    cliente.atribuir.mockResolvedValueOnce({ ok: false, erro: "Invalid transition: OPEN → BOT", status: 400 });
+    await expect(devolverAoAssistente(42, "conv_1", 8)).rejects.toMatchObject({
+      codigo: "CHAT_FALHOU", status: 400,
+      message: "Não foi possível devolver a conversa ao assistente: a conversa está em atendimento humano no Chat BullQ e de lá não passa direto a ficar com o assistente. Confira o status dela lá e tente de novo.",
+    });
     expect(fila.devolver).not.toHaveBeenCalled();
     expect(armazem.atualizarConversaDoChat).not.toHaveBeenCalled();
+    // Razão que não é da máquina de estados passa como veio (já é só o `message` da API), com o contexto em volta.
+    cliente.atribuir.mockResolvedValueOnce({ ok: false, erro: "O Chat BullQ respondeu 500", status: 500 });
+    await expect(devolverAoAssistente(42, "conv_1", 8)).rejects.toMatchObject({ codigo: "CHAT_FALHOU", status: 500, message: "Não foi possível devolver a conversa ao assistente: O Chat BullQ respondeu 500. Confira o status dela lá e tente de novo." });
+    // Sem razão nenhuma, a frase genérica — nunca um erro mudo.
+    cliente.desligarIa.mockResolvedValueOnce({ ok: false, erro: "" });
+    await expect(devolverAoAssistente(42, "conv_1", 8)).rejects.toMatchObject({ codigo: "CHAT_FALHOU", message: expect.stringContaining("O Chat BullQ recusou a operação") });
+    expect(fila.devolver).not.toHaveBeenCalled();
+  });
+});
+
+describe("configurar a autonomia", () => {
+  const cfg = (tipos: ConfigAutonomia["tipos"]): ConfigAutonomia => ({ ativa: true, maxTurnos: 12, permitirPromessa: true, permitirSegundaVia: true, permitirAgendamento: true, tipos });
+  // O vocabulário é o da tela em volta: "agente" (nunca "perfil") e a seção "Agentes do chat", onde fica o botão Provisionar.
+  it("tipo marcado sem agente provisionado: a recusa diz QUAL, pelo nome do catálogo — e todos, quando são vários", async () => {
+    await expect(configurarAutonomia(42, cfg(["cobranca_ativos", "recuperacao_equipamentos"]), 8)).rejects.toMatchObject({
+      codigo: "CONFLITO", message: "O agente “Recuperação de equipamentos” ainda não está provisionado. Provisione-o em Agentes do chat ou desmarque-o.",
+    });
+    agentes.listarAgentesDoChat.mockResolvedValueOnce({ agentes: [
+      { tipo: "cobranca_ativos", habilitado: true, etapa: "pronto", id: "ag_ativos", modelo: "openai/gpt-4o-mini" },
+      { tipo: "cobranca_ex_clientes", habilitado: true, etapa: "criado", id: "ag_ex", modelo: "openai/gpt-4o-mini" },
+      { tipo: "recuperacao_equipamentos", habilitado: false, etapa: "configurado", id: null, modelo: null },
+    ] });
+    await expect(configurarAutonomia(42, cfg(["cobranca_ativos", "cobranca_ex_clientes", "recuperacao_equipamentos"]), 8)).rejects.toMatchObject({
+      codigo: "CONFLITO", message: "Os agentes “Cobrança · ex-clientes” e “Recuperação de equipamentos” ainda não estão provisionados. Provisione-os em Agentes do chat ou desmarque-os.",
+    });
+    expect(fila.salvarConfig).not.toHaveBeenCalled();
+    // Só agentes prontos marcados: grava.
+    await configurarAutonomia(42, cfg(["cobranca_ativos", "cobranca_ex_clientes"]), 8);
+    expect(fila.salvarConfig).toHaveBeenCalledWith(42, expect.objectContaining({ ativa: true, tipos: ["cobranca_ativos", "cobranca_ex_clientes"] }));
+  });
+  it("agente provisionado mas pausado (habilitado=false): a recusa diz que está pausado e onde habilitar — não que falta provisionar", async () => {
+    agentes.listarAgentesDoChat.mockResolvedValue({ agentes: [
+      { tipo: "cobranca_ativos", habilitado: false, etapa: "pronto", id: "ag_ativos", modelo: "openai/gpt-4o-mini" },
+      { tipo: "cobranca_ex_clientes", habilitado: false, etapa: "pronto", id: "ag_ex", modelo: "openai/gpt-4o-mini" },
+      { tipo: "recuperacao_equipamentos", habilitado: false, etapa: "configurado", id: null, modelo: null },
+    ] });
+    await expect(configurarAutonomia(42, cfg(["cobranca_ativos"]), 8)).rejects.toMatchObject({
+      codigo: "CONFLITO", message: "O agente “Cobrança · clientes ativos” está pausado. Marque “Habilitado para abrir contato” em Agentes do chat ou desmarque-o aqui.",
+    });
+    // Os dois motivos juntos, cada grupo com a sua frase.
+    await expect(configurarAutonomia(42, cfg(["cobranca_ativos", "cobranca_ex_clientes", "recuperacao_equipamentos"]), 8)).rejects.toMatchObject({
+      codigo: "CONFLITO", message: "O agente “Recuperação de equipamentos” ainda não está provisionado. Provisione-o em Agentes do chat ou desmarque-o. Os agentes “Cobrança · clientes ativos” e “Cobrança · ex-clientes” estão pausados. Marque “Habilitado para abrir contato” em Agentes do chat ou desmarque-os aqui.",
+    });
+    expect(fila.salvarConfig).not.toHaveBeenCalled();
+  });
+  it("sem credencial de IA no Chat BullQ a recusa é pela credencial, antes de olhar agente", async () => {
+    agentes.modelosDosAgentesDoChat.mockResolvedValueOnce({ configured: false, models: [] });
+    await expect(configurarAutonomia(42, cfg(["cobranca_ativos"]), 8)).rejects.toMatchObject({ codigo: "CONFLITO", message: expect.stringContaining("credencial de IA") });
+    expect(fila.salvarConfig).not.toHaveBeenCalled();
   });
 });
 
