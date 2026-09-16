@@ -1,3 +1,4 @@
+vi.mock("../cobranca/gestao-operacional.service", () => ({ comOrcamentoContato: vi.fn(async (_pid: number, _cid: number, _canal: string, _automatico: boolean, enviar: () => Promise<unknown>) => enviar()) }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -46,7 +47,7 @@ vi.mock("../../storage", () => ({
 import { ChatBullqClient } from "./chat-bullq.client";
 import { storage } from "../../storage";
 import {
-  _usarClienteDoChatParaTestes, clienteDoChat, configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarRecuperacaoParaChat, ErroDaPonteDoChat,
+  _usarClienteDoChatParaTestes, clienteDoChat, configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarPreAvisoParaChat, enviarRecuperacaoParaChat, ErroDaPonteDoChat,
   estadoDaIntegracao, garantirIntegracao, garantirAgenteDeCobranca, garantirTransferenciaNaResposta, mensagemDeCobranca, mensagemDeRecuperacao,
   urlDaApiDoAgente, urlDoWebhookDeVolta,
 } from "./chat-ponte.service";
@@ -409,13 +410,34 @@ describe("enviarCasoParaCobranca", () => {
   });
 });
 
+describe("primeiro contato preventivo", () => {
+  it("abre no canal comum com mensagem neutra, sem revelar próximos vencimentos", async () => {
+    const c = clienteFalso();
+    fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", canalId: "ch_1", status: "ativo", agenteConfig: AGENTES_PRONTOS };
+    const r = await enviarPreAvisoParaChat(6, { customerId: 42, nome: "Maria da Silva", telefone: "(43) 99999-0000" }, 3);
+    expect(r.enviado).toBe(true);
+    expect(c.iniciarConversa).toHaveBeenCalledWith("org_1", expect.objectContaining({ texto: "Olá, sou o assistente virtual de NsLink. Posso falar com Maria?", aiEnabled: false }));
+    expect(c.prepararPrimeiroContato).not.toHaveBeenCalled();
+    expect(fake.conversasRegistradas[0]).toMatchObject({ customerId: 42, origem: "cobranca", casoId: null, conversationId: "conv_nova" });
+  });
+});
+
 describe("enviarRecuperacaoParaChat", () => {
-  it("manda a mensagem de retirada com o equipamento e liga a conversa ao caso de recuperacao", async () => {
+  it("não permite mensagem manual de devolução antes da identificação", async () => {
+    const c = clienteFalso();
+    fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", canalId: "ch_1", status: "ativo", agenteConfig: AGENTES_PRONTOS };
+    fake.recuperacoes = [{ id: 77, customerId: 42, customerName: "Joao Pereira", customerPhone: "43988880000" }];
+    await expect(enviarRecuperacaoParaChat(6, 77, 3, "Joao, devolva o equipamento do contrato")).rejects.toMatchObject({ codigo: "CONFLITO" });
+    expect(c.iniciarConversa).not.toHaveBeenCalled();
+    expect(fake.conversasRegistradas).toEqual([]);
+  });
+  it("abre contato neutro e liga a conversa ao caso sem revelar equipamento antes da identidade", async () => {
     const c = clienteFalso();
     fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: "ch_1", status: "ativo", agenteConfig: AGENTES_PRONTOS };
     fake.recuperacoes = [{ id: 77, customerId: 42, customerName: "Joao Pereira", customerPhone: "43988880000", equipmentType: "ONU", equipmentBrand: "Huawei", equipmentModel: "HG8145V5" }];
     const r = await enviarRecuperacaoParaChat(6, 77, 3);
-    expect(c.iniciarConversa.mock.calls[0][1].texto).toContain("devolução do equipamento");
+    expect(c.iniciarConversa.mock.calls[0][1].texto).toBe("Olá, sou o assistente virtual de NsLink. Posso falar com Joao?");
+    expect(c.iniciarConversa.mock.calls[0][1].texto).not.toMatch(/contrato|equipamento|financeiro|Huawei|ONU/i);
     expect(c.iniciarConversa.mock.calls[0][1].activeAgentId).toBeUndefined();
     expect(c.iniciarConversa.mock.calls[0][1].telefone).toBe("5543988880000");
     expect(fake.conversasRegistradas[0]).toMatchObject({ origem: "equipamentos", recuperacaoId: 77, customerId: 42 });

@@ -67,6 +67,7 @@ const InadimplentesPage = lazy(pagina(() => import("@/pages/operacional/inadimpl
 const LocalizacaoPage = lazy(pagina(() => import("@/pages/operacional/localizacao")));
 const ImportacaoEncerradaPage = lazy(pagina(() => import("@/pages/operacional/importacao-encerrada")));
 const EquipamentosPage = lazy(pagina(() => import("@/pages/operacional/equipamentos")));
+const RecoveryOperationsPage = lazy(pagina(() => import("@/pages/operacional/recovery-operations")));
 const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperacao")));
 const ChatOperacionalPage = lazy(pagina(() => import("@/pages/operacional/chat")));
 
@@ -75,6 +76,7 @@ const ChatOperacionalPage = lazy(pagina(() => import("@/pages/operacional/chat")
 const CobrancaCarteiraPage = lazy(pagina(() => import("@/pages/cobranca/carteira")));
 const CobrancaCliente360Page = lazy(pagina(() => import("@/pages/cobranca/cliente360")));
 const CobrancaKanbanPage = lazy(pagina(() => import("@/pages/cobranca/kanban")));
+const CobrancaComunicacoesPage = lazy(pagina(() => import("@/pages/cobranca/comunicacoes")));
 const CobrancaReguaPage = lazy(pagina(() => import("@/pages/cobranca/regua")));
 
 // Financeiro
@@ -145,6 +147,7 @@ function Router() {
         <Route path="/equipamentos" component={EquipamentosPage} />
         <Route path="/equipamentos/chat" component={ChatOperacionalPage} />
         <Route path="/cobranca/chat" component={ChatOperacionalPage} />
+        <Route path="/recuperacao/operacao" component={RecoveryOperationsPage} />
         <Route path="/recuperacao" component={RecuperacaoPage} />
         {/* A carteira tem dois espacos (Provedor.ai): /cobranca cai no de ativos. */}
         <Route path="/cobranca"><RedirecionarCarteira /></Route>
@@ -156,6 +159,7 @@ function Router() {
         {/* A esteira. O endereço antigo (`/cobranca/kanban`) redireciona: o nome
             mudou em 07/09/2026, os favoritos não. */}
         <Route path="/cobranca/esteira" component={CobrancaKanbanPage} />
+        <Route path="/cobranca/comunicacoes" component={CobrancaComunicacoesPage} />
         <Route path="/cobranca/kanban"><RedirecionarEsteira /></Route>
         <Route path="/cobranca/regua" component={CobrancaReguaPage} />
         {/* Os agentes de IA viraram aba do Painel do Provedor (07/09/2026, pedido
@@ -194,7 +198,7 @@ function Router() {
 export const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-cadastral", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
-  "/importacao-equipamentos", "/equipamentos", "/equipamentos/chat", "/recuperacao", "/administracao", "/painel-provedor",
+  "/importacao-equipamentos", "/equipamentos", "/equipamentos/chat", "/recuperacao", "/recuperacao/operacao", "/administracao", "/painel-provedor",
   // O console de agentes virou aba do Painel do Provedor; `/agentes` so
   // redireciona. Continua aqui de proposito: a guarda roda ANTES do desvio, e
   // sem esta entrada um papel sem provedor atravessaria o redirecionamento.
@@ -205,7 +209,7 @@ export const PROVIDER_ONLY_PATHS = [
   // `/cobranca/fila` e `/cobranca/politica` so redirecionam, e continuam aqui de
   // proposito: a guarda roda ANTES do desvio, e sem eles um papel sem provedor
   // atravessaria o redirecionamento ate a tela de destino.
-  "/cobranca", "/cobranca/fila", "/cobranca/esteira", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica",
+  "/cobranca", "/cobranca/fila", "/cobranca/esteira", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica", "/cobranca/comunicacoes",
   // Faltava desde que a tela nasceu: ela le `provider` da sessao e chama
   // `/api/regional/my-cidades`, que sem provedor nao responde nada. Ficava de
   // fora da lista por esquecimento, nao por decisao — e agora ha um segundo

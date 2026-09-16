@@ -697,7 +697,7 @@ describe("a carteira", () => {
     expect(dados.sql).toMatch(/"cobranca_casos"\."status" not in/);
     expect(dados.sql).toMatch(/limit \$\d+ offset \$\d+$/);
     expect(dados.params.slice(-2)).toEqual([25, 50]);
-    expect(total.sql).toMatch(/^select count\(\*\) from "cobranca_casos" inner join "customers"/);
+    expect(total.sql).toMatch(/^select count\(\*\), coalesce\(sum\(.+ from "cobranca_casos" inner join "customers"/);
     expect(total.sql).toMatch(/"cobranca_casos"\."status" not in/);
   });
 
@@ -1435,5 +1435,48 @@ describe("o plano do ERP (contract_plan, 0036) atravessa os tres selects da cart
     const r = await storage.clientesAtivosEmDia(PROVEDOR, {}, { offset: 0, limite: 10 });
     expect(r.total).toBe(1);
     expect(r.linhas[0]).toMatchObject({ customerId: 42, plano: "Smart 1000", contractStartDate: "2021-03-20" });
+  });
+});
+
+describe("Gestão: total financeiro paginado e atenção no SQL", () => {
+  it("agrega valor de toda a coluna no mesmo recorte do count", async () => {
+    banco.agregados.push({ quando: /count\(\*\)/, linha: [300, "12500.50"] });
+    const r = await storage.listarCasosDeCobranca(PROVEDOR, {}, { pagina: 1, porPagina: 2 });
+    expect(r.valorTotal).toBe(12500.5);
+    expect(banco.consultas.some(c => /sum\(/.test(c.sql))).toBe(true);
+  });
+  it("sem responsável intersecta o escopo antes de paginar", async () => {
+    await storage.listarCasosDeCobranca(PROVEDOR, { meusMaisFilaGeral: 7, atencao: "sem_responsavel" });
+    expect(banco.consultas.every(c => c.sql.includes('"responsavel_user_id" is null'))).toBe(true);
+  });
+});
+
+describe("Gestão: fases derivadas com evidência", () => {
+  it("filtra fase antes de paginar e usa último contato tenant-isolado", async () => {
+    await storage.listarCasosDeCobranca(PROVEDOR, { faseAtendimento: "aguardando_resposta" });
+    const [consulta] = banco.consultas;
+    expect(consulta.sql).toContain('"cobranca_eventos"');
+    expect(consulta.sql).toContain('order by');
+    expect(consulta.params).toContain("aguardando_resposta");
+  });
+  it("promessa vencida exige data persistida e considera só casos vivos", async () => {
+    await storage.listarCasosDeCobranca(PROVEDOR, { atencao: "promessa_vencida" });
+    expect(banco.consultas[0].sql).toContain("promessaPara");
+  });
+});
+
+describe("filas de saneamento e conciliacao", () => {
+  it("filtra telefone ausente no servidor antes da paginacao e por provedor", async () => {
+    await storage.listarCasosDeCobranca(PROVEDOR, { atencao: "sem_telefone", carteira: "ativo" });
+    const query = banco.consultas.find(q=>q.sql.includes('"customers"."phone"') && q.sql.includes('regexp_replace'));
+    expect(query).toBeDefined();
+    expect(query!.params).toContain(PROVEDOR);
+  });
+  it("pagamento informado usa a ultima evidencia e preserva isolamento do caso e provedor", async () => {
+    await storage.listarCasosDeCobranca(PROVEDOR, { atencao: "pagamento_informado", carteira: "ativo" });
+    const query = banco.consultas.find(q=>q.sql.includes("acaoContato") && q.params.includes("pagamento_informado"));
+    expect(query).toBeDefined();
+    expect(query!.sql).toContain('"cobranca_eventos"."provider_id" = "cobranca_casos"."provider_id"');
+    expect(query!.sql).toContain('"cobranca_eventos"."caso_id" = "cobranca_casos"."id"');
   });
 });

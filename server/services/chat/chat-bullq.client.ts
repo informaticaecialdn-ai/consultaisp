@@ -326,7 +326,8 @@ export class ChatBullqClient {
     });
     if (!r.ok) return r;
 
-    const lista = Array.isArray(r.valor) ? r.valor : (r.valor?.conversations ?? []);
+    const lista = Array.isArray(r.valor) ? r.valor : r.valor?.conversations;
+    if (!Array.isArray(lista)) return { ok: false, erro: "O Chat BullQ devolveu uma lista de conversas inválida" };
     const alvo = semDdi(normalizado);
     const doTelefone = lista.filter(c => semDdi(c?.contact?.phone) === alvo);
     if (!doTelefone.length) return { ok: true, valor: null };
@@ -390,7 +391,9 @@ export class ChatBullqClient {
       query: { conversationId, page: opcoes.page ?? 1, limit: opcoes.limit ?? 50 },
     });
     if (!r.ok) return r;
-    return { ok: true, valor: Array.isArray(r.valor) ? r.valor : (r.valor?.messages ?? []) };
+    const mensagens = Array.isArray(r.valor) ? r.valor : r.valor?.messages;
+    if (!Array.isArray(mensagens)) return { ok: false, erro: "O Chat BullQ devolveu um histórico de mensagens inválido" };
+    return { ok: true, valor: mensagens };
   }
 
   atribuir(

@@ -10,7 +10,7 @@ import type { ContextoDoChat } from "@shared/cobranca/contexto-chat";
 
 async function clienteDaConversa(providerId: number, conversationId: string) {
   const conversa = await storage.getConversaDoChat(providerId, conversationId);
-  if (!conversa)
+  if (!conversa || conversa.providerId !== providerId || conversa.conversationId !== conversationId)
     throw new ErroDaPonteDoChat(
       "CASO_NAO_ENCONTRADO",
       "Conversa não encontrada neste provedor",
@@ -19,7 +19,7 @@ async function clienteDaConversa(providerId: number, conversationId: string) {
     providerId,
     conversa.customerId,
   );
-  if (!cliente)
+  if (!cliente || cliente.id !== conversa.customerId)
     throw new ErroDaPonteDoChat(
       "CASO_NAO_ENCONTRADO",
       "Cliente não encontrado neste provedor",
@@ -100,7 +100,13 @@ export async function contextoDoAtendimento(
   ]);
   const vivo = snapshot.ok ? snapshot.cliente : null;
   const financeiroCompleto =
-    vivo?.faturas !== undefined && !snapshot.leituraParcial;
+    vivo?.faturas !== undefined && !snapshot.leituraParcial &&
+    Number.isFinite(vivo.dividaAtual) && vivo.dividaAtual >= 0 &&
+    Number.isFinite(vivo.diasAtraso) && vivo.diasAtraso >= 0 &&
+    vivo.faturas.every(f => Number.isFinite(f.valor) && f.valor >= 0);
+  const statusContrato = vivo?.statusContrato ?? c.statusContrato;
+  const carteira = statusContrato === "active" || statusContrato === "suspended"
+    ? "ativo" : statusContrato === "cancelled" || statusContrato === "inactive" ? "ex_cliente" : null;
   const fonte = snapshot.erpSource;
   const conector = fonte ? getConnector(fonte) : null;
   const faturas = financeiroCompleto
@@ -142,7 +148,8 @@ export async function contextoDoAtendimento(
       cidade: c.cidade,
       uf: c.uf,
       cep: c.cep,
-      statusContrato: vivo?.statusContrato ?? c.statusContrato,
+      statusContrato,
+      carteira,
       clienteDesde: vivo?.contractStartDate ?? c.clienteDesde,
       plano: vivo?.plano ?? base.contrato?.plano ?? null,
       // AIDEV-QUESTION: `base.contrato` vem da tabela `contracts`
@@ -193,6 +200,7 @@ export async function contextoDoAtendimento(
         : snapshot.leituraParcial
           ? "parcial"
           : "disponivel",
+      carteiraAoVivo: !!vivo && !snapshot.leituraParcial && vivo.statusContrato != null && carteira !== null,
       mensagem: !vivo
         ? `ERP indisponível. Exibindo o último cadastro sincronizado${sufixoDaVarredura(c.sincronizadoEm)}.`
         : snapshot.leituraParcial
@@ -238,7 +246,7 @@ export async function segundaViaDoAtendimento(
     : null;
   if (!instrumento?.link && !instrumento?.pix && !instrumento?.linhaDigitavel) {
     const integracao = (await storage.getErpIntegrations(providerId)).find(
-      (i) => i.isEnabled && i.erpSource === snapshot.erpSource,
+      (i) => i.providerId === providerId && i.isEnabled && i.erpSource === snapshot.erpSource,
     );
     const conector = integracao ? getConnector(integracao.erpSource) : null;
     if (!integracao || !conector?.fetchSegundaVia)

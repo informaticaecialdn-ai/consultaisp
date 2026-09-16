@@ -57,9 +57,10 @@ function Linha({ rotulo, children, mono }: { rotulo: string; children: ReactNode
 }
 
 function descreverEvento(evento: EventoCaso): string {
-  if (evento.type === "tentativa") {
+  if (evento.type === "tentativa" || evento.type === "visita_campo") {
     return `${ROTULO_CANAL[evento.channel ?? ""] ?? evento.channel ?? "contato"}: ${ROTULO_RESULTADO[evento.result ?? ""] ?? evento.result ?? ""}`;
   }
+  if (evento.type === "rota_planejada") return "Rota distribuída ao responsável";
   if (evento.type === "status_alterado") {
     return `${ROTULO_ETAPA[evento.fromStatus ?? ""] ?? evento.fromStatus ?? "—"} → ${ROTULO_ETAPA[evento.toStatus ?? ""] ?? evento.toStatus ?? "—"}`;
   }

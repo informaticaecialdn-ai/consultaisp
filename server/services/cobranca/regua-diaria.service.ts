@@ -50,10 +50,9 @@ import { carteiraDoStatusErp } from "../../storage/cobranca.storage";
 import type { CandidatoACaso, DnaDoCaso, LinhaDaCarteira, PatchDeCaso } from "../../storage/cobranca.storage";
 import type { CobrancaCaso } from "@shared/schema";
 import { etapaParaAtraso, prescrita, resolverEtapas, type Etapa, type EtapaId } from "@shared/cobranca/regua";
-import { TOM_VULNERAVEL, classificarDna, mesesDeContrato, tomEfetivo } from "@shared/cobranca/dna";
+import { TOM_VULNERAVEL, classificarDnaDaCarteira, mesesDaRelacao, tomEfetivo } from "@shared/cobranca/dna";
 import type { Carteira, Prioridade } from "@shared/cobranca/estados";
-import type { HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
-import { FaturasStorage } from "../../storage/faturas.storage";
+import { FaturasStorage, type HistoricoDnaDaRelacao } from "../../storage/faturas.storage";
 import { CobrancaPreventivoStorage } from "../../storage/cobranca-preventivo.storage";
 
 /**
@@ -200,19 +199,20 @@ export function prioridadeSugerida(valor: number, etapa: EtapaId | null): Priori
 export function dnaDoCaso(
   cliente: { contractStartDate: string | null; diasAtraso: number; faturasAbertas: number },
   hoje: Date,
-  historico?: HistoricoDePagamentos,
+  historico?: HistoricoDnaDaRelacao,
+  carteira: Carteira = "ativo",
 ): DnaDoCaso {
-  const meses = mesesDeContrato(cliente.contractStartDate, hoje);
+  const meses = mesesDaRelacao(cliente.contractStartDate, hoje, carteira, historico?.encerramentoConfirmadoEm);
   if (meses === null) return { quadranteDna: null, tom: null, arbitrado: false };
-  const dna = classificarDna({
+  const dna = classificarDnaDaCarteira({
     mesesComoCliente: meses,
     diasAtrasoMax: cliente.diasAtraso,
     faturasAbertas: cliente.faturasAbertas,
     historicoInsuficiente: historico?.historicoInsuficiente ?? true,
     faturasPagas: historico?.faturasPagas,
     faturasPagasComAtraso: historico?.faturasPagasComAtraso,
-  });
-  return { quadranteDna: dna.quadrante, tom: tomEfetivo(dna, VULNERAVEL_NA_FASE_1), arbitrado: false };
+  }, carteira);
+  return { quadranteDna: dna?.quadrante ?? null, tom: tomEfetivo(dna, VULNERAVEL_NA_FASE_1), arbitrado: false };
 }
 
 /* ── Resultado ───────────────────────────────────────────────────────────── */
@@ -327,7 +327,7 @@ async function abrirCaso(
   etapas: readonly Etapa[],
   hoje: Date,
   r: ResultadoDoProvedor,
-  historico?: HistoricoDePagamentos,
+  historico?: HistoricoDnaDaRelacao,
 ): Promise<void> {
   // Vigia da prescrição (CC art. 206 §5º I): dívida com cinco anos NUNCA
   // entra na cobrança — nem para o funcionário "só dar uma olhada".
@@ -338,7 +338,7 @@ async function abrirCaso(
 
   const decisao = etapaParaAtraso(c.diasAtraso, c.carteira, etapas);
   const etapa = decisao.etapa?.id ?? null;
-  const dna = dnaDoCaso(c, hoje, historico);
+  const dna = dnaDoCaso(c, hoje, historico, c.carteira);
 
   let casoId: number;
   try {
@@ -462,7 +462,7 @@ async function revisarCaso(
   hoje: Date,
   r: ResultadoDoProvedor,
   canceladosNestaPassada: Set<number>,
-  historico?: HistoricoDePagamentos,
+  historico?: HistoricoDnaDaRelacao,
 ): Promise<void> {
   const cliente = linha.cliente;
 
@@ -486,7 +486,14 @@ async function revisarCaso(
    */
   if (STATUS_GOVERNADOS_PELO_ACORDO.includes(linha.status)) {
     const quebrou = await quebrarAcordoVencido(providerId, linha, hoje, r);
-    if (!quebrou) return;
+    if (!quebrou) {
+      // O acordo governa ação e saldo. O DNA continua refletindo apenas a
+      // relação confirmada, inclusive quando o snapshot antigo era de ativo.
+      if (carteiraDoStatusErp(cliente.statusErp) === "ex_cliente") {
+        await atualizarDnaConfirmado(providerId, linha, hoje, r, historico);
+      }
+      return;
+    }
   }
 
   // Daqui em diante o caso está em `aberto`, `em_contato` (o funcionário já
@@ -511,7 +518,8 @@ async function revisarCaso(
     return;
   }
 
-  const decisao = etapaParaAtraso(cliente.diasAtraso, carteiraDaLinha(linha.carteira), etapas);
+  const carteiraAtual = carteiraDoStatusErp(cliente.statusErp);
+  const decisao = etapaParaAtraso(cliente.diasAtraso, carteiraAtual, etapas);
   const etapa = decisao.etapa?.id ?? null;
 
   const patch: PatchDeCaso = {};
@@ -526,12 +534,22 @@ async function revisarCaso(
     if (patch.valorAtual !== undefined) r.valoresEspelhados++;
   }
 
+  await atualizarDnaConfirmado(providerId, linha, hoje, r, historico);
+}
+
+async function atualizarDnaConfirmado(
+  providerId: number,
+  linha: LinhaDaCarteira,
+  hoje: Date,
+  r: ResultadoDoProvedor,
+  historico?: HistoricoDnaDaRelacao,
+): Promise<void> {
   // O DNA vai por `atualizarDnaDoCaso`, sempre com `arbitrado: false` (ver
   // `dnaDoCaso`). O tom de vulnerável posto pelo funcionário é respeitado
   // aqui, antes de chamar: o quadrante acompanha o atraso, o tom não. Sem
   // data de contrato o quadrante calculado é nulo, e nulo é o que se grava —
   // "sem DNA" é dado, e é o que a grade conta.
-  const dna = dnaDoCaso(cliente, hoje, historico);
+  const dna = dnaDoCaso(linha.cliente, hoje, historico, carteiraDoStatusErp(linha.cliente.statusErp));
   const tom = linha.tom === TOM_VULNERAVEL ? TOM_VULNERAVEL : dna.tom;
   if (dna.quadranteDna !== linha.quadranteDna || tom !== linha.tom) {
     await storage.atualizarDnaDoCaso(providerId, linha.id, { ...dna, tom }, null);
@@ -560,7 +578,7 @@ export async function rodarReguaDoProvedor(providerId: number, hoje: Date = new 
   }
   // Sem linha de política vale o catálogo inteiro; config de outra versão cai no padrão (regua.ts explica).
   const etapas = resolverEtapas(politica);
-  const historicos = await new FaturasStorage().historicosDePagamentosDoProvedor(providerId);
+  const historicos = await new FaturasStorage().historicosDePagamentosDoProvedor(providerId, undefined, { paraDna: true, hoje });
   r.preAvisosPreparados = await new CobrancaPreventivoStorage().prepararPreAvisos(providerId, hoje, etapas);
 
   // Parcelas ANTES dos casos: a quebra do acordo devolve o caso a `aberto`, e

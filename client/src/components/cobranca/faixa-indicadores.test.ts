@@ -27,7 +27,7 @@ describe("os quatro cartões do handoff", () => {
   const QUATRO = [
     ["em aberto", /soma dos casos vivos do recorte/],
     ["casos vivos", /tituloDoFluxoDoDia\(kpis\)/],
-    ["travados agora", /não andam/],
+    ["ações pendentes", /não andam/],
     ["recuperado", /tituloDaRecuperacao/],
   ] as const;
 
@@ -74,7 +74,7 @@ describe("o que saiu da tira não sumiu do produto", () => {
   });
 });
 
-describe("travados agora — o número derivado", () => {
+describe("ações pendentes — o número derivado", () => {
   /*
    * É a soma de "contato vencido" com "sem próxima ação". As duas condições são
    * disjuntas por construção no servidor (uma exige data de próximo contato, a
@@ -133,7 +133,7 @@ describe("o quadro não perdeu a régua do traço", () => {
   });
 
   it("o rótulo do recuperado carrega o período e o escopo", () => {
-    expect(itens).toContain("recuperado ${DIAS_DA_RECUPERACAO}d · carteira");
+    expect(itens).toContain("baixas após contato · ${DIAS_DA_RECUPERACAO}d");
   });
 
   it("o rótulo do 'em aberto' segue o RECORTE, e não diz 'minha fila' com o quadro em outro escopo", () => {

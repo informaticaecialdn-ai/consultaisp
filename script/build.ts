@@ -125,6 +125,11 @@ async function buildAll() {
 
   console.log("building worker...");
   await esbuild({
+    entryPoints: ["server/chat-worker.ts"], platform: "node", bundle: true,
+    format: "cjs", outfile: "dist/chat-worker.cjs", minify: true,
+    define: { "process.env.NODE_ENV": '"production"' }, external: externals, logLevel: "info",
+  });
+  await esbuild({
     entryPoints: ["server/worker.ts"],
     platform: "node",
     bundle: true,

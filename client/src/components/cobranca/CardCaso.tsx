@@ -411,6 +411,7 @@ export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca, etapas }: 
               {textoDaFaixaDoDia(contato.urgencia, contato.texto)}
             </SeloCobranca>
           )}
+          <div className="caso-responsavel"><span>Responsável</span><strong>{item.responsavelNome ?? "Fila geral"}</strong></div>
           <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"

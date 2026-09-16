@@ -1,3 +1,4 @@
+import { ConfigGestaoCobranca } from "./ConfigGestaoCobranca";
 /**
  * Painel do Provedor > aba Cobrança — o que o provedor configura: tetos de negociação,
  * encargos, janela de contato, os custos da Economia do cliente (R24), as
@@ -31,6 +32,9 @@
  * foi lido —, então a rolagem é feita aqui, no primeiro render com o form.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { AvisosFaturas } from "@/components/AvisosFaturas";
+import { CanaisCobranca } from "@/components/cobranca/canais-cobranca";
+import { ComunicacoesCobranca } from "@/components/cobranca/ComunicacoesCobranca";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { BadgeCheck, Lock, Pause, Route, Save } from "lucide-react";
@@ -238,6 +242,16 @@ export function AbaCobranca() {
         }
       />
 
+      <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+        <summary className="cursor-pointer text-base font-semibold text-[var(--brand)]">Canais e avisos de faturas · WhatsApp, SMS e e-mail</summary>
+        <div className="mt-4 space-y-5">
+          <p className="text-sm text-[var(--text-muted)]">Conecte SMS e e-mail abaixo. O WhatsApp é configurado em <Link href="/painel-provedor?tab=chat" className="underline">WhatsApp e chat</Link>. Cada automação é opcional e começa desligada.</p>
+          <CanaisCobranca podeEditar={podeAdministrar} />
+          <AvisosFaturas />
+          <ComunicacoesCobranca podeEditar={podeAdministrar} />
+        </div>
+      </details>
+      <ConfigGestaoCobranca podeEditar={podeAdministrar} />
       {!podeAdministrar && (
         <p className="rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2 text-[12px] text-[var(--gated)]" data-testid="aviso-somente-leitura">Só o administrador do provedor altera a política. Você está vendo a configuração em vigor.</p>
       )}

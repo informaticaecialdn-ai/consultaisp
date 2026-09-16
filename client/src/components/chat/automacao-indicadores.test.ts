@@ -156,7 +156,7 @@ describe("o quinto indicador do kanban", () => {
      * ele e da carteira inteira. O periodo e o escopo vieram para o rotulo, que
      * fica sempre visivel; o resto da explicacao segue no title.
      */
-    expect(kanban).toContain("rotulo: `recuperado ${DIAS_DA_RECUPERACAO}d · carteira`");
+    expect(kanban).toContain("rotulo: `baixas após contato · ${DIAS_DA_RECUPERACAO}d`");
     expect(kanban).toContain("titulo: tituloDaRecuperacao");
   });
 
@@ -175,7 +175,7 @@ describe("o quinto indicador do kanban", () => {
     // cartoes: "contato vencido" e "sem proxima acao" viraram a linha de
     // apoio de "travados agora", e "para hoje" e "criticos" sairam da tira
     // (seguem no card e na ordem da coluna). Ver faixa-indicadores.test.ts.
-    for (const rotulo of ["casos vivos", "travados agora"]) {
+    for (const rotulo of ["casos em acompanhamento", "ações pendentes"]) {
       expect(kanban).toContain(`rotulo: "${rotulo}"`);
     }
     expect(kanban).toContain("em aberto · ${rotuloDoEscopo(escopo)}");

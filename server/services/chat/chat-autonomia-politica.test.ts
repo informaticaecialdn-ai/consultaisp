@@ -37,6 +37,26 @@ describe("limites do motor autônomo", () => {
     expect(acolhedor).toContain("150,00");
     expect(acolhedor).toContain("tranquilidade");
   });
+  it("ex-cliente recebe recuperação de contrato encerrado mesmo se o tom legado pedir retenção", () => {
+    const r = respostaControlada({ acao: "responder", resposta: "informar_divida" }, 150, false, { carteira: "ex_cliente", tom: "negociar_reter" });
+    expect(r).toContain("contrato encerrado");
+    expect(r).toContain("150,00");
+    expect(r).not.toMatch(/preserve nossa relação|boas-vindas|suspensão|reativa|contrato vigente/i);
+  });
+  it.each(["informar_divida", "acolher", "pedir_data", "pedir_confirmacao"] as const)("%s não oferece funções desligadas", (resposta) => {
+    const r = respostaControlada({ acao: "responder", resposta }, 150, false, { permitirPromessa: false, permitirSegundaVia: false });
+    expect(r).not.toMatch(/consultar a segunda via|registrar.*promessa|combinar uma promessa|qual data|informe dia|combinar a data/i);
+  });
+  it("oferece só a função habilitada: segunda via sem promessa nem coleta de data", () => {
+    const r = respostaControlada({ acao: "responder", resposta: "informar_divida" }, 150, false, { carteira: "ativo", permitirPromessa: false, permitirSegundaVia: true });
+    expect(r).toContain("segunda via");
+    expect(r).not.toMatch(/promessa|qual data/i);
+    expect(r).toContain("contrato vigente");
+  });
+  it.each(["orientar_devolucao", "acolher", "pedir_data", "pedir_confirmacao"] as const)("equipamento em %s não oferece agendamento desligado", (resposta) => {
+    const r = respostaControlada({ acao: "responder", resposta }, null, true, { permitirAgendamento: false });
+    expect(r).not.toMatch(/registrar um agendamento|qual dia|qual data|informe.*horário|combinar a data/i);
+  });
   it.each(["já paguei", "quero atendente", "não reconheço", "número errado", "desconto", "já devolvi", "pare de mandar mensagens"])("transfere exceção: %s", texto => expect(exigeHumano(texto)).toBe(true));
   // Negativar, baixar, retirar o nome, SPC/Serasa, Procon e advogado: nunca pela IA.
   it.each([

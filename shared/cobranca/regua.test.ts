@@ -28,6 +28,15 @@ const idEm = (dias: number, carteira: "ativo" | "ex_cliente" = "ativo", etapas?:
 };
 
 describe("ETAPAS_PADRAO — o catálogo", () => {
+  it("orienta regularização de ativos sem anunciar suspensão automática ou baixa", () => {
+    const regularizacao = etapaParaAtraso(20, "ativo").etapa!;
+    expect(regularizacao.rotulo).toBe("Regularização do serviço");
+    expect(regularizacao.acao).toContain("avaliação humana");
+    expect(regularizacao.acao).not.toContain("serviço será suspenso");
+    expect(etapaParaAtraso(90, "ativo").etapa?.acao).toContain("não envia aviso formal");
+    expect(etapaParaAtraso(360, "ativo").etapa?.acao).toContain("situação confirmada no ERP");
+    expect(ETAPAS_PADRAO.some(e => e.rotulo === "Fim de linha")).toBe(false);
+  });
   it("as janelas são contíguas, começam em D-7 e a última não tem teto", () => {
     expect(ETAPAS_PADRAO[0].diaMin).toBe(-7);
     for (let i = 1; i < ETAPAS_PADRAO.length; i++) {
@@ -89,6 +98,36 @@ describe("etapaParaAtraso — carteira de clientes ativos", () => {
 });
 
 describe("etapaParaAtraso — carteira de ex-clientes", () => {
+  it("etapas tardias de ex-cliente permitem conciliação e quitação, com baixa e negativação sob revisão", () => {
+    const conciliacao = etapaParaAtraso(90, "ex_cliente").etapa!;
+    expect(conciliacao.rotulo).toBe("Conciliação de pendências");
+    expect(conciliacao.acao).toMatch(/propostas.*política/);
+    const prolongada = etapaParaAtraso(360, "ex_cliente").etapa!;
+    expect(prolongada.rotulo).toBe("Recuperação prolongada");
+    expect(prolongada.acao).toMatch(/quitação.*política/);
+    expect(prolongada.acao).toMatch(/baixa.*negativação.*responsável/);
+    expect(etapaParaAtraso(90, "ativo").etapa?.rotulo).toBe("Revisão assistida");
+    expect(etapaParaAtraso(360, "ativo").etapa?.rotulo).toBe("Revisão do contrato");
+  });
+  it("as ações são de dívida encerrada e não herdam texto de contrato ativo", () => {
+    const personalizada = resolverEtapas({ etapas: [{ id: "lembrete_atraso", acao: "Dar boas-vindas e reativar o serviço.", canalSugerido: "email", responsavelUserId: 42 }] });
+    const lista = etapasDaCarteira("ex_cliente", personalizada);
+    for (const etapa of lista) {
+      expect(etapa.acao).not.toBe(etapaPorId(etapa.id, personalizada)?.acao);
+      expect(etapa.acao).not.toMatch(/boas.vindas|suspensão|reativa|reter|esquecimento/iu);
+    }
+    expect(lista[0].rotulo).toBe("Conferência da dívida");
+    expect(lista[0].acao).toMatch(/contrato encerrado/);
+    expect(lista[0].canalSugerido).toBe("email");
+    expect(lista[0].responsavelUserId).toBe(42);
+    expect(etapasDaCarteira("ativo", personalizada)[1].acao).toBe("Dar boas-vindas e reativar o serviço.");
+  });
+
+  it("configuração negativa não inicia cobrança de ex-cliente antes do atraso", () => {
+    const etapas = resolverEtapas({ etapas: [{ id: "lembrete_atraso", diaMin: -7 }] });
+    for (const dia of [-7, -3, -1, 0]) expect(etapaParaAtraso(dia, "ex_cliente", etapas, true).etapa).toBeNull();
+  });
+
   it("não oferece pré-aviso nem antecipa cobrança para título ainda não vencido", () => {
     expect(etapasDaCarteira("ex_cliente").map(e => e.id)).not.toContain("lembrete_pre_vencimento");
     for (const dia of [-7, -3, -1, 0]) expect(etapaParaAtraso(dia, "ex_cliente", ETAPAS_PADRAO, true).etapa).toBeNull();
@@ -170,7 +209,7 @@ describe("resolverEtapas — o que o provedor muda", () => {
     expect(neg.acao).toBe("Ligar e oferecer o acordo da campanha.");
     expect(neg.canalSugerido).toBe("whatsapp");
     expect(neg.responsavelUserId).toBe(42);
-    expect(neg.rotulo).toBe("Negociação");
+    expect(neg.rotulo).toBe("Acordo para regularização");
     expect(neg.disponivelNaFase1).toBe(true);
     expect(etapas.filter(e => e.id !== "negociacao_recuperacao")).toEqual(
       ETAPAS_PADRAO.filter(e => e.id !== "negociacao_recuperacao"),

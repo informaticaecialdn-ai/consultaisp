@@ -37,7 +37,8 @@ import {
   avisoDoRegistro, corpoDaNegociacao, excecaoPrevista, formDaOferta, formInicial, previaDaNegociacao, registroDaResposta,
   violacoesDoErro, type FormNegociacao, type RegistroDaNegociacao,
 } from "./negociacao-form";
-import { API_CASOS } from "./tipos";
+import { API_CASOS, rotaDoCliente } from "./tipos";
+import { Link } from "wouter";
 import { invalidarCobranca, mensagemDoErro } from "./ui";
 
 export interface AlvoDaNegociacao {
@@ -73,12 +74,14 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
   const [violacoesDoServidor, setViolacoesDoServidor] = useState<string[]>([]);
   /** Preenchido quando o servidor rebaixou a proposta: a caixa para aqui em vez de fechar dizendo que fechou. */
   const [pendente, setPendente] = useState<RegistroDaNegociacao | null>(null);
+  const [concluida, setConcluida] = useState<{ customerId: number; aceita: boolean } | null>(null);
 
   useEffect(() => {
     if (aberto) {
       setForm({ ...formInicial(alvo?.valorAtual ?? 0, primeiroVencimentoPadrao()), ...(tipoInicial ? { tipo: tipoInicial } : {}) });
       setViolacoesDoServidor([]);
       setPendente(null);
+      setConcluida(null);
     }
   }, [aberto, alvo, tipoInicial]);
 
@@ -120,7 +123,10 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
         setPendente(registro);
         return;
       }
-      onFechar();
+      const resposta = corpo as { customerId?: unknown; status?: unknown };
+      if (typeof resposta.customerId === "number" && Number.isSafeInteger(resposta.customerId)) {
+        setConcluida({ customerId: resposta.customerId, aceita: resposta.status === "aceita" || resposta.status === "ativa" });
+      } else onFechar();
     },
     onError: (erro: ErroDaApi) => {
       const doServidor = violacoesDoErro(erro);
@@ -149,7 +155,18 @@ export function DialogoNegociacao({ alvo, politica, aberto, onFechar, tipoInicia
             {alvo ? <>{alvo.clienteNome} · dívida de <span className="font-mono tabular-nums text-[var(--money-neg)]">{brl(alvo.valorAtual)}</span></> : "Sem caso aberto"}
           </DialogDescription>
         </DialogHeader>
-        {pendente ? (
+        {concluida ? (
+          <div className="space-y-4" data-testid="negociacao-formalizacao">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-[var(--text)]">
+              <h3 className="font-semibold">{concluida.aceita ? "Acordo registrado. Próximo passo: formalizar." : "Proposta registrada. Aguarde o aceite."}</h3>
+              <p className="mt-2 text-sm leading-6">{concluida.aceita ? "Revise os dados e as parcelas da confissão de dívida antes de enviá-la para assinatura. O registro do acordo não significa que o cliente assinou ou pagou." : "Depois do aceite, revise o documento e envie para assinatura. A proposta ainda não é um contrato assinado."}</p>
+            </div>
+            <DialogFooter>
+              <button type="button" className={BOTAO_SECUNDARIO} onClick={onFechar}>Concluir</button>
+              <Link href={`${rotaDoCliente(concluida.customerId, alvo?.carteira)}#formalizacao`} className={BOTAO_MARCA} onClick={onFechar}>{concluida.aceita ? "Revisar documento e assinatura" : "Acompanhar proposta"}</Link>
+            </DialogFooter>
+          </div>
+        ) : pendente ? (
           /* O servidor rebaixou a proposta: a caixa nao fecha dizendo que
              fechou. O operador precisa sair daqui sabendo que o desconto so
              vale depois de um admin aceitar — senao ele desliga o telefone

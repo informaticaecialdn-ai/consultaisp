@@ -8,7 +8,7 @@ import { caminhoNaCarteira, NOME_DA_CARTEIRA, retornoDaCarteira } from "./cartei
 export function NavegacaoCarteiras({ carteira, destino }: { carteira: Carteira; destino?: string }) {
   const paginas = [
     { rota: retornoDaCarteira(carteira), rotulo: "Carteira", Icone: LayoutDashboard },
-    { rota: "/cobranca/esteira", rotulo: "Esteira", Icone: KanbanSquare },
+    { rota: "/cobranca/esteira", rotulo: "Gestão de cobranças", Icone: KanbanSquare },
     { rota: "/cobranca/regua", rotulo: "Régua e DNA", Icone: Route },
     { rota: "/cobranca/chat", rotulo: "Conversas", Icone: MessageSquare },
   ];

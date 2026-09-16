@@ -28,6 +28,7 @@ import {
   tomEfetivo,
   type EntradaDna,
 } from "./dna";
+import * as dnaPorCarteira from "./dna";
 
 /** Entrada da fase 1: só o que o sync grava em `customers`. */
 function fase1(parcial: Partial<EntradaDna> = {}): EntradaDna {
@@ -216,5 +217,60 @@ describe("textos para o funcionário", () => {
   it("a diretiva do vulnerável proíbe ameaça — é o que a Lei 14.181 exige", () => {
     expect(DIRETIVA_VULNERAVEL).toMatch(/sem ameaça/i);
     expect(DIRETIVA_VULNERAVEL).toMatch(/14\.181/);
+  });
+});
+
+describe("DNA da relação encerrada", () => {
+  it("congela a duração no encerramento e exige datas válidas", () => {
+    const hoje = new Date(2026, 8, 13);
+    expect(dnaPorCarteira.mesesDaRelacao("2020-01-15", hoje, "ex_cliente", "2020-07-15")).toBe(6);
+    expect(dnaPorCarteira.mesesDaRelacao("2020-01-15", hoje, "ex_cliente")).toBeNull();
+    expect(dnaPorCarteira.mesesDaRelacao("2020-01-15", hoje, "ex_cliente", "2019-12-31")).toBeNull();
+    expect(dnaPorCarteira.mesesDaRelacao("2020-01-15", hoje, "ex_cliente", "2027-01-15")).toBeNull();
+    expect(dnaPorCarteira.mesesDaRelacao("2020-01-15", hoje, "ex_cliente", "2020-02-31")).toBeNull();
+    expect(dnaPorCarteira.mesesDaRelacao("2020-01-15", hoje, "ativo")).toBe(79);
+  });
+
+  it("a dívida envelhecer não torna recorrente um histórico pontual encerrado", () => {
+    const entrada = fase1({ mesesComoCliente: 6, diasAtrasoMax: 1000, faturasAbertas: 4, historicoInsuficiente: false, faturasPagas: 10, faturasPagasComAtraso: 0 });
+    const ex = dnaPorCarteira.classificarDnaDaCarteira(entrada, "ex_cliente");
+    expect(ex?.quadrante).toBe("A1");
+    expect(ex?.abordagem).toBe("ex_esclarecedor");
+    expect(dnaPorCarteira.classificarDnaDaCarteira(entrada, "ativo")).toEqual(classificarDna(entrada));
+    expect(tomEfetivo(ex, true)).toBe(TOM_VULNERAVEL);
+  });
+
+  it("sem histórico confirmado, ex-cliente fica sem DNA em vez de adivinhar pelo saldo", () => {
+    for (const entrada of [fase1(), fase1({ historicoInsuficiente: false, faturasPagas: 0 }), fase1({ historicoInsuficiente: false, faturasPagas: 3 })]) {
+      expect(dnaPorCarteira.classificarDnaDaCarteira(entrada, "ex_cliente")).toBeNull();
+    }
+  });
+
+  it("usa as faixas do histórico de pagamento da relação encerrada", () => {
+    for (const [atrasadas, quadrante] of [[1, "A3"], [2, "B3"], [4, "B3"], [5, "C3"]] as const) {
+      expect(dnaPorCarteira.classificarDnaDaCarteira(fase1({ mesesComoCliente: 40, diasAtrasoMax: 1000, historicoInsuficiente: false, faturasPagas: 10, faturasPagasComAtraso: atrasadas }), "ex_cliente")?.quadrante).toBe(quadrante);
+    }
+  });
+
+  it("cada quadrante tem voz de ex-cliente, com eixos no passado e sem retenção", () => {
+    for (const q of QUADRANTES) {
+      const ex = dnaPorCarteira.apresentacaoDoDna(q, "ex_cliente");
+      const ativo = dnaPorCarteira.apresentacaoDoDna(q, "ativo");
+      expect(ex.abordagem).not.toBe(ativo.abordagem);
+      expect(ex.diretiva).toBe(DIRETIVA_POR_TOM[ex.abordagem]);
+      expect(ex.frase).toMatch(/contrato encerrado|relação encerrada/);
+      expect(`${ex.rotulo} ${ex.diretiva} ${ex.frase}`).not.toMatch(/boas.vindas|suspensão|reativa|reter|manter.*conosco|vence em/iu);
+      expect(ex.rotuloFidelidade).not.toBe(ROTULO_FIDELIDADE[eixosDoQuadrante(q).fidelidade]);
+      expect(ex.rotuloConfiabilidade).not.toBe(ROTULO_CONFIABILIDADE[eixosDoQuadrante(q).confiabilidade]);
+    }
+  });
+
+  it("DNA não decide avanço, datas, condição financeira ou ação operacional", () => {
+    for (const q of QUADRANTES) {
+      for (const carteira of ["ativo", "ex_cliente"] as const) {
+        const apresentacao = dnaPorCarteira.apresentacaoDoDna(q, carteira);
+        expect(`${apresentacao.diretiva} ${apresentacao.frase}`).not.toMatch(/avance de etapa|poucas parcelas|prefira à vista|vence em 3 dias|condição à vista hoje|decisão na mesma conversa/iu);
+      }
+    }
   });
 });

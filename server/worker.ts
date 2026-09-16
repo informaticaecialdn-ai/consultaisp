@@ -263,6 +263,22 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   }
 
   /*
+   * Comunicações de cobrança por SMS e e-mail (Twilio/Resend, lote do Codex de
+   * 13/09/2026) seguem a MESMA guarda: na demonstração o visitante é admin do
+   * sandbox e pode cadastrar credenciais reais em PUT /api/cobranca/canais — a
+   * agenda dispararia SMS e e-mail de verdade para os telefones e endereços
+   * fictícios, que são plausíveis. O import continua incondicional pelo mesmo
+   * motivo dos primeiros contatos: o `shutdown` chama `pararComunicacoes()`
+   * sempre, e parar o que nunca ligou é inofensivo.
+   */
+  const { iniciarComunicacoes, pararComunicacoes } = await import("./services/cobranca/comunicacao.service");
+  if (emModoDemo?.() !== true) {
+    iniciarComunicacoes();
+  } else {
+    logger.info("[Worker] Comunicações de cobrança (SMS/e-mail): desligadas na demonstração");
+  }
+
+  /*
    * A autonomia do chat confere se as tabelas da 0028 existem antes de ligar o
    * laço de 3 s — `verifySchema` acima não as cobre porque o chat é opcional.
    *
@@ -306,6 +322,15 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
     logger.info("[Worker] Autonomia do chat: desligada na demonstração");
   }
 
+  // Presença do processo no painel; o diário continua sendo a prova de entrega.
+  let presencaChat: { encerrar(): Promise<void> } | null = null;
+  try {
+    const { iniciarPresencaDoChat } = await import("./services/chat/chat-worker-presenca");
+    presencaChat = await iniciarPresencaDoChat("envio");
+  } catch (err) {
+    logger.warn({ err }, "[Worker] Diagnóstico de presença do chat indisponível");
+  }
+
   /**
    * Espera o sync em voo antes de fechar o pool.
    *
@@ -320,6 +345,8 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "[Worker] Shutdown signal received");
     await pararPrimeirosContatos();
+    await pararComunicacoes();
+    await presencaChat?.encerrar();
     if (emModoDemo?.() === true) {
       const { pararLimpezaDaDemo } = await import("./demo/limpeza.service");
       await pararLimpezaDaDemo();

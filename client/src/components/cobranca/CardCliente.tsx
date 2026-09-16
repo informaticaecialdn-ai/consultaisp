@@ -17,12 +17,13 @@ import { faixaDoScore, proximoContato } from "./formatacao";
 import type { ItemDaCarteira } from "./tipos";
 import { Avatar, BarraDeScore, PilulaAtraso, SeloCobranca, SeloErp, SeloQuadrante, SeloStatusCaso, Traco, type TomDeSelo } from "./ui";
 import { SeloConfissao } from "./SeloConfissao";
+import { textoCorrompido } from "@shared/cobranca/qualidade-cliente";
 
 /** Desde a 0036 a varredura grava o plano que o ERP informa; o traco e do cliente que o ERP nao informou. */
 export const MOTIVO_SEM_PLANO = "O ERP não informou o plano deste cliente";
 export const MOTIVO_SEM_DOCUMENTO = "O cadastro deste cliente no ERP não tem CPF/CNPJ.";
-export const MOTIVO_SEM_MRR = "O sync do ERP não traz o valor do plano (MRR) — fase 2";
-export const MOTIVO_SEM_PROPENSAO = "Propensão a pagar é um modelo a criar — nada inventado";
+export const MOTIVO_SEM_MRR = "Mensalidade não disponível nesta listagem. Confira o valor e sua origem no Cliente 360.";
+export const MOTIVO_SEM_PROPENSAO = "Estimativa não disponível nesta listagem. Confira os dados no Cliente 360.";
 export const MOTIVO_SEM_CREDITO = "Score de crédito externo (bureau) — não consultado para este cliente";
 
 const TOM_DA_CONFIABILIDADE: Record<Confiabilidade, TomDeSelo> = { em_dia: "ok", oscila: "gated", cronico: "past" };
@@ -33,7 +34,8 @@ export function SeloHistorico({ confiabilidade }: { confiabilidade: string | nul
     return <SeloCobranca tom="neutro" titulo="Sem histórico de pagamento suficiente para o DNA">Sem histórico</SeloCobranca>;
   }
   const c = confiabilidade as Confiabilidade;
-  return <SeloCobranca tom={TOM_DA_CONFIABILIDADE[c]} titulo="Confiabilidade do DNA de pagamento">{ROTULO_CONFIABILIDADE[c]}</SeloCobranca>;
+  const rotulo = c === "em_dia" ? "Histórico regular" : c === "cronico" ? "Atrasos frequentes" : "Pagamentos variáveis";
+  return <SeloCobranca tom={TOM_DA_CONFIABILIDADE[c]} titulo={`Histórico de pagamento: ${ROTULO_CONFIABILIDADE[c]}. Não indica quitação da dívida atual.`}>{rotulo}</SeloCobranca>;
 }
 
 function rotuloDaEtapa(id: string | null, etapas?: readonly Etapa[]): string | null {
@@ -85,6 +87,7 @@ export function CardCliente({ item, etapas, hoje, onAbrir }: {
         <Avatar nome={item.nome} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13.5px] font-semibold leading-tight text-[var(--text)]">{item.nome}</p>
+          {textoCorrompido(item.nome) && <p className="text-[10px] text-[var(--gated)]" title="O nome contém caracteres corrompidos. Confira o cadastro no ERP antes de enviar mensagens ou emitir documentos.">Conferir nome no ERP</p>}
           <p className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">
             {item.cidade ?? TRACO} · <span title={item.plano ? "Plano no ERP, pela varredura" : MOTIVO_SEM_PLANO}>{item.plano ?? TRACO}</span>
           </p>
@@ -114,18 +117,18 @@ export function CardCliente({ item, etapas, hoje, onAbrir }: {
 
       {/* saúde: barra + número (null → barra vazia + "—") */}
       <div className="flex items-center gap-2">
-        <span className={cn(MINI, "w-[42px]")}>saúde</span>
+        <span className={cn(MINI, "w-[58px]")}>score ISP</span>
         <BarraDeScore score={score} cor={faixa?.cor ?? "var(--border-strong)"} />
-        <span className={cn(NUM, "w-8 text-right text-[12px] font-medium text-[var(--text)]")} title={faixa ? `Score ISP ${score} — ${faixa.rotulo}` : "Sem score ISP calculado"}>
-          {score !== null ? num(score) : TRACO}
+        <span className={cn(NUM, "shrink-0 text-right text-[11px] font-medium text-[var(--text)]")} title={faixa ? `Score ISP ${score} de 1.000 — ${faixa.rotulo}. Não é a saúde do relacionamento de 0 a 100.` : "Sem score ISP calculado"}>
+          {score !== null ? `${num(score)} / 1.000` : "Não calculado"}
         </span>
       </div>
 
       {/* rodapé: crédito · propensão · MRR */}
       <div className="flex items-center gap-2.5 border-t border-[var(--border-faint)] pt-[9px] text-[11px] text-[var(--text-muted)]">
-        <span title={MOTIVO_SEM_CREDITO}>Crédito <b className={cn(NUM, "text-[var(--text)]")}>{TRACO}</b></span>
-        <span title={MOTIVO_SEM_PROPENSAO}>Propensão <b className={cn(NUM, "text-[var(--text)]")}>{item.propensao != null ? `${num(item.propensao)}%` : TRACO}</b></span>
-        <span className="ml-auto" title={MOTIVO_SEM_MRR}>MRR <b className={cn(NUM, "text-[var(--text)]")}>{item.mrr != null ? brl(item.mrr) : TRACO}</b></span>
+        {item.propensao != null && <span title={MOTIVO_SEM_PROPENSAO}>Propensão <b className={NUM}>{num(item.propensao)}%</b></span>}
+        {item.mrr != null && <span title={MOTIVO_SEM_MRR}>Mensalidade <b className={NUM}>{brl(item.mrr)}</b></span>}
+        <span className="ml-auto">{item.caso?.proximaAcao || "Abrir visão completa do cliente"}</span>
       </div>
     </article>
   );

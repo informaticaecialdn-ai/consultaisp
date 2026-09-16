@@ -1,0 +1,21 @@
+import { beforeAll,afterAll,beforeEach,describe,it,expect,vi } from 'vitest';
+import express,{type Request} from 'express';
+import type { Server } from 'node:http';
+vi.hoisted(()=>{process.env.SESSION_SECRET ||= 'test-session-gestao-cobranca-isolada';});
+const f=vi.hoisted(()=>({painel:vi.fn(),config:vi.fn(),salvar:vi.fn(),abrir:vi.fn(),resolver:vi.fn(),query:vi.fn(),userId:8,providerId:7,role:'admin'}));
+vi.mock('../db',()=>({pool:{query:f.query}}));
+vi.mock('../services/cobranca/gestao-operacional.service',()=>({painelGestao:f.painel,configGestao:f.config,salvarConfigGestao:f.salvar,abrirContestacao:f.abrir,resolverContestacao:f.resolver,ErroGestao:class extends Error{}}));
+import { registerGestaoCobrancaRoutes } from './cobranca-gestao.routes';
+let server:Server;let base:string;
+beforeAll(async()=>{const app=express();app.use(express.json());app.use((req,_res,next)=>{req.session={userId:f.userId,providerId:f.providerId,role:f.role} as Request['session'];next();});app.use(registerGestaoCobrancaRoutes());await new Promise<void>(r=>{server=app.listen(0,'127.0.0.1',r);});const a=server.address();if(!a||typeof a==='string')throw Error('Porta inválida');base=`http://127.0.0.1:${a.port}/api/cobranca/gestao`;});
+afterAll(async()=>{await new Promise<void>((r,j)=>server.close(e=>e?j(e):r()));});
+beforeEach(()=>{vi.clearAllMocks();f.userId=8;f.providerId=7;f.role='admin';f.painel.mockResolvedValue({});f.abrir.mockResolvedValue({id:1});f.config.mockResolvedValue({});f.query.mockResolvedValue({rows:[]});});
+const enviar=(path:string,body:unknown,method='POST')=>fetch(`${base}${path}`,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+describe('gestão de cobrança isolada',()=>{
+ it('exige sessão e provedor',async()=>{f.userId=0;expect((await fetch(base)).status).toBe(401);f.userId=8;f.providerId=0;expect((await fetch(base)).status).toBe(401);expect(f.painel).not.toHaveBeenCalled();});
+ it('tenant vem da sessão e carteira é validada',async()=>{expect((await fetch(`${base}?carteira=ex_cliente&providerId=99`)).status).toBe(200);expect(f.painel).toHaveBeenCalledWith(7,'ex_cliente');expect((await fetch(`${base}?carteira=outra`)).status).toBe(400);});
+ it('operador não muda limites nem conclui disputas',async()=>{f.role='user';expect((await enviar('/config',{},'PUT')).status).toBe(403);expect((await enviar('/contestacoes/1/resolver',{decisao:'cancelada',justificativa:'Decisão não autorizada'})).status).toBe(403);expect(f.resolver).not.toHaveBeenCalled();});
+ it('valida relato, responsável, data civil e limites',async()=>{expect((await enviar('/config',{maxMensagensDia:0},'PUT')).status).toBe(400);expect((await enviar('/contestacoes',{faturaId:1,motivo:'valor',relato:'Relato suficiente',responsavelId:3,prazo:'2026-02-30'})).status).toBe(400);});
+ it('registra autoria e descarta tenant adulterado',async()=>{expect((await enviar('/contestacoes',{faturaId:1,motivo:'valor',relato:'Valor indevido na fatura',responsavelId:3,prazo:'2026-12-31',providerId:99})).status).toBe(201);expect(f.abrir.mock.calls[0].slice(0,2)).toEqual([7,8]);expect(f.abrir.mock.calls[0][2]).not.toHaveProperty('providerId');});
+ it('busca de fatura preserva carteira e provedor',async()=>{expect((await fetch(`${base}/faturas?busca=cliente&carteira=ativo&providerId=99`)).status).toBe(200);expect(f.query.mock.calls[0][1]).toEqual([7,'%cliente%','cliente','ativo']);});
+});

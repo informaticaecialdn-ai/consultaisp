@@ -88,9 +88,24 @@ describe("conexão WhatsApp não oficial", () => {
     expect(fake.capacidadesDosCanais).not.toHaveBeenCalled();
   });
   it("não chama endpoints novos em instalação sem capacidade", async () => {
-    fake.capacidadesDosCanais.mockResolvedValue({ ok: false, erro: "404" });
+    fake.capacidadesDosCanais.mockResolvedValue({ ok: false, erro: "404", status: 404 });
     await expect(consultarOuConectarWhatsapp(7, "conectar")).rejects.toMatchObject({ codigo: "CONFLITO" });
     expect(fake.conectarWhatsapp).not.toHaveBeenCalled();
+  });
+  it("serviço offline não é confundido com atualização de QR ausente", async () => {
+    fake.capacidadesDosCanais.mockResolvedValue({ ok: false, erro: "token-secreto-remoto" });
+    await expect(consultarOuConectarWhatsapp(7, "consultar")).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
+    expect(fake.estadoDaConexaoWhatsapp).not.toHaveBeenCalled();
+  });
+  it.each([
+    { ok: false, erro: "rede indisponível" },
+    { ok: true, valor: {} },
+    { ok: true, valor: { ...conectado, status: "unknown", connected: false, loggedIn: false } },
+  ])("não reinicia pareamento quando não conseguiu confirmar a sessão: %j", async (resposta) => {
+    fake.estadoDaConexaoWhatsapp.mockResolvedValue(resposta);
+    await expect(consultarOuConectarWhatsapp(7, "conectar")).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
+    expect(fake.conectarWhatsapp).not.toHaveBeenCalled();
+    expect(fake.marcarEstadoDaIntegracaoDoChat).not.toHaveBeenCalled();
   });
   it("recusa QR remoto/SVG e não marca a conexão como ativa", async () => {
     fake.estadoDaConexaoWhatsapp.mockResolvedValue({ ok: true, valor: { ...conectado, qrCode: "https://externo.example/qr" } });

@@ -503,9 +503,11 @@ describe("2 · revisão dos casos abertos", () => {
     expect(zerou.status).toBe("negociando");
     expect(prescreveu.status).toBe("negociando");
     expect(cancelou.status).toBe("negociando");
-    expect(r).toMatchObject({ etapasMudadas: 0, valoresEspelhados: 0, pagos: 0, prescritosEncerrados: 0, cancelados: 0, dnaAtualizados: 0 });
+    expect(r).toMatchObject({ etapasMudadas: 0, valoresEspelhados: 0, pagos: 0, prescritosEncerrados: 0, cancelados: 0, dnaAtualizados: 2 });
     expect(storage.atualizarCasoDeCobranca).not.toHaveBeenCalled();
-    expect(storage.atualizarDnaDoCaso).not.toHaveBeenCalled();
+    expect(prescreveu).toMatchObject({ quadranteDna: null, tom: null });
+    expect(cancelou).toMatchObject({ quadranteDna: null, tom: null });
+    expect(storage.atualizarDnaDoCaso).toHaveBeenCalledTimes(2);
     expect(storage.fecharCasoDeCobranca).not.toHaveBeenCalled();
     expect(storage.cancelarCaso).not.toHaveBeenCalled();
   });
@@ -958,6 +960,39 @@ describe("prioridadeSugerida", () => {
 });
 
 describe("dnaDoCaso", () => {
+  it("corrige o DNA legado durante acordo sem mudar etapa, valor ou estado do acordo", async () => {
+    cliente({ id: 703, statusErp: "cancelled", divida: 0, dias: 0, contrato: "2020-01-01" });
+    const protegido = caso({ customerId: 703, carteira: "ex_cliente", status: "acordo_ativo", etapaAtual: null, valorAtual: 800, quadranteDna: "C3", tom: "negociar_reter" });
+    negociacao({ casoId: protegido.id, status: "ativa", parcelas: [{ vencimento: "2026-10-01" }] });
+    await rodarReguaDoProvedor(1, hoje);
+    expect(protegido).toMatchObject({ status: "acordo_ativo", etapaAtual: null, valorAtual: 800, quadranteDna: null, tom: null });
+    expect(storage.atualizarCasoDeCobranca).not.toHaveBeenCalled();
+    expect(storage.fecharCasoDeCobranca).not.toHaveBeenCalled();
+    expect(storage.cancelarCaso).not.toHaveBeenCalled();
+    expect(estado.negociacoes[0].status).toBe("ativa");
+  });
+  it("ex-cliente congela tempo no encerramento e ignora a idade atual da dívida", () => {
+    expect(dnaDoCaso({ contractStartDate: "2020-01-01", diasAtraso: 1500, faturasAbertas: 4 }, hoje,
+      { historicoInsuficiente: false, faturasPagas: 5, faturasPagasComAtraso: 0, recebido: 500, taxaAtraso: 0, ultimaConfirmacaoEm: new Date("2020-06-01"), fonte: "pagamentos_com_data", encerramentoConfirmadoEm: "2020-07-01" }, "ex_cliente"))
+      .toEqual({ quadranteDna: "A1", tom: "ex_esclarecedor", arbitrado: false });
+  });
+  it("histórico sem prova de encerramento não produz DNA de ex-cliente", () => {
+    expect(dnaDoCaso({ contractStartDate: "2020-01-01", diasAtraso: 1500, faturasAbertas: 4 }, hoje,
+      { historicoInsuficiente: false, faturasPagas: 5, faturasPagasComAtraso: 0, recebido: 500, taxaAtraso: 0, ultimaConfirmacaoEm: hoje, fonte: "pagamentos_com_data" }, "ex_cliente"))
+      .toEqual({ quadranteDna: null, tom: null, arbitrado: false });
+  });
+  it("abertura e revisão usam a carteira atual; DNA legado sem evidência é limpo uma vez e vulnerável permanece", async () => {
+    cliente({ id: 701, statusErp: "cancelled", dias: 100, contrato: "2020-01-01" });
+    cliente({ id: 702, statusErp: "cancelled", dias: 100, contrato: "2020-01-01" });
+    const legado = caso({ customerId: 702, carteira: "ex_cliente", quadranteDna: "C3", tom: TOM_VULNERAVEL });
+    const primeira = await rodarReguaDoProvedor(1, hoje);
+    const segunda = await rodarReguaDoProvedor(1, hoje);
+    expect(casoDe(701)).toMatchObject({ carteira: "ex_cliente", quadranteDna: null, tom: null });
+    expect(legado).toMatchObject({ quadranteDna: null, tom: TOM_VULNERAVEL });
+    expect(primeira.dnaAtualizados).toBe(1);
+    expect(segunda.dnaAtualizados).toBe(0);
+    expect(faturasMock.historicosDePagamentosDoProvedor).toHaveBeenCalledWith(1, undefined, { paraDna: true, hoje });
+  });
   it("usa histórico confirmado quando existe", () => {
     expect(dnaDoCaso({ contractStartDate: "2020-01-01", diasAtraso: 5, faturasAbertas: 1 }, hoje,
       { historicoInsuficiente: false, faturasPagas: 5, faturasPagasComAtraso: 3, taxaAtraso: 0.6, ultimaConfirmacaoEm: hoje, fonte: "pagamentos_com_data" }))

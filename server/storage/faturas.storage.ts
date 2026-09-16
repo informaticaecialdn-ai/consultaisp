@@ -52,6 +52,11 @@ import { cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
 import { resumirHistoricoDePagamentos, type HistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
 import { z } from "zod";
 
+/** No modo DNA, o período do encerrado já foi recortado pela evidência do ERP. */
+export interface HistoricoDnaDaRelacao extends HistoricoDePagamentos {
+  encerramentoConfirmadoEm?: string | null;
+}
+
 const QuitacaoConfirmadaSchema = z.object({
   faturaId: z.number().int().positive(),
   origem: z.enum(["erp_confirmado", "comprovante_conferido"]),
@@ -361,10 +366,23 @@ export class FaturasStorage {
   }
 
   /** Leitura em lote para o job: uma consulta por provedor, sem N+1 por caso. */
-  async historicosDePagamentosDoProvedor(providerId: number, customerId?: number | readonly number[]): Promise<Map<number, HistoricoDePagamentos>> {
+  async historicosDePagamentosDoProvedor(
+    providerId: number,
+    customerId?: number | readonly number[],
+    opcoes?: { paraDna: true; hoje: Date },
+  ): Promise<Map<number, HistoricoDnaDaRelacao>> {
     // Recorte por ids (os devedores do card): lista vazia e recorte vazio.
     if (Array.isArray(customerId) && customerId.length === 0) return new Map();
-    const linhas = await db.select({
+    // Só o IXC preenche cortadoEm com data_cancelamento e zero contratos
+    // ativos (connectors/ixc.ts). SGP data_status pode ser simples corte: não
+    // prova encerramento. Outros ERPs ficam sem histórico de DNA encerrado.
+    const encerramentoConfirmado = and(
+      eq(customers.erpSource, "ixc"), eq(customers.status, "cancelled"),
+      isNotNull(customers.contractStartDate), isNotNull(customers.cortadoEm),
+      sql`${customers.cortadoEm}::date >= ${customers.contractStartDate}`,
+      opcoes ? sql`${customers.cortadoEm}::date <= ${diaDeHoje(opcoes.hoje)}::date` : undefined,
+    );
+    let consulta = db.select({
       customerId: invoices.customerId,
       pagas: sql<number>`count(*)`.mapWith(Number),
       atrasadas: sql<number>`count(*) filter (where ${invoices.paidDate}::date > ${invoices.dueDate}::date)`.mapWith(Number),
@@ -372,18 +390,35 @@ export class FaturasStorage {
       recebido: sql<number>`coalesce(sum(coalesce(${invoices.paidValue}, ${invoices.value})), 0)`.mapWith(Number),
       ultima: max(invoices.paidDate),
       primeira: min(invoices.paidDate),
-    }).from(invoices).where(and(
+      ...(opcoes ? {
+        encerramentoConfirmadoEm: sql<string | null>`case when ${encerramentoConfirmado} then to_char(${customers.cortadoEm}, 'YYYY-MM-DD') else null end`,
+      } : {}),
+    }).from(invoices).$dynamic();
+    if (opcoes) {
+      consulta = consulta.innerJoin(customers, and(eq(customers.id, invoices.customerId), eq(customers.providerId, providerId)));
+    }
+    const linhas = await consulta.where(and(
       eq(invoices.providerId, providerId), eq(invoices.status, "paid"), isNotNull(invoices.paidDate),
       customerId === undefined ? undefined
         : Array.isArray(customerId) ? inArray(invoices.customerId, [...customerId])
         : eq(invoices.customerId, customerId as number),
-    )).groupBy(invoices.customerId);
+      opcoes ? or(
+        inArray(customers.status, [...STATUS_DE_CLIENTE_ATUAL]),
+        and(encerramentoConfirmado,
+          sql`${invoices.dueDate}::date >= ${customers.contractStartDate}`,
+          sql`${invoices.paidDate}::date >= ${customers.contractStartDate}`,
+          sql`${invoices.dueDate}::date <= ${customers.cortadoEm}::date`,
+          sql`${invoices.paidDate}::date <= ${customers.cortadoEm}::date`,
+        ),
+      ) : undefined,
+    )).groupBy(invoices.customerId, ...(opcoes ? [customers.id] : []));
     return new Map(linhas.map(l => [l.customerId, {
       historicoInsuficiente: false, faturasPagas: l.pagas, faturasPagasComAtraso: l.atrasadas,
       recebido: Math.round(Number(l.recebido) * 100) / 100,
       taxaAtraso: l.atrasadas / l.pagas, ultimaConfirmacaoEm: l.ultima ? new Date(l.ultima) : null,
       primeiraConfirmacaoEm: l.primeira ? new Date(l.primeira) : null,
       fonte: "pagamentos_com_data" as const,
+      ...(opcoes ? { encerramentoConfirmadoEm: l.encerramentoConfirmadoEm ?? null } : {}),
     }]));
   }
 

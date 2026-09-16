@@ -4,7 +4,8 @@ import { janelaDoChat, lerAutomacaoChat, feriadosDoChat } from "./automacao-chat
 describe("primeiros contatos automáticos", () => {
   it("vem desligado e recusa teto desproporcional", () => {
     expect(lerAutomacaoChat(null).ligada).toBe(false);
-    expect(lerAutomacaoChat({ ligada: true, limiteDiario: 5000 }).ligada).toBe(false);
+    expect(lerAutomacaoChat({ ligada: true, limiteDiario: 10001 }).ligada).toBe(false);
+    expect(lerAutomacaoChat({ ligada: true, limiteDiario: 5000 }).limiteDiario).toBe(5000);
   });
   it("usa São Paulo: 10h UTC ainda é cedo, 11h UTC abre janela", () => {
     expect(janelaDoChat(new Date("2026-09-08T10:59:00Z"), null).permitida).toBe(false);

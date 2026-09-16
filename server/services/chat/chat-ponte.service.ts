@@ -1,3 +1,4 @@
+import { comOrcamentoContato } from "../cobranca/gestao-operacional.service";
 /**
  * A PONTE entre a cobranca/equipamentos daqui e o Chat BullQ de la.
  *
@@ -21,7 +22,7 @@ import { logger } from "../../logger";
 import { randomBytes } from "node:crypto";
 import { orientarContato } from "@shared/cobranca/contato";
 import { TIPOS_DE_AGENTE, type TipoDeAgente, type PrimeiroContatoPreparado } from "@shared/chat-agentes";
-import { textoNeutroAntesDaIdentificacao } from "@shared/chat-templates";
+import { textoDeAberturaControlada, textoNeutroAntesDaIdentificacao } from "@shared/chat-templates";
 import type { CanalWhatsapp, ProvedorWhatsapp } from "@shared/chat-whatsapp";
 import { prescrita } from "@shared/cobranca/regua";
 import { storage } from "../../storage";
@@ -439,17 +440,17 @@ async function abrirOuMandarComTrava(providerId: number, customerId: number, tel
   const template = usaTemplate ? await prepararTemplateWhatsapp(providerId, tipo, { nomeCliente: nome.trim().split(/\s+/)[0], nomeProvedor }, { organizationId: intg.organizationId, canalId: intg.canalId }) : undefined;
   const preparada = !usaTemplate && typeof texto === "function" ? await texto() : null;
   const mensagem = preparada?.texto ?? (typeof texto === "string" ? texto : "");
-  if (!usaTemplate && tipo !== "recuperacao_equipamentos" && !textoNeutroAntesDaIdentificacao(mensagem, { nomeCliente: nome, nomeProvedor })) {
+  if (!usaTemplate && !textoNeutroAntesDaIdentificacao(mensagem, { nomeCliente: nome, nomeProvedor })) {
     throw new ErroDaPonteDoChat("CONFLITO", "Antes da identificação, envie somente uma saudação e a identificação do provedor. Dados financeiros, documentos e links ficam para depois.");
   }
   // A primeira resposta pertence à equipe humana; o runner permanece desligado.
   const nova = await comTravaDoChat(`config:${providerId}`, async () => {
     const atual = await storage.getIntegracaoDoChat(providerId);
     if (atual?.organizationId !== intg.organizationId || atual?.canalId !== intg.canalId || atual.status !== "ativo") throw new ErroDaPonteDoChat("CONFLITO", "O canal mudou durante a preparação. Nenhuma mensagem foi enviada; tente novamente.");
-    return cliente.iniciarConversa(intg.organizationId, {
+    return comOrcamentoContato(providerId, customerId, "whatsapp", true, () => cliente.iniciarConversa(intg.organizationId, {
       canalId: intg.canalId!, telefone: fone, nome, texto: mensagem, ...(template ? { template } : {}),
       aiEnabled: false,
-    });
+    }));
   });
   if (!nova) throw new ErroDaPonteDoChat("CONFLITO", "O canal está sendo atualizado. Tente novamente em instantes.");
   if (falhou(nova)) throw new ErroDaPonteDoChat("CHAT_FALHOU", `O chat nao abriu a conversa: ${nova.erro}`);
@@ -469,8 +470,7 @@ export async function enviarCasoParaCobranca(providerId: number, casoId: number,
 export async function enviarPreAvisoParaChat(providerId: number, cliente: { customerId: number; nome: string; telefone: string | null }, userId: number): Promise<ConversaAberta> {
   const provedor = await storage.getProvider(providerId);
   const nomeProvedor = provedor?.tradeName || provedor?.name || "seu provedor";
-  const nome = cliente.nome.trim().split(/\s+/)[0];
-  const texto = `Olá, ${nome}. Sou o assistente virtual da ${nomeProvedor}. Podemos ajudar com os próximos vencimentos do seu contrato? Confirma que posso falar com você por aqui? Nossa equipe continuará o atendimento após sua resposta.`;
+  const texto = textoDeAberturaControlada({ nomeCliente: cliente.nome, nomeProvedor });
   const conversa = await abrirOuMandar(providerId, cliente.customerId, cliente.telefone, cliente.nome, texto, "cobranca_ativos", nomeProvedor);
   await storage.registrarConversaDoChat(providerId, { customerId: cliente.customerId, origem: "cobranca", casoId: null,
     conversationId: conversa.conversationId, canalId: conversa.canalId, abertaPorUserId: userId, status: conversa.status });

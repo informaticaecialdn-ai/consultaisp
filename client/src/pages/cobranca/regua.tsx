@@ -28,7 +28,6 @@ import { GradeDna } from "@/components/cobranca/GradeDna";
 import { API_DNA, API_EQUIPE, API_REGUA, lerDna, lerEquipe, ROTA_POLITICA, type RespostaDaRegua } from "@/components/cobranca/tipos";
 import { mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
-const MARCAS_DO_EIXO = [1, PISO_AVISO_SUSPENSAO_DIAS, 30, 90, 180, 360];
 const MONO = "font-mono tabular-nums";
 
 export default function ReguaPage() {
@@ -47,6 +46,7 @@ export default function ReguaPage() {
   const catalogo: readonly Etapa[] = regua?.etapas?.length ? regua.etapas : ETAPAS_PADRAO;
   // A rota já manda a lista de cada carteira; sem ela, a mesma regra roda aqui.
   const etapas = useMemo(() => regua?.porCarteira?.[carteira] ?? etapasDaCarteira(carteira, catalogo), [regua?.porCarteira, carteira, catalogo]);
+  const marcasDoEixo = [...new Set(etapas.map(e => e.diaMin))];
   const pausada = regua?.pausada ?? false;
   const pausadaMotivo = regua?.pausadaMotivo ?? null;
 
@@ -66,7 +66,7 @@ export default function ReguaPage() {
     <div className="flex flex-col gap-5 p-4 lg:p-6" data-testid="cobranca-regua">
       <CabecalhoPainel
         titulo={`Régua e DNA · ${NOME_DA_CARTEIRA[carteira]}`}
-        descricao={<>Etapas e clientes desta carteira. A <b>régua</b> decide quando falar e o que fazer; o <b>DNA 3×3</b> orienta o tom da conversa.</>}
+        descricao={<>{carteira === "ex_cliente" ? "Recuperação de dívidas de contratos encerrados." : "Acompanhamento de faturas e da relação com clientes ativos."} A <b>régua</b> decide quando falar e o que fazer; o <b>DNA 3×3</b> orienta o tom da conversa.</>}
         testIdTitulo="titulo-regua"
         acoes={
           <>
@@ -93,12 +93,15 @@ export default function ReguaPage() {
             <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <KickerSecao className="mb-1">A · régua operacional — quando e o que fazer</KickerSecao>
-                <p className="text-[12px] text-[var(--text-muted)]">Determinística pelos dias de atraso da fatura mais antiga de cada cliente, como o ERP os informou no último sync. Cada carteira tem a sua.</p>
+                <p className="text-[12px] text-[var(--text-muted)]">As etapas acompanham os dias de atraso da fatura mais antiga, informados pelo ERP na última sincronização. O lembrete antes do vencimento depende de uma fatura identificada.</p>
               </div>
             </div>
 
+            {carteira === "ativo" && (
+              <p className="mb-3 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--text-2)]" data-testid="nota-cliente-ativo"><b>Regularizar o pagamento e preservar o contrato.</b> Inclui clientes com serviço suspenso. O atraso não muda a carteira: o encerramento precisa estar confirmado no ERP. A etapa orienta o contato; suspensão, negativação e encerramento exigem avaliação humana.</p>
+            )}
             {carteira === "ex_cliente" && (
-              <p className="mb-3 text-[12px] text-[var(--text-muted)]" data-testid="nota-ex-cliente">Ex-cliente não passa por <b>aviso de suspensão</b>: não há serviço a suspender. Do lembrete vai direto à negociação.</p>
+              <p className="mb-3 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] text-[var(--text-2)]" data-testid="nota-ex-cliente"><b>Dívida de contrato encerrado.</b> A régua começa pela conferência dos títulos vencidos e segue para acordo e recuperação. As condições de negociação são as da política de ex-clientes.</p>
             )}
 
             <div className="flex gap-3 overflow-x-auto pb-2" data-testid="etapas-regua">
@@ -116,20 +119,22 @@ export default function ReguaPage() {
 
             <div className="mt-1 h-px w-full bg-[var(--border-strong)]" aria-hidden />
             <div className="mt-1 flex justify-between font-mono text-[10px] tabular-nums text-[var(--text-faint)]" aria-hidden>
-              {MARCAS_DO_EIXO.map(d => <span key={d}>{rotuloDoDia(d)}</span>)}
+              {marcasDoEixo.map(d => <span key={d}>{rotuloDoDia(d)}</span>)}
               <span>{rotuloDoDia(DIAS_PRESCRICAO)} prescreve</span>
             </div>
 
             <div className="mt-3 grid gap-2 text-[12px] text-[var(--text-2)] md:grid-cols-3">
               {carteira === "ativo" && <><p className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><b>Pré-aviso (D-7, D-3, D-1)</b> acompanha faturas a vencer quando habilitado no Painel do Provedor. Não abre caso de inadimplência.</p>
-              <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><Scale className="mr-1 inline h-3.5 w-3.5 text-[var(--gated)]" aria-hidden /> <b>Aviso de suspensão</b> segue o piso configurado de <span className={MONO}>{rotuloDoDia(PISO_AVISO_SUSPENSAO_DIAS)}</span>. A comunicação e a suspensão dependem das condições previstas na política do provedor.</p></>}
+              <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><Scale className="mr-1 inline h-3.5 w-3.5 text-[var(--gated)]" aria-hidden /> <b>Regularização do serviço</b> começa a partir de <span className={MONO}>{rotuloDoDia(PISO_AVISO_SUSPENSAO_DIAS)}</span>, conforme configuração. Entrar nesta etapa não suspende o serviço. O atendente deve conferir a notificação, os prazos e a situação atual antes de qualquer medida.</p></>}
               <p className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2"><Scale className="mr-1 inline h-3.5 w-3.5 text-[var(--danger)]" aria-hidden /> <b>Prescrição:</b> com <span className={MONO}>{PRESCRICAO_ANOS} anos</span> de atraso (CC art. 206 §5º) a dívida não se cobra, não se negativa, não se pressiona. O motor a tira da régua sozinho.{semEtapa ? <> Hoje <b className={MONO}>{num(semEtapa.casos)}</b> casos (<span className={MONO}>{brl(semEtapa.valor)}</span>) estão sem etapa.</> : ""}</p>
             </div>
           </section>
 
           <section data-testid="bloco-dna">
             <KickerSecao className="mb-1">B · DNA 3×3 — como falar com cada tipo de cliente</KickerSecao>
-            <p className="mb-3 text-[12px] text-[var(--text-muted)]">Fidelidade (tempo de casa) × confiabilidade (histórico) → um de nove quadrantes, cada um com um tom. A grade não dirige o timing. Sem data de contrato no ERP não há DNA — e a tela mostra "—" em vez de chutar.</p>
+            <p className="mb-3 text-[12px] text-[var(--text-muted)]">{carteira === "ex_cliente"
+              ? "O DNA cruza a duração da relação encerrada com o histórico de pagamentos confirmado durante essa relação. O tempo após o encerramento não aumenta o vínculo, e a idade atual da dívida não muda esse histórico. Sem datas ou histórico suficiente, o DNA fica indisponível."
+              : "Fidelidade (tempo de casa) × confiabilidade (histórico) → um de nove quadrantes, cada um com um tom. Sem data de contrato no ERP não há DNA — a tela mostra \"—\" em vez de chutar."} O DNA orienta somente a linguagem; etapa, contato e condições vêm da régua e da política.</p>
             <GradeDna contagens={dna.contagens} carteira={carteira} carregando={dnaCarregando} selecionado={quadrante} onSelecionar={setQuadrante} testId="grade-dna" />
           </section>
         </>

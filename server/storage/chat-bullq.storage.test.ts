@@ -219,6 +219,18 @@ function metadataDo(c: { params: unknown[] }): Record<string, unknown> {
 /* ── A fila do primeiro contato automático: contato que SAIU ─────────── */
 
 describe("primeiro contato automático", () => {
+  it("valida o telefone como o transporte e não devolve o número na prévia", async () => {
+    banco.forcar = sqlTexto => sqlTexto.includes('from "cobranca_casos"') ? [
+      [1, 10, "ativo", "ativo", null, "(43) 99999-0000", null, null],
+      [2, 10, "ativo", "ativo", null, "5543999990000", null, null],
+      [3, 10, "ativo", "ativo", null, "1243999990000", null, null],
+      [4, 10, "ativo", "ativo", null, "123", null, null],
+      [5, 10, "ativo", "ativo", null, null, null, null],
+    ] : [];
+    const r = await storage.candidatosAoPrimeiroContato(PROVEDOR);
+    expect(r.cobranca.map(c => c.telefoneValido)).toEqual([true, true, false, false, false]);
+    expect(JSON.stringify(r)).not.toMatch(/99999|124399/);
+  });
   it("a cota do dia conta contato enviado (evento), nunca conversa aberta", async () => {
     await storage.contatosIniciadosNoDia(PROVEDOR, new Date("2026-09-08T03:00:00.000Z"));
     expect(banco.consultas).toHaveLength(2);

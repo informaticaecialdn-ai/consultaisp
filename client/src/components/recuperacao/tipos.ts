@@ -193,6 +193,10 @@ export const RESULTADOS_TENTATIVA = [
 export type ResultadoTentativa = typeof RESULTADOS_TENTATIVA[number];
 
 export const ROTULO_RESULTADO: Record<string, string> = {
+  recolhido: "Equipamento recolhido",
+  cliente_ausente: "Cliente não encontrado",
+  reagendamento: "Cliente pediu reagendamento",
+  recusa: "Cliente recusou a devolução",
   contato_confirmado: "Contato confirmado",
   sem_resposta: "Sem resposta",
   numero_invalido: "Número inválido",

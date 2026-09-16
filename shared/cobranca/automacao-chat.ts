@@ -6,7 +6,7 @@ export const AutomacaoChatSchema = z.object({
   cobranca: z.boolean().default(true),
   preventivo: z.boolean().default(false),
   equipamentos: z.boolean().default(false),
-  limiteDiario: z.number().int().min(1).max(100).default(10),
+  limiteDiario: z.number().int().min(1).max(10000).default(10),
   carteiras: z
     .array(z.enum(["ativo", "ex_cliente"]))
     .min(1)

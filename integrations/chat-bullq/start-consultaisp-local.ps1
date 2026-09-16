@@ -11,7 +11,7 @@ $taskStatePath = Join-Path $taskRoot 'work/local-running.json'
 $taskState = Get-Content -LiteralPath $taskStatePath -Raw | ConvertFrom-Json
 $taskOld = Get-CimInstance Win32_Process -Filter "ProcessId = $($taskState.app.pid)" -ErrorAction SilentlyContinue
 if ($taskOld) {
-  if ($taskOld.CommandLine -notmatch '^"[^"\r\n]*node\.exe" --import tsx server/index\.ts$') { throw 'O PID registrado agora pertence a outro processo. Nenhum processo foi encerrado.' }
+  if ($taskOld.CommandLine.TrimEnd() -notmatch '^"[^"\r\n]*node\.exe" --import tsx server/index\.ts$') { throw 'O PID registrado agora pertence a outro processo. Nenhum processo foi encerrado.' }
   Stop-Process -Id $taskOld.ProcessId
 }
 $env:NODE_ENV = 'development'

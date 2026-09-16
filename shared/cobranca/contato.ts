@@ -1,5 +1,6 @@
-import { DIRETIVA_POR_TOM, TONS, TOM_VULNERAVEL, type Tom } from "./dna";
+import { DIRETIVA_POR_TOM, QUADRANTES, TONS, TOM_VULNERAVEL, type Quadrante, type Tom } from "./dna";
 import { etapaParaAtraso, type Etapa } from "./regua";
+import { textoDeAberturaControlada } from "../chat-templates";
 
 /** Sugestão operacional. O DNA nunca altera a janela temporal ou autoriza envio. */
 export function orientarContato(d: {
@@ -10,12 +11,17 @@ export function orientarContato(d: {
   status?: string;
   propensao?: number | null;
   etapas?: readonly Etapa[];
+  modoAtendimento?: "primeira_resposta_humana" | "autonomo";
 }) {
+  const carteira = d.carteira === undefined || d.carteira === "ativo" ? "ativo" : d.carteira === "ex_cliente" ? "ex_cliente" : null;
   const vulneravel = d.tom === TOM_VULNERAVEL;
-  const tom = TONS.includes(d.tom as Tom) ? (d.tom as Tom) : null;
+  const tomValido = TONS.includes(d.tom as Tom) ? (d.tom as Tom) : null;
+  // Casos antigos guardavam o tom de ATIVOS também para ex-clientes. Não
+  // convertemos esse registro em prova de histórico de uma relação encerrada.
+  const tom = vulneravel ? TOM_VULNERAVEL : tomValido && carteira && tomValido.startsWith("ex_") === (carteira === "ex_cliente") ? tomValido : null;
   const regua = etapaParaAtraso(
     d.diasAtraso,
-    d.carteira === "ex_cliente" ? "ex_cliente" : "ativo",
+    carteira ?? "ativo",
     d.etapas,
   );
   const propensao =
@@ -30,9 +36,9 @@ export function orientarContato(d: {
     lembrete_atraso: "Lembrete",
     aviso_suspensao: "Regularização",
     negociacao_recuperacao: "Negociação assistida",
-    pre_negativacao: "Revisão humana",
+    pre_negativacao: carteira === "ex_cliente" ? "Conciliação de pendências" : "Revisão humana",
     divida_antiga: "Recuperação de crédito",
-    fim_de_linha: "Revisão humana",
+    fim_de_linha: carteira === "ex_cliente" ? "Recuperação prolongada" : "Revisão humana",
   };
   const agenteDaEtapa = regua.etapa ? agentes[regua.etapa.id] ?? "Revisão humana" : "Revisão humana";
   const agente = vulneravel
@@ -52,6 +58,7 @@ export function orientarContato(d: {
     "negociando",
   ].includes(d.status ?? "");
   return {
+    carteira,
     agente,
     etapa: regua.etapa
       ? {
@@ -64,17 +71,24 @@ export function orientarContato(d: {
       : null,
     motivoSemEtapa: regua.motivo,
     tom: tom ?? "cordial",
-    quadrante: d.quadrante ?? null,
+    quadrante: tom && QUADRANTES.includes(d.quadrante as Quadrante) ? d.quadrante : null,
     diretiva: tom
       ? DIRETIVA_POR_TOM[tom]
-      : "Seja cordial e confirme com quem está falando antes de apresentar dados do contrato.",
+      : carteira === "ex_cliente"
+        ? "Seja cordial. Após confirmação de identidade, esclareça somente a dívida conferida do contrato encerrado e as alternativas autorizadas de regularização. Histórico da relação indisponível: não presuma fidelidade nem comportamento de pagamento."
+        : "Seja cordial e confirme com quem está falando antes de apresentar dados do contrato vigente. Regularize a pendência sem presumir histórico de pagamento.",
     propensao,
     proximoPasso: pausado
       ? "Revise o acordo ou o encerramento antes de contatar."
       : vulneravel
         ? "Atendente avalia o contexto e inicia um contato acolhedor."
-        : "Revise a mensagem inicial. Quando o cliente responder, assuma o atendimento.",
+        : d.modoAtendimento === "primeira_resposta_humana"
+          ? "Inicie com uma abertura neutra; após a resposta, encaminhe ao atendimento humano."
+          : d.modoAtendimento === "autonomo"
+            ? "Inicie com uma abertura neutra; após identificação, o assistente autônomo segue a política e transfere exceções ao humano."
+            : "Inicie com uma abertura neutra; após a resposta, siga o modo de atendimento configurado para esta carteira.",
     automatizavel:
+      carteira !== null &&
       !pausado &&
       !vulneravel &&
       regua.etapa !== null &&
@@ -88,33 +102,5 @@ export function textoDePrimeiroContato(d: {
   origem: "cobranca" | "equipamentos";
   tom?: string | null;
 }) {
-  const nome = d.nome.trim().split(/\s+/)[0] || "tudo bem";
-  const abertura = `Olá, ${nome}. Sou o assistente virtual da ${d.provedor}.`;
-  if (d.origem === "equipamentos")
-    return `${abertura} Podemos conversar sobre a devolução do equipamento do contrato? Sua resposta será encaminhada à nossa equipe para combinar a retirada.`;
-  const aberturas: Record<string, string> = {
-    boas_vindas:
-      "Podemos orientar você sobre o atendimento financeiro do seu contrato?",
-    parceiro:
-      "Podemos verificar juntos se você precisa de ajuda com seu atendimento financeiro?",
-    acolhedor:
-      "Obrigado pela parceria. Podemos ajudar com seu atendimento financeiro?",
-    orientador:
-      "Podemos explicar os próximos passos do seu atendimento financeiro?",
-    firme_gentil:
-      "Podemos conversar e organizar os próximos passos do seu atendimento financeiro?",
-    cuidado: "Queremos ouvir você e encontrar uma forma tranquila de ajudar.",
-    firme_objetivo:
-      "Precisamos conversar sobre seu atendimento financeiro. Podemos verificar a situação juntos?",
-    recuperacao:
-      "Podemos conversar sobre as alternativas para resolver seu atendimento financeiro?",
-    negociar_reter:
-      "Valorizamos nossa relação e queremos encontrar uma solução para você. Podemos conversar?",
-    humanizado_vulneravel:
-      "Queremos ouvir você e encontrar uma forma tranquila de ajudar.",
-  };
-  const ajuda =
-    aberturas[d.tom ?? ""] ??
-    "Podemos conversar sobre seu atendimento financeiro?";
-  return `${abertura} ${ajuda} Confirma que posso falar com você por aqui? Um atendente continuará a conversa após sua resposta.`;
+  return textoDeAberturaControlada({ nomeCliente: d.nome, nomeProvedor: d.provedor });
 }

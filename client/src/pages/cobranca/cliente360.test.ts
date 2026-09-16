@@ -26,7 +26,7 @@ const LETS = [
   "Histórico de pagamento",
   "Pontualidade observada",
   "Histórico (suspensões · negativações)",
-  "Health Score",
+  "Saúde do relacionamento · 0 a 100",
   "NPS (relacionamento)",
   "CSAT · satisfação por evento",
   "Pior CSAT · últimos 90 dias",
@@ -37,14 +37,14 @@ const LETS = [
   "Agente da vez",
   "Chamados técnicos",
   "Opt-out / DND",
-  "Plano atual → próximo",
-  "Indicação · MGM",
-  "Expansão geográfica",
+  "Plano e relacionamento",
+
+
   "Rede colaborativa",
 ];
 
 describe("as seções do Provedor.ai, na ordem", () => {
-  it("todas as 25 chaves (24 Let + Confissão) aparecem, e na ordem de lá", () => {
+  it("preserva os campos operacionais e a ordem dos três horizontes", () => {
     let cursor = 0;
     for (const k of LETS) {
       const pos = pagina.indexOf(`k="${k}"`, cursor);

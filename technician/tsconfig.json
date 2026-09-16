@@ -1,0 +1,6 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["src/**/*", "vite.config.ts", "../shared/recovery-field.ts", "../client/src/components/recuperacao/FieldOperations.tsx"],
+  "exclude": ["../node_modules", "../dist-technician"],
+  "compilerOptions": { "incremental": false }
+}

@@ -47,6 +47,8 @@ import {
 import { brl, Kicker, num, TRACO } from "@/components/localizacao/ui";
 import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA, EstadoVazio, TabelaPainel, Td, Th } from "@/components/painel/ui";
 import { ConfissaoDeDivida } from "@/components/cobranca/ConfissaoDeDivida";
+import { QualidadeDoCliente } from "@/components/cobranca/QualidadeDoCliente";
+import "./cliente360.css";
 import { DialogoAbrirCaso } from "@/components/cobranca/DialogoAbrirCaso";
 import { DialogoContato, type AlvoDoContato } from "@/components/cobranca/DialogoContato";
 import { DialogoNegociacao, type AlvoDaNegociacao } from "@/components/cobranca/DialogoNegociacao";
@@ -153,9 +155,9 @@ function ACriar({ oque }: { oque: string }) {
 
 function Let({ k, children, testId }: { k: string; children: ReactNode; testId?: string }) {
   return (
-    <div className="flex flex-col gap-1" data-testid={testId}>
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{k}</span>
-      <span className="text-[12.5px] leading-5 text-[var(--text-2)]">{children}</span>
+    <div className="c360-field flex flex-col gap-1" data-testid={testId}>
+      <span className="c360-field-label">{k}</span>
+      <div className="c360-field-value text-[var(--text-2)]">{children}</div>
     </div>
   );
 }
@@ -165,7 +167,7 @@ const Divider = () => <div className="h-px bg-[var(--border-faint)]" />;
 function HorizonteCol({ kind, titulo, sub, children, testId }: { kind: keyof typeof COR_DO_HORIZONTE; titulo: string; sub: string; children: ReactNode; testId?: string }) {
   const selo = SELO_HORIZONTE[kind];
   return (
-    <section className="flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]" style={{ borderTop: `3px solid ${COR_DO_HORIZONTE[kind]}` }} data-testid={testId}>
+    <section id={`c360-${kind}`} className="c360-horizonte flex flex-col rounded-lg border border-[var(--border)] bg-[var(--surface)]" style={{ borderTop: `3px solid ${COR_DO_HORIZONTE[kind]}` }} data-testid={testId}>
       <header className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
         <SeloCobranca tom={selo.tom}>{selo.rotulo}</SeloCobranca>
         <h3 className="text-[15px] font-semibold text-[var(--text)]">{titulo}</h3>
@@ -280,7 +282,7 @@ function FichaDaCarteira() {
 
   const cliente = data?.cliente ?? null;
   const caso = data?.caso ?? null;
-  const vivo = snapshot?.ok && snapshot.encontrado ? snapshot.cliente : null;
+  const vivo = snapshot?.ok && snapshot.encontrado && !snapshot.leituraParcial ? snapshot.cliente : null;
 
   // A ficha REMONTADA com o que o ERP disse agora — o mesmo montarFicha360 do servidor.
   const ficha: Ficha360 | null = useMemo(() => {
@@ -411,7 +413,7 @@ function FichaDaCarteira() {
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-cliente-360">
+    <div className="cliente-360 flex flex-col p-4 lg:p-6" data-testid="cobranca-cliente-360">
       {/* 0 · Breadcrumb */}
       <nav className="flex items-center gap-1 text-[12px] text-[var(--text-muted)]" aria-label="Caminho">
         <Link href={exCliente ? ROTA_CARTEIRA_EX : ROTA_CARTEIRA_ATIVOS} className="inline-flex items-center gap-1 hover:text-[var(--text)]" data-testid="voltar-carteira"><ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Voltar</Link>
@@ -435,15 +437,15 @@ function FichaDaCarteira() {
       ) : (
         <>
           {/* 1 · HERO */}
+
           <section className={cn(CARD, "bg-[linear-gradient(180deg,var(--surface-2),var(--surface))]")} data-testid="cabecalho-360">
-            <div className="flex flex-wrap items-start gap-4">
-              <Avatar nome={cliente.nome} tamanho="lg" />
-              <div className="min-w-[260px] flex-1">
+            <div className="c360-hero-grid">
+              <div className="c360-identidade"><Avatar nome={cliente.nome} tamanho="lg" />
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-[23px] font-semibold leading-tight tracking-[var(--track-tight)] text-[var(--text)]" data-testid="nome-cliente">{cliente.nome}</h1>
                   <SeloOrigem origem={origemDoCabecalho} testId="selo-origem-360" />
                   <SeloConfissao confissao={data?.confissaoAssinada} />
-                  <Pendente motivo="não há coluna de vulnerabilidade (Lei 14.181) — a régua não pausa sozinha por vulnerabilidade" ext="Vulnerável" />
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--text-muted)]">
                   <span>{plano ? <b className="text-[var(--text-2)]">{plano}</b> : <Traco titulo={snapshot && !snapshot.ok ? snapshot.erro ?? "" : "plano vem do ERP ao vivo"} />}</span>
@@ -461,7 +463,8 @@ function FichaDaCarteira() {
               </div>
 
               {/* 1a · Fatura em aberto */}
-              <div className="min-w-[210px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 lg:ml-auto" data-testid="card-divida">
+              </div>
+              <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5" data-testid="card-divida">
                 <Kicker>Fatura em aberto</Kicker>
                 {vencido > 0 ? (
                   <>
@@ -511,11 +514,19 @@ function FichaDaCarteira() {
             </div>
             {faturasAbertas !== null && faturasAbertas > 1 && <p className="mt-2 text-[11.5px] text-[var(--text-muted)]">{num(faturasAbertas)} faturas vencidas em aberto — detalhe na coluna Passado.</p>}
             {snapshot && !snapshot.ok && (
-              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--text-faint)]"><RefreshCw className={cn("h-3 w-3", lendoErp && "animate-spin")} aria-hidden /> ERP ao vivo: {snapshot.erro} <button type="button" className="underline" onClick={() => relerErp()}>tentar de novo</button></p>
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--text-muted)]"><RefreshCw className={cn("h-3 w-3", lendoErp && "animate-spin")} aria-hidden /> Não foi possível atualizar pelo ERP. Os valores exibidos são da última base disponível. <button type="button" className="underline" onClick={() => relerErp()}>Tentar novamente</button></p>
             )}
           </section>
 
           {/* 1f · CONEXÃO — a identificação da instalação, no porte dos outros cartões */}
+          <SecaoR24 economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} politicaConfirmada={!!politica?.economia.confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} evidencia={evidenciaDaMensalidade} />
+
+          <div id="c360-faturas"><PagamentosDoCliente key={`${carteiraDeOrigem}:${customerId}`} customerId={customerId} carteira={carteiraDeOrigem} podeAdministrar={podeAdministrar} saldoAgregado={vencido} /></div>
+
+          <QualidadeDoCliente cliente={cliente} snapshot={snapshot} lendo={lendoErp} onConsultar={() => { void relerErp(); }} />
+
+          <nav className="c360-nav" aria-label="Seções do cliente"><a href="#c360-passado">Cobrança e acordos</a><a href="#c360-presente">Atendimento</a><a href="#c360-futuro">Relacionamento</a><a href="#c360-fin">Economia do cliente</a><a href="#c360-faturas">Faturas</a><a href="#linha-do-tempo">Histórico</a></nav>
+          <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"><summary className="cursor-pointer text-sm font-medium">Conexão e equipamentos · consultar detalhes</summary>
           <IdentificacaoTecnica
             snapshot={snapshot}
             equipamentos={data?.equipamentos ?? []}
@@ -523,9 +534,10 @@ function FichaDaCarteira() {
             statusContrato={vivo?.statusContrato ?? cliente.statusErp}
             demonstracao={demoMode}
           />
+          </details>
 
           {/* 2–4 · Tri-horizonte */}
-          <div className="grid gap-3.5 lg:grid-cols-3">
+          <div className="c360-horizontes">
             {/* ── PASSADO ── */}
             <HorizonteCol kind="passado" titulo="Recuperar" sub="dívida & ativos" testId="coluna-passado">
               <Let k="Faturas vencidas">
@@ -602,7 +614,8 @@ function FichaDaCarteira() {
 
             {/* ── PRESENTE ── */}
             <HorizonteCol kind="presente" titulo="Defender" sub="saúde & régua" testId="coluna-presente">
-              <Let k="Health Score" testId="health-score">
+              <Let k="Saúde do relacionamento · 0 a 100" testId="health-score">
+                <p className="mb-2 text-xs text-[var(--text-muted)]">Estimativa operacional com os dados disponíveis. Componentes sem evidência usam valores neutros; não é um score de bureau.</p>
                 <div className="flex items-center gap-2">
                   <span className={cn(NUM, "text-[18px] font-bold text-[var(--text)]")}>{num(ficha.scores.health)}</span>
                   <Pill tone={healthLabelMeta(ficha.scores.health, ficha.scores.health_band).tone} compact title={`banda: ${bandLabel(ficha.scores.health_band)}`}>{healthLabelMeta(ficha.scores.health, ficha.scores.health_band).label}</Pill>
@@ -610,10 +623,12 @@ function FichaDaCarteira() {
                 <span className="mt-1.5 block h-2 overflow-hidden rounded-sm bg-[var(--surface-3)]"><span className="block h-full rounded-sm" style={{ width: `${Math.max(0, Math.min(100, ficha.scores.health))}%`, background: corDoHealth(ficha.scores.health_band) }} /></span>
                 <p className={cn(NUM, "mt-1 text-[10.5px] text-[var(--text-faint)]")}>financeiro {ficha.scores.health_detalhe.financeiro} · técnico {ficha.scores.health_detalhe.tecnico}{ficha.scores.health_detalhe.tecnicoNeutro ? " (neutro: sem equipamento)" : ""} · relacionamento {ficha.scores.health_detalhe.relacionamento} (neutro: sem NPS/CSAT)</p>
               </Let>
+              <details className="rounded-lg bg-[var(--surface-2)] p-3"><summary className="cursor-pointer text-sm text-[var(--text-muted)]">Indicadores de satisfação · ainda indisponíveis</summary>
               <Let k="NPS (relacionamento)"><ACriar oque="pesquisa NPS por cliente" /></Let>
               <Divider />
               <Let k="CSAT · satisfação por evento"><ACriar oque="CSAT por evento (instalação, suporte, cobrança)" /></Let>
               <Let k="Pior CSAT · últimos 90 dias"><ACriar oque="CSAT por evento" /></Let>
+              </details>
               <div className="flex gap-2.5">
                 <ScoreBox label={ficha.scores.credito_band ? `Crédito · banda ${bandLabel(ficha.scores.credito_band)}` : "Crédito"} value={ficha.scores.credito} />
                 <ScoreBox label="Propensão a pagar" value={ficha.scores.propensao} emDia={ficha.scores.propensao_em_dia} />
@@ -697,15 +712,7 @@ function FichaDaCarteira() {
 
             {/* ── FUTURO ── */}
             <HorizonteCol kind="futuro" titulo="Conquistar" sub="upside" testId="coluna-futuro">
-              <div className="rounded-lg border border-[var(--ok-border)] bg-[var(--ok-bg)] px-3 py-2.5">
-                <Kicker>Propensão a upsell</Kicker>
-                <p className="mt-1 text-[12.5px] text-[var(--text-2)]">não existe no read model — a propensão calculada é a de PAGAR</p>
-                <p className="mt-1"><Pendente motivo="Futuro (upsell/indicação/expansão) não existe no schema" ext="EXT" /></p>
-              </div>
-              <Let k="Plano atual → próximo">{plano ? <><b>{plano}</b> → <Traco /></> : <Traco titulo="O ERP ao vivo não informou o plano" />}</Let>
-              <Divider />
-              <Let k="Indicação · MGM"><Traco /></Let>
-              <Let k="Expansão geográfica"><Traco /></Let>
+              <Let k="Plano e relacionamento"><strong>{plano || "Plano ainda não informado"}</strong><p className="mt-2 text-sm text-[var(--text-muted)]">Antes de oferecer uma mudança de plano, confira a situação financeira e o histórico de atendimento.</p></Let>
               <Let k="Rede colaborativa" testId="rede-colaborativa">
                 {data?.rede ? (
                   data.rede.consultasOutros90d > 0 ? (
@@ -718,10 +725,10 @@ function FichaDaCarteira() {
           </div>
 
           {/* 5 · R24 */}
-          <SecaoR24 economia={economia} pendente={economiaPendente} exCliente={exCliente} confirmado={confirmado} politicaConfirmada={!!politica?.economia.confirmado} valorMensal={ficha?.valorMensal ?? null} origem={ficha?.origemDoValorMensal ?? null} evidencia={evidenciaDaMensalidade} />
+
 
           {/* 6 · Transversal */}
-          <PagamentosDoCliente key={`${carteiraDeOrigem}:${customerId}`} customerId={customerId} carteira={carteiraDeOrigem} podeAdministrar={podeAdministrar} saldoAgregado={vencido} />
+
           <Transversal data={data!} />
         </>
       )}
@@ -770,7 +777,7 @@ function ScoreMini({ score, band }: { score: number | null; band: string | null 
   const largura = score != null ? Math.max(0, Math.min(100, (score / 1000) * 100)) : 0;
   return (
     <div className="min-w-[230px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5" data-testid="card-score">
-      <Kicker>Score de crédito</Kicker>
+      <Kicker>Score ISP · 0 a 1.000</Kicker>
       <div className="mt-1 flex items-baseline gap-1.5">
         <span className={cn(NUM, "text-[30px] font-bold leading-none tracking-[-0.02em]")} style={{ color: cor }} data-testid="valor-score">{score != null ? num(score) : DASH}</span>
         <span className="text-[12px] text-[var(--text-muted)]">/ 1000</span>
@@ -837,7 +844,7 @@ function EconomiaMini({ economia, pendente, exCliente, confirmado, valorMensal, 
     : ["MRR", "Margem bruta", "Payback", "LTV realizado", "LTV projetado", "LTV:CAC"]
         .map(k => ({ k, v: k === "MRR" && valorMensal !== null ? money(valorMensal) : DASH, cor: k === "MRR" && valorMensal !== null ? "var(--text)" : undefined }));
   return (
-    <div className="min-w-[280px] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5" data-testid="card-economia">
+    <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5" data-testid="card-economia">
       <div className="flex items-center justify-between gap-2">
         <Kicker>{contratoEncerrado ? (suspenso ? "Resultado até o corte · R24" : "Resultado do contrato · R24") : "Economia do cliente · R24"}</Kicker>
         <a href="#c360-fin" className="text-[11px] font-semibold text-[var(--brand)] hover:underline">ver detalhe ↓</a>
@@ -1014,7 +1021,7 @@ function SecaoR24({ economia, pendente, exCliente, confirmado, politicaConfirmad
       <header className="flex flex-wrap items-center gap-2">
         <SeloCobranca tom="ok">R24</SeloCobranca>
         <h2 className="text-[16px] font-semibold text-[var(--text)]">Economia do cliente · visão financeira</h2>
-        <span className="text-[12px] text-[var(--text-muted)]">unit economics deste assinante — quanto custa, quanto retorna, e o que acontece se cancelar</span>
+        <span className="text-[12px] text-[var(--text-muted)]">Receita, custo de atendimento e retorno do investimento</span>
         <span className="ml-auto flex flex-wrap items-center gap-2">
           {!e && pendente && <Pendente motivo={pendente} ext={exCliente ? undefined : "R24"} />}
           {e?.ciclo_encerrado && <SeloCobranca tom="neutro" className="normal-case tracking-normal">{e.fonte_receita === "estimada" ? "ciclo encerrado · estimado" : e.meses_estimados > 0 ? "ciclo encerrado · histórico parcial" : "ciclo encerrado · 100% realizado"}</SeloCobranca>}
@@ -1047,7 +1054,7 @@ function SecaoR24({ economia, pendente, exCliente, confirmado, politicaConfirmad
               <div className={cn(NUM, "flex flex-1 items-center justify-center bg-[var(--ok)] text-[11px] font-bold text-white")} title={`Margem de contribuição: ${money(e.margem_mes)} (${num(e.margem_pct)}%)`}>Margem · {num(e.margem_pct)}%</div>
             </div>
           ) : (
-            <div className="mb-3 flex h-[34px] items-center justify-center rounded border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] text-[11px] font-semibold text-[var(--text-muted)]">sem dados de custo — unit economics PENDENTE</div>
+            <div className="mb-3 flex h-[34px] items-center justify-center rounded border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] text-[11px] font-semibold text-[var(--text-muted)]">Composição disponível após confirmar mensalidade e custos</div>
           )}
           <table className="w-full text-[12px]">
             <tbody>
@@ -1078,7 +1085,7 @@ function SecaoR24({ economia, pendente, exCliente, confirmado, politicaConfirmad
                   <>
                     <line x1={geo.xOf(geo.be)} x2={geo.xOf(geo.be)} y1={30} y2={210} stroke="var(--gated)" strokeWidth={1.5} strokeDasharray="3 3" />
                     <circle cx={geo.xOf(geo.be)} cy={geo.y0} r={3.5} fill="var(--gated)" />
-                    <text x={geo.xOf(geo.be) + 6} y={geo.y0 - 8} fontSize={10} fontWeight={600} fill="var(--gated)">equilíbrio · mês {geo.be}</text>
+                    <text x={Math.min(geo.xOf(geo.be) + 6, 480)} y={Math.max(geo.y0 - 8, 18)} fontSize={12} fontWeight={600} fill="var(--gated)">equilíbrio · mês {geo.be}</text>
                   </>
                 )}
                 <line x1={geo.xOf(mes)} x2={geo.xOf(mes)} y1={30} y2={210} stroke="var(--brand-ink)" strokeWidth={1.5} />

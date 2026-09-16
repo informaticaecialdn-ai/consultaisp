@@ -74,11 +74,14 @@ function queryDaBase(e: Escolhas): string {
 }
 
 export function ConfissaoDeDivida({ customerId, casoId, clienteNome, podeAdministrar, chatCasoId }: Props) {
+  useEffect(() => {
+    if (window.location.hash === "#formalizacao") document.getElementById("formalizacao")?.scrollIntoView?.({ block: "start" });
+  }, [customerId]);
   const { toast } = useToast();
   const qc = useQueryClient();
   const chaveLista = ["/api/cobranca/clientes", customerId, "confissoes"];
   const { data: estado } = useQuery<EstadoDaAssinatura>({ queryKey: ["/api/cobranca/confissoes/estado"], queryFn: async () => (await apiRequest("GET", "/api/cobranca/confissoes/estado")).json() });
-  const { data: lista = [], isLoading } = useQuery<ConfissaoResumo[]>({ queryKey: chaveLista, queryFn: async () => (await apiRequest("GET", `/api/cobranca/clientes/${customerId}/confissoes`)).json() });
+  const { data: lista = [], isLoading, isError, refetch } = useQuery<ConfissaoResumo[]>({ queryKey: chaveLista, queryFn: async () => (await apiRequest("GET", `/api/cobranca/clientes/${customerId}/confissoes`)).json(), refetchInterval: query => query.state.data?.some(c => c.status === "enviada" || c.status === "rascunho") ? 15000 : false });
   const [aberto, setAberto] = useState(false);
   const viva = lista.find(c => c.status === "rascunho" || c.status === "enviada") ?? null;
   const assinada = lista.find(c => c.status === "assinada") ?? null;
@@ -104,15 +107,20 @@ export function ConfissaoDeDivida({ customerId, casoId, clienteNome, podeAdminis
   const sandbox = estado?.ambiente === "sandbox";
 
   return (
-    <div className="flex flex-col gap-2" data-testid="confissao-de-divida">
+    <div id="formalizacao" className="flex flex-col gap-3 scroll-mt-20" data-testid="confissao-de-divida">
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--text-muted)]">
+        <p className="font-semibold">Formalização do acordo</p>
+        <p className="mt-1 text-xs leading-5">Negociação aceita → revisão do documento → assinatura confirmada. O aceite registrado pelo atendente não é uma assinatura eletrônica. Assinar não dá baixa nas parcelas.</p>
+      </div>
       <div className="flex items-center gap-2">
         <span className="flex-1 font-mono text-[10px] font-semibold uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">Confissão de dívida</span>
+        <button type="button" className={BOTAO_SECUNDARIO} onClick={() => refetch()} aria-label="Atualizar histórico de assinatura"><RefreshCw className="h-3.5 w-3.5" aria-hidden /> Atualizar</button>
         {sandbox && <SeloCobranca tom="gated" titulo="A integração do provedor está em sandbox: nada é enviado ao cliente e o documento não tem validade jurídica">{SELO_SANDBOX}</SeloCobranca>}
       </div>
 
       {estado && !estado.ativa && <p className="text-[12px] leading-4 text-[var(--text-2)]" data-testid="confissao-nao-configurada">{estado.motivo}</p>}
 
-      {isLoading ? <p className="text-[12px] text-[var(--text-muted)]">Lendo confissões…</p> : lista.length === 0 ? (
+      {isError ? <div role="alert" className="text-sm text-destructive">Não foi possível consultar os documentos. <button type="button" className="underline" onClick={() => refetch()}>Tentar novamente</button></div> : isLoading ? <p className="text-[12px] text-[var(--text-muted)]">Lendo confissões…</p> : lista.length === 0 ? (
         <p className="text-[12px] leading-4 text-[var(--text-2)]">Nenhuma confissão emitida para este cliente.{estado?.ativa ? " O título executivo (CPC 784, III) sai com os valores do acordo ou do ERP ao vivo — nada digitado." : ""}</p>
       ) : (
         <ul className="space-y-2" data-testid="lista-confissoes">
@@ -147,7 +155,7 @@ export function ConfissaoDeDivida({ customerId, casoId, clienteNome, podeAdminis
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={cn(BOTAO_MARCA, !podeAdministrar && "opacity-60")} disabled={!estado?.ativa || !!viva} onClick={() => setAberto(true)} title={!estado?.ativa ? estado?.motivo ?? "" : viva ? "Já há uma confissão em andamento — cancele-a antes" : podeAdministrar ? "Emitir a confissão com os valores do acordo ou do ERP ao vivo" : "Apenas administradores emitem (APROVACAO_OBRIGATORIA)"} data-testid="acao-emitir-confissao">
+        <button type="button" className={cn(BOTAO_MARCA, !podeAdministrar && "opacity-60")} disabled={!estado?.ativa || !!viva || !podeAdministrar || !casoId || isLoading || isError} onClick={() => setAberto(true)} title={!estado?.ativa ? estado?.motivo ?? "" : viva ? "Já há uma confissão em andamento — cancele-a antes" : podeAdministrar ? "Emitir a confissão com os valores do acordo ou do ERP ao vivo" : "Apenas administradores emitem (APROVACAO_OBRIGATORIA)"} data-testid="acao-emitir-confissao">
           <FileSignature className="h-3.5 w-3.5" aria-hidden /> {assinada ? "Emitir outra" : "Emitir confissão"}
         </button>
         {!casoId && <span className="text-[11px] text-[var(--text-muted)]">abra o caso antes de emitir</span>}

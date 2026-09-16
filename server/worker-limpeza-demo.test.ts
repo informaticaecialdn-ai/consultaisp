@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const fonte = readFileSync(new URL("./worker.ts", import.meta.url), "utf8");
+const fonte = readFileSync(new URL("./worker.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 describe("o worker so liga (e so desliga) a limpeza da demo em modo demonstracao", () => {
   /**

@@ -17,6 +17,7 @@
  *
  * Módulo puro: sem banco, sem React, sem I/O. Servidor e cliente importam daqui.
  */
+import type { Carteira } from "./estados";
 
 export const FIDELIDADES = ["novo", "medio", "fiel"] as const;
 export type Fidelidade = (typeof FIDELIDADES)[number];
@@ -38,6 +39,15 @@ export const ABORDAGENS = [
   "firme_objetivo",
   "recuperacao",
   "negociar_reter",
+  "ex_esclarecedor",
+  "ex_respeitoso",
+  "ex_acolhedor",
+  "ex_orientador",
+  "ex_firme_gentil",
+  "ex_cuidado",
+  "ex_objetivo",
+  "ex_assertivo",
+  "ex_conciliador",
 ] as const;
 export type Abordagem = (typeof ABORDAGENS)[number];
 
@@ -144,6 +154,17 @@ export const ABORDAGEM_POR_QUADRANTE: Record<Quadrante, Abordagem> = {
   C3: "negociar_reter",
 };
 
+/** Mesmos eixos históricos, com voz própria para a recuperação de contrato encerrado. */
+export const ABORDAGEM_EX_CLIENTE_POR_QUADRANTE: Record<Quadrante, Abordagem> = {
+  A1: "ex_esclarecedor", A2: "ex_respeitoso", A3: "ex_acolhedor",
+  B1: "ex_orientador", B2: "ex_firme_gentil", B3: "ex_cuidado",
+  C1: "ex_objetivo", C2: "ex_assertivo", C3: "ex_conciliador",
+};
+
+export function abordagemDoQuadrante(quadrante: Quadrante, carteira: Carteira = "ativo"): Abordagem {
+  return (carteira === "ex_cliente" ? ABORDAGEM_EX_CLIENTE_POR_QUADRANTE : ABORDAGEM_POR_QUADRANTE)[quadrante];
+}
+
 export function classificarDna(entrada: EntradaDna): Dna {
   const fidelidade = classificarFidelidade(entrada.mesesComoCliente);
   const confiabilidade = classificarConfiabilidade(entrada);
@@ -155,6 +176,25 @@ export function classificarDna(entrada: EntradaDna): Dna {
     abordagem: ABORDAGEM_POR_QUADRANTE[quadrante],
     historicoInsuficiente: entrada.historicoInsuficiente || !entrada.faturasPagas,
   };
+}
+
+/**
+ * Ex-cliente: meses e pagamentos precisam pertencer à relação encerrada.
+ * O chamador recorta os pagamentos confirmados até o encerramento. A idade
+ * atual da dívida orienta a régua, nunca reescreve esse histórico de relação.
+ * Sem histórico suficiente, não há quadrante a inferir do saldo em aberto.
+ */
+export function classificarDnaDaCarteira(entrada: EntradaDna, carteira: Carteira): Dna | null {
+  if (carteira === "ativo") return classificarDna(entrada);
+  const { faturasPagas, faturasPagasComAtraso, mesesComoCliente } = entrada;
+  if (
+    entrada.historicoInsuficiente || !Number.isFinite(mesesComoCliente) || mesesComoCliente < 0 ||
+    faturasPagas === undefined || !Number.isInteger(faturasPagas) || faturasPagas <= 0 ||
+    faturasPagasComAtraso === undefined || !Number.isInteger(faturasPagasComAtraso) ||
+    faturasPagasComAtraso < 0 || faturasPagasComAtraso > faturasPagas
+  ) return null;
+  const dna = classificarDna({ ...entrada, diasAtrasoMax: 0, faturasAbertas: 0 });
+  return { ...dna, abordagem: abordagemDoQuadrante(dna.quadrante, carteira) };
 }
 
 /**
@@ -176,6 +216,24 @@ export function mesesDeContrato(inicio: Date | string | null | undefined, hoje: 
   return meses < 0 ? 0 : meses;
 }
 
+/** Ex-cliente não acumula tempo de casa depois que o contrato terminou. */
+export function mesesDaRelacao(
+  inicio: Date | string | null | undefined,
+  hoje: Date,
+  carteira: Carteira,
+  encerramento?: Date | string | null,
+): number | null {
+  if (carteira === "ativo") return mesesDeContrato(inicio, hoje);
+  const inicioPartes = lerData(inicio);
+  const fimPartes = lerData(encerramento);
+  if (!inicioPartes || !fimPartes || Number.isNaN(hoje.getTime())) return null;
+  const inicioData = new Date(inicioPartes[0], inicioPartes[1] - 1, inicioPartes[2]);
+  const fimData = new Date(fimPartes[0], fimPartes[1] - 1, fimPartes[2]);
+  const hojeSemHora = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  if (inicioData > fimData || fimData > hojeSemHora) return null;
+  return mesesDeContrato(inicio, fimData);
+}
+
 function lerData(valor: Date | string | null | undefined): [number, number, number] | null {
   if (!valor) return null;
   if (valor instanceof Date) {
@@ -185,6 +243,8 @@ function lerData(valor: Date | string | null | undefined): [number, number, numb
   if (!m) return null;
   const partes: [number, number, number] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (partes[1] < 1 || partes[1] > 12 || partes[2] < 1 || partes[2] > 31) return null;
+  const conferida = new Date(partes[0], partes[1] - 1, partes[2]);
+  if (conferida.getFullYear() !== partes[0] || conferida.getMonth() + 1 !== partes[1] || conferida.getDate() !== partes[2]) return null;
   return partes;
 }
 
@@ -202,23 +262,41 @@ export function tomEfetivo(dna: Pick<Dna, "abordagem"> | null, vulneravel: boole
 
 export const DIRETIVA_POR_ABORDAGEM: Record<Abordagem, string> = {
   boas_vindas:
-    "Cliente novo e em dia. Apresente-se, agradeça a escolha e explique como funciona o pagamento e o suporte. Não é cobrança: é orientação.",
+    "Relação recente. Apresente-se e use linguagem simples e acolhedora, sem presumir familiaridade com o atendimento. Comunique apenas a ação indicada pela régua.",
   parceiro:
-    "Cliente regular e pontual. Fale de igual para igual, com respeito. Ofereça a conveniência (PIX, segunda via) antes de qualquer cobrança.",
+    "Cliente com relação estabelecida. Fale de igual para igual, com respeito e clareza, sem confundir o histórico de pagamento com a situação da fatura atual.",
   acolhedor:
-    "Cliente fiel e confiável. Agradeça o tempo de casa e trate como parceiro de longa data. Se houver pendência, presuma esquecimento, nunca má-fé.",
+    "Relação longa. Reconheça o tempo de casa e use uma linguagem próxima e acolhedora. Escute a pessoa sem presumir a causa da pendência nem atribuir má-fé.",
   orientador:
-    "Cliente novo que já oscilou. Explique com calma o que acontece se o atraso continuar (encargos, suspensão) sem pressionar, e mostre o caminho mais fácil para pagar.",
+    "Relação recente com oscilação de pagamento. Explique com calma, em frases simples, e confira se a pessoa entendeu. Mantenha o conteúdo definido pela régua, sem pressão.",
   firme_gentil:
-    "Cliente regular com histórico misto. Seja firme sobre o que está em aberto e empático com a pessoa: mostre o impacto e ofereça uma saída concreta.",
+    "Relação estabelecida com histórico misto. Seja claro sobre os fatos confirmados e empático com a pessoa. Use linguagem firme e gentil, sem julgamento.",
   cuidado:
-    "Bom cliente num momento ruim. Pergunte o que aconteceu antes de cobrar; ofereça ajuda (prazo, parcela) e não pressione. Manter este cliente vale mais que a fatura.",
+    "Relação longa com oscilação de pagamento. Use um tom cuidadoso e dê espaço à pessoa para explicar a situação, sem pressionar nem presumir dificuldade financeira.",
   firme_objetivo:
-    "Cliente novo e crônico. Direto e objetivo: valor, prazo e meio de pagamento. Prefira à vista; se parcelar, poucas parcelas e entrada.",
+    "Relação recente com atraso relevante. Use frases diretas e objetivas, mantenha os fatos verificáveis e evite julgamentos sobre a pessoa. As condições vêm da política.",
   recuperacao:
-    "Histórico problemático recorrente. Profissional e assertivo: apresente as opções e busque a decisão na mesma conversa. Sem acordo, avance de etapa sem demora.",
+    "Relação estabelecida com atraso relevante. Use linguagem profissional e assertiva, sem constrangimento ou urgência artificial. A régua define a ação e o próximo contato.",
   negociar_reter:
-    "Cliente fiel em risco de sair. Negocie primeiro: desconto ou parcelamento antes de falar em suspensão ou negativação. O objetivo é manter o cliente.",
+    "Relação longa com atraso relevante. Use um tom conciliador que reconheça o vínculo, sem prometer benefícios ou condições. A política e a régua definem a negociação.",
+  ex_esclarecedor:
+    "Relação encerrada de curta duração e histórico pontual. Use um tom esclarecedor, apresente os fatos com simplicidade e escute dúvidas sem presumir a causa da pendência.",
+  ex_respeitoso:
+    "Relação encerrada de duração intermediária e histórico pontual. Use um tom respeitoso e direto, reconhecendo o histórico sem tratar a dívida atual como quitada.",
+  ex_acolhedor:
+    "Relação encerrada de longa duração e histórico pontual. Reconheça a relação anterior com discrição e acolhimento. Evite familiaridade excessiva ou julgamentos.",
+  ex_orientador:
+    "Relação encerrada de curta duração e histórico oscilante. Use explicações simples e pacientes, confirme a compreensão e mantenha o foco nos fatos da pendência.",
+  ex_firme_gentil:
+    "Relação encerrada de duração intermediária e histórico oscilante. Seja firme e gentil, diferencie fatos de suposições e dê espaço para esclarecer divergências.",
+  ex_cuidado:
+    "Relação encerrada de longa duração e histórico oscilante. Use um tom cuidadoso e escute a pessoa, sem pressão e sem inferir sua situação financeira atual.",
+  ex_objetivo:
+    "Relação encerrada de curta duração e atrasos recorrentes no histórico. Use frases objetivas e neutras, evitando rótulos pessoais, acusações ou urgência artificial.",
+  ex_assertivo:
+    "Relação encerrada de duração intermediária e atrasos recorrentes no histórico. Use linguagem profissional e assertiva, sem constrangimento, sempre apoiada em fatos confirmados.",
+  ex_conciliador:
+    "Relação encerrada de longa duração e atrasos recorrentes no histórico. Reconheça o vínculo anterior com um tom conciliador, sem prometer condições ou pressionar por decisão.",
 };
 
 export const DIRETIVA_VULNERAVEL =
@@ -247,20 +325,59 @@ export const ROTULO_TOM: Record<Tom, string> = {
   recuperacao: "Recuperação",
   negociar_reter: "Negociar + reter",
   humanizado_vulneravel: "Humanizado · vulnerável",
+  ex_esclarecedor: "Esclarecedor",
+  ex_respeitoso: "Respeitoso",
+  ex_acolhedor: "Acolhedor · relação anterior",
+  ex_orientador: "Orientador · pendência",
+  ex_firme_gentil: "Firme e gentil",
+  ex_cuidado: "Cuidado · relação anterior",
+  ex_objetivo: "Objetivo",
+  ex_assertivo: "Assertivo",
+  ex_conciliador: "Conciliador",
 };
 
 /** A frase que o funcionário pode usar para abrir a conversa — copy do DNA 3×3 do Provedor.ai. */
 export const FRASE_EXEMPLO_POR_QUADRANTE: Record<Quadrante, string> = {
-  A1: "Que bom ter você com a gente! Sua fatura vence em 3 dias — qualquer coisa, é só chamar.",
-  A2: "Oi! Passando só pra lembrar do vencimento — e obrigado por estar sempre em dia.",
-  A3: "Você é cliente de longa data e sempre em dia — qualquer ajuste no plano, fala comigo.",
-  B1: "Vi que a fatura ficou em aberto — quer que eu te mande o PIX pra resolver rapidinho?",
-  B2: "Sua fatura está em aberto. Posso gerar um PIX agora ou a 2ª via — o que prefere?",
-  B3: "Vi que sua fatura ficou em aberto — posso ajudar a resolver do jeito mais fácil pra você?",
-  C1: "Sua fatura está vencida. Consigo condição à vista hoje — quer que eu envie?",
-  C2: "Precisamos resolver sua pendência. Tenho opções — vamos escolher uma juntos hoje?",
-  C3: "Você é cliente de longa data. Quero manter você conosco — vamos achar um acordo que caiba?",
+  A1: "Olá, sou do atendimento do provedor. Vou explicar o motivo deste contato e esclarecer suas dúvidas.",
+  A2: "Olá, vamos conversar sobre a situação da sua fatura? Estou à disposição para esclarecer.",
+  A3: "Agradecemos seu tempo conosco. Vamos conversar sobre a sua fatura e ouvir suas dúvidas.",
+  B1: "Olá, vou explicar a situação da fatura com calma. Pode me dizer se ficar alguma dúvida.",
+  B2: "Vamos conferir a situação da sua fatura. Quero ouvir suas dúvidas antes de seguirmos.",
+  B3: "Olá, quero ouvir você e entender suas dúvidas sobre a fatura. Podemos conversar com calma.",
+  C1: "Olá, o contato é sobre a sua fatura. Vou apresentar os dados confirmados de forma objetiva.",
+  C2: "Vamos conferir os dados da sua pendência. Estou à disposição para esclarecer divergências.",
+  C3: "Reconhecemos seu tempo conosco. Vamos conversar sobre a pendência e ouvir o que você tem a dizer.",
 };
+
+export const FRASE_EXEMPLO_EX_CLIENTE_POR_QUADRANTE: Record<Quadrante, string> = {
+  A1: "Olá, o contato é sobre uma pendência do contrato encerrado. Vou explicar os dados e ouvir suas dúvidas.",
+  A2: "Olá, podemos conversar sobre a pendência do contrato encerrado? Estou à disposição para esclarecer os dados.",
+  A3: "Agradecemos a relação que tivemos. O contato é sobre uma pendência do contrato encerrado; vamos conferir juntos.",
+  B1: "Vou explicar com calma os dados da pendência do contrato encerrado. Pode me dizer se houver alguma dúvida.",
+  B2: "O contato é sobre a pendência do contrato encerrado. Vamos conferir os dados e esclarecer eventuais divergências.",
+  B3: "Podemos conversar com calma sobre a pendência do contrato encerrado. Quero ouvir suas dúvidas.",
+  C1: "O contato é sobre a pendência do contrato encerrado. Vou apresentar os dados confirmados de forma objetiva.",
+  C2: "Vamos conferir os dados da pendência do contrato encerrado. Estou à disposição para esclarecer o que for necessário.",
+  C3: "Reconhecemos a relação que tivemos. Vamos conversar sobre a pendência do contrato encerrado e ouvir suas dúvidas.",
+};
+
+export const ROTULO_RELACAO_ENCERRADA: Record<Fidelidade, string> = { novo: "Curta", medio: "Intermediária", fiel: "Longa" };
+export const ROTULO_HISTORICO_ENCERRADO: Record<Confiabilidade, string> = {
+  em_dia: "Pontual no histórico", oscila: "Oscilante no histórico", cronico: "Atrasos recorrentes",
+};
+
+/** Uma fonte para grade, 360 e agentes; rótulos e exemplos seguem a carteira. */
+export function apresentacaoDoDna(quadrante: Quadrante, carteira: Carteira = "ativo") {
+  const eixos = eixosDoQuadrante(quadrante);
+  const abordagem = abordagemDoQuadrante(quadrante, carteira);
+  const exCliente = carteira === "ex_cliente";
+  return {
+    ...eixos, abordagem, rotulo: ROTULO_TOM[abordagem], diretiva: DIRETIVA_POR_TOM[abordagem],
+    frase: (exCliente ? FRASE_EXEMPLO_EX_CLIENTE_POR_QUADRANTE : FRASE_EXEMPLO_POR_QUADRANTE)[quadrante],
+    rotuloFidelidade: (exCliente ? ROTULO_RELACAO_ENCERRADA : ROTULO_FIDELIDADE)[eixos.fidelidade],
+    rotuloConfiabilidade: (exCliente ? ROTULO_HISTORICO_ENCERRADO : ROTULO_CONFIABILIDADE)[eixos.confiabilidade],
+  };
+}
 
 export const FRASE_EXEMPLO_VULNERAVEL =
   "Sei que o momento está difícil. Vamos ver juntos um jeito que caiba no seu orçamento, sem pressa.";

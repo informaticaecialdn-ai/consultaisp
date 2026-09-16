@@ -12,8 +12,9 @@ import { useMemo } from "react";
 import { Link } from "wouter";
 import { ArrowRight } from "lucide-react";
 import {
-  ABORDAGEM_POR_QUADRANTE, DIRETIVA_POR_ABORDAGEM, DIRETIVA_VULNERAVEL, FRASE_EXEMPLO_POR_QUADRANTE, FRASE_EXEMPLO_VULNERAVEL,
-  GRADE_DNA, ROTULO_CONFIABILIDADE, ROTULO_FIDELIDADE, ROTULO_TOM, eixosDoQuadrante, familiaDoQuadrante,
+  DIRETIVA_VULNERAVEL, FRASE_EXEMPLO_VULNERAVEL,
+  GRADE_DNA, ROTULO_CONFIABILIDADE, ROTULO_FIDELIDADE, ROTULO_HISTORICO_ENCERRADO, ROTULO_RELACAO_ENCERRADA,
+  apresentacaoDoDna, familiaDoQuadrante,
   type Carteira, type Quadrante,
 } from "@shared/cobranca";
 import { cn } from "@/lib/utils";
@@ -70,12 +71,12 @@ export function GradeDna({ contagens, carteira, carregando = false, selecionado,
   const classificados = Array.from(totais.entries()).filter(([k]) => k !== "sem").reduce((s, [, t]) => s + t.casos, 0);
   const semClassificacao = totais.get("sem")?.casos ?? 0;
   const q = selecionado;
-  const eixos = eixosDoQuadrante(q);
+  const apresentacao = apresentacaoDoDna(q, carteira);
+  const exCliente = carteira === "ex_cliente";
   const familia = familiaDoQuadrante(q);
   const cor = COR_DA_FAMILIA[familia];
   const totalDoQ = contagemDoQuadrante(totais, q, carregando);
   const pctDoQ = totalDoQ && classificados > 0 ? ((totalDoQ.casos / classificados) * 100).toFixed(1).replace(".", ",") : null;
-  const abordagem = ABORDAGEM_POR_QUADRANTE[q];
   // Cada carteira tem o proprio espaco na tela: o link ja abre o certo.
   const linkCarteira = `${carteira === "ex_cliente" ? ROTA_CARTEIRA_EX : ROTA_CARTEIRA_ATIVOS}?quadrante=${q}`;
 
@@ -85,19 +86,20 @@ export function GradeDna({ contagens, carteira, carregando = false, selecionado,
         <p className="mb-3 text-[12px] text-[var(--text-muted)]">
           <b className="font-mono tabular-nums text-[var(--text)]">{num(classificados)}</b> casos classificados
           {semClassificacao > 0 && (
-            <> · <b className="font-mono tabular-nums text-[var(--gated)]">{num(semClassificacao)}</b> sem DNA <span className="text-[var(--text-faint)]">(sem data de contrato no ERP)</span></>
+            <> · <b className="font-mono tabular-nums text-[var(--gated)]">{num(semClassificacao)}</b> sem DNA <span className="text-[var(--text-faint)]">({exCliente ? "sem datas da relação encerrada ou histórico confirmado" : "sem data de contrato no ERP"})</span></>
           )}
-          {" "}· ↑ confiabilidade de pagamento · → fidelidade
+          {" "}· {exCliente ? "↑ pagamento durante a relação · → duração até o encerramento" : "↑ confiabilidade de pagamento · → fidelidade"}
         </p>
-        <div className="grid grid-cols-[72px_repeat(3,minmax(0,1fr))] gap-1.5" role="grid" aria-label="Grade DNA 3×3">
+        <div className="grid grid-cols-[72px_repeat(3,minmax(0,1fr))] gap-1.5" role="grid" aria-label={exCliente ? "Grade DNA 3×3 da relação encerrada" : "Grade DNA 3×3"}>
           <div />
           {COLUNAS.map(c => (
-            <div key={c} className="pb-1 text-center font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{ROTULO_FIDELIDADE[c]}</div>
+            <div key={c} className="break-words pb-1 text-center font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{(exCliente ? ROTULO_RELACAO_ENCERRADA : ROTULO_FIDELIDADE)[c]}</div>
           ))}
           {GRADE_DNA.map(linha => (
             <LinhaDaGrade
               key={linha.confiabilidade}
-              rotulo={ROTULO_CONFIABILIDADE[linha.confiabilidade]}
+              rotulo={(exCliente ? ROTULO_HISTORICO_ENCERRADO : ROTULO_CONFIABILIDADE)[linha.confiabilidade]}
+              carteira={carteira}
               quadrantes={linha.quadrantes}
               totais={totais}
               carregando={carregando}
@@ -118,9 +120,9 @@ export function GradeDna({ contagens, carteira, carregando = false, selecionado,
             {q}
           </span>
           <div className="min-w-0">
-            <h3 className="text-[15px] font-medium leading-tight tracking-[var(--track-tight)] text-[var(--text)]">{ROTULO_TOM[abordagem]}</h3>
+            <h3 className="text-[15px] font-medium leading-tight tracking-[var(--track-tight)] text-[var(--text)]">{apresentacao.rotulo}</h3>
             <p className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
-              {ROTULO_FIDELIDADE[eixos.fidelidade]} · {ROTULO_CONFIABILIDADE[eixos.confiabilidade]} ·{" "}
+              {apresentacao.rotuloFidelidade} · {apresentacao.rotuloConfiabilidade} ·{" "}
               {totalDoQ ? <span className="font-mono tabular-nums">{num(totalDoQ.casos)} casos{pctDoQ ? ` (${pctDoQ}%)` : ""} · {brl(totalDoQ.valor)}</span> : <Traco />}
             </p>
           </div>
@@ -128,12 +130,12 @@ export function GradeDna({ contagens, carteira, carregando = false, selecionado,
 
         <div>
           <Kicker>como falar com este tipo</Kicker>
-          <p className="mt-1 text-[12.5px] leading-5 text-[var(--text-2)]">{DIRETIVA_POR_ABORDAGEM[abordagem]}</p>
+          <p className="mt-1 text-[12.5px] leading-5 text-[var(--text-2)]">{apresentacao.diretiva}</p>
         </div>
 
         <div>
           <Kicker>frase de abertura</Kicker>
-          <p className="mt-1 rounded border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[12.5px] italic leading-5 text-[var(--text-2)]">“{FRASE_EXEMPLO_POR_QUADRANTE[q]}”</p>
+          <p className="mt-1 rounded border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[12.5px] italic leading-5 text-[var(--text-2)]">“{apresentacao.frase}”</p>
         </div>
 
         <div className="rounded border border-[var(--info-border)] bg-[var(--info-bg)] px-3 py-2 text-[11.5px] leading-4 text-[var(--text-2)]">
@@ -148,8 +150,9 @@ export function GradeDna({ contagens, carteira, carregando = false, selecionado,
   );
 }
 
-function LinhaDaGrade({ rotulo, quadrantes, totais, carregando, selecionado, onSelecionar }: {
+function LinhaDaGrade({ rotulo, carteira, quadrantes, totais, carregando, selecionado, onSelecionar }: {
   rotulo: string;
+  carteira?: Carteira;
   quadrantes: readonly Quadrante[];
   totais: Map<string, TotaisDoQuadrante>;
   carregando: boolean;
@@ -183,7 +186,7 @@ function LinhaDaGrade({ rotulo, quadrantes, totais, carregando, selecionado, onS
               {t ? num(t.casos) : <span className="text-[var(--text-faint)]">—</span>}
               <span className="ml-1 font-sans text-[10px] font-normal text-[var(--text-muted)]">casos</span>
             </span>
-            <span className="text-[10.5px] leading-tight text-[var(--text-2)]">{ROTULO_TOM[ABORDAGEM_POR_QUADRANTE[q]]}</span>
+            <span className="text-[10.5px] leading-tight text-[var(--text-2)]">{apresentacaoDoDna(q, carteira).rotulo}</span>
           </button>
         );
       })}

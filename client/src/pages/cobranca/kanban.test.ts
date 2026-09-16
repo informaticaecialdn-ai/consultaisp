@@ -73,7 +73,7 @@ describe("a página do kanban", () => {
      * coluna e na faixa do dia do card (ver faixa-indicadores.test.ts). No lugar
      * entrou "travados agora", que é `vencidos + semProximaAcao`.
      */
-    expect(pagina).toContain('rotulo: "travados agora"');
+    expect(pagina).toContain('rotulo: "ações pendentes"');
     expect(pagina).toContain("num(travadosAgora(kpis))");
     // as duas parcelas continuam vindo da MESMA varredura da rota
     expect(tipos).toContain("criticos: numero(kpisCrus.criticos)");
@@ -97,7 +97,7 @@ describe("a página do kanban", () => {
 
   it("filtra por etapa da régua e carteira, e limpa os filtros", () => {
     expect(pagina).toContain('data-testid="filtro-etapa"');
-    expect(pagina).toContain("<NavegacaoCarteiras carteira={carteira}");
+    expect(pagina).not.toContain("<NavegacaoCarteiras");
     expect(pagina).not.toContain("Ativos e ex-clientes");
     expect(pagina).toContain('data-testid="limpar-filtros-kanban"');
     expect(pagina).toContain('data-testid="busca-kanban"');
@@ -242,7 +242,7 @@ describe("a coluna é um posto de trabalho", () => {
     expect(quadro).toContain("coluna-verbo-${coluna.status}");
     expect(quadro).toContain('Para o caso sair de "${coluna.rotulo}": ${verbo}.');
     // coluna fechada não tem verbo: o caso já saiu da esteira
-    expect(quadro).toContain("coluna.fechada ? null : verboDaColuna(coluna.status)");
+    expect(quadro).toContain("coluna.fechada ? null : verbos[coluna.status] ?? verboDaColuna(coluna.status)");
     for (const [status, verbo] of [
       ["aberto", "registrar contato"],
       ["em_contato", "propor acordo"],

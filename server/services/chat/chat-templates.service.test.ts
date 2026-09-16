@@ -17,6 +17,14 @@ beforeEach(() => {
   client.listarTemplatesWhatsapp.mockResolvedValue({ ok: true, valor: { data } });
 });
 describe("templates Datafy por provedor", () => {
+  it.each(["cobranca_ex_clientes", "recuperacao_equipamentos"] as const)("%s exige abertura neutra mesmo com template previamente salvo", async (tipo) => {
+    const configuracao = { [tipo]: config.cobranca_ativos };
+    state.i.agenteConfig = { whatsapp: { provider: "DATAFY" }, templatesDatafy: configuracao };
+    client.listarTemplatesWhatsapp.mockResolvedValue({ ok: true, valor: { data: [{ ...data[0], components: [{ type: "BODY", text: "Olá {{1}}, contrato encerrado. Resolva sua pendência com {{2}}." }] }] } });
+    await expect(salvarTemplatesWhatsapp(6, configuracao)).rejects.toMatchObject({ codigo: "CONFLITO" });
+    await expect(prepararTemplateWhatsapp(6, tipo, { nomeCliente: "Maria", nomeProvedor: "ISP" })).rejects.toMatchObject({ codigo: "CONFLITO" });
+    expect(db.guardarAgenteDoChat).not.toHaveBeenCalled();
+  });
   it("recusa template financeiro aprovado e revalida o conteúdo antes de preparar", async () => {
     state.i.agenteConfig = { whatsapp: { provider: "DATAFY" }, templatesDatafy: config };
     client.listarTemplatesWhatsapp.mockResolvedValue({ ok: true, valor: { data: [{ ...data[0], components: [{ type: "BODY", text: "Olá {{1}}, sua fatura venceu. Pague {{2}}." }] }] } });

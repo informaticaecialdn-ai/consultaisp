@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planejarPreAviso } from "./preventivo";
+import { AvisosFaturasSchema, planejarPreAviso } from "./preventivo";
 import { ETAPAS_PADRAO } from "./regua";
 
 describe("pré-aviso por fatura", () => {
@@ -11,5 +11,15 @@ describe("pré-aviso por fatura", () => {
     expect(planejarPreAviso(6, fatura, "2026-09-09")).toBeNull();
     expect(planejarPreAviso(6, { ...fatura, status: "paid" }, "2026-09-08")).toBeNull();
     expect(planejarPreAviso(6, fatura, "2026-09-08", ETAPAS_PADRAO.map(e => ({ ...e, ativa: false })))).toBeNull();
+  });
+  it("usa dias do provedor independentemente das etapas do kanban, inclusive no vencimento", () => {
+    expect(planejarPreAviso(6, fatura, "2026-09-05", [], [10, 0])).toMatchObject({ diasAtraso: -10 });
+    expect(planejarPreAviso(6, fatura, "2026-09-15", [], [10, 0])).toMatchObject({ diasAtraso: 0 });
+    expect(planejarPreAviso(6, fatura, "2026-09-08", [], [10, 0])).toBeNull();
+    expect(planejarPreAviso(6, fatura, "2026-09-16", [], [0])).toBeNull();
+  });
+  it("começa desligado e rejeita dias repetidos, negativos e além do horizonte", () => {
+    expect(AvisosFaturasSchema.parse({})).toEqual({ ligada: false, canal: "whatsapp", diasAntes: [7, 3, 1], limiteDiario: 10, incluirLinkFatura: false });
+    for (const diasAntes of [[1, 1], [-1], [31], []]) expect(AvisosFaturasSchema.safeParse({ diasAntes }).success).toBe(false);
   });
 });

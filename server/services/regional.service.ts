@@ -2,6 +2,7 @@ import { db, pool } from "../db";
 import { providers } from "@shared/schema";
 import { eq, sql, and, ne, arrayOverlaps } from "drizzle-orm";
 import { PADRAO_DE_SANDBOX_NO_SQL, provedorForaDeSandboxAlheio } from "../utils/fora-de-sandbox";
+import { generatePartnerCode } from "../utils/provider-anonymizer";
 
 /**
  * Find providers whose cidadesAtendidas overlap with the requesting provider.
@@ -65,7 +66,22 @@ export function foraDeSandboxAlheio() {
   return provedorForaDeSandboxAlheio();
 }
 
-export async function getRegionalProviders(providerId: number) {
+/**
+ * O que a tela de Regionalizacao recebe sobre cada vizinho — e nada que o
+ * identifique. Ate 16/09/2026 saiam `id`, `name`, `cidadesAtendidas` e
+ * `mesorregioes` crus, e a tela pintava o nome do concorrente: bastava
+ * configurar cidades para ver quem mais atende a regiao. A regra da rede
+ * (CLAUDE.md, secao 11) e o codigo pareado por observador, e o id de outro
+ * tenant nunca sai em payload.
+ */
+export interface VizinhoRegional {
+  /** `generatePartnerCode(observador, vizinho)`: estavel para quem olha, e a chave da lista. */
+  codigo: string;
+  /** So a intersecao com as cidades do observador: a cobertura inteira de um concorrente tambem o identifica. */
+  cidadesEmComum: string[];
+}
+
+export async function getRegionalProviders(providerId: number): Promise<VizinhoRegional[]> {
   const [provider] = await db.select({
     id: providers.id,
     cidadesAtendidas: providers.cidadesAtendidas,
@@ -73,11 +89,10 @@ export async function getRegionalProviders(providerId: number) {
 
   if (!provider?.cidadesAtendidas?.length) return [];
 
+  // O nome nem e selecionado: o que nao sai do banco nao vaza por engano.
   const regional = await db.select({
     id: providers.id,
-    name: providers.name,
     cidadesAtendidas: providers.cidadesAtendidas,
-    mesorregioes: providers.mesorregioes,
   }).from(providers).where(
     and(
       ne(providers.id, providerId),
@@ -87,7 +102,12 @@ export async function getRegionalProviders(providerId: number) {
     )
   );
 
-  return regional;
+  // O observador e `providerId` — o da sessao, que a rota entrega aqui.
+  const minhas = new Set(provider.cidadesAtendidas);
+  return regional.map(vizinho => ({
+    codigo: generatePartnerCode(providerId, vizinho.id),
+    cidadesEmComum: (vizinho.cidadesAtendidas ?? []).filter(c => minhas.has(c)),
+  }));
 }
 
 /**

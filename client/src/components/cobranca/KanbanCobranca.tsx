@@ -23,6 +23,7 @@
  * quadro mais recente — invalidou, o painel redesenha com o dado do servidor.
  * Arrastar continua sendo a alça do card, e nunca abre o painel.
  */
+import { recomendarAtendimento } from "./prioridade-atendimento";
 import { useMemo, useState } from "react";
 import {
   DndContext, DragOverlay, KeyboardSensor, PointerSensor, pointerWithin, rectIntersection,
@@ -87,13 +88,13 @@ function moverNoQuadro(quadro: RespostaDoKanban, casoId: number, destino: Status
       if (x.id === casoId) { movido = x; return false; }
       return true;
     });
-    return restantes.length === c.casos.length ? c : { ...c, casos: restantes, total: Math.max(0, c.total - 1) };
+    return restantes.length === c.casos.length ? c : { ...c, casos: restantes, total: Math.max(0, c.total - 1), valorTotal: null };
   });
   if (!movido) return quadro;
   const atualizado: ItemDaFila = { ...(movido as ItemDaFila), status: destino };
   return {
     ...quadro,
-    colunas: semEle.map(c => (c.status === destino ? { ...c, casos: [atualizado, ...c.casos], total: c.total + 1 } : c)),
+    colunas: semEle.map(c => (c.status === destino ? { ...c, casos: [atualizado, ...c.casos], total: c.total + 1, valorTotal: null } : c)),
   };
 }
 
@@ -139,12 +140,12 @@ function GargalosDaColuna({ coluna, hoje }: { coluna: ColunaDoKanban; hoje: Date
 function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
   coluna: ColunaDoKanban; cardAtivo: ItemDaFila | null; hoje: Date; podeAdministrar: boolean; children: React.ReactNode;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: coluna.status, data: { status: coluna.status } });
+  const { setNodeRef, isOver } = useDroppable({ id: coluna.status, disabled: !ehStatus(coluna.status), data: { status: coluna.status } });
   const veredito: MovimentoDeCaso | null = cardAtivo && ehStatus(coluna.status) ? avaliarMovimentoDeCaso(cardAtivo, coluna.status, { podeAdministrar }) : null;
   const aceita = veredito !== null && veredito.tipo !== "recusado" && veredito.tipo !== "nenhum";
   const recusa = veredito !== null && veredito.tipo === "recusado";
   const anel = isOver && aceita ? "0 0 0 2px var(--brand)" : isOver && recusa ? "0 0 0 2px var(--danger)" : aceita ? "0 0 0 1px var(--brand)" : "0 0 0 1px var(--border)";
-  const valor = coluna.casos.reduce((s, c) => s + (c.valorAtual ?? 0), 0);
+  const valor = coluna.valorTotal;
   // A cor do funil (pedido do dono): borda no topo e contagem no tom da etapa —
   // neutro a contatar, azul em contato, ambar negociando, verde acordo/pago,
   // vermelho negativado, vinho cancelamento. Coluna fechada fica apagada.
@@ -155,7 +156,8 @@ function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
   // não é posto de trabalho, é arquivo dos últimos 30 dias.
   const fundoDoCabecalho = coluna.fechada ? "var(--surface-3)" : FUNDO_DO_TOM[tom];
   const bordaDoCabecalho = coluna.fechada ? "var(--border)" : BORDA_DO_TOM[tom];
-  const verbo = coluna.fechada ? null : verboDaColuna(coluna.status);
+  const verbos: Record<string, string> = { a_iniciar: "iniciar contato", aguardando_resposta: "acompanhar retorno", em_atendimento: "registrar negociação", aguardando_pagamento: "conferir a promessa" };
+  const verbo = coluna.fechada ? null : verbos[coluna.status] ?? verboDaColuna(coluna.status);
   return (
     <section
       ref={setNodeRef}
@@ -163,7 +165,7 @@ function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
       data-coluna={coluna.status}
       data-tom={tom}
       data-aceita={cardAtivo ? String(aceita) : undefined}
-      className="flex max-h-full flex-none flex-col overflow-hidden rounded-[10px]"
+      className="flex max-h-full flex-none flex-col overflow-hidden rounded-lg"
       style={{ width: LARGURA_COLUNA_COBRANCA, background: "var(--surface-2)", boxShadow: anel, borderTop: `3px solid ${coluna.fechada ? "var(--border-strong)" : corDoTom}`, opacity: recusa && !isOver ? 0.75 : 1, transition: "box-shadow .15s, opacity .15s" }}
     >
       <header
@@ -184,7 +186,7 @@ function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
         </div>
         <div className="flex-none text-right" style={MONO}>
           <p className="text-[15px] font-medium leading-none tabular-nums" style={{ color: coluna.fechada || coluna.total === 0 ? "var(--text-muted)" : corDoTom }}>{num(coluna.total)}</p>
-          <p className="mt-1.5 text-[10.5px] tabular-nums text-[var(--text-faint)]">{brl(valor)}</p>
+          <p className="mt-1.5 text-[10.5px] tabular-nums text-[var(--text-faint)]" title="Valor de todos os casos desta coluna no recorte; — quando indisponível">{brl(valor)}</p>
         </div>
       </header>
       {!coluna.fechada && <GargalosDaColuna coluna={coluna} hoje={hoje} />}
@@ -223,6 +225,8 @@ export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdminis
   const queryClient = useQueryClient();
   const [cardAtivo, setCardAtivo] = useState<ItemDaFila | null>(null);
   const [mostrarRecolhidas, setMostrarRecolhidas] = useState(false);
+  const [modoFoco, setModoFoco] = useState(false);
+  const [adiados, setAdiados] = useState<Set<number>>(() => new Set());
   /**
    * O caso aberto no painel. Guarda-se o ITEM, mas a tela sempre redesenha com
    * a versão do quadro mais recente (`porId` abaixo): salvou um contato,
@@ -295,15 +299,39 @@ export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdminis
     onDragCancel: () => "Arrasto cancelado.",
   };
 
-  const visiveis = quadro.colunas.filter(c => mostrarRecolhidas || !(COLUNAS_RECOLHIDAS as readonly string[]).includes(c.status));
-  const recolhidasTotal = quadro.colunas.filter(c => (COLUNAS_RECOLHIDAS as readonly string[]).includes(c.status)).reduce((s, c) => s + c.total, 0);
+  const atendimento = quadro.colunas.some(c => c.status === "a_iniciar");
+  const recolhidas: readonly string[] = atendimento ? [...COLUNAS_RECOLHIDAS, "cancelamento"] : COLUNAS_RECOLHIDAS;
+  const visiveis = quadro.colunas.filter(c => mostrarRecolhidas || !recolhidas.includes(c.status));
+  const recolhidasTotal = quadro.colunas.filter(c => recolhidas.includes(c.status)).reduce((s, c) => s + c.total, 0);
+  const candidatos = quadro.colunas
+    .filter(c => !c.fechada && !["aguardando_pagamento", "acordo_ativo"].includes(c.status))
+    .flatMap(c => c.casos).filter(c => !adiados.has(c.id));
+  const recomendacao = recomendarAtendimento(candidatos, new Date())[0];
+  const recomendado = recomendacao ? porId.get(recomendacao.id) : undefined;
 
   return (
     <div className="flex flex-col gap-2" data-testid="kanban-cobranca">
+      <div className="gestao-foco" data-testid="modo-atendimento">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><strong className="text-sm">Atendimento guiado</strong><p className="text-xs text-[var(--text-muted)]">Um caso por vez, com prioridade explicada.</p></div>
+          <button type="button" className={BOTAO_SECUNDARIO} aria-expanded={modoFoco} onClick={() => setModoFoco(v => !v)}>{modoFoco ? "Recolher" : "Iniciar atendimento"}</button>
+        </div>
+        {modoFoco && <div className="gestao-foco-detalhe">
+          {recomendado ? <>
+            <div><span className="text-xs text-[var(--text-muted)]">Próximo caso sugerido</span><h3 className="text-base font-semibold">{recomendado.cliente.nome}</h3><p className="text-sm">{brl(recomendado.valorAtual)} · {recomendacao?.motivo}</p>
+              {!recomendado.cliente.telefone && <p className="text-xs text-[var(--gated)]">Sem telefone cadastrado: confira os dados antes de tentar contato.</p>}
+            </div>
+            <div className="flex flex-wrap gap-2"><button className={BOTAO_SECUNDARIO} type="button" onClick={() => setCasoNoPainel(recomendado)}>Abrir atendimento</button><button className={BOTAO_SECUNDARIO} type="button" onClick={() => setAdiados(prev => new Set([...prev, recomendado.id]))}>Pular nesta sessão</button></div>
+          </> : <p className="text-sm">Nenhum caso elegível neste recorte. Confira as filas de pagamentos e cadastros, ou ajuste os filtros.</p>}
+          <p className="text-xs leading-5 text-[var(--text-muted)]">Sugestão entre os casos carregados. Prioriza prazo de contato, prioridade e valor. Não sugere novo contato hoje para quem já teve atendimento, nem antecipa horários agendados. Promessas e acordos em acompanhamento ficam no quadro. Pular não altera o caso nem a agenda.</p>
+          {quadro.colunas.some(c => c.truncado) && <p className="text-xs text-[var(--gated)]">Há mais casos no servidor. Refine os filtros para uma seleção mais completa.</p>}
+          {adiados.size > 0 && <button type="button" className="text-xs underline" onClick={() => setAdiados(new Set())}>Reincluir {adiados.size} caso(s) pulado(s)</button>}
+        </div>}
+      </div>
       {/* Encerrados é assunto de QUADRO: a lista já diz no rodapé que não os traz. */}
       <div className={cn("items-center justify-end", visao === "lista" ? "hidden" : "flex")}>
         <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8 text-[11.5px]")} onClick={() => setMostrarRecolhidas(v => !v)} data-testid="botao-recolhidas">
-          {mostrarRecolhidas ? "Ocultar encerrados" : `Encerrados (${num(recolhidasTotal)})`}
+          {mostrarRecolhidas ? "Ocultar outras situações" : `${atendimento ? "Outras situações" : "Encerrados"} (${num(recolhidasTotal)})`}
         </button>
       </div>
       {visao === "lista" ? (
