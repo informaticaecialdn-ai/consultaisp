@@ -13,6 +13,7 @@ import { executarPrimeirosContatos } from "./chat-primeiro-contato.service";
 const duranteExpediente = new Date("2026-09-08T15:00:00Z");
 beforeEach(() => {
   vi.resetAllMocks();
+  Object.assign(fake, { atualizarCasoDeCobranca: vi.fn(async () => ({})), registrarEventoDeCobranca: vi.fn(async () => ({})) });
   pre.contatosReservadosNoDia.mockResolvedValue(0);
   pre.prepararPreAvisos.mockResolvedValue(0);
   pre.listarPreAvisosPendentes.mockResolvedValue([{ id: 21 }]);
@@ -95,5 +96,19 @@ describe("agenda de primeiros contatos", () => {
     ponte.enviarCasoParaCobranca.mockRejectedValueOnce(new Error("timeout"));
     await executarPrimeirosContatos(duranteExpediente);
     expect(ponte.enviarRecuperacaoParaChat).not.toHaveBeenCalled();
+  });
+  it("recusa definitiva do chat (4xx) adia o caso para amanhã com a próxima ação e a rodada segue", async () => {
+    // 16/09/2026: "Este número não tem WhatsApp." parava a rodada inteira, e ela voltava a parar
+    // no mesmo caso a cada minuto — nenhum outro cliente era contatado.
+    const recusa = Object.assign(new Error("O chat nao abriu a conversa: Este número não tem WhatsApp."), { codigo: "CHAT_FALHOU", status: 400 });
+    ponte.enviarCasoParaCobranca.mockRejectedValueOnce(recusa);
+    await executarPrimeirosContatos(duranteExpediente);
+    const fakeComCaso = fake as typeof fake & { atualizarCasoDeCobranca: ReturnType<typeof vi.fn>; registrarEventoDeCobranca: ReturnType<typeof vi.fn> };
+    expect(fakeComCaso.atualizarCasoDeCobranca).toHaveBeenCalledWith(6, 1,
+      { proximaAcao: expect.stringContaining("telefone"), proximoContatoEm: new Date("2026-09-09T03:00:00Z") }, 3);
+    expect(fakeComCaso.registrarEventoDeCobranca).toHaveBeenCalledWith(6,
+      expect.objectContaining({ casoId: 1, tipo: "nota", resultado: "recusado", notas: expect.stringContaining("não tem WhatsApp") }));
+    // A rodada seguiu: a retirada de equipamento, que vem depois na fila, foi contatada.
+    expect(ponte.enviarRecuperacaoParaChat).toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ import { autonomiaStorage, type TrabalhoAutonomia } from "../../storage/chat-aut
 import { segurancaAutonomiaStorage } from "../../storage/chat-autonomia-seguranca.storage";
 import { avaliarIdentidade, protegerHistorico } from "./chat-autonomia-identidade";
 import { normalizarTelefoneParaChat } from "./chat-bullq.client";
+import { mesmoTelefoneWhatsapp } from "./telefone-whatsapp";
 import { orientarContato } from "@shared/cobranca/contato";
 import { resolverEtapas } from "@shared/cobranca/regua";
 import { processarNegociacaoAutonoma } from "./chat-autonomia-negociacao.service";
@@ -197,7 +198,9 @@ async function processar(job: TrabalhoAutonomia) {
     {
       const telefone = normalizarTelefoneParaChat(cadastro?.telefone);
       const conversaDoTelefone = telefone ? valor(await c.buscarConversaPorTelefone(intg.organizationId, telefone, vinculo.canalId)) : null;
-      if (!cadastro || !telefone || cadastro.id !== vinculo.customerId || conversaDoTelefone?.id !== conversationId || normalizarTelefoneParaChat(conversaDoTelefone.contact.phone) !== telefone) { await transferir(job, "Vínculo de identificação entre cliente, telefone e conversa exige conferência"); return; }
+      // O contato que o WhatsApp devolve pode vir sem o nono dígito (55 43 8821-9420) enquanto o
+      // cadastro traz o 9: é o mesmo número, e a comparação precisa saber disso (16/09/2026).
+      if (!cadastro || !telefone || cadastro.id !== vinculo.customerId || conversaDoTelefone?.id !== conversationId || !mesmoTelefoneWhatsapp(conversaDoTelefone.contact.phone, telefone)) { await transferir(job, "Vínculo de identificação entre cliente, telefone e conversa exige conferência"); return; }
       const identificacao = avaliarIdentidade(seguranca?.identidade ?? null, { providerId, conversationId, customerId: vinculo.customerId, telefone }, cadastro, texto, job.message_id);
       await segurancaAutonomiaStorage.identidade(providerId, conversationId, identificacao.estado);
       if (identificacao.acao === "humano") { await transferir(job, "Identificação não confirmada; atendimento humano necessário"); return; }

@@ -5,7 +5,8 @@ import {
   janelaDoChat,
 } from "@shared/cobranca/automacao-chat";
 import { avaliarCandidatoAoContato } from "@shared/cobranca/elegibilidade-chat";
-import { listarCandidatosDoChat } from "./chat-elegibilidade.service";
+import { listarCandidatosDoChat, ordenarCandidatosComoOKanban } from "./chat-elegibilidade.service";
+import { recusaDefinitivaDoContato } from "./recusa-do-contato";
 import { resolverEtapas } from "@shared/cobranca/regua";
 import {
   enviarCasoParaCobranca,
@@ -18,6 +19,34 @@ import { executarPreAviso } from "./chat-preventivo.service";
 let encerrando = false;
 let passada: Promise<void> | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
+
+interface Tarefa {
+  origem: "preventivo" | "cobranca" | "equipamentos";
+  carteira: string | null;
+  casoId?: number;
+  executar: () => Promise<{ enviado: boolean }>;
+  /** Recusa definitiva do chat para este candidato: tira-o da rodada de hoje e deixa a próxima ação no caso. */
+  adiar?: (motivo: string) => Promise<void>;
+}
+
+/**
+ * O caso recusado pelo chat (número sem WhatsApp, telefone inválido) ganha a
+ * próxima ação para a equipe — conferir o telefone — e a data de amanhã: sai
+ * da elegibilidade de hoje ("Aguardando a data do próximo contato"), aparece
+ * no Kanban como agendado com o motivo na linha do tempo, e amanhã volta a
+ * concorrer. Não é exclusão permanente: telefone corrigido, contato sai.
+ */
+async function adiarCasoRecusado(providerId: number, casoId: number, motivo: string, userId: number, inicioDoDia: Date): Promise<void> {
+  const amanha = new Date(inicioDoDia.getTime() + 24 * 60 * 60 * 1000);
+  await storage.atualizarCasoDeCobranca(providerId, casoId, {
+    proximaAcao: "Conferir o telefone/WhatsApp do cliente — contato automático recusado",
+    proximoContatoEm: amanha,
+  }, userId);
+  await storage.registrarEventoDeCobranca(providerId, {
+    casoId, userId: null, tipo: "nota", canal: "whatsapp", resultado: "recusado",
+    notas: `Contato automático não realizado: ${motivo} Adiado para amanhã; confira o telefone do cliente.`,
+  });
+}
 
 /** Só primeiro contato. Nunca recontata quem já tem conversa, nem negocia ou agenda sozinho. */
 export async function executarPrimeirosContatos(
@@ -60,16 +89,19 @@ export async function executarPrimeirosContatos(
       }
       const preAvisos = automacao.preventivo && !politica?.pausada && automacao.carteiras.includes("ativo")
         ? await preventivo.listarPreAvisosPendentes(intg.providerId, janela.dia) : [];
-      const tarefas = [
+      // A ordem é a da coluna "A iniciar" do Kanban (pedido do dono, 16/09/2026): clientes
+      // ativos antes de ex-clientes, contato vencido antes do sem data, prioridade e valor —
+      // não a ordem de criação do caso, que começava pelos ex-clientes mais antigos.
+      const cobrancaElegivel = ordenarCandidatosComoOKanban(
+        candidatos.cobranca.filter((c) => avaliarCandidatoAoContato(c, automacao.carteiras, etapas, agora).elegivel),
+        janela.inicioDoDia,
+      );
+      const tarefas: Tarefa[] = [
         ...preAvisos.map(p => ({ origem: "preventivo" as const, carteira: "ativo", executar: () => executarPreAviso(intg.providerId, p.id, userId, janela.dia) })),
         ...(automacao.cobranca && !politica?.pausada
-          ? candidatos.cobranca
-              .filter(
-                (c) =>
-                  avaliarCandidatoAoContato(c, automacao.carteiras, etapas, agora).elegivel,
-              )
-              .map((c) => ({ origem: "cobranca" as const, carteira: c.carteira,
-                executar: () => enviarCasoParaCobranca(intg.providerId, c.id, userId) }))
+          ? cobrancaElegivel.map((c) => ({ origem: "cobranca" as const, carteira: c.carteira, casoId: c.id,
+                executar: () => enviarCasoParaCobranca(intg.providerId, c.id, userId),
+                adiar: (motivo: string) => adiarCasoRecusado(intg.providerId, c.id, motivo, userId, janela.inicioDoDia) }))
           : []),
         ...(automacao.equipamentos
           ? candidatos.equipamentos.map((c) => ({ origem: "equipamentos" as const, carteira: null,
@@ -107,12 +139,28 @@ export async function executarPrimeirosContatos(
           // Contato que não aconteceu não consome a cota do dia.
           const resultado = await tarefa.executar();
           if (resultado.enviado) restantes--;
-        } catch {
+        } catch (erro) {
+          const recusa = recusaDefinitivaDoContato(erro);
+          if (recusa === null) {
+            logger.warn(
+              { providerId: intg.providerId, origem: tarefa.origem, casoId: tarefa.casoId ?? null, err: erro },
+              "Primeiro contato não confirmado; interrompendo a rodada deste provedor",
+            );
+            break;
+          }
+          // O chat disse não a ESTE candidato (número sem WhatsApp, telefone inválido): ele sai
+          // da rodada de hoje com a próxima ação no caso e a fila segue. Antes a rodada inteira
+          // parava aqui — e voltava a parar no mesmo caso a cada minuto (16/09/2026).
           logger.warn(
-            { providerId: intg.providerId },
-            "Primeiro contato não confirmado; interrompendo a rodada deste provedor",
+            { providerId: intg.providerId, origem: tarefa.origem, casoId: tarefa.casoId ?? null, motivo: recusa },
+            "Primeiro contato recusado para este candidato; adiado e a rodada segue",
           );
-          break;
+          try {
+            await tarefa.adiar?.(recusa);
+          } catch (err) {
+            logger.warn({ providerId: intg.providerId, casoId: tarefa.casoId ?? null, err }, "Não foi possível adiar o caso recusado");
+          }
+          continue;
         }
       }
     }); } catch (err) {

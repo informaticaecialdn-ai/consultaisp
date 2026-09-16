@@ -4,6 +4,7 @@ import { planejarPreAviso } from "@shared/cobranca/preventivo";
 import { janelaDoChat, lerAutomacaoChat } from "@shared/cobranca/automacao-chat";
 import { storage } from "../../storage";
 import { reservarComunicacao, concluirComunicacao } from "../../storage/cobranca-comunicacao.storage";
+import { recusaDefinitivaDoContato } from "./recusa-do-contato";
 
 /** Confere a fatura novamente e toma a reserva antes de chamar qualquer canal. */
 export async function executarPreAviso(providerId: number, id: number, userId: number, dia: string): Promise<{ enviado: boolean }> {
@@ -38,8 +39,14 @@ export async function executarPreAviso(providerId: number, id: number, userId: n
       motivo: resultado.enviado ? "Pré-aviso iniciado; resposta será atendida pela equipe" : "Conversa existente; nenhuma nova mensagem enviada" });
     return { enviado: resultado.enviado };
   } catch (erro) {
-    await concluirComunicacao(providerId, comunicacaoId, { status: "incerto", motivo: "Envio sem confirmação; conferir conversa antes de qualquer nova tentativa" });
-    await fila.concluirPreAviso(providerId, id, { status: "incerto", motivo: "Envio sem confirmação; conferir conversa antes de qualquer nova tentativa" });
+    // Recusa definitiva (4xx do chat, sem telefone): nada saiu e nada sairá — "ignorado", com o motivo,
+    // para a tela não pedir conferência de uma conversa que não existe. Falha de transporte segue "incerto".
+    const recusa = recusaDefinitivaDoContato(erro);
+    const encerramento = recusa
+      ? { status: "ignorado" as const, motivo: `Pré-aviso não enviado: ${recusa}` }
+      : { status: "incerto" as const, motivo: "Envio sem confirmação; conferir conversa antes de qualquer nova tentativa" };
+    await concluirComunicacao(providerId, comunicacaoId, encerramento);
+    await fila.concluirPreAviso(providerId, id, encerramento);
     throw erro;
   }
 }

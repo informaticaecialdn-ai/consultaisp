@@ -43,6 +43,15 @@ describe("execução preventiva", () => {
     expect(await executarPreAviso(6, 1, 9, "2026-09-08")).toEqual({ enviado: false });
     expect(fila.reservarPreAviso).not.toHaveBeenCalled();
   });
+  it("recusa definitiva do chat (4xx) encerra como ignorado com o motivo; falha de transporte fica incerta", async () => {
+    envio.mockRejectedValueOnce(Object.assign(new Error("O chat nao abriu a conversa: Este número não tem WhatsApp."), { codigo: "CHAT_FALHOU", status: 400 }));
+    await expect(executarPreAviso(6, 1, 9, "2026-09-08")).rejects.toThrow("não tem WhatsApp");
+    expect(fila.concluirPreAviso).toHaveBeenLastCalledWith(6, 1, expect.objectContaining({ status: "ignorado", motivo: expect.stringContaining("não tem WhatsApp") }));
+    expect(diario.concluirComunicacao).toHaveBeenLastCalledWith(6, 12, expect.objectContaining({ status: "ignorado" }));
+    envio.mockRejectedValueOnce(new Error("timeout"));
+    await expect(executarPreAviso(6, 1, 9, "2026-09-08")).rejects.toThrow("timeout");
+    expect(fila.concluirPreAviso).toHaveBeenLastCalledWith(6, 1, expect.objectContaining({ status: "incerto" }));
+  });
   it("reserva por fatura e dia antes do envio; corrida não duplica", async () => {
     fila.reservarPreAviso.mockResolvedValueOnce(false);
     expect(await executarPreAviso(6, 1, 9, "2026-09-08")).toEqual({ enviado: false });

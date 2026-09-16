@@ -17,6 +17,7 @@
  * query (que carrega telefone), o corpo (que carrega a mensagem) nem o token.
  */
 import { logger } from "../../logger";
+import { chaveDoTelefoneWhatsapp } from "./telefone-whatsapp";
 import type { ContextoDoPrimeiroContato, ModelosDosAgentes, PrimeiroContatoPreparado } from "@shared/chat-agentes";
 import type { CanalWhatsapp, EstadoDaConexaoWhatsapp, TemplateDatafy } from "@shared/chat-whatsapp";
 import type { PedidoPlanoAutonomia, PlanoResposta } from "@shared/chat-autonomia";
@@ -154,13 +155,6 @@ export function normalizarTelefoneParaChat(telefone: string | null | undefined):
   return null;
 }
 
-/** O que sobra para comparar dois telefones: os digitos sem o DDI. */
-function semDdi(telefone: string | null | undefined): string {
-  const digitos = String(telefone ?? "").replace(/\D/g, "");
-  return (digitos.length === 12 || digitos.length === 13) && digitos.startsWith("55")
-    ? digitos.slice(2)
-    : digitos;
-}
 
 // ---------------------------------------------------------------------------
 // Cliente
@@ -328,8 +322,10 @@ export class ChatBullqClient {
 
     const lista = Array.isArray(r.valor) ? r.valor : r.valor?.conversations;
     if (!Array.isArray(lista)) return { ok: false, erro: "O Chat BullQ devolveu uma lista de conversas inválida" };
-    const alvo = semDdi(normalizado);
-    const doTelefone = lista.filter(c => semDdi(c?.contact?.phone) === alvo);
+    // Com ou sem DDI e com ou sem o nono dígito: o WhatsApp devolve o contato
+    // como o conhece (55 43 8821-9420), o cadastro traz o 9 (43 9 8821-9420).
+    const alvo = chaveDoTelefoneWhatsapp(normalizado);
+    const doTelefone = alvo ? lista.filter(c => chaveDoTelefoneWhatsapp(c?.contact?.phone) === alvo) : [];
     if (!doTelefone.length) return { ok: true, valor: null };
 
     const instante = (c: Conversa) => (c.lastMessageAt ? Date.parse(c.lastMessageAt) || 0 : 0);

@@ -264,6 +264,14 @@ describe("uma rodada", () => {
     expect(cliente.planejarAutonomia).not.toHaveBeenCalled();
     expect(fila.cancelar).toHaveBeenCalledWith(42, "conv_1", expect.stringContaining("identificação"));
   });
+  it("o contato sem o nono dígito que o WhatsApp devolve é o telefone do cadastro — o atendimento segue", async () => {
+    // 43 9 9999-0000 no cadastro; a Evolution devolve 55 43 9999-0000 (16/09/2026, primeira resposta real).
+    cliente.buscarConversaPorTelefone.mockResolvedValueOnce({ ok: true, valor: { id: "conv_1", contact: { phone: "554399990000" } } });
+    cliente.listarMensagens.mockResolvedValueOnce({ ok: true, valor: [inbound("m1", "quanto devo?")] });
+    await executarFilaAutonomia();
+    expect(fila.cancelar).not.toHaveBeenCalledWith(42, "conv_1", expect.stringContaining("identificação"));
+    expect(contexto.contextoDoAtendimento).toHaveBeenCalled();
+  });
   it("vulnerabilidade exige acolhimento humano sem enviar dados ao planejador", async () => {
     armazem.obterCasoDeCobranca.mockResolvedValueOnce({ id: 10, cliente: { id: 7 }, carteira: "ativo", status: "aberto", etapaAtual: "lembrete_atraso", quadranteDna: "C3", tom: "humanizado_vulneravel" });
     cliente.listarMensagens.mockResolvedValueOnce({ ok: true, valor: [inbound("m1", "Meu CPF é 123.456.789-09, quanto devo?")] });

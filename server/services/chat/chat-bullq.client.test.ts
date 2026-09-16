@@ -289,6 +289,18 @@ describe("buscarConversaPorTelefone", () => {
     expect(busca.query.get("channelId")).toBe("canal-1");
     expect(busca.query.get("limit")).toBe("20");
   });
+  it("o contato sem o nono dígito que o WhatsApp devolve é a conversa do telefone com o 9 do cadastro", async () => {
+    // 16/09/2026: cadastro 43 9 8821-9420, contato da Evolution 55 43 8821-9420 — o mesmo número.
+    const s = servidorComSessao();
+    s.quando("GET", "/conversations", () => ({
+      corpo: { data: { conversations: [
+        conversa({ id: "sem-o-nove", phone: "554388219420", lastMessageAt: "2026-09-16T17:26:16Z" }),
+        conversa({ id: "outro-ddd", phone: "554188219420", lastMessageAt: "2026-09-16T18:00:00Z" }),
+      ], pagination: { page: 1, limit: 20, total: 2 } } },
+    }));
+    const r = await cliente(s).buscarConversaPorTelefone(ORG, "43988219420", "canal-1");
+    expect(r.ok && r.valor?.id).toBe("sem-o-nove");
+  });
 
   it("devolve null quando nenhuma conversa e daquele telefone", async () => {
     const s = servidorComSessao();

@@ -6,7 +6,7 @@
  * aparece embaixo do campo, e não num 400 genérico depois do clique.
  */
 import { useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Bot } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -46,6 +46,19 @@ export function DialogoAgente({ agente, agentes, onFechar }: {
   const [temperatura, setTemperatura] = useState(String(agente?.temperatura ?? 0.3));
   const [maxTokens, setMaxTokens] = useState(String(agente?.maxTokens ?? 600));
   const [respondeDireto, setRespondeDireto] = useState(agente?.respondeDireto ?? false);
+  // Os modelos que a credencial do Chat BullQ realmente oferece (a mesma lista dos perfis de
+  // cobrança), com as sugestões fixas na frente. Sem resposta, ficam só as sugestões —
+  // o campo continua livre: qualquer id no padrão do fork é aceito.
+  const modelosVivos = useQuery<{ configured: boolean; models: { id: string; origem?: string }[] }>({
+    queryKey: ["/api/chat-bullq/integracao/agentes/modelos"], staleTime: 60_000, retry: false,
+  });
+  const opcoesDeModelo = useMemo(() => {
+    const vistos = new Set<string>();
+    const lista: { id: string; rotulo: string }[] = [];
+    for (const m of MODELOS_SUGERIDOS) { vistos.add(m.id); lista.push({ id: m.id, rotulo: `${m.rotulo} · ${m.nota}` }); }
+    for (const m of modelosVivos.data?.models ?? []) { if (!vistos.has(m.id)) { vistos.add(m.id); lista.push({ id: m.id, rotulo: "credencial do Chat BullQ" }); } }
+    return lista;
+  }, [modelosVivos.data]);
 
   const corpo = {
     nome: nome.trim(), descricao: descricao.trim(), tipo, categoria: categoria.trim(),
@@ -144,7 +157,7 @@ export function DialogoAgente({ agente, agentes, onFechar }: {
           <Campo rotulo="modelo" className="sm:col-span-1">
             <input className={CONTROLE_CAMPO} value={modelo} onChange={e => setModelo(e.target.value)} list="modelos-do-console" data-testid="agente-modelo" />
             <datalist id="modelos-do-console">
-              {MODELOS_SUGERIDOS.map(m => <option key={m.id} value={m.id}>{m.rotulo} · {m.nota}</option>)}
+              {opcoesDeModelo.map(m => <option key={m.id} value={m.id}>{m.rotulo}</option>)}
             </datalist>
             {erroDe("modelo") && <p className={ERRO}>{erroDe("modelo")}</p>}
           </Campo>

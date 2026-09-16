@@ -78,7 +78,13 @@ export function urlDoInbox(): string {
 }
 
 export class ErroDaPonteDoChat extends Error {
-  constructor(public readonly codigo: "CHAT_DESLIGADO" | "SEM_CANAL" | "SEM_TELEFONE" | "CASO_NAO_ENCONTRADO" | "CHAT_FALHOU" | "CONFLITO" | "CHAT_SEM_SUPORTE", mensagem: string) {
+  /**
+   * `status` é o HTTP que o Chat BullQ respondeu, quando a falha veio dele: um
+   * 4xx é recusa DESTE pedido (número sem WhatsApp, telefone inválido) e a rodada
+   * de primeiros contatos pula o candidato em vez de parar — ver
+   * `recusaDefinitivaDoContato`.
+   */
+  constructor(public readonly codigo: "CHAT_DESLIGADO" | "SEM_CANAL" | "SEM_TELEFONE" | "CASO_NAO_ENCONTRADO" | "CHAT_FALHOU" | "CONFLITO" | "CHAT_SEM_SUPORTE", mensagem: string, public readonly status?: number) {
     super(mensagem);
   }
 }
@@ -493,7 +499,7 @@ async function abrirOuMandarComTrava(providerId: number, customerId: number, tel
     }));
   });
   if (!nova) throw new ErroDaPonteDoChat("CONFLITO", "O canal está sendo atualizado. Tente novamente em instantes.");
-  if (falhou(nova)) throw new ErroDaPonteDoChat("CHAT_FALHOU", `O chat nao abriu a conversa: ${nova.erro}`);
+  if (falhou(nova)) throw new ErroDaPonteDoChat("CHAT_FALHOU", `O chat nao abriu a conversa: ${nova.erro}`, nova.status);
   return { conversationId: nova.valor.conversationId, messageId: nova.valor.messageId, reaproveitada: false, canalId: intg.canalId, status: "WAITING", ...(template ? { template: { nome: template.name, idioma: template.language.code } } : {}), ...(preparada ? { preparacao: { agenteId: preparada.agenteId, modelo: preparada.modelo, runId: preparada.runId, ...(preparada.modo ? { modo: preparada.modo } : {}) } } : {}) };
 }
 

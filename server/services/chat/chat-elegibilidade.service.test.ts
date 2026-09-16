@@ -3,8 +3,26 @@ import { avaliarCandidatoAoContato } from "@shared/cobranca/elegibilidade-chat";
 import { resolverEtapas } from "@shared/cobranca/regua";
 const fake = vi.hoisted(() => ({ candidatosAoPrimeiroContato: vi.fn() }));
 vi.mock("../../storage", () => ({ storage: fake }));
-import { listarCandidatosDoChat } from "./chat-elegibilidade.service";
+import { listarCandidatosDoChat, ordenarCandidatosComoOKanban } from "./chat-elegibilidade.service";
 beforeEach(() => vi.resetAllMocks());
+
+describe("ordem da rodada de primeiros contatos", () => {
+  it("segue a coluna A iniciar do Kanban: ativos antes de ex-clientes; vencido, hoje, sem data; prioridade; valor; id", () => {
+    const inicioDoDia = new Date("2026-09-16T03:00:00Z");
+    const c = (id: number, extra: Record<string, unknown>) => ({ id, carteira: "ativo", ...extra });
+    const lista = [
+      c(1, { carteira: "ex_cliente", prioridade: "critica", valorAtual: "900" }),
+      c(2, { proximoContatoEm: null, prioridade: "normal", valorAtual: "100" }),
+      c(3, { proximoContatoEm: new Date("2026-09-15T12:00:00Z"), prioridade: "normal", valorAtual: "50" }),
+      c(4, { proximoContatoEm: new Date("2026-09-16T12:00:00Z"), prioridade: "critica", valorAtual: "10" }),
+      c(5, { proximoContatoEm: null, prioridade: "critica", valorAtual: "100" }),
+      c(6, { proximoContatoEm: null, prioridade: "normal", valorAtual: "100" }),
+    ];
+    expect(ordenarCandidatosComoOKanban(lista, inicioDoDia).map(x => x.id)).toEqual([3, 4, 5, 2, 6, 1]);
+    // Não altera a lista recebida.
+    expect(lista.map(x => x.id)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+});
 
 describe("paginação dos candidatos", () => {
   it("alcança elegível depois de 200 candidatos que exigem humano", async () => {

@@ -191,6 +191,8 @@ export class ChatBullqStorage {
       carteira: sql<string | null>`case when ${customers.status} in ('active', 'suspended') then 'ativo' when ${customers.status} in ('cancelled', 'inactive') then 'ex_cliente' else null end`,
       carteiraDoCaso: cobrancaCasos.carteira, proximoContatoEm: cobrancaCasos.proximoContatoEm,
       telefone: customers.phone,
+      // Prioridade e valor entram so para ORDENAR a rodada como a coluna "A iniciar" do Kanban.
+      prioridade: cobrancaCasos.prioridade, valorAtual: cobrancaCasos.valorAtual,
       tom: cobrancaCasos.tom, quadrante: cobrancaCasos.quadranteDna })
       .from(cobrancaCasos).innerJoin(customers, and(eq(customers.id, cobrancaCasos.customerId), eq(customers.providerId, providerId)))
       .where(and(eq(cobrancaCasos.providerId, providerId), gt(cobrancaCasos.id, aposId), eq(cobrancaCasos.status, "aberto"), isNull(cobrancaCasos.ultimoContatoEm), gt(customers.totalOverdueAmount, "0"), semConversaAberta(cobrancaCasos.customerId),
