@@ -115,14 +115,48 @@ const pct = (n: number) => `${Number.isInteger(n) ? n : n.toFixed(2).replace("."
 
 /* ── Render ──────────────────────────────────────────────────────────── */
 
+export type TomDoBloco = "neutro" | "ok" | "alerta" | "perigo" | "info";
+export type CampoDaGrade = { rotulo: string; valor: string; destaque?: boolean; tom?: TomDoBloco; mono?: boolean };
 export type BlocoDoDocumento =
   | { tipo: "titulo"; texto: string }
   | { tipo: "subtitulo"; texto: string }
   | { tipo: "paragrafo"; texto: string; destaque?: boolean }
-  | { tipo: "tabela"; cabecalho: string[]; linhas: string[][] }
-  | { tipo: "rodape"; texto: string };
+  | { tipo: "tabela"; cabecalho: string[]; linhas: string[][]; larguras?: number[]; alinhar?: Array<"esq" | "dir">; estilo?: "grade" }
+  | { tipo: "rodape"; texto: string }
+  /** Faixa de cabeçalho do relatório: fundo azul-escuro, título/subtítulo brancos, selos à direita, filete amarelo. */
+  | { tipo: "faixa"; titulo: string; subtitulo?: string; selos?: Array<{ texto: string; tom: TomDoBloco }> }
+  /** Rótulos em caixa alta pequenos com valor (mono quando `mono`), em linha, quantos couberem. */
+  | { tipo: "rotulos"; itens: Array<{ rotulo: string; valor: string; mono?: boolean }> }
+  /** Título de cartão/seção: filete vertical colorido + texto azul-escuro + linha fina abaixo. */
+  | { tipo: "secao"; titulo: string; tom?: TomDoBloco }
+  /** Grade rótulo/valor em N colunas (padrão 3). */
+  | { tipo: "grade"; campos: CampoDaGrade[]; colunas?: 2 | 3 | 4 }
+  /** Duas (ou mais) colunas lado a lado, cada uma com seus blocos; atômico (mede antes, não quebra no meio). */
+  | { tipo: "painel"; colunas: Array<{ titulo: string; blocos: BlocoDoDocumento[] }> }
+  /** Número grande com sufixo e um selo (score + faixa). */
+  | { tipo: "indicador"; valor: string; sufixo?: string; selo?: { texto: string; tom: TomDoBloco }; linhas?: string[] }
+  /** Texto grande em negrito (a recomendação). */
+  | { tipo: "destaque"; texto: string; tom?: TomDoBloco }
+  /** Blocos cinza com rótulo pequeno e valor em negrito, lado a lado. */
+  | { tipo: "metricas"; itens: Array<{ rotulo: string; valor: string; tom?: TomDoBloco }> }
+  /** Cartão de registro (restrição): borda esquerda colorida, etiqueta, título, subtítulo, valor/data/gravidade à direita, grade de detalhes. Atômico. */
+  | { tipo: "registro"; etiqueta: string; tomEtiqueta: TomDoBloco; titulo: string; subtitulo?: string; direita?: { valor?: string; data?: string; chip?: string }; campos: CampoDaGrade[]; tomBorda?: TomDoBloco }
+  /** Caixa "Total …" com fundo colorido, rótulo à esquerda e valor à direita. */
+  | { tipo: "total"; rotulo: string; valor: string; tom: TomDoBloco }
+  /** Linhas listradas: principal em negrito, secundário cinza ao lado, direita alinhada à direita. */
+  | { tipo: "lista"; linhas: Array<{ principal: string; secundario?: string; direita?: string }> }
+  /** Caixa de aviso com fundo/borda pelo tom. */
+  | { tipo: "aviso"; texto: string; titulo?: string; tom: TomDoBloco }
+  /** Espaço vertical em pontos. */
+  | { tipo: "espaco"; altura: number };
 
-export interface DocumentoRenderizado { titulo: string; blocos: BlocoDoDocumento[]; avisos: string[] }
+export interface DocumentoRenderizado {
+  titulo: string;
+  blocos: BlocoDoDocumento[];
+  avisos: string[];
+  /** Repetido em toda página (2+ para o cabeçalho; todas para o rodapé). Ausente = nada muda (confissão). */
+  pagina?: { cabecalho?: string; rodapeEsquerda?: string; rodapeCentro?: string; numerar?: boolean };
+}
 
 function parte(devedorOuCredor: "DEVEDOR" | "CREDOR", nome: string, documento: string, pessoaJuridica: boolean, representante: Representante | null, endereco: string | null, contato: string | null): string {
   const doc = `${documento.length === 14 ? "CNPJ" : "CPF"} ${formatarDocumento(documento)}`;
@@ -211,7 +245,8 @@ export function renderizarConfissao(b: BaseCanonica, geradoEm: string, hash: str
 export function textoDaConfissao(doc: DocumentoRenderizado): string {
   return doc.blocos.map(bl => {
     if (bl.tipo === "tabela") return [bl.cabecalho.join(" | "), ...bl.linhas.map(l => l.join(" | "))].join("\n");
-    return bl.texto;
+    // Os blocos do relatório SPC (faixa, grade…) não têm `texto`; a confissão só usa os cinco que têm.
+    return "texto" in bl ? bl.texto : "";
   }).join("\n\n");
 }
 
