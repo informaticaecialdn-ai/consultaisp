@@ -197,6 +197,12 @@ export async function montarBase(providerId: number, customerId: number, opcoes:
   // O acordo, quando existe, manda; senão o saldo integral.
   const negociacoes = caso ? await storage.listarNegociacoesDoCaso(providerId, caso.id) : [];
   const negociacao = negociacoes.find(n => n.status === "aceita" || n.status === "ativa") ?? null;
+  if (!negociacao && negociacoes.some(n => n.status === "proposta")) {
+    bloqueios.push("há uma proposta pendente — registre o aceite ou cancele a proposta antes de formalizar a dívida; o saldo integral não substitui a negociação");
+  }
+  if (negociacoes.filter(n => n.status === "aceita" || n.status === "ativa").length > 1) {
+    bloqueios.push("há mais de um acordo ativo neste caso — regularize os acordos antes de gerar o documento");
+  }
   const origem: OrigemDaConfissao = negociacao ? "acordo" : "saldo_integral";
 
   // A leitura ao vivo é obrigatória nas duas origens: no saldo integral é a base; no acordo, a reconferência.

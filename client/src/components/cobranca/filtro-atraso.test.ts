@@ -117,9 +117,9 @@ describe("a pílula oferece as seis faixas e diz por que cada uma existe", () =>
   });
 
   it("o título dos 90 dias é a razão que o dono deu para o corte", () => {
-    expect(tituloDaFaixa("mais-90")).toMatch(/dificilmente ainda tem contrato ativo/);
+    expect(tituloDaFaixa("mais-90")).toMatch(/atraso não determina o encerramento/);
     expect(tituloDoFiltro("mais-90")).toContain(TITULO_DO_FILTRO);
-    expect(tituloDoFiltro("mais-90")).toMatch(/dificilmente ainda tem contrato ativo/);
+    expect(tituloDoFiltro("mais-90")).toMatch(/atraso não determina o encerramento/);
     expect(tituloDoFiltro("")).toBe(TITULO_DO_FILTRO);
   });
 

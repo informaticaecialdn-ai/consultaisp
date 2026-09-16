@@ -306,6 +306,7 @@ export interface EquipamentoDoCliente {
 }
 
 export interface ClienteDo360 {
+  lastSyncAt?: string | null;
   id: number;
   nome: string;
   /** Por extenso e pontuado, como em toda a cobrança. */
@@ -419,6 +420,7 @@ export interface ClienteAoVivo {
 
 /** `GET /api/cobranca/clientes/:id/360/ao-vivo` — o que o ERP do próprio provedor disse agora. */
 export interface SnapshotAoVivo {
+  leituraParcial?: boolean;
   ok: boolean;
   erpSource: string | null;
   encontrado: boolean;
@@ -770,6 +772,8 @@ export const ROTA_KANBAN_ANTIGA = "/cobranca/kanban";
 
 /** Uma coluna do quadro: o status, os casos que a rota mandou e o total do recorte. */
 export interface ColunaDoKanban {
+  /** Soma do recorte completo da coluna. */
+  valorTotal?: number | null;
   status: string;
   rotulo: string;
   fechada: boolean;
@@ -808,6 +812,7 @@ export function lerKanban(resposta: unknown): RespostaDoKanban {
         fechada: c.fechada === true,
         casos,
         total: numero(c.total) ?? casos.length,
+        valorTotal: numero(c.valorTotal),
         truncado: c.truncado === true,
       };
     });

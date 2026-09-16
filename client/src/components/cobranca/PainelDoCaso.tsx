@@ -296,7 +296,7 @@ export function PainelDoCaso({ item, etapas, hoje, aberto, onFechar, acoes }: {
         o `vh` e o rodapé do pop-up fica embaixo dela.
       */}
       <DialogContent
-        className="flex max-h-[calc(100dvh-48px)] w-full max-w-[900px] flex-col gap-0 overflow-hidden rounded-[12px] border-[var(--border)] bg-[var(--surface)] p-0 shadow-[0_24px_64px_-20px_rgba(20,19,26,.45)] [&>button]:hidden"
+        className="cobranca-atendimento flex max-h-[calc(100dvh-48px)] w-full max-w-[900px] flex-col gap-0 overflow-hidden rounded-[12px] border-[var(--border)] bg-[var(--surface)] p-0 shadow-[0_24px_64px_-20px_rgba(20,19,26,.45)] [&>button]:hidden"
         data-testid="painel-do-caso"
       >
         {item && (
@@ -531,7 +531,7 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
         ))}
         {podePegar && (
           <button type="button" className={BOTAO_SECUNDARIO} disabled={acoes.pegando} onClick={() => acoes.onPegar?.(item)} data-testid="painel-pegar">
-            <UserRound className="h-3.5 w-3.5" aria-hidden /> Pegar
+            <UserRound className="h-3.5 w-3.5" aria-hidden /> Assumir caso
           </button>
         )}
         {acoes.onEnviarParaChat && !item.chat && (
@@ -546,7 +546,7 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
             <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> {acoes.enviandoParaChat === item.id ? "Enviando…" : "Enviar p/ cobrança"}
           </button>
         )}
-        <Link href={rotaDoCliente(cliente.id, item.carteira)} className={BOTAO_SECUNDARIO} data-testid="painel-360">360</Link>
+        <Link href={rotaDoCliente(cliente.id, item.carteira)} className={BOTAO_SECUNDARIO} data-testid="painel-360">Cliente 360</Link>
         <button type="button" className={cn(BOTAO_SECUNDARIO, "ml-auto")} onClick={onFechar} data-testid="painel-fechar">Fechar</button>
       </div>
 
@@ -606,7 +606,7 @@ function ConteudoDoPainel({ item, etapas, hoje, acoes, onFechar, detalhe, penden
             </span>
           )}
         </div>
-        {etapa && (
+        {etapa && item.proximaAcao && item.proximaAcao.trim() !== etapa.acao.trim() && (
           <p className="mt-1 flex items-start gap-1.5 text-[11.5px] leading-4 text-[var(--text-2)]" data-testid="painel-acao-da-regua">
             <Route className="mt-0.5 h-3 w-3 flex-none text-[var(--text-faint)]" aria-hidden />
             <span>{etapa.acao}</span>
@@ -722,7 +722,7 @@ function SecaoDeNegociacao({ item, acoes, detalhe, onFechar }: {
       <Secao kicker="propor um acordo" icone={<Handshake className="h-3.5 w-3.5" aria-hidden />} testId="painel-propor">
         {fechado || rotulo === null ? (
           <p className="text-[11.5px] text-[var(--text-muted)]">
-            Este caso já saiu da esteira: não há acordo a propor.
+            Este caso já saiu da fila de cobrança: não há acordo a propor.
           </p>
         ) : (
           <>

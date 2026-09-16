@@ -1,3 +1,4 @@
+import { CentroGestao } from "@/components/cobranca/CentroGestao";
 /**
  * /cobranca/kanban — o painel de cobrança em quadro.
  *
@@ -29,11 +30,11 @@
  * histórico da cobrança —, e é lá que moram a etapa da régua, o canal
  * sugerido, o follow-up, o tempo na coluna e as ações secundárias.
  */
+import "./gestao-cobranca.css";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { carteiraDaNavegacao, caminhoNaCarteira, retornoDaCarteira, NOME_DA_CARTEIRA } from "@/components/cobranca/carteiras";
-import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
 import { PilulasDeAtraso } from "@/components/cobranca/filtro-atraso";
 import { KanbanSquare, Pause, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -84,13 +85,15 @@ const OPCOES_VISAO: Array<{ k: Visao; rotulo: string }> = [
 ];
 
 /** A query string do quadro — só o que a rota aceita, e nada vazio. */
-export function queryDoKanban(f: { escopo: Escopo; etapa: string; carteira: string; busca: string; atraso?: string }): string {
+export function queryDoKanban(f: { escopo: Escopo; etapa: string; carteira: string; busca: string; atraso?: string; atencao?: string; fluxo?: "atendimento" }): string {
   const p = new URLSearchParams();
+  if (f.fluxo) p.set("fluxo", f.fluxo);
   if (f.escopo === "eu") p.set("responsavel", "eu");
   if (f.escopo === "geral") p.set("responsavel", "geral");
   if (f.etapa) p.set("etapa", f.etapa);
   if (f.carteira) p.set("carteira", f.carteira);
   if (f.atraso) p.set("atraso", f.atraso);
+  if (f.atencao) p.set("atencao", f.atencao);
   if (f.busca.trim()) p.set("busca", f.busca.trim());
   const s = p.toString();
   return s ? `?${s}` : "";
@@ -104,7 +107,7 @@ export const MOTIVO_RECORTE_SEM_INDICADORES =
   "Fluxo de hoje: a rota não contou os indicadores deste recorte — o quadro é grande demais para varrer. Filtre por etapa, carteira ou busca.";
 
 const TITULO_DO_FLUXO_DO_DIA =
-  "Entraram: casos abertos hoje. Resolvidos: casos encerrados hoje (pago, baixado, encerrado ou cancelamento). Contados pelo servidor sobre o mesmo recorte do quadro.";
+  "Entraram: casos abertos hoje. Saídas: casos encerrados hoje (pago, baixado, encerrado ou cancelamento). Saída não comprova pagamento. Contados pelo servidor sobre o mesmo recorte do quadro.";
 
 /**
  * O FLUXO DO DIA da esteira (pedido do dono, 06/09/2026): quantos casos
@@ -161,7 +164,6 @@ export default function KanbanPage() {
 function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   const { user, personificando } = useAuth();
   const { toast } = useToast();
-  const [caminho] = useLocation();
 
   const podeAdministrar = podeAdministrarCobranca(user, personificando);
   const hoje = useMemo(() => new Date(), []);
@@ -171,6 +173,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   const [etapa, setEtapa] = useState("");
   // A faixa de atraso do dono (ate 7 · 8-15 · 16-30 · 31-60 · 61-90 · +90).
   const [atraso, setAtraso] = useState("");
+  const [atencao, setAtencao] = useState("");
   const [buscaDigitada, setBuscaDigitada] = useState("");
   const [busca, setBusca] = useState("");
 
@@ -178,7 +181,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   const [negociacao, setNegociacao] = useState<AlvoDaNegociacao | null>(null);
   const [cancelamento, setCancelamento] = useState<AlvoDoCancelamento | null>(null);
 
-  const query = queryDoKanban({ escopo, etapa, carteira, busca, atraso });
+  const query = queryDoKanban({ escopo, etapa, carteira, busca, atraso, atencao, fluxo: "atendimento" });
   const chaveDoQuadro = useMemo(() => [`${API_KANBAN}${query}`], [query]);
   const { data, isLoading, isError, error, refetch } = useQuery<unknown>({ queryKey: chaveDoQuadro, staleTime: 15_000 });
   const { data: regua } = useQuery<RespostaDaRegua>({ queryKey: [caminhoNaCarteira(API_REGUA, carteira)], staleTime: 300_000 });
@@ -247,18 +250,19 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   });
   const recuperacao = useMemo(() => (recuperacaoCrua === undefined ? null : lerRecuperacao(recuperacaoCrua)), [recuperacaoCrua]);
   const tituloDaRecuperacao = recuperacao?.base
-    ? `${num(recuperacao.faturas)} fatura(s) de ${num(recuperacao.clientes)} cliente(s) baixadas no ERP até ${num(recuperacao.janelaDias)} dias depois de um contato. Pagamento provável: nenhum ERP confirma o valor pago. Vale para toda a carteira, não para o recorte do quadro.`
+    ? `${num(recuperacao.faturas)} fatura(s) de ${num(recuperacao.clientes)} cliente(s) baixadas no ERP até ${num(recuperacao.janelaDias)} dias depois de um contato. Uma baixa isolada não confirma o valor pago. Vale para toda a carteira, não para o recorte do quadro.`
     : recuperacao?.motivo ?? "Indicador ainda não carregado.";
 
   return (
-    <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-kanban">
+    <div className="cobranca-operacao flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-kanban">
       <CabecalhoPainel
-        titulo="Esteira de cobrança"
-        descricao={`Cada coluna diz o que fazer ali para o caso sair. ${NOME_DA_CARTEIRA[carteira]} · a ordem de cada coluna é a ordem do dia.`}
+        titulo="Gestão de cobranças"
+        descricao={`${NOME_DA_CARTEIRA[carteira]} · organize os contatos, acompanhe acordos e confira os recebimentos.`}
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <Segmentado opcoes={OPCOES_VISAO} valor={visao} onChange={setVisao} rotulo="Visão do quadro" />
-            <Segmentado opcoes={OPCOES_ESCOPO} valor={escopo} onChange={setEscopo} rotulo="Escopo do quadro" />
+            <Link href={`/cobranca/comunicacoes?carteira=${carteira}`} className={BOTAO_SECUNDARIO}>Diário de comunicação</Link>
+
+
             {/* O caso nasce a partir de um CLIENTE, e quem escolhe o cliente é a
                 carteira — por isso o botão leva até lá em vez de abrir um diálogo
                 sem cliente. O title diz isso antes do clique. */}
@@ -273,8 +277,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
           </div>
         }
       />
-
-      <NavegacaoCarteiras carteira={carteira} destino={caminho} />
+      <details className="gestao-ajuda"><summary>Como as etapas e os indicadores funcionam</summary><p>Registre o contato para atualizar a etapa. Mensagem enviada não significa resposta. Regularizados reúne casos marcados como pagos; negativados e outras saídas ficam em Outras situações. Os valores de baixas após contato consideram toda a carteira.</p></details>
 
       {/*
         QUATRO cartões com número herói (handoff de design, 07/09/2026). Vieram
@@ -288,6 +291,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
         no card, e a prioridade crítica sobe dentro de cada coluna na ordem do
         dia. Nenhum dos dois some do produto.
       */}
+      <CentroGestao carteira={carteira} />
       <FaixaDeIndicadores
         rotulo="Indicadores"
         testId="kpis-kanban"
@@ -305,7 +309,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
           },
           {
             chave: "vivos",
-            rotulo: "casos vivos",
+            rotulo: "casos em acompanhamento",
             valor: isLoading ? "…" : num(kpis?.casosVivos),
             tom: "var(--brand)",
             apoio: <FluxoDoDia kpis={kpis} carregando={isLoading} />,
@@ -313,7 +317,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
           },
           {
             chave: "travados",
-            rotulo: "travados agora",
+            rotulo: "ações pendentes",
             valor: isLoading ? "…" : num(travadosAgora(kpis)),
             cor: (travadosAgora(kpis) ?? 0) > 0 ? "var(--danger)" : undefined,
             tom: "var(--danger)",
@@ -328,18 +332,27 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
           },
           {
             chave: "recuperado",
-            rotulo: `recuperado ${DIAS_DA_RECUPERACAO}d · carteira`,
+            rotulo: `baixas após contato · ${DIAS_DA_RECUPERACAO}d`,
             valor: carregandoRecuperacao ? "…" : recuperacao?.base ? brl(recuperacao.valor) : TRACO,
             cor: recuperacao?.base && (recuperacao.valor ?? 0) > 0 ? "var(--ok)" : undefined,
             tom: "var(--ok)",
             apoio: recuperacao?.base
-              ? <><b className="font-mono font-medium tabular-nums text-[var(--text-2)]">{num(recuperacao.faturas)}</b> faturas baixadas após contato</>
-              : recuperacao?.motivo ?? "…",
+              ? <><b className="font-mono font-medium tabular-nums text-[var(--text-2)]">{num(recuperacao.faturas)}</b> faturas baixadas · toda a carteira</>
+              : carregandoRecuperacao ? "Carregando…" : "Sem base para medir · toda a carteira",
             titulo: tituloDaRecuperacao,
           },
         ]}
       />
 
+      <div className="gestao-controles">
+        <div className="gestao-escopo"><span className="gestao-label">Responsabilidade</span>
+          <Segmentado opcoes={OPCOES_ESCOPO} valor={escopo} onChange={setEscopo} rotulo="Escopo do quadro" />
+          <p>{escopo === "eu" ? "Seus casos e os disponíveis na fila geral." : escopo === "geral" ? "Casos disponíveis, ainda sem responsável." : "Casos de todos os responsáveis nesta carteira."}</p>
+        </div>
+        <div className="gestao-visao"><span className="gestao-label">Visualização</span>
+          <Segmentado opcoes={OPCOES_VISAO} valor={visao} onChange={setVisao} rotulo="Visão do quadro" />
+        </div>
+      </div>
       <div
         className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
         data-testid="filtros-kanban"
@@ -365,11 +378,33 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
           {!regua && ETAPA_IDS.map(id => <option key={id} value={id}>{id}</option>)}
         </select>
 
-        {(etapa || atraso || busca) && (
-          <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8")} onClick={() => { setEtapa(""); setAtraso(""); setBusca(""); setBuscaDigitada(""); }} data-testid="limpar-filtros-kanban">Limpar</button>
+        <select className={cn(CONTROLE_CAMPO, "w-auto")} value={atencao} onChange={e => setAtencao(e.target.value)} aria-label="Atenção necessária" data-testid="filtro-atencao">
+          <option value="">Todas as prioridades</option>
+          <option value="hoje">Ações até hoje</option>
+          <option value="vencido">Contato vencido</option>
+          <option value="sem_acao">Sem próxima ação</option>
+          <option value="sem_responsavel">Sem responsável</option>
+          <option value="promessa_vencida">Promessa vencida</option>
+          <option value="pagamento_informado">Pagamento informado · conferir</option>
+          <option value="sem_telefone">Telefone ausente ou incompleto</option>
+        </select>
+        {(etapa || atraso || busca || atencao) && (
+          <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8")} onClick={() => { setEtapa(""); setAtraso(""); setAtencao(""); setBusca(""); setBuscaDigitada(""); }} data-testid="limpar-filtros-kanban">Limpar</button>
         )}
         {quadro.total !== null && <span className="ml-auto font-mono text-[11.5px] tabular-nums text-[var(--text-muted)]">{num(quadro.total)} casos no quadro</span>}
       </div>
+      <div className="gestao-filas" aria-label="Filas de trabalho">
+        <span className="gestao-label">Priorizar</span>
+        {[
+          { id: "hoje", nome: "Ações até hoje" },
+          { id: "promessa_vencida", nome: "Promessas vencidas" },
+          { id: "pagamento_informado", nome: "Conferir pagamentos" },
+          { id: "sem_telefone", nome: "Corrigir telefones" },
+          { id: "sem_responsavel", nome: "Distribuir casos" },
+        ].map(f => <button type="button" key={f.id} aria-pressed={atencao === f.id} onClick={() => setAtencao(atencao === f.id ? "" : f.id)}>{f.nome}</button>)}
+      </div>
+      {atencao === "pagamento_informado" && <p className="text-xs text-[var(--text-muted)]">O cliente informou pagamento. Confira faturas e recebimentos no Cliente 360 antes de cobrar novamente. Este filtro não dá baixa nem encerra o caso.</p>}
+      {atencao === "sem_telefone" && <p className="text-xs text-[var(--text-muted)]">Confira e corrija o telefone no ERP para a próxima sincronização. Esta fila também pode conter clientes com e-mail disponível.</p>}
       {quadro.pausada && (
         <p className="flex items-center gap-2 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--text-2)]" data-testid="aviso-pausada">
           <Pause className="h-3.5 w-3.5 text-[var(--danger)]" aria-hidden />
@@ -383,10 +418,11 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
         <div className="flex gap-3" aria-busy>{[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[320px] w-[300px] flex-none rounded-lg" />)}</div>
       ) : vazio ? (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)]" data-testid="kanban-vazio">
-          <EstadoVazio Icone={KanbanSquare} titulo="Quadro vazio" descricao={escopo === "eu" ? "Nenhum caso atribuído a você. Troque para a equipe ou a fila geral, ou abra casos pela carteira." : "Nenhum caso vivo no recorte. Os casos nascem sozinhos pela régua diária, ou pela carteira."} />
+          <EstadoVazio Icone={KanbanSquare} titulo="Nenhum caso neste recorte" descricao="Nenhum caso corresponde aos filtros e à responsabilidade selecionados. Ajuste os filtros ou consulte toda a equipe." />
         </div>
       ) : (
         <KanbanCobranca
+          key={query}
           visao={visao}
           quadro={quadro}
           chaveDaQuery={chaveDoQuadro}

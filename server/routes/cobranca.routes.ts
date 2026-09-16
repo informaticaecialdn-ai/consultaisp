@@ -35,7 +35,7 @@ import type { CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela,
 import { formatarPeriodo, janelaDoPeriodoEmDias, parsePeriodo, periodoDaData, rotuloDoPeriodo, type Periodo } from "@shared/cobranca/periodo";
 import { agregarPrejuizo } from "@shared/cobranca/prejuizo";
 import {
-  ABORDAGEM_POR_QUADRANTE,
+  apresentacaoDoDna,
   CANAIS_HUMANOS,
   CARTEIRAS,
   DIRETIVA_POR_TOM,
@@ -57,7 +57,6 @@ import {
   avaliarPedidoDeAcordo,
   casoFechado,
   classificarDna,
-  eixosDoQuadrante,
   etapaParaAtraso,
   etapasDaCarteira,
   etapasDaPolitica,
@@ -1201,10 +1200,12 @@ const PADRAO_POR_COLUNA = 100;
 const MAXIMO_POR_COLUNA = 200;
 
 const KanbanQuerySchema = z.object({
+  fluxo: z.literal("atendimento").optional(),
   etapa: z.enum(ETAPA_IDS).optional(),
   carteira: z.enum(CARTEIRAS).optional(),
   /** Faixa de dias de atraso — as seis do dono (shared/cobranca/faixa-atraso.ts). */
   atraso: z.enum(FAIXAS_DE_ATRASO).optional(),
+  atencao: z.enum(["hoje", "vencido", "sem_acao", "sem_responsavel", "promessa_vencida", "pagamento_informado", "sem_telefone"]).optional(),
   busca: z.string().trim().min(1).max(120).optional(),
   responsavel: z.union([z.literal("eu"), z.literal("geral"), z.coerce.number().int().positive()]).optional(),
   porColuna: z.coerce.number().int().min(1).max(MAXIMO_POR_COLUNA).default(PADRAO_POR_COLUNA),
@@ -1217,6 +1218,7 @@ function filtrosDoKanban(q: KanbanQuery, userId: number): FiltrosDaCarteira {
   if (q.etapa) f.etapa = q.etapa;
   if (q.busca) f.busca = q.busca;
   if (q.atraso) f.faixaAtraso = q.atraso;
+  if (q.atencao) f.atencao = q.atencao;
   // No quadro, "Minha fila" e MEUS + a fila geral: e o que a tela de fila fazia,
   // e sem isso o caso sem dono nao aparece e "Pegar para mim" nunca surge.
   if (q.responsavel === "eu") f.meusMaisFilaGeral = userId;
@@ -1226,7 +1228,8 @@ function filtrosDoKanban(q: KanbanQuery, userId: number): FiltrosDaCarteira {
 }
 
 interface ColunaDoKanban {
-  status: StatusDeCaso;
+  valorTotal: number | null;
+  status: string;
   rotulo: string;
   fechada: boolean;
   casos: ReturnType<typeof itemDaFila>[];
@@ -1249,6 +1252,23 @@ interface ColunaDoKanban {
  * filtra por `encerrado_em`, entao os 30 dias so se acham lendo, ate a
  * carteira ganhar o filtro `encerradoDesde`.
  */
+/** Colunas de atendimento filtradas antes da paginação. */
+async function montarColunasDeAtendimento(providerId: number, filtros: FiltrosDaCarteira, porColuna: number, fechadosDesde: Date, etapas: Etapa[], hoje: Date): Promise<ColunaDoKanban[]> {
+  const fases = [
+    ["a_iniciar", "A iniciar"], ["aguardando_resposta", "Aguardando resposta"],
+    ["em_atendimento", "Em atendimento"], ["aguardando_pagamento", "Aguardando pagamento"],
+  ] as const;
+  const vivas = await Promise.all(fases.map(async ([faseAtendimento, rotulo]) => {
+    const { linhas, total, valorTotal } = await storage.listarCasosDeCobranca(providerId,
+      { ...filtros, status: ["aberto", "em_contato", "negociando"], faseAtendimento },
+      { pagina: 1, porPagina: porColuna, ordem: "dia", hoje });
+    return { status: faseAtendimento, rotulo, fechada: false, casos: linhas.map(l => itemDaFila(l, etapas, hoje)), total, valorTotal: valorTotal ?? null, truncado: total > linhas.length };
+  }));
+  const demais = await Promise.all((["acordo_ativo", "pago", "cancelamento", "negativado", "baixado", "encerrado"] as const)
+    .map(status => montarColuna(providerId, status, filtros, porColuna, fechadosDesde, etapas, hoje)));
+  return [...vivas, ...demais.map(c => ({ ...c, rotulo: c.status === "acordo_ativo" ? "Acordo em acompanhamento" : c.status === "pago" ? "Regularizados" : c.rotulo }))];
+}
+
 async function montarColuna(
   providerId: number,
   status: StatusDeCaso,
@@ -1261,8 +1281,8 @@ async function montarColuna(
   const comStatus: FiltrosDaCarteira = { ...filtros, status: [status] };
   const base = { status, rotulo: ROTULO_STATUS_DE_CASO[status], fechada: casoFechado(status) };
   if (!base.fechada) {
-    const { linhas, total } = await storage.listarCasosDeCobranca(providerId, comStatus, { pagina: 1, porPagina: porColuna, ordem: "dia", hoje });
-    return { ...base, casos: linhas.map(l => itemDaFila(l, etapas, hoje)), total, truncado: total > linhas.length };
+    const { linhas, total, valorTotal } = await storage.listarCasosDeCobranca(providerId, comStatus, { pagina: 1, porPagina: porColuna, ordem: "dia", hoje });
+    return { ...base, valorTotal: valorTotal ?? null, casos: linhas.map(l => itemDaFila(l, etapas, hoje)), total, truncado: total > linhas.length };
   }
   const varredura = await varrerCasos(providerId, comStatus);
   const recentes = varredura.linhas
@@ -1271,6 +1291,7 @@ async function montarColuna(
   return {
     ...base,
     casos: recentes.slice(0, porColuna).map(l => itemDaFila(l, etapas, hoje)),
+    valorTotal: varredura.completa ? arredondar(recentes.reduce((s, l) => s + l.valorAtual, 0)) : null,
     total: recentes.length,
     truncado: !varredura.completa || recentes.length > porColuna,
   };
@@ -1620,8 +1641,8 @@ export function registerCobrancaRoutes(): Router {
         // Vai no `fichaEntrada` que o navegador remonta: sem ela, a remontagem
         // com o plano ao vivo perderia o ARPU que o servidor ja tinha.
         mensalidadeObservada: mensalidade ? { valor: mensalidade.valor, concordam: mensalidade.concordam, faturas: mensalidade.faturas, baixadas: mensalidade.baixadas } : null,
-        ispScore: numOuNull(cliente.ispScore),
-        riskTier: cliente.riskTier,
+        ispScore: ispScoreReal(cliente).ispScore,
+        riskTier: ispScoreReal(cliente).riskTier,
         dividaAtual,
         diasAtraso,
         faturasAbertas: cliente.overdueInvoicesCount === null || cliente.overdueInvoicesCount === undefined ? null : faturasAbertas,
@@ -1668,8 +1689,8 @@ export function registerCobrancaRoutes(): Router {
           faturasAbertas,
           contractStartDate: cliente.contractStartDate,
           mesesComoCliente: cls.mesesComoCliente,
-          ispScore: numOuNull(cliente.ispScore),
-          riskTier: cliente.riskTier,
+          ispScore: ispScoreReal(cliente).ispScore,
+          riskTier: ispScoreReal(cliente).riskTier,
           motivoCorte: cliente.motivoCorte,
           cortadoEm: cliente.cortadoEm,
           erpSource: cliente.erpSource,
@@ -2383,7 +2404,9 @@ export function registerCobrancaRoutes(): Router {
       const { politica, etapas } = await carregarPolitica(providerId);
       const filtros = filtrosDoKanban(q, usuarioDaSessao(req));
       const [colunas, conversasDoChat, negociacoesVivas] = await Promise.all([
-        Promise.all(colunasDoKanban().map(status => montarColuna(providerId, status, filtros, q.porColuna, fechadosDesde, etapas, hoje))),
+        q.fluxo === "atendimento"
+          ? montarColunasDeAtendimento(providerId, filtros, q.porColuna, fechadosDesde, etapas, hoje)
+          : Promise.all(colunasDoKanban().map(status => montarColuna(providerId, status, filtros, q.porColuna, fechadosDesde, etapas, hoje))),
         // A conversa do Chat BullQ ligada ao caso, quando houver. Falha aqui nao derruba o quadro.
         storage.conversasDoChatPorCaso(providerId).catch(() => new Map()),
         // O acordo vivo de cada caso (parcelas e andamento) — o card conta a historia sem abrir a ficha.
@@ -2518,16 +2541,20 @@ export function registerCobrancaRoutes(): Router {
         porQuadrante.set(c.quadrante, acumulado);
       }
       const quadrantes = QUADRANTES.map(q => {
-        const eixos = eixosDoQuadrante(q);
-        const abordagem = ABORDAGEM_POR_QUADRANTE[q];
+        // Sem escopo, conserva o catálogo legado de ativos. Carteira explícita
+        // recebe a mesma voz e os mesmos eixos apresentados na grade.
+        const apresentacao = apresentacaoDoDna(q, escopo.data ?? "ativo");
         const contagem = porQuadrante.get(q) ?? { casos: 0, valor: 0, porCarteira: {} };
         return {
           codigo: q,
-          fidelidade: eixos.fidelidade,
-          confiabilidade: eixos.confiabilidade,
-          abordagem,
-          diretiva: DIRETIVA_POR_TOM[abordagem],
-          fraseExemplo: FRASE_EXEMPLO_POR_QUADRANTE[q],
+          fidelidade: apresentacao.fidelidade,
+          confiabilidade: apresentacao.confiabilidade,
+          rotuloFidelidade: apresentacao.rotuloFidelidade,
+          rotuloConfiabilidade: apresentacao.rotuloConfiabilidade,
+          abordagem: apresentacao.abordagem,
+          rotulo: apresentacao.rotulo,
+          diretiva: apresentacao.diretiva,
+          fraseExemplo: apresentacao.frase,
           familia: familiaDoQuadrante(q),
           casos: contagem.casos,
           valor: contagem.valor,

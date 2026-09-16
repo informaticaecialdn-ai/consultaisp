@@ -60,7 +60,7 @@ export const SUGESTAO_POR_RESULTADO: Record<ResultadoDeContato, { acao: string; 
   falou: { acao: "Confirmar o pagamento", emDias: 2 },
   nao_atendeu: { acao: "Ligar de novo", emDias: 1 },
   caixa_postal: { acao: "Ligar de novo em outro horário", emDias: 1 },
-  promessa_pagamento: { acao: "Cobrar a promessa", emDias: 0 },
+  promessa_pagamento: { acao: "Conferir o pagamento prometido", emDias: 0 },
   recusou: { acao: "Enviar proposta de acordo", emDias: 3 },
   numero_errado: { acao: "Buscar outro telefone", emDias: 1 },
 };
@@ -74,11 +74,14 @@ export function inputDeFollowUp(emDias: number, agora: Date = new Date()): strin
   return paraInputDataHora(d.toISOString());
 }
 
-/** A promessa vale como data do follow-up: cobra-se no dia prometido, às 9h. */
+/** Acompanhar somente depois de terminar o dia prometido, as 9h do dia seguinte. */
 export function inputDaPromessa(prometidoPara: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(prometidoPara);
   if (!m) return "";
-  return `${m[1]}-${m[2]}-${m[3]}T${String(HORA_DO_FOLLOW_UP).padStart(2, "0")}:00`;
+  const data = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12);
+  if (data.getFullYear() !== Number(m[1]) || data.getMonth() !== Number(m[2]) - 1 || data.getDate() !== Number(m[3])) return "";
+  data.setDate(data.getDate() + 1);
+  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2,"0")}-${String(data.getDate()).padStart(2,"0")}T${String(HORA_DO_FOLLOW_UP).padStart(2,"0")}:00`;
 }
 
 interface Form {

@@ -1746,7 +1746,7 @@ describe("GET /api/cobranca/fila", () => {
     expect(body.itens).toHaveLength(1);
     expect(body.itens[0].cliente.cpfCnpj).toBe("123.456.789-01");
     expect(body.itens[0]).toMatchObject({ id: 9, quadrante: "B3", tomSugerido: "cuidado" });
-    expect(body.itens[0].diretiva).toMatch(/Bom cliente/);
+    expect(body.itens[0].diretiva).toMatch(/tom cuidadoso/);
     expect(JSON.stringify(body)).not.toContain("12345678901");
 
     expect(body.total).toBe(3);
@@ -1933,6 +1933,46 @@ describe("GET /api/cobranca/kanban", () => {
 /* ── Regua, DNA, equipe ──────────────────────────────────────────────── */
 
 describe("GET /api/cobranca/regua e /dna", () => {
+  it("o catálogo DNA de ex-clientes retorna voz e eixos históricos para todos os consumidores", async () => {
+    sessao = OPERADOR;
+    storageMock.contarCasosPorQuadrante.mockResolvedValueOnce([
+      { quadrante: "A1", carteira: "ativo", casos: 20, valor: 2000 },
+      { quadrante: "A1", carteira: "ex_cliente", casos: 1, valor: 100 },
+    ]);
+    const res = await json("GET", "/api/cobranca/dna?carteira=ex_cliente");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.total).toBe(1);
+    expect(body.quadrantes).toHaveLength(9);
+    const quadrantes = body.quadrantes as Array<{ codigo: string; abordagem: string; diretiva: string; fraseExemplo: string; rotuloFidelidade: string; rotuloConfiabilidade: string }>;
+    expect(quadrantes.find(q => q.codigo === "A1")).toMatchObject({ abordagem: "ex_esclarecedor", rotuloFidelidade: "Curta", rotuloConfiabilidade: "Pontual no histórico" });
+    expect(quadrantes.find(q => q.codigo === "C3")?.abordagem).toBe("ex_conciliador");
+    for (const quadrante of quadrantes) {
+      expect(quadrante.abordagem).toMatch(/^ex_/);
+      expect(quadrante.diretiva).toContain("Relação encerrada");
+      expect(quadrante.fraseExemplo).toContain("contrato encerrado");
+      expect(`${quadrante.diretiva} ${quadrante.fraseExemplo}`).not.toMatch(/boas.vindas|reativa|manter.*conosco|vence em 3 dias/iu);
+    }
+    expect(body.contagens).toEqual([{ quadrante: "A1", carteira: "ex_cliente", casos: 1, valor: 100 }]);
+    expect(storageMock.contarCasosPorQuadrante).toHaveBeenCalledWith(42);
+  });
+
+  it.each(["", "?carteira=ativo"])("preserva os identificadores de abordagem do catálogo ativo (%s)", async consulta => {
+    sessao = OPERADOR;
+    const body = await (await json("GET", `/api/cobranca/dna${consulta}`)).json();
+    expect(body.quadrantes.map((q: { abordagem: string }) => q.abordagem)).toEqual([
+      "boas_vindas", "parceiro", "acolhedor", "orientador", "firme_gentil", "cuidado", "firme_objetivo", "recuperacao", "negociar_reter",
+    ]);
+  });
+
+  it("conciliação de ex-cliente não herda a base do aviso formal de negativação", async () => {
+    sessao = OPERADOR;
+    const body = await (await json("GET", "/api/cobranca/regua?carteira=ex_cliente")).json();
+    const conciliacao = body.etapas.find((e: { id: string }) => e.id === "pre_negativacao");
+    expect(conciliacao.rotulo).toBe("Conciliação de pendências");
+    expect(conciliacao).not.toHaveProperty("baseLegal");
+    expect(body.porCarteira.ativo.find((e: { id: string }) => e.id === "pre_negativacao").baseLegal).toContain("359");
+  });
   it("a regua devolve as etapas resolvidas da politica, a pausa e as contagens; ex-cliente sem aviso de suspensao", async () => {
     sessao = OPERADOR;
     storageMock.getPoliticaDeCobranca.mockResolvedValueOnce({
@@ -2418,4 +2458,29 @@ describe("acordo × confissão e os selos", () => {
     expect(quitado.fichaEntrada.confissaoAssinadaEm).toBeNull();
     expect(quitado.ficha.prescricao?.interrompida_em ?? null).toBeNull();
   });
+});
+
+it("gestão de atendimento deriva as quatro fases no storage e mantém os seis postos principais", async () => {
+  sessao = OPERADOR;
+  storageMock.listarCasosDeCobranca.mockImplementation(async (_p, filtros) => ({
+    linhas: [], total: filtros?.faseAtendimento === "aguardando_resposta" ? 500 : 0, valorTotal: 42500,
+  }));
+  const res = await json("GET", "/api/cobranca/kanban?fluxo=atendimento&atencao=sem_responsavel");
+  const body = await res.json();
+  expect(res.status, JSON.stringify(loggerMock.error.mock.calls)).toBe(200);
+  expect(body.colunas.slice(0, 6).map((c: { rotulo: string }) => c.rotulo)).toEqual([
+    "A iniciar", "Aguardando resposta", "Em atendimento", "Aguardando pagamento", "Acordo em acompanhamento", "Regularizados",
+  ]);
+  expect(body.colunas[1]).toMatchObject({ total: 500, valorTotal: 42500, truncado: true });
+  expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42,
+    { status: ["aberto", "em_contato", "negociando"], faseAtendimento: "aguardando_resposta", atencao: "sem_responsavel" },
+    { pagina: 1, porPagina: 100, ordem: "dia", hoje: expect.any(Date) });
+});
+
+it.each(["pagamento_informado", "sem_telefone"])("fila %s preserva carteira e provedor", async atencao => {
+  sessao = OPERADOR;
+  const res = await json("GET", `/api/cobranca/kanban?fluxo=atendimento&carteira=ativo&atencao=${atencao}`);
+  expect(res.status).toBe(200);
+  expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42,
+    expect.objectContaining({ carteira: "ativo", atencao }), expect.objectContaining({ porPagina:100 }));
 });

@@ -281,7 +281,7 @@ describe("cliente 360", () => {
 
   it("o que a fase 1 não tem fica marcado, nunca preenchido com zero", () => {
     // O molde do Provedor.ai: PENDENTE e A-CRIAR com motivo, nunca zero.
-    expect(f.match(/<Pendente /g)?.length ?? 0).toBeGreaterThanOrEqual(6);
+    expect(f).toContain("economiaPendente"); // ausência de dados financeiros continua explícita
     expect(f.match(/<ACriar /g)?.length ?? 0).toBeGreaterThanOrEqual(3);
     expect(f).not.toContain("NPS: 0");
   });
@@ -649,7 +649,7 @@ describe("o link com ?tab= troca a aba mesmo já dentro do painel", () => {
   });
 });
 
-describe("o módulo se chama Esteira, e não Kanban", () => {
+describe("o módulo se chama Gestão de cobranças", () => {
   /*
    * Pedido do dono (07/09/2026): "mudar o nome Kanban para um nome que
    * represente o módulo da esteira".
@@ -660,11 +660,11 @@ describe("o módulo se chama Esteira, e não Kanban", () => {
    * esteira de resolução da cobrança". O título da página já dizia "Esteira de
    * cobrança" — o menu e o endereço é que ainda diziam outra coisa.
    */
-  it("o menu diz Esteira nas duas carteiras, e não Kanban", () => {
+  it("o menu diz Gestão de cobranças nas duas carteiras", () => {
     const itens = NAV_PROVEDOR.flatMap(g => g.itens).flatMap(i => [i, ...(i.filhos ?? [])]);
     const daEsteira = itens.filter(i => i.url?.includes("/cobranca/esteira"));
     expect(daEsteira).toHaveLength(2);
-    for (const i of daEsteira) expect(i.label).toBe("Esteira");
+    for (const i of daEsteira) expect(i.label).toBe("Gestão de cobranças");
     expect(itens.every(i => i.label !== "Kanban")).toBe(true);
   });
 

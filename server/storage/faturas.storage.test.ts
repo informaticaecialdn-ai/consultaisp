@@ -54,6 +54,29 @@ describe("datas: dia de calendario, sem fuso", () => {
 });
 
 describe("recebimentos e DNA", () => {
+  it("DNA em lote recorta ex-clientes pelo encerramento confirmado no IXC e pelo período da relação", async () => {
+    banco.responder = () => [[42, 4, 1, "359.60", "2024-06-10T00:00:00Z", "2024-03-10T00:00:00Z", "2024-06-15"]];
+    const mapa = await storage.historicosDePagamentosDoProvedor(PROVEDOR, [42], { paraDna: true, hoje: HOJE });
+    expect(mapa.get(42)).toMatchObject({ faturasPagas: 4, encerramentoConfirmadoEm: "2024-06-15" });
+    expect(banco.consultas).toHaveLength(1);
+    const consulta = banco.consultas[0];
+    conferirTenant(consulta);
+    expect(consulta.sql).toContain('inner join "customers"');
+    expect(consulta.params).toEqual(expect.arrayContaining([PROVEDOR, "ixc", "cancelled", "active", "suspended", "2026-09-05"]));
+    expect(consulta.sql).toContain('"invoices"."paid_date"::date <= "customers"."cortado_em"::date');
+    expect(consulta.sql).toContain('"invoices"."due_date"::date <= "customers"."cortado_em"::date');
+    expect(consulta.sql).toContain('"invoices"."paid_date"::date >= "customers"."contract_start_date"');
+    expect(consulta.sql).toContain('"invoices"."due_date"::date >= "customers"."contract_start_date"');
+    expect(consulta.sql).toContain('"customers"."cortado_em"::date >= "customers"."contract_start_date"');
+  });
+
+  it("o histórico financeiro comum permanece completo e sem metadado de encerramento", async () => {
+    banco.responder = () => [[42, 4, 1, "359.60", "2024-06-10T00:00:00Z", "2024-03-10T00:00:00Z"]];
+    const mapa = await storage.historicosDePagamentosDoProvedor(PROVEDOR, [42]);
+    expect(mapa.get(42)).not.toHaveProperty("encerramentoConfirmadoEm");
+    expect(banco.consultas[0].sql).not.toContain('"cortado_em"');
+  });
+
   it("recibo local bloqueia título que o ERP ainda oferece, isolando cliente/fonte", async () => {
     banco.responder = () => [[10]];
     expect(await storage.faturasQuitadasAindaAbertas(PROVEDOR, 42, ["mk-10"], "mk")).toBe(true);

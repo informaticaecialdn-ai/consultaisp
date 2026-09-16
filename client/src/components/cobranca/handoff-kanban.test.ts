@@ -58,9 +58,9 @@ describe("os tons por coluna", () => {
 });
 
 describe("a coluna", () => {
-  it("296px de largura, raio de 10px e fundo --surface-2", () => {
+  it("296px de largura, raio de 8px e fundo --surface-2", () => {
     expect(quadro).toContain("export const LARGURA_COLUNA_COBRANCA = 296;");
-    expect(quadro).toContain("rounded-[10px]");
+    expect(quadro).toContain("rounded-lg");
     expect(quadro).toContain('background: "var(--surface-2)"');
   });
 

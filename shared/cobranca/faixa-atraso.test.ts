@@ -29,7 +29,7 @@ describe("as seis faixas", () => {
   });
 
   it("a faixa de mais de 90 dias diz por que existe: contrato provavelmente não é mais ativo", () => {
-    expect(LIMITES_DA_FAIXA_DE_ATRASO["mais-90"].motivo).toMatch(/dificilmente ainda tem contrato ativo/);
+    expect(LIMITES_DA_FAIXA_DE_ATRASO["mais-90"].motivo).toMatch(/atraso não determina o encerramento/);
     expect(LIMITES_DA_FAIXA_DE_ATRASO["mais-90"].min).toBe(91);
   });
 

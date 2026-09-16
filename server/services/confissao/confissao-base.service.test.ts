@@ -24,6 +24,12 @@ vi.mock("../../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: 
 
 import { estadoDaAssinatura, hashDaBase, montarBase } from "./confissao-base.service";
 
+it("não substitui proposta pendente por confissão do saldo integral", async () => {
+  storageMock.listarNegociacoesDoCaso.mockResolvedValueOnce([{ id: 18, status: "proposta" }]);
+  const base = await montarBase(1, 42, { hoje: new Date(2026, 8, 10), vencimento: "2026-10-15" });
+  expect(base.dto.bloqueios).toContainEqual(expect.stringContaining("há uma proposta pendente"));
+});
+
 const HOJE = new Date(2026, 8, 10, 10, 0); // 10/09/2026
 function cliente(extra: Record<string, unknown> = {}) {
   return { id: 42, providerId: 1, name: "Maria da Silva", cpfCnpj: "12345678901", email: "maria@example.com", phone: "31999990000", address: "Rua B", addressNumber: "20", neighborhood: "Bairro", city: "Lavras do Norte", state: "MG", cep: "39000000", status: "suspended", erpCustomerId: "4471", contractPlan: "Fibra 300", contractStartDate: "2024-03-15", totalOverdueAmount: "819.76", ...extra };

@@ -64,7 +64,7 @@ export const PREVENTIVO_DIAS_TOQUE: ReadonlySet<number> = new Set([-7, -3, -1]);
 export const ETAPAS_PADRAO: readonly Etapa[] = [
   {
     id: "lembrete_pre_vencimento",
-    rotulo: "Pré-aviso",
+    rotulo: "Lembrete de vencimento",
     diaMin: -7,
     diaMax: 0,
     acao: "Lembrar do vencimento só nos dias-toque (D-7, D-3, D-1), com o PIX ou a segunda via em mãos. Não é cobrança: a fatura ainda não venceu.",
@@ -79,7 +79,7 @@ export const ETAPAS_PADRAO: readonly Etapa[] = [
     rotulo: "Lembrete de atraso",
     diaMin: 1,
     diaMax: 14,
-    acao: "Enviar a segunda via ou o PIX e confirmar se o meio de pagamento falhou. Tratar como esquecimento, não como dívida.",
+    acao: "Conferir se a fatura continua em aberto. Após confirmar a identidade, oferecer a segunda via ou o PIX disponível e perguntar se houve dificuldade no pagamento. Registrar a resposta sem presumir o motivo do atraso.",
     canalSugerido: "whatsapp",
     disponivelNaFase1: true,
     responsavelUserId: null,
@@ -87,10 +87,10 @@ export const ETAPAS_PADRAO: readonly Etapa[] = [
   },
   {
     id: "aviso_suspensao",
-    rotulo: "Aviso de suspensão",
+    rotulo: "Regularização do serviço",
     diaMin: 15,
     diaMax: 29,
-    acao: "Notificar formalmente que o serviço será suspenso e registrar a data da notificação. A suspensão só pode acontecer 15 dias depois de o aviso ser entregue.",
+    acao: "Conferir a situação atual do serviço e ajudar a regularizar a fatura. Encaminhar qualquer notificação de suspensão para avaliação humana, com registro da entrega e dos prazos aplicáveis. O atraso sozinho não autoriza suspender nem prometer reconexão.",
     canalSugerido: "telefone",
     baseLegal: "Anatel Res. 765/2023 — 15 dias da notificação",
     disponivelNaFase1: true,
@@ -99,10 +99,10 @@ export const ETAPAS_PADRAO: readonly Etapa[] = [
   },
   {
     id: "negociacao_recuperacao",
-    rotulo: "Negociação",
+    rotulo: "Acordo para regularização",
     diaMin: 30,
     diaMax: 89,
-    acao: "Propor acordo: quitação com desconto ou parcelamento dentro da política. Buscar a decisão na mesma ligação.",
+    acao: "Entender a dificuldade e apresentar apenas as condições de quitação ou parcelamento autorizadas na política de clientes ativos. Registrar proposta, resposta e próximo contato. Preservar o vínculo sem prometer desconto ou alteração do serviço fora da política.",
     canalSugerido: "telefone",
     disponivelNaFase1: true,
     responsavelUserId: null,
@@ -110,10 +110,10 @@ export const ETAPAS_PADRAO: readonly Etapa[] = [
   },
   {
     id: "pre_negativacao",
-    rotulo: "Pré-negativação",
+    rotulo: "Revisão assistida",
     diaMin: 90,
     diaMax: 179,
-    acao: "Enviar o pré-aviso formal de negativação com prazo para pagar e guardar o comprovante de envio. Só negativar depois do prazo. Ex-cliente: conferir antes que a dívida é de serviço prestado.",
+    acao: "Encaminhar ao atendente para conferir faturas, pagamentos, contestações e tentativas anteriores. Definir uma proposta de regularização do contrato. Qualquer análise de negativação exige avaliação humana; esta etapa não envia aviso formal nem negativa automaticamente.",
     canalSugerido: "email",
     baseLegal: "Súmula 359 do STJ — pré-aviso ao devedor",
     disponivelNaFase1: true,
@@ -122,10 +122,10 @@ export const ETAPAS_PADRAO: readonly Etapa[] = [
   },
   {
     id: "divida_antiga",
-    rotulo: "Dívida antiga",
+    rotulo: "Pendência prolongada",
     diaMin: 180,
     diaMax: 359,
-    acao: "Campanha de quitação com desconto escalonado, até o teto da política. Atualizar telefone e endereço a cada contato.",
+    acao: "Revalidar o saldo e o status do contrato no ERP antes do contato. Retomar a regularização com as condições autorizadas para clientes ativos, respeitando acordos e contatos anteriores. Encaminhar divergências ao atendente.",
     canalSugerido: "whatsapp",
     disponivelNaFase1: true,
     responsavelUserId: null,
@@ -133,10 +133,10 @@ export const ETAPAS_PADRAO: readonly Etapa[] = [
   },
   {
     id: "fim_de_linha",
-    rotulo: "Fim de linha",
+    rotulo: "Revisão do contrato",
     diaMin: 360,
     diaMax: null,
-    acao: "Última proposta de quitação e decisão: baixar ou manter negativado. Conferir a prescrição — dívida com cinco anos não se cobra.",
+    acao: "Encaminhar ao atendente para revisar a dívida, a situação do contrato e a viabilidade de acordo. Baixa, negativação e encerramento dependem de avaliação humana. O tempo de atraso não transforma um cliente ativo em ex-cliente; a carteira só muda com a situação confirmada no ERP.",
     canalSugerido: "telefone",
     baseLegal: "CC art. 206 §5º I — prescreve em 5 anos",
     disponivelNaFase1: true,
@@ -144,6 +144,37 @@ export const ETAPAS_PADRAO: readonly Etapa[] = [
     ativa: true,
   },
 ];
+
+/**
+ * Ações da recuperação de contrato encerrado. IDs, janelas configuradas,
+ * canais, responsáveis e guardas continuam comuns ao motor. A ação livre de
+ * uma etapa de ativos não é reutilizada no encerrado: pode oferecer um
+ * serviço que já não existe. Nenhuma etapa cria nova consequência jurídica.
+ */
+export const APRESENTACAO_ETAPAS_EX_CLIENTE: Partial<Record<EtapaId, Pick<Etapa, "rotulo" | "acao" | "baseLegal">>> = {
+  lembrete_atraso: {
+    rotulo: "Conferência da dívida",
+    acao: "Conferir a origem, o saldo e os comprovantes da dívida do contrato encerrado. Apresentar os títulos confirmados e esclarecer divergências antes de prosseguir.",
+  },
+  negociacao_recuperacao: {
+    rotulo: "Acordo da dívida",
+    acao: "Apresentar as opções de quitação ou parcelamento da dívida do contrato encerrado conforme a política de ex-clientes. Registrar a proposta e a resposta da pessoa.",
+  },
+  pre_negativacao: {
+    rotulo: "Conciliação de pendências",
+    acao: "Conferir a origem e o saldo da dívida do contrato encerrado. Apresentar propostas de quitação ou parcelamento dentro da política de ex-clientes. Encaminhar contestação ou análise de negativação ao responsável.",
+    // Conciliação não é o aviso formal descrito na base da etapa de ativos.
+    baseLegal: undefined,
+  },
+  divida_antiga: {
+    rotulo: "Recuperação da dívida antiga",
+    acao: "Revisar o saldo da dívida do contrato encerrado e apresentar opções de quitação dentro da política de ex-clientes. Confirmar os dados de contato e registrar o resultado.",
+  },
+  fim_de_linha: {
+    rotulo: "Recuperação prolongada",
+    acao: "Prosseguir com tentativas autorizadas de quitação da dívida antiga do contrato encerrado, dentro da política de ex-clientes e das guardas da régua. Encaminhar decisões de baixa ou negativação ao responsável.",
+  },
+};
 
 /* ── Prescrição ───────────────────────────────────────────────────────── */
 
@@ -273,6 +304,13 @@ export function etapasDaCarteira(carteira: Carteira, etapas: readonly Etapa[] = 
   // Absorver a janela de quem saiu pode puxar o aviso de suspensão para antes
   // do piso; o clamp devolve o piso e deixa o buraco à vista (sem_etapa) em
   // vez de ameaçar suspensão no segundo dia de atraso.
+  if (carteira === "ex_cliente") {
+    lista = lista.map(e => ({
+      ...e,
+      ...APRESENTACAO_ETAPAS_EX_CLIENTE[e.id],
+      diaMin: Math.max(1, e.diaMin),
+    })).filter(e => e.diaMax === null || e.diaMax >= e.diaMin);
+  }
   return clampEtapas(lista);
 }
 

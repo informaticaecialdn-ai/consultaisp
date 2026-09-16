@@ -43,19 +43,19 @@ export const LIMITES_DA_FAIXA_DE_ATRASO: Record<FaixaDeAtraso, LimitesDaFaixa> =
     min: 1,
     max: 7,
     rotulo: "Até 7 dias",
-    motivo: "Esquecimento na maioria das vezes: segunda via ou PIX costuma resolver.",
+    motivo: "Atraso recente: confira a fatura e ofereça os meios de pagamento disponíveis.",
   },
   "8-15": {
     min: 8,
     max: 15,
     rotulo: "8 a 15 dias",
-    motivo: "Ainda quente. É onde o lembrete tem mais retorno.",
+    motivo: "Confira se houve resposta ou pagamento antes de repetir o lembrete.",
   },
   "16-30": {
     min: 16,
     max: 30,
     rotulo: "16 a 30 dias",
-    motivo: "Perto do aviso de suspensão: o contato precisa ser falado, não só enviado.",
+    motivo: "Ajude a regularizar a pendência e confira o status do serviço no ERP.",
   },
   "31-60": {
     min: 31,
@@ -67,13 +67,13 @@ export const LIMITES_DA_FAIXA_DE_ATRASO: Record<FaixaDeAtraso, LimitesDaFaixa> =
     min: 61,
     max: 90,
     rotulo: "61 a 90 dias",
-    motivo: "Última janela antes de o contrato normalmente ser encerrado.",
+    motivo: "Revise tentativas anteriores e as condições de acordo autorizadas para esta carteira.",
   },
   "mais-90": {
     min: 91,
     max: null,
     rotulo: "Mais de 90 dias",
-    motivo: "Acima de 90 dias o cliente dificilmente ainda tem contrato ativo — confira a situação no ERP antes de cobrar como ativo.",
+    motivo: "O atraso não determina o encerramento: confira a situação no ERP e a orientação da régua desta carteira.",
   },
 };
 

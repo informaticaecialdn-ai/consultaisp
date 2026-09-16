@@ -156,6 +156,8 @@ export interface FiltrosDaCarteira {
    * o total do rodapé mentir. Ver shared/cobranca/faixa-atraso.ts.
    */
   faixaAtraso?: FaixaDeAtraso;
+  atencao?: "hoje" | "vencido" | "sem_acao" | "sem_responsavel" | "promessa_vencida" | "pagamento_informado" | "sem_telefone";
+  faseAtendimento?: "a_iniciar" | "aguardando_resposta" | "em_atendimento" | "aguardando_pagamento";
   /** Nome (ILIKE) ou documento (so digitos, prefixo). */
   busca?: string;
   /** `A` | `B` | `C` (grupo) ou `A1`..`C3` (quadrante). */
@@ -548,6 +550,29 @@ function condicaoDaBusca(busca: string): SQL | undefined {
   return ilike(customers.name, `%${escapado}%`);
 }
 
+/** Lembretes e tentativas sem retorno não apagam uma resposta ou promessa já registrada. */
+function ordemDaEvidenciaDeContato(): SQL {
+  return sql`case when ${cobrancaEventos.tipo} = 'contato' and ${cobrancaEventos.resultado} in
+    ('mensagem_enviada', 'enviado', 'sem_resposta', 'nao_atendeu', 'caixa_postal') then 1 else 0 end,
+    ${cobrancaEventos.ocorridoEm} desc, ${cobrancaEventos.id} desc`;
+}
+
+/** Derivação de evidência persistida; nunca converte envio em resposta. */
+function faseDoAtendimento(): SQL {
+  return sql`coalesce((select case
+    when ${cobrancaEventos.metadata}->>'acaoContato' = 'pagamento_informado' then 'aguardando_pagamento'
+    when ${cobrancaEventos.metadata}->>'acaoContato' = 'respondeu' then 'em_atendimento'
+    when ${cobrancaEventos.tipo} = 'promessa' or ${cobrancaEventos.resultado} = 'promessa_pagamento' then 'aguardando_pagamento'
+    when ${cobrancaEventos.resultado} in ('falou', 'recusou') then 'em_atendimento'
+    when ${cobrancaEventos.resultado} in ('mensagem_enviada', 'enviado', 'sem_resposta', 'nao_atendeu', 'caixa_postal') then 'aguardando_resposta'
+    else case when ${cobrancaCasos.status} = 'aberto' then 'a_iniciar' when ${cobrancaCasos.status} = 'em_contato' then 'aguardando_resposta' else 'em_atendimento' end end
+    from ${cobrancaEventos}
+    where ${cobrancaEventos.providerId} = ${cobrancaCasos.providerId} and ${cobrancaEventos.casoId} = ${cobrancaCasos.id}
+      and (${cobrancaEventos.tipo} in ('contato', 'promessa', 'acordo_quebrado', 'negociacao_proposta') or ${cobrancaEventos.metadata}->>'acaoContato' in ('respondeu', 'pagamento_informado'))
+    order by ${ordemDaEvidenciaDeContato()} limit 1),
+    case when ${cobrancaCasos.status} = 'aberto' then 'a_iniciar' when ${cobrancaCasos.status} = 'em_contato' then 'aguardando_resposta' else 'em_atendimento' end)`;
+}
+
 function condicoesDaCarteira(providerId: number, f: FiltrosDaCarteira): SQL | undefined {
   const conds: (SQL | undefined)[] = [eq(cobrancaCasos.providerId, providerId)];
   if (f.status === "todos") {
@@ -564,6 +589,32 @@ function condicoesDaCarteira(providerId: number, f: FiltrosDaCarteira): SQL | un
     conds.push(or(eq(cobrancaCasos.responsavelUserId, f.meusMaisFilaGeral), isNull(cobrancaCasos.responsavelUserId))!);
   } else if (f.responsavelUserId === null) conds.push(isNull(cobrancaCasos.responsavelUserId));
   else if (f.responsavelUserId !== undefined) conds.push(eq(cobrancaCasos.responsavelUserId, f.responsavelUserId));
+  if (f.faseAtendimento) conds.push(eq(faseDoAtendimento(), f.faseAtendimento));
+  if (f.atencao === "promessa_vencida") {
+    const hoje = new Date();
+    const dia = [hoje.getFullYear(), String(hoje.getMonth() + 1).padStart(2, "0"), String(hoje.getDate()).padStart(2, "0")].join("-");
+    conds.push(inArray(cobrancaCasos.status, ["aberto", "em_contato", "negociando"]));
+    conds.push(eq(faseDoAtendimento(), "aguardando_pagamento"));
+    conds.push(sql`(select ${cobrancaEventos.metadata}->>'promessaPara' from ${cobrancaEventos}
+      where ${cobrancaEventos.providerId} = ${cobrancaCasos.providerId} and ${cobrancaEventos.casoId} = ${cobrancaCasos.id}
+        and (${cobrancaEventos.tipo} in ('contato', 'promessa', 'acordo_quebrado', 'negociacao_proposta') or ${cobrancaEventos.metadata}->>'acaoContato' in ('respondeu', 'pagamento_informado'))
+      order by ${ordemDaEvidenciaDeContato()} limit 1) < ${dia}`);
+  }
+  if (f.atencao === "sem_telefone") conds.push(sql`length(regexp_replace(coalesce(${customers.phone}, ''), '[^0-9]', '', 'g')) < 10`);
+  if (f.atencao === "pagamento_informado") {
+    conds.push(casoVivo());
+    conds.push(sql`(select ${cobrancaEventos.metadata}->>'acaoContato' from ${cobrancaEventos}
+      where ${cobrancaEventos.providerId} = ${cobrancaCasos.providerId} and ${cobrancaEventos.casoId} = ${cobrancaCasos.id}
+        and (${cobrancaEventos.tipo} in ('contato', 'promessa', 'acordo_quebrado', 'negociacao_proposta') or ${cobrancaEventos.metadata}->>'acaoContato' in ('respondeu', 'pagamento_informado'))
+      order by ${ordemDaEvidenciaDeContato()} limit 1) = ${"pagamento_informado"}`);
+  }
+  if (f.atencao === "sem_responsavel") conds.push(isNull(cobrancaCasos.responsavelUserId));
+  if (f.atencao === "sem_acao") conds.push(isNull(cobrancaCasos.proximoContatoEm));
+  if (f.atencao === "hoje" || f.atencao === "vencido") {
+    const corte = new Date();
+    corte.setHours(f.atencao === "hoje" ? 24 : 0, 0, 0, 0);
+    conds.push(lt(cobrancaCasos.proximoContatoEm, corte));
+  }
   if (f.faixaAtraso) {
     /*
      * O atraso mora no CLIENTE, não no caso: é a fatura mais antiga em aberto
@@ -663,7 +714,7 @@ export class CobrancaStorage {
     providerId: number,
     filtros: FiltrosDaCarteira = {},
     paginacao: Paginacao = { pagina: 1, porPagina: 50 },
-  ): Promise<{ linhas: LinhaDaCarteira[]; total: number }> {
+  ): Promise<{ linhas: LinhaDaCarteira[]; total: number; valorTotal: number }> {
     const porPagina = Math.min(Math.max(1, Math.trunc(paginacao.porPagina) || 50), PAGINA_MAXIMA);
     const pagina = Math.max(1, Math.trunc(paginacao.pagina) || 1);
     const condicao = condicoesDaCarteira(providerId, filtros);
@@ -675,14 +726,14 @@ export class CobrancaStorage {
 
     // O total precisa do join com `customers`: bairro, faixa e busca filtram
     // colunas do cliente.
-    const [contagem] = await db.select({ total: count() }).from(cobrancaCasos)
+    const [contagem] = await db.select({ total: count(), valorTotal: sql<string>`coalesce(sum(${cobrancaCasos.valorAtual}), 0)` }).from(cobrancaCasos)
       .innerJoin(customers, and(
         eq(customers.id, cobrancaCasos.customerId),
         eq(customers.providerId, cobrancaCasos.providerId),
       ))
       .where(condicao);
 
-    return { linhas: linhas.map(montarLinha), total: num(contagem?.total) };
+    return { linhas: linhas.map(montarLinha), total: num(contagem?.total), valorTotal: num(contagem?.valorTotal) };
   }
 
   async obterCasoDeCobranca(providerId: number, id: number): Promise<LinhaDaCarteira | undefined> {
