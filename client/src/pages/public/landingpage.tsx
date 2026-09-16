@@ -21,6 +21,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { useLocation } from "wouter";
 import LandingChatbot from "@/components/landing-chatbot";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { emCreditos } from "@shared/planos";
 import { usePrecosPublicos, planoPorChave, precoCurto, type PrecoDePlano } from "@/hooks/use-precos";
 import "./landingpage.css";
 
@@ -116,11 +117,6 @@ const PERGUNTAS: { q: string; a: string }[] = [
     a: "IXC Soft, SGP, MK Solutions, Hubsoft, Voalle, RBX ISP e outros. Solicitações para novos ERPs são avaliadas semanalmente — basta abrir um chamado pelo painel.",
   },
 ];
-
-/** "1 crédito" / "3 créditos" — plural errado ja denunciou tabela desatualizada antes. */
-function emCreditos(n: number): string {
-  return `${n} crédito${n === 1 ? "" : "s"}`;
-}
 
 /**
  * O preco no card da vitrine, com os tres estados que a leitura tem.

@@ -12,6 +12,7 @@ import {
   PilulaCabecalho, ROTULO_CAMPO, Selo, TITULO_CARTAO, LISTA_ABAS, ABA, type TomSelo,
 } from "@/components/painel/ui";
 import { cn } from "@/lib/utils";
+import { formatarCreditos } from "@shared/planos";
 import {
   BarChart3, Building2, CreditCard, ExternalLink, Plus, RefreshCw, Save,
   Trash2, User, Users,
@@ -301,7 +302,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
               que existe para leitura numerica. Mesmo dado, mono e tabular, e
               visivel de qualquer aba. */}
           <div className="flex items-center gap-2 flex-wrap">
-            <PilulaCabecalho Icone={CreditCard} valor={provider.ispCredits} rotulo="créditos ISP" />
+            <PilulaCabecalho Icone={CreditCard} valor={formatarCreditos(provider.ispCredits)} rotulo="créditos ISP" />
             <PilulaCabecalho Icone={BarChart3} valor={provider.spcCredits} rotulo="créditos SPC" />
           </div>
         </SheetHeader>

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Kicker, pillStyle, ReportSection, Th, type Tone } from "@/components/consulta/report-ui";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { emCreditos, formatarCreditos } from "@shared/planos";
 import { usePrecos, fraseDoCredito, type PacoteDeCredito } from "@/hooks/use-precos";
 
 /**
@@ -252,7 +253,7 @@ export default function CreditosPage() {
               fontVariantNumeric: "tabular-nums", marginTop: 6,
               color: saldo > 0 ? "var(--text)" : "var(--past)",
             }} data-testid="text-credits-balance">
-              {saldo}
+              {formatarCreditos(saldo)}
             </div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
               {saldo === 1 ? "crédito" : "créditos"}
@@ -292,7 +293,7 @@ export default function CreditosPage() {
                   letterSpacing: "var(--track-wide)", color: "var(--text-faint)",
                   fontVariantNumeric: "tabular-nums",
                 }}>
-                  {c.custo} crédito{c.custo > 1 ? "s" : ""} · seu saldo paga {rende(c.custo)}
+                  {emCreditos(c.custo)} · seu saldo paga {rende(c.custo)}
                 </div>
               </div>
             ))}

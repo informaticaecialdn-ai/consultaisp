@@ -14,6 +14,7 @@
  * existir) sai com "—" no lugar, nunca "null"/"undefined".
  */
 import type { SpcConsultation } from "@shared/schema";
+import { formatarCreditos } from "@shared/planos";
 import {
   dataBr, dataHoraBr, formatarDocumento, formatarReais,
   type BlocoDoDocumento, type CampoDaGrade, type DocumentoRenderizado, type TomDoBloco,
@@ -88,7 +89,7 @@ export function documentoDaConsultaSpc({ consulta, provedor, geradoEm }: Entrada
   if (consulta.consultaId) itens.push({ rotulo: "IDENTIFICAÇÃO", valor: consulta.consultaId, mono: true });
   if (r.protocolo) itens.push({ rotulo: "PROTOCOLO EM SPC BRASIL", valor: r.protocolo, mono: true });
   if (provedor.name.trim()) itens.push({ rotulo: "CONSULTADO POR", valor: provedor.name.trim() });
-  if (r.creditosCobrados != null) itens.push({ rotulo: "CRÉDITOS COBRADOS", valor: String(r.creditosCobrados) });
+  if (r.creditosCobrados != null) itens.push({ rotulo: "CRÉDITOS COBRADOS", valor: formatarCreditos(r.creditosCobrados) });
   itens.push({ rotulo: "DOCUMENTO GERADO EM", valor: dataHoraBr(geradoEmIso) });
   blocos.push({ tipo: "rotulos", itens });
 

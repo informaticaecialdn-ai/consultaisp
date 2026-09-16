@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, bigserial, jsonb, index, uniqueIndex, unique, primaryKey, foreignKey, check, date, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, bigserial, jsonb, index, uniqueIndex, unique, primaryKey, foreignKey, check, date, uuid, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -144,6 +144,22 @@ export const marcas = pgTable("marcas", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+/**
+ * Saldo de creditos com centavos (migracao 0043, 16/09/2026): a consulta SPC
+ * passou a custar 2,9 e a coluna inteira arredondaria o debito. `numeric(12,2)`
+ * no Postgres, `number` no TypeScript — o pg entrega numeric como string, e e
+ * isto que converte na leitura, para todo `select` do Drizzle. Quem le a coluna
+ * por `db.execute` (SQL cru, `RETURNING *`) continua recebendo string e precisa
+ * de `Number()` — ver `providerDaLinha` em consultations.storage.ts.
+ */
+const creditos = customType<{ data: number; driverData: string | number }>({
+  dataType() { return "numeric(12,2)"; },
+  fromDriver(value) { return Number(value); },
+  // O numero vai cru: o pg serializa igual, e o banco falso dos testes do sandbox
+  // guarda o que recebe — "500" como texto quebrava a leitura direta da tabela.
+  toDriver(value) { return value; },
+});
+
 export const providers = pgTable("providers", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -164,7 +180,7 @@ export const providers = pgTable("providers", {
   plan: text("plan").notNull().default("free"),
   status: text("status").notNull().default("active"),
   verificationStatus: text("verification_status").notNull().default("pending"),
-  ispCredits: integer("isp_credits").notNull().default(50),
+  ispCredits: creditos("isp_credits").notNull().default(50),
   spcCredits: integer("spc_credits").notNull().default(0),
   bigdataCredits: integer("bigdata_credits").notNull().default(0),
   contactEmail: text("contact_email"),
@@ -892,7 +908,8 @@ export type MarcaEvento = typeof marcaEventos.$inferSelect;
 export type InsertMarcaEvento = z.infer<typeof insertMarcaEventoSchema>;
 
 export const insertMarcaSchema = createInsertSchema(marcas).omit({ id: true, createdAt: true });
-export const insertProviderSchema = createInsertSchema(providers).omit({ id: true, createdAt: true });
+// O drizzle-zod mapeia a coluna customizada `creditos` para `any`; o saldo entra aqui como o numero que e.
+export const insertProviderSchema = createInsertSchema(providers, { ispCredits: z.number().finite().nonnegative().optional() }).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true });
 export const insertContractSchema = createInsertSchema(contracts).omit({ id: true });

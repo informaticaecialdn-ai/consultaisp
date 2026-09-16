@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { formatarCreditos } from "@shared/planos";
 import { useAuth } from "@/lib/auth";
 import { usePrecos, camposDaFatura, planoPorChave } from "@/hooks/use-precos";
 import { rotuloDoPlano } from "@/lib/planos";
@@ -1384,7 +1385,7 @@ export default function AdminProvedorPage() {
       <section>
         <KickerSecao>Saldo de créditos</KickerSecao>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <CartaoMetrica Icone={Zap} rotulo="Créditos ISP" valor={provider.ispCredits} sub={inclusoNoPlano("isp")} testId="card-creditos-isp" testIdValor="value-card-creditos-isp" />
+          <CartaoMetrica Icone={Zap} rotulo="Créditos ISP" valor={formatarCreditos(provider.ispCredits)} sub={inclusoNoPlano("isp")} testId="card-creditos-isp" testIdValor="value-card-creditos-isp" />
           <CartaoMetrica Icone={CreditCard} rotulo="Créditos SPC" valor={provider.spcCredits} sub={inclusoNoPlano("spc")} testId="card-creditos-spc" testIdValor="value-card-creditos-spc" />
           <CartaoMetrica Icone={IdCard} rotulo="Créditos cadastral" valor={provider.bigdataCredits ?? 0} sub="consulta cadastral" testId="card-creditos-cadastral" testIdValor="value-card-creditos-cadastral" />
         </div>
@@ -1860,7 +1861,7 @@ export default function AdminProvedorPage() {
                     </LinhaDado>
                     <LinhaDado rotulo="Créditos ISP">
                       <Num className="text-[13px] font-medium text-[var(--text)]">
-                        {provider.ispCredits}{planoCobrado && planoCobrado.creditosInclusos.isp > 0 ? ` / ${planoCobrado.creditosInclusos.isp}` : ""}
+                        {formatarCreditos(provider.ispCredits)}{planoCobrado && planoCobrado.creditosInclusos.isp > 0 ? ` / ${planoCobrado.creditosInclusos.isp}` : ""}
                       </Num>
                     </LinhaDado>
                     <LinhaDado rotulo="Créditos SPC">
@@ -2421,7 +2422,7 @@ export default function AdminProvedorPage() {
             {/* O saldo de hoje sai no MESMO cartao de metrica das outras telas —
                 eram dois poços coloridos com o numero em Inter bold. */}
             <div className="grid grid-cols-2 gap-3">
-              <CartaoMetrica rotulo="Saldo ISP" valor={provider.ispCredits} testId="card-modal-saldo-isp" />
+              <CartaoMetrica rotulo="Saldo ISP" valor={formatarCreditos(provider.ispCredits)} testId="card-modal-saldo-isp" />
               <CartaoMetrica rotulo="Saldo SPC" valor={provider.spcCredits} testId="card-modal-saldo-spc" />
             </div>
             <div className="space-y-1.5">

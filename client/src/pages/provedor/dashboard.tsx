@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { STALE_DASHBOARD } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { formatarCreditos } from "@shared/planos";
 import { Link } from "wouter";
 import {
   CabecalhoPainel,
@@ -65,7 +66,7 @@ export default function DashboardPage() {
                 Icone={CreditCard}
                 tom="marca"
                 interativa
-                valor={isLoading ? "..." : creditos}
+                valor={isLoading ? "..." : formatarCreditos(creditos)}
                 rotulo="créditos"
                 testIdValor="text-credits"
               />
@@ -81,7 +82,7 @@ export default function DashboardPage() {
             saldo costuma vir do cache, entao piscar um bloco cinza seria pior. */}
         <CartaoMetrica
           rotulo="Créditos disponíveis"
-          valor={isLoading ? "—" : creditos}
+          valor={isLoading ? "—" : formatarCreditos(creditos)}
           testIdValor="value-card-credits"
           /* BOTAO_MARCA em vez das classes soltas: o `min-h-[36px]` cravado que
              estava aqui deixava o alvo abaixo dos 44px no dedo, e a secao 7 do

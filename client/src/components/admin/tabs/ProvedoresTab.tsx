@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, STALE_LISTS } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { formatarCreditos } from "@shared/planos";
 import {
   Plus, Search, SearchX, Ban, CheckCircle, Globe, Users, ChevronRight, Building2,
 } from "lucide-react";
@@ -260,7 +261,7 @@ export default function ProvedoresTab() {
                           e uma afirmacao sobre dinheiro que a tela nao mediu. */}
                       <span>
                         créditos{" "}
-                        <span className="font-mono tabular-nums text-[var(--text-2)]">{p.ispCredits ?? "—"}</span> ISP
+                        <span className="font-mono tabular-nums text-[var(--text-2)]">{p.ispCredits == null ? "—" : formatarCreditos(p.ispCredits)}</span> ISP
                         {" · "}
                         <span className="font-mono tabular-nums text-[var(--text-2)]">{p.spcCredits ?? "—"}</span> SPC
                       </span>

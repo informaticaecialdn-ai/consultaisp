@@ -60,21 +60,34 @@ export const CREDIT_PACKAGES = [
  *   cobrando 1 credito; quando tiver volume aumentamos". Ao mexer no combo em
  *   server/services/bigdata.service.ts, refaca essa conta: cada dataset e
  *   cobrado a parte, e PRECO_DA_CONTA la e a fonte.
- * - `spc` (R$ 3,00): SPC Brasil. Continua o mais caro dos tres porque o bureau
+ * - `spc` (R$ 2,90): SPC Brasil. Continua o mais caro dos tres porque o bureau
  *   cobra mais e a consulta e negativacao formal. Baixado de 4 para 3 por
- *   decisao do dono em 31/08/2026.
+ *   decisao do dono em 31/08/2026, e de 3 para 2,9 em 16/09/2026 — foi o que
+ *   trouxe o centavo ao saldo: `providers.isp_credits` virou numeric(12,2) na
+ *   migracao 0043 (antes era inteiro, e 2,9 arredondaria para 3 no banco).
  *
  * ESTE E O UNICO LUGAR ONDE ESSES NUMEROS EXISTEM. Nao repita nenhum deles em
  * texto de tela: a landing anunciava "4 creditos" em quatro arquivos diferentes,
- * e cada mudanca de preco exigia lembrar dos quatro. Importe a constante.
+ * e cada mudanca de preco exigia lembrar dos quatro. Importe a constante — e
+ * mostre com `formatarCreditos`/`emCreditos`, que escrevem "2,9" e nao "2.9".
  */
 export const CUSTO_EM_CREDITOS = {
   isp: 1,
   cadastral: 1,
-  spc: 3,
+  spc: 2.9,
 } as const;
 
 export type TipoConsultaCobravel = keyof typeof CUSTO_EM_CREDITOS;
+
+/** "2,9", "47,1", "50" — ate 2 casas, sem zero a direita, em pt-BR. */
+export function formatarCreditos(n: number): string {
+  return Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+/** "1 credito", "2,9 creditos" — plural errado ja denunciou tabela desatualizada antes. */
+export function emCreditos(n: number): string {
+  return `${formatarCreditos(n)} crédito${n === 1 ? "" : "s"}`;
+}
 
 /**
  * O que a fatura mensal cobra (server/routes/financeiro.routes.ts) e o que a

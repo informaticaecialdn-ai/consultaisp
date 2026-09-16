@@ -10,6 +10,7 @@
  */
 import { readFileSync } from "fs";
 import { join } from "path";
+import { CUSTO_EM_CREDITOS } from "@shared/planos";
 import { beforeAll, describe, expect, it } from "vitest";
 import { avaliarRiscoDeFuga, motivosGravados, severidadeDoAlerta } from "@shared/antifraude-avaliacao";
 import { montarRegras } from "@shared/antifraude-regras";
@@ -282,7 +283,7 @@ describe("consultasDoSandbox — Consulta ISP", () => {
 });
 
 describe("consultasDoSandbox — SPC e cadastral", () => {
-  it("4 consultas SPC pelo simulado: duas limpas e duas com restrição, a 3 créditos, com o instante da própria consulta", () => {
+  it("4 consultas SPC pelo simulado: duas limpas e duas com restrição, ao preço da tabela, com o instante da própria consulta", () => {
     const { spc } = consultas();
     expect(spc).toHaveLength(4);
     expect(spc.filter(c => (c.result as any).restricao).length).toBe(2);
@@ -292,7 +293,7 @@ describe("consultasDoSandbox — SPC e cadastral", () => {
       expect(c.userId).toBe(ADMIN_ID);
       expect(cpfsDaCarteira.has(c.cpfCnpj)).toBe(true);
       expect(r.simulado).toBe(true);
-      expect(r.creditosCobrados).toBe(3);
+      expect(r.creditosCobrados).toBe(CUSTO_EM_CREDITOS.spc);
       expect(r.consultadoEm).toBe(c.createdAt!.toISOString());
       expect(c.score).toBe(r.score);
       expect(c.createdAt! >= inicioDoMes && c.createdAt! <= AGORA).toBe(true);

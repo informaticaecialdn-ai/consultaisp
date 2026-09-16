@@ -6,6 +6,7 @@
 import OpenAI from "openai";
 import { logger } from "../logger";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { emCreditos } from "@shared/planos";
 import { emModoDemo } from "../demo/modo-demo";
 
 function getClient() {
@@ -53,8 +54,8 @@ Seu papel: ajudar visitantes do site a entender o produto, tirar duvidas e incen
 **Custo por consulta:**
 - Consulta na propria base: GRATIS
 - Consulta ISP (rede colaborativa): 1 credito POR PROVEDOR PARCEIRO que tenha registro
-- Consulta cadastral: ${CUSTO_EM_CREDITOS.cadastral} credito(s)
-- Consulta SPC Brasil: ${CUSTO_EM_CREDITOS.spc} credito(s)
+- Consulta cadastral: ${emCreditos(CUSTO_EM_CREDITOS.cadastral)}
+- Consulta SPC Brasil: ${emCreditos(CUSTO_EM_CREDITOS.spc)}
 
 **NUNCA prometa o que nao esta nesta lista.** Em especial: nao existe alerta por WhatsApp
 (so e-mail e webhook), nao existe consulta em lote por CSV, e o score vai de 0 a 1000.

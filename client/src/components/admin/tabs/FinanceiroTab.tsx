@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { formatarCreditos } from "@shared/planos";
 import {
   Wallet, TrendingUp, DollarSign, AlertCircle, TrendingDown, BarChart3, Crown,
   Plus, RefreshCw, Zap, FileText, Clock, ArrowUpDown, CreditCard,
@@ -701,7 +702,7 @@ export default function FinanceiroTab() {
                         <Td className="text-[13px] font-medium text-[var(--text)] w-full">
                           {p.name}
                         </Td>
-                        <Td num className="text-[var(--text)]">{p.ispCredits}</Td>
+                        <Td num className="text-[var(--text)]">{formatarCreditos(p.ispCredits)}</Td>
                         <Td num className="text-[var(--text)]">{p.spcCredits}</Td>
                       </tr>
                     ))}

@@ -33,6 +33,7 @@ import { gerarPdfDoDocumento } from "../assinatura/pdf";
 import { emModoDemo } from "../demo/modo-demo";
 import { PREFIXO_SANDBOX } from "../demo/sandbox.service";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { formatarCreditos } from "@shared/planos";
 import { notifyOwnerProviders } from "../services/proactive-alert.service";
 import { faixaIdadeOcorrencia, faixaValorEquipamento } from "../services/equipment-recovery-rules";
 
@@ -1128,7 +1129,7 @@ export function registerConsultasRoutes(): Router {
           "CONSULTA SPC recusada — nada gravado",
         );
         return res.status(402).json({
-          message: `Saldo insuficiente: a consulta SPC custa ${custo} créditos e você tem ${provider?.ispCredits ?? 0}.`,
+          message: `Saldo insuficiente: a consulta SPC custa ${formatarCreditos(custo)} créditos e você tem ${formatarCreditos(provider?.ispCredits ?? 0)}.`,
           creditosNecessarios: custo,
           creditosDisponiveis: provider?.ispCredits ?? 0,
           consultaId,

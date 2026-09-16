@@ -193,7 +193,7 @@ declare module "express-session" {
 ```
 id, name, tradeName, cnpj(unique), legalType, openingDate, businessSegment,
 subdomain(unique), plan(free/basic/pro/enterprise), status(active/suspended/cancelled),
-verificationStatus(pending/approved/rejected), ispCredits(default 50), spcCredits(default 0),
+verificationStatus(pending/approved/rejected), ispCredits(numeric(12,2) desde a 0043 — o saldo tem centavos; default 50), spcCredits(default 0),
 contactEmail, contactPhone, website,
 addressZip/Street/Number/Complement/Neighborhood/City/State,
 webhookToken, webhookAtivo,
@@ -867,7 +867,9 @@ pilares → bloco escuro da rede (topologia, anonimato, LGPD) → antes e depois
 ### Números — nenhum é digitado na página
 - Preço e créditos inclusos: `GET /api/public/precos` (`usePrecosPublicos`).
   Sem resposta, o card diz "Preço indisponível no momento" — nunca R$ 0.
-- Custo por consulta: `CUSTO_EM_CREDITOS` (`isp` 1, `cadastral` 1, `spc` 3).
+- Custo por consulta: `CUSTO_EM_CREDITOS` (`isp` 1, `cadastral` 1, `spc` 2,9 —
+  dono, 16/09/2026; por isso o saldo passou a ter centavos na 0043). Na tela,
+  sempre `formatarCreditos`/`emCreditos` de `shared/planos.ts` ("2,9", não "2.9").
 - Vitrine: só **Gratuito** (R$ 0, 50 créditos de boas-vindas, concedidos uma vez
   no cadastro) e **Profissional** (R$ 99/mês, **sem crédito incluso**).
   Decisão do dono em 10/09/2026: *"o plano não tem créditos, créditos somente no

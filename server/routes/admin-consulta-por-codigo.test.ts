@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import type { Server } from "node:http";
+import { CUSTO_EM_CREDITOS } from "@shared/planos";
 
 /**
  * Foco: GET /api/admin/consultas?codigo= — a unica porta por onde o
@@ -248,7 +249,7 @@ describe("GET /api/admin/consultas?codigo= — o codigo acha a consulta", () => 
 
     const ficha = await (await buscar(CODIGO)).json();
 
-    expect(ficha.custoCreditos).toBe(3);
+    expect(ficha.custoCreditos).toBe(CUSTO_EM_CREDITOS.spc);
     expect(ficha.custoOrigem).toBe("tabela");
   });
 });

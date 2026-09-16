@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, STALE_DASHBOARD } from "@/lib/queryClient";
 import { useState, useRef, useEffect } from "react";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { formatarCreditos } from "@shared/planos";
 import { usePrecos, precoCurto, linhaDeCreditosDoPlano } from "@/hooks/use-precos";
 import { useLocation, useSearch } from "wouter";
 import { useMarca } from "@/lib/marca";
@@ -991,7 +992,7 @@ export default function PainelProvedorPage() {
                 </div>
                 <div className="flex justify-between items-center py-2">
                   <span className="text-sm text-muted-foreground">Creditos</span>
-                  <span className="font-semibold" data-testid="text-isp-credits">{(provider?.ispCredits ?? 0)}</span>
+                  <span className="font-semibold" data-testid="text-isp-credits">{formatarCreditos(provider?.ispCredits ?? 0)}</span>
                 </div>
               </div>
             </Card>
@@ -1881,11 +1882,11 @@ export default function PainelProvedorPage() {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Saldo de Creditos</p>
-                    <p className="text-3xl font-bold" data-testid="text-isp-credits-tab">{(provider?.ispCredits ?? 0)}</p>
+                    <p className="text-3xl font-bold" data-testid="text-isp-credits-tab">{formatarCreditos(provider?.ispCredits ?? 0)}</p>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {`Consulta ISP (rede colaborativa): ${CUSTO_EM_CREDITOS.isp} credito. Consulta na propria base: gratuita. Consulta cadastral: ${CUSTO_EM_CREDITOS.cadastral} credito${CUSTO_EM_CREDITOS.cadastral === 1 ? "" : "s"}. Consulta SPC: ${CUSTO_EM_CREDITOS.spc} creditos.`}
+                  {`Consulta ISP (rede colaborativa): ${CUSTO_EM_CREDITOS.isp} credito. Consulta na propria base: gratuita. Consulta cadastral: ${CUSTO_EM_CREDITOS.cadastral} credito${CUSTO_EM_CREDITOS.cadastral === 1 ? "" : "s"}. Consulta SPC: ${formatarCreditos(CUSTO_EM_CREDITOS.spc)} creditos.`}
                 </p>
               </Card>
             </div>

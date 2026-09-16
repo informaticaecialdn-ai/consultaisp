@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { formatarCreditos } from "@shared/planos";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card } from "@/components/ui/card";
@@ -273,7 +274,7 @@ export default function ConsultaSPCPage() {
 
         <TabsContent value="nova" className="spc-new">
           <Card className="spc-consultation">
-            <div className="spc-search-heading"><div><span className="spc-kicker">SPC MIX TOP +</span><h2>Quem você deseja consultar?</h2><p>Informe o CPF da pessoa ou o CNPJ da empresa.</p></div><span className="spc-cost"><b>{CUSTO_EM_CREDITOS.spc}</b> créditos por consulta</span></div>
+            <div className="spc-search-heading"><div><span className="spc-kicker">SPC MIX TOP +</span><h2>Quem você deseja consultar?</h2><p>Informe o CPF da pessoa ou o CNPJ da empresa.</p></div><span className="spc-cost"><b>{formatarCreditos(CUSTO_EM_CREDITOS.spc)}</b> créditos por consulta</span></div>
             <label htmlFor="spc-documento" className="spc-field-label">CPF ou CNPJ</label>
             <div className="spc-search-controls">
               <div className="relative flex-1">
@@ -318,7 +319,7 @@ export default function ConsultaSPCPage() {
               </div>
             )}
 
-            <div className="spc-search-note"><Shield size={15}/><span>Consulta ao produto SPC MIX TOP + · <strong>{CUSTO_EM_CREDITOS.spc} créditos</strong> por consulta. Score e informações adicionais dependem do produto contratado.</span></div>
+            <div className="spc-search-note"><Shield size={15}/><span>Consulta ao produto SPC MIX TOP + · <strong>{formatarCreditos(CUSTO_EM_CREDITOS.spc)} créditos</strong> por consulta. Score e informações adicionais dependem do produto contratado.</span></div>
             {mutation.isPending && <div className="spc-loading" role="status" aria-label="Consultando SPC Brasil"><p>Buscando informações no SPC Brasil…</p><Skeleton className="h-5 w-2/3"/><Skeleton className="h-20 w-full"/></div>}
 
             {!mutation.isPending && erro && (
