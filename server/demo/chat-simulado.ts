@@ -242,11 +242,6 @@ function garantirVarredura(): void {
   varredura.unref?.();
 }
 
-function semDdi(telefone: string | null | undefined): string {
-  const digitos = String(telefone ?? "").replace(/\D/g, "");
-  return (digitos.length === 12 || digitos.length === 13) && digitos.startsWith("55") ? digitos.slice(2) : digitos;
-}
-
 /**
  * Conversa aberta pelo visitante: `demo-conv-<providerId>-n<sufixo>`. O sufixo
  * não vem de contador do processo — a linha da conversa fica 24 h no banco, e
@@ -1086,8 +1081,10 @@ const ROTAS: Array<[string, RegExp, Tratador]> = [
     // mudou, vale — a do banco não entra em dobro.
     const semeadas = providerId === null ? [] : (await conversasSemeadas(providerId)).filter(l => !estado.criadas.has(l.conversationId)).map(l => conversaDaLinha(l, estado));
     const criadas = [...estado.criadas.values()].map(c => ({ ...c, status: estado.status.get(c.id) ?? c.status }));
-    const alvo = semDdi(p.query.get("search"));
-    return ok({ conversations: [...semeadas, ...criadas].filter(c => !alvo || semDdi(c.contact.phone) === alvo) });
+    // Como o fork de verdade: `search` é um "contém" sobre os dígitos do telefone
+    // do contato (a ponte busca pelos oito dígitos finais e filtra por chave depois).
+    const alvo = String(p.query.get("search") ?? "").replace(/\D/g, "");
+    return ok({ conversations: [...semeadas, ...criadas].filter(c => !alvo || String(c.contact.phone ?? "").replace(/\D/g, "").includes(alvo)) });
   }],
   ["POST", /^\/conversations$/, p => {
     const providerId = providerIdDaOrganizacao(p.org);
