@@ -144,6 +144,18 @@ describe("deleteProvider sem historico: o caminho antigo nao mudou", () => {
 
     expect(nomes(estado.deletes)).toEqual([
       "support_threads",
+      // As dez das migracoes 0039-0042 vem ANTES de invoices/customers/users:
+      // apontam para as tres sem ON DELETE CASCADE (16/09/2026).
+      "cobranca_comunicacoes",
+      "cobranca_contestacoes",
+      "cobranca_contatos_orcamento",
+      "cobranca_preferencias_contato",
+      "cobranca_avisos_config",
+      "cobranca_comunicacao_config",
+      "cobranca_gestao_config",
+      "cobranca_canais_config",
+      "chat_multicanal_mensagens",
+      "chat_multicanal_config",
       "invoices",
       "contracts",
       "anti_fraud_alerts",

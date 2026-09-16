@@ -83,10 +83,13 @@ import type {
   AcordoDaPolitica,
 } from "@shared/schema";
 import { cobrancaPreAvisos, cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
+import { chatMulticanalConfig, chatMulticanalMensagens, cobrancaComunicacoes } from "@shared/schema-comunicacao";
 import { chatAutonomiaAutorizacao, chatAutonomiaSeguranca } from "@shared/chat-autonomia-seguranca";
 import { storage } from "../storage";
 import { emailCanonico } from "../storage/users.storage";
 import { carteiraDoStatusErp } from "../storage/cobranca.storage";
+import type { HistoricoDnaDaRelacao } from "../storage/faturas.storage";
+import { resumirHistoricoDePagamentos } from "@shared/cobranca/historico-pagamentos";
 import { hashPassword } from "../password";
 import { pessoaFicticia } from "./pessoas-ficticias";
 import { PROVEDORES_DA_DEMO, INDICES_COMPARTILHADOS, MESORREGIAO_DO_MUNDO_BASE, complementarMundoBase, semearMundoBase, linhaDaIntegracao } from "./mundo-base";
@@ -1287,12 +1290,68 @@ const CASOS_VIVOS_DE_EX_CLIENTE: ReadonlyArray<{ posicao: number; status: Status
   { posicao: 5, status: "negativado", proximoContato: "passado" },
 ];
 
+/**
+ * O histórico de pagamentos de cada EX-CLIENTE como a régua o lê
+ * (`FaturasStorage.historicosDePagamentosDoProvedor(paraDna)`, faturas.storage.ts):
+ * faturas pagas e datadas, vencidas E pagas dentro de [início do contrato,
+ * corte], com o encerramento confirmado no dia do corte — só para cancelado da
+ * fonte demo (uma das `FONTES_COM_ENCERRAMENTO_CONFIRMADO`) com data de
+ * contrato e corte não posterior a hoje. Sem paga na janela não há entrada,
+ * como no storage. Refeito em memória porque, quando os casos são montados,
+ * as faturas ainda não foram gravadas (mesma transação).
+ *
+ * As datas comparam como o banco compara: `to_char(cortado_em)` e `::date` num
+ * timestamp SEM fuso devolvem o dia UTC do ISO que o Drizzle grava (é o que
+ * `diaUtc` lê); `contract_start_date` é DATE, a string local que a semeadura
+ * gravou; o "hoje" da régua é o dia local (`diaDeHoje`).
+ *
+ * Sem isto a semeadura calculava o DNA do ex-cliente com a taxonomia de ATIVO
+ * — meses até hoje, confiabilidade pela dívida de hoje, tom `negociar_reter`/
+ * `recuperacao`... — e a primeira passada da régua (que roda também na demo)
+ * reescrevia os 71 casos vivos de ex-cliente na frente do visitante: tom para
+ * `ex_*` e 12 quadrantes (medido em 16/09/2026 num sandbox recém-criado). A
+ * demonstração contava uma história à tarde e outra depois das 05:00.
+ */
+function historicosDnaDosExClientes(
+  idsClientes: readonly number[],
+  linhasClientes: readonly InsertCustomer[],
+  faturas: readonly InsertInvoice[],
+  agora: Date,
+): Map<number, HistoricoDnaDaRelacao> {
+  const diaUtc = (d: Date) => d.toISOString().slice(0, 10);
+  const hoje = paraDataSemHora(agora);
+  const pagasPorCliente = new Map<number, InsertInvoice[]>();
+  for (const f of faturas) {
+    if (f.status !== "paid" || !f.paidDate) continue;
+    pagasPorCliente.set(f.customerId, [...(pagasPorCliente.get(f.customerId) ?? []), f]);
+  }
+  const historicos = new Map<number, HistoricoDnaDaRelacao>();
+  linhasClientes.forEach((linha, k) => {
+    if (linha.status !== "cancelled" || linha.erpSource !== FONTE_ERP_DEMO || !linha.contractStartDate || !linha.cortadoEm) return;
+    const inicio = linha.contractStartDate;
+    const corte = diaUtc(linha.cortadoEm);
+    if (corte < inicio || corte > hoje) return;
+    const pagas = (pagasPorCliente.get(idsClientes[k]) ?? []).filter((f) => {
+      const vencimento = diaUtc(f.dueDate);
+      const pagamento = diaUtc(f.paidDate!);
+      return vencimento >= inicio && pagamento >= inicio && vencimento <= corte && pagamento <= corte;
+    });
+    if (pagas.length === 0) return;
+    historicos.set(idsClientes[k], {
+      ...resumirHistoricoDePagamentos(pagas.map((f) => ({ status: f.status ?? "paid", vencimento: f.dueDate, pagoEm: f.paidDate!, valorPago: Number(f.paidValue ?? f.value) }))),
+      encerramentoConfirmadoEm: corte,
+    });
+  });
+  return historicos;
+}
+
 function casosVivosDeExCliente(
   providerId: number,
   entradas: EntradaSandbox[],
   idsClientes: number[],
   linhasClientes: InsertCustomer[],
   indicePorCursor: Map<number, number>,
+  historicos: ReadonlyMap<number, HistoricoDnaDaRelacao>,
   agora: Date,
 ): InsertCobrancaCaso[] {
   const quando = { passado: new Date(agora.getTime() - 2 * DIA_MS), hoje: agora, futuro: new Date(agora.getTime() + 3 * DIA_MS) };
@@ -1304,7 +1363,8 @@ function casosVivosDeExCliente(
       throw new Error(`casosVivosDeExCliente: posicao ${item.posicao} nao tem divida de saida — caso vivo sem divida seria encerrado na primeira passada da regua`);
     }
     const etapa = etapaParaAtraso(divida.dias, "ex_cliente").etapa?.id ?? null;
-    const dna = dnaDoCaso({ contractStartDate: linhasClientes[k].contractStartDate ?? null, diasAtraso: divida.dias, faturasAbertas: 1 }, agora);
+    // Como `revisarCaso`: carteira `ex_cliente` e o histórico da relação encerrada (`historicosDnaDosExClientes`).
+    const dna = dnaDoCaso({ contractStartDate: linhasClientes[k].contractStartDate ?? null, diasAtraso: divida.dias, faturasAbertas: 1 }, agora, historicos.get(idsClientes[k]), "ex_cliente");
     const valor = divida.valor.toFixed(2);
     return {
       providerId,
@@ -1341,6 +1401,7 @@ function casosAbertosDaCarteira(
   idsClientes: number[],
   linhasClientes: InsertCustomer[],
   jaTemCaso: ReadonlySet<number>,
+  historicos: ReadonlyMap<number, HistoricoDnaDaRelacao>,
   agora: Date,
 ): InsertCobrancaCaso[] {
   const casos: InsertCobrancaCaso[] = [];
@@ -1350,7 +1411,10 @@ function casosAbertosDaCarteira(
     if (divida <= DIVIDA_MINIMA_PARA_CASO || dias < 1 || jaTemCaso.has(idsClientes[k]) || prescrita(dias)) return;
     const carteira = carteiraDoStatusErp(linha.status ?? "active");
     const etapa = etapaParaAtraso(dias, carteira).etapa?.id ?? null;
-    const dna = dnaDoCaso({ contractStartDate: linha.contractStartDate ?? null, diasAtraso: dias, faturasAbertas: linha.overdueInvoicesCount ?? 0 }, agora);
+    const entradaDna = { contractStartDate: linha.contractStartDate ?? null, diasAtraso: dias, faturasAbertas: linha.overdueInvoicesCount ?? 0 };
+    // Ex-cliente como `revisarCaso`: relação encerrada e histórico pago (`historicosDnaDosExClientes`).
+    // O ativo segue sem histórico: as mensalidades semeadas seguem o perfil do próprio DNA (semeadura-faturas.ts).
+    const dna = carteira === "ex_cliente" ? dnaDoCaso(entradaDna, agora, historicos.get(idsClientes[k]), "ex_cliente") : dnaDoCaso(entradaDna, agora);
     const abriuHaDoisDias = casos.length % 3 === 0 && dias > 2;
     casos.push({
       providerId,
@@ -2325,13 +2389,16 @@ async function tentarCriarSandbox(agora: Date, provedoresDoMundoBase: readonly n
 
     const conversas = conversasPlanejadas(provider.id, agora);
 
+    // O DNA de ex-cliente lê as faturas que ACABARAM de ser gravadas acima — as
+    // mesmas que a régua vai ler (`historicosDnaDosExClientes` explica).
+    const historicosDna = historicosDnaDosExClientes(idsClientes, linhasClientes, [...linhasFaturas, ...mensalidades], agora);
     const casosTrabalhados = [
       ...casosDoKanban(provider.id, entradas, idsClientes, linhasClientes, indicePorCursor, agora),
-      ...casosVivosDeExCliente(provider.id, entradas, idsClientes, linhasClientes, indicePorCursor, agora),
+      ...casosVivosDeExCliente(provider.id, entradas, idsClientes, linhasClientes, indicePorCursor, historicosDna, agora),
     ];
     const casos = [
       ...casosTrabalhados,
-      ...casosAbertosDaCarteira(provider.id, idsClientes, linhasClientes, new Set(casosTrabalhados.map((c) => c.customerId)), agora),
+      ...casosAbertosDaCarteira(provider.id, idsClientes, linhasClientes, new Set(casosTrabalhados.map((c) => c.customerId)), historicosDna, agora),
       ...casosDaRecuperacao30d(provider.id, historico.recuperacoes, originais, agora),
     ];
     // O índice único parcial do banco (`cobranca_casos_um_aberto_por_cliente`)
@@ -2676,21 +2743,25 @@ export async function contarSandboxesVivos(agora: Date = new Date()): Promise<nu
  *
  * REUSA `storage.deleteProvider` (rodada de correção, 11/09/2026) pela
  * cobertura de base — assim a demonstração herda qualquer manutenção futura
- * daquela função — mais o DELTA que só o sandbox precisa: 28 tabelas com FK
- * para `providers` que `deleteProvider` não conhece, ou conhece só por um
- * dos dois lados (`server/storage/providers.storage.ts:190-226` foi lido
- * inteiro antes de escrever isto; ela NÃO aceita executor de transação —
- * chama `db`/`db.select`/`db.delete` direto, sem parâmetro — por isso roda
+ * daquela função (as tabelas das migrações 0039–0042 entraram LÁ em
+ * 16/09/2026, e o sandbox as herda) — mais o DELTA que só o sandbox precisa:
+ * as tabelas com FK para `providers` que `deleteProvider` não conhece, ou
+ * conhece só por um dos dois lados, e as que apontam para algo que o
+ * próprio delta apaga (`server/storage/providers.storage.ts:190-226` foi
+ * lido inteiro antes de escrever isto; ela NÃO aceita executor de transação
+ * — chama `db`/`db.select`/`db.delete` direto, sem parâmetro — por isso roda
  * fora da transação do delta, por conta própria).
  *
- * O universo de "tabelas com FK para providers" é conferido CONTRA O SCHEMA
- * pelo teste (`sandbox.service.test.ts`, "a limpeza cobre toda tabela com FK
- * para providers"), que deriva a lista via `getTableConfig` em vez de uma
- * enumeração solta, **sem exceção nenhuma** — 42 tabelas, 45 pares, contando
- * `shared/schema-cobranca-faturas.ts` e `shared/chat-autonomia-seguranca.ts`,
- * que `@shared/schema` não reexporta — se uma
- * tabela nova ganhar essa FK no futuro e ninguém atualizar a lista abaixo, é
- * o teste que acende vermelho, não um sandbox zumbi em produção.
+ * O universo de "tabelas com FK" é conferido CONTRA O SCHEMA pelo teste
+ * (`sandbox.service.test.ts`, "limpeza do sandbox cobre toda tabela com FK
+ * para providers, customers, invoices e cobranca_casos"), que deriva a lista
+ * via `getTableConfig` dos módulos da lista `schema` do `drizzle.config.ts`
+ * (mais `shared/chat-autonomia-seguranca.ts`, que o config não lista) em vez
+ * de uma enumeração solta, **sem exceção nenhuma** — 51 tabelas, 79 pares em
+ * 16/09/2026, contando FK para `customers`, `invoices` e `cobranca_casos`
+ * além de `providers` — se uma tabela nova ganhar essa FK no futuro e ninguém
+ * atualizar a lista abaixo, é o teste que acende vermelho, não um sandbox
+ * zumbi em produção.
  *
  * Ordem do delta: filhas antes de pais (calculada por ordenação topológica
  * do grafo de FKs antes de escrever — ver o relatório da tarefa). Delta
@@ -2753,6 +2824,15 @@ export async function apagarSandbox(providerId: number): Promise<void> {
     // `deleteProvider` apaga — por isso entram aqui, antes dela.
     await tx.delete(cobrancaPreAvisos).where(eq(cobrancaPreAvisos.providerId, providerId));
     await tx.delete(cobrancaQuitacoes).where(eq(cobrancaQuitacoes.providerId, providerId));
+    // As comunicações da cobrança (migração 0039) apontam para `customers`,
+    // `invoices` E `cobranca_casos`, nenhuma com ON DELETE CASCADE. O caso é
+    // apagado no fim deste delta, por isso elas saem aqui, antes dele. As
+    // outras tabelas das migrações 0039–0042 (configs de aviso, comunicação,
+    // gestão e canais; preferências de contato; contestações; orçamento de
+    // contatos) só apontam para o que `deleteProvider` apaga — e é lá que
+    // elas entram (16/09/2026), para a exclusão de um provedor de verdade
+    // ganhar o mesmo conserto.
+    await tx.delete(cobrancaComunicacoes).where(eq(cobrancaComunicacoes.providerId, providerId));
     await tx.delete(chatAutonomiaAutorizacao).where(eq(chatAutonomiaAutorizacao.providerId, providerId));
     await tx.delete(antiFraudAlerts).where(eq(antiFraudAlerts.consultingProviderId, providerId));
     await tx.delete(providerDocuments).where(eq(providerDocuments.uploadedById, providerId));
@@ -2776,6 +2856,12 @@ export async function apagarSandbox(providerId: number): Promise<void> {
     // `provider_id` não: apagar explícito antes da conversa não depende do
     // cascade e mantém a regra "toda tabela com FK para providers aparece aqui".
     await tx.delete(chatAutonomiaSeguranca).where(eq(chatAutonomiaSeguranca.providerId, providerId));
+    // O chat multicanal (migração 0041) segue a conversa por FK composta com
+    // ON DELETE CASCADE — o mesmo caso da segurança acima: explícito, antes
+    // da conversa, para não depender do cascade (nem do banco de mentira do
+    // teste, que não o simula).
+    await tx.delete(chatMulticanalMensagens).where(eq(chatMulticanalMensagens.providerId, providerId));
+    await tx.delete(chatMulticanalConfig).where(eq(chatMulticanalConfig.providerId, providerId));
     await tx.delete(chatBullqConversas).where(eq(chatBullqConversas.providerId, providerId));
     await tx.delete(equipmentRecoveryEvents).where(eq(equipmentRecoveryEvents.providerId, providerId));
     await tx.delete(equipmentRecoveryCases).where(eq(equipmentRecoveryCases.providerId, providerId));

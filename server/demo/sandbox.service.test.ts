@@ -57,6 +57,7 @@ vi.mock("./mundo-base", async (importOriginal) => {
 });
 
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { getTableColumns, getTableName, is, SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
@@ -108,12 +109,31 @@ import {
   marcaEventos,
   providerDocuments,
 } from "@shared/schema";
-// Dois módulos de schema que NÃO são reexportados por `@shared/schema` e têm
-// tabelas com FK para `providers` — o teste "sem exceção" deriva deles também.
+// Os módulos de schema que `@shared/schema` NÃO reexporta. O teste "sem
+// exceção" deriva o universo de tabelas da lista `schema` do
+// `drizzle.config.ts` (ver `MODULOS_DO_SCHEMA`, no describe) — cada arquivo
+// listado lá precisa estar importado aqui, senão o teste acende vermelho.
+import * as schemaCrm from "@shared/crm-schema";
+import * as schemaComunicacao from "@shared/schema-comunicacao";
 import * as schemaCobrancaFaturas from "@shared/schema-cobranca-faturas";
+import * as schemaGestaoCobranca from "@shared/schema-gestao-cobranca";
 import * as schemaChatAutonomiaSeguranca from "@shared/chat-autonomia-seguranca";
 import { cobrancaPreAvisos, cobrancaQuitacoes } from "@shared/schema-cobranca-faturas";
 import { chatAutonomiaAutorizacao, chatAutonomiaSeguranca } from "@shared/chat-autonomia-seguranca";
+// As tabelas das migrações 0039–0042 (comunicação, canais, chat multicanal e
+// gestão operacional da cobrança): `criarSandbox` não as escreve, mas a
+// limpeza precisa apagá-las e o teste de completude as semeia — o banco de
+// mentira precisa do mapa de colunas de cada uma.
+import {
+  chatMulticanalConfig,
+  chatMulticanalMensagens,
+  cobrancaAvisosConfig,
+  cobrancaCanaisConfig,
+  cobrancaComunicacaoConfig,
+  cobrancaComunicacoes,
+  cobrancaPreferenciasContato,
+} from "@shared/schema-comunicacao";
+import { cobrancaContatosOrcamento, cobrancaContestacoes, cobrancaGestaoConfig } from "@shared/schema-gestao-cobranca";
 import {
   criarSandbox,
   sandboxesExpirados,
@@ -210,6 +230,16 @@ const TABELAS = [
   cobrancaQuitacoes,
   chatAutonomiaAutorizacao,
   chatAutonomiaSeguranca,
+  chatMulticanalConfig,
+  chatMulticanalMensagens,
+  cobrancaAvisosConfig,
+  cobrancaCanaisConfig,
+  cobrancaComunicacaoConfig,
+  cobrancaComunicacoes,
+  cobrancaPreferenciasContato,
+  cobrancaContatosOrcamento,
+  cobrancaContestacoes,
+  cobrancaGestaoConfig,
 ];
 /** tabela (nome real do banco) -> (coluna do banco -> chave camelCase que o Drizzle usa em JS). */
 const chavePorColuna = new Map(
@@ -1050,6 +1080,29 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
   const ms = (valor: unknown): number => new Date(valor as string | Date).getTime();
   /** JSONB chega como o texto que o Drizzle serializou — ver o teste de anti-fraude acima. */
   const json = (valor: unknown): any => (typeof valor === "string" ? JSON.parse(valor) : valor);
+  /**
+   * O recorte que `FaturasStorage.historicosDePagamentosDoProvedor(paraDna)` faz
+   * para o ex-cliente, refeito sobre o que `criarSandbox()` REALMENTE gravou:
+   * faturas pagas e datadas, vencidas E pagas dentro de [início do contrato,
+   * corte]; o encerramento confirmado é o dia UTC do corte, como
+   * `to_char(cortado_em,'YYYY-MM-DD')` num timestamp sem fuso devolve do ISO
+   * que o Drizzle grava. É com ESTE histórico e a carteira `ex_cliente` que a
+   * régua (`revisarCaso` → `dnaDoCaso`) recalcula o DNA na primeira passada —
+   * a semeadura tem de chegar ao mesmo quadrante e tom, senão o worker
+   * reescreve a grade de ex-clientes na frente do visitante.
+   */
+  const historicoDeExCliente = (cliente: Record<string, unknown>, faturas: Record<string, unknown>[]) => {
+    const dia = (valor: unknown) => new Date(valor as string | Date).toISOString().slice(0, 10);
+    const inicio = cliente.contractStartDate as string;
+    const corte = dia(cliente.cortadoEm);
+    const pagas = faturas.filter((f) => f.customerId === cliente.id && f.status === "paid" && f.paidDate
+      && dia(f.dueDate) >= inicio && dia(f.paidDate) >= inicio && dia(f.dueDate) <= corte && dia(f.paidDate) <= corte);
+    return {
+      historicoInsuficiente: pagas.length === 0, faturasPagas: pagas.length,
+      faturasPagasComAtraso: pagas.filter((f) => dia(f.paidDate) > dia(f.dueDate)).length,
+      recebido: 0, taxaAtraso: null, ultimaConfirmacaoEm: null, fonte: "pagamentos_com_data" as const, encerramentoConfirmadoEm: corte,
+    };
+  };
   const linhasDe = (tabela: string, providerId: number) => (banco.linhas.get(tabela) ?? []).filter((l) => l.providerId === providerId);
   const adminDe = (providerId: number) => (banco.linhas.get("users") ?? []).find((u) => u.providerId === providerId)!;
 
@@ -1216,6 +1269,7 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
     expect(aberto).toBe(71 - 7);
 
     const agora = new Date();
+    const faturas = await faturasDe(s.providerId);
     for (const caso of vivosEx) {
       const cliente = clientes.get(caso.customerId as number)!;
       expect(cliente.status).toBe("cancelled");
@@ -1230,10 +1284,14 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
       expect(caso.etapaAtual, JSON.stringify(caso)).toBe(etapa);
       expect(caso.prioridade).toBe(prioridadeSugerida(Number(caso.valorAtual), etapa));
 
-      const dna = dnaDoCaso({ contractStartDate: cliente.contractStartDate as string, diasAtraso: dias, faturasAbertas: 1 }, agora);
-      expect(dna.quadranteDna, "o cliente tem data de contrato: o DNA nao pode sair nulo").not.toBeNull();
+      // O DNA de ex-cliente como a régua o calcula: relação encerrada (meses até o
+      // corte, confiabilidade só pelo histórico pago) e tons `ex_*`. Antes a
+      // semeadura usava a taxonomia de ATIVO, e a primeira passada reescrevia os 71.
+      const dna = dnaDoCaso({ contractStartDate: cliente.contractStartDate as string, diasAtraso: dias, faturasAbertas: 1 }, agora, historicoDeExCliente(cliente, faturas), "ex_cliente");
+      expect(dna.quadranteDna, "o ex-cliente tem contrato, corte e mensalidades pagas: o DNA nao pode sair nulo").not.toBeNull();
       expect(caso.quadranteDna).toBe(dna.quadranteDna);
       expect(caso.tom).toBe(dna.tom);
+      expect(caso.tom, "tom de ex-cliente e da taxonomia encerrada").toMatch(/^ex_/);
 
       if (["em_contato", "negociando", "acordo_ativo"].includes(caso.status as string)) {
         expect(caso.ultimoContatoEm, `${caso.status} sem ultimoContatoEm`).toBeTruthy();
@@ -1250,10 +1308,12 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
   it("todo caso vivo semeado ja esta onde a regua o deixaria hoje — a primeira passada do worker nao move nenhum card", async () => {
     // `revisarCaso` não é exportada: a decisão dela é refeita com as MESMAS
     // funções puras e a MESMA entrada (`maxDaysOverdue`, as faturas abertas, a
-    // data do contrato). O DNA sai aqui sem o histórico de pagamentos: as
-    // mensalidades pagas da Leva 2 (fase B) seguem o perfil do próprio DNA, e
+    // data do contrato). O DNA do ATIVO sai aqui sem o histórico de pagamentos:
+    // as mensalidades pagas da Leva 2 (fase B) seguem o perfil do próprio DNA, e
     // `semeadura-faturas.test.ts` prova que recalculado com elas o quadrante não
-    // muda — a régua de verdade confere no banco local.
+    // muda. O do EX-CLIENTE só existe com o histórico da relação encerrada
+    // (`historicoDeExCliente`, o recorte do storage) — a régua de verdade
+    // confere no banco local.
     const casos = (await casosDeCobrancaDe(s.providerId)).filter((c) => !casoFechado(c.status as string));
     const clientes = new Map((await clientesDe(s.providerId)).map((c) => [c.id as number, c]));
     const faturas = await faturasDe(s.providerId);
@@ -1281,7 +1341,8 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
       expect(caso.etapaAtual, rotulo).toBe(etapa);
       expect(Math.abs(Number(cliente.totalOverdueAmount) - Number(caso.valorAtual)), rotulo).toBeLessThan(0.005);
       expect(caso.prioridade, rotulo).toBe(prioridadeSugerida(Number(caso.valorAtual), etapa));
-      const dna = dnaDoCaso({ contractStartDate: cliente.contractStartDate as string, diasAtraso: dias, faturasAbertas: cliente.overdueInvoicesCount as number }, agora);
+      const entradaDna = { contractStartDate: cliente.contractStartDate as string, diasAtraso: dias, faturasAbertas: cliente.overdueInvoicesCount as number };
+      const dna = caso.carteira === "ex_cliente" ? dnaDoCaso(entradaDna, agora, historicoDeExCliente(cliente, faturas), "ex_cliente") : dnaDoCaso(entradaDna, agora);
       expect(dna.quadranteDna, `${rotulo}: o cliente tem data de contrato, o DNA nao pode sair nulo`).not.toBeNull();
       expect(caso.quadranteDna, rotulo).toBe(dna.quadranteDna);
       expect(caso.tom, rotulo).toBe(dna.tom);
@@ -2462,13 +2523,32 @@ describe("a semeadura liga os modulos da leva 2 (fase B do P2)", () => {
  * que outra feature criar amanhã; esta, não — ganha a FK, o teste passa a
  * semeá-la, e se `apagarSandbox` não souber limpá-la, ACENDE VERMELHO aqui.
  *
- * SEM EXCEÇÃO — 42 tabelas, 45 pares (tabela, coluna), zero exclusões
- * (rodada de correção 2, 11/09/2026; recontado em 12/09/2026, quando a
- * derivação passou a ler também `shared/schema-cobranca-faturas.ts` e
- * `shared/chat-autonomia-seguranca.ts` — módulos que `@shared/schema` não
- * reexporta, e por isso ficavam INVISÍVEIS a este teste: pré-avisos,
- * quitações e a autorização da autonomia do chat sobravam depois da limpeza
- * sem acender nada). A primeira versão deste teste excluía
+ * E o universo de MÓDULOS de schema também é derivado, da lista `schema` do
+ * `drizzle.config.ts` — a mesma fronteira que `server/migracoes-cobrem-o-schema.test.ts`
+ * usa (16/09/2026). Até aqui os módulos eram três, nomeados à mão, e foi
+ * exatamente por isso que as sete tabelas das migrações 0039 e 0042
+ * (`shared/schema-comunicacao.ts`, `shared/schema-gestao-cobranca.ts`) ficaram
+ * INVISÍVEIS a este teste: FK para `providers`, `customers`, `invoices` e
+ * `cobranca_casos` sem ON DELETE CASCADE, nenhuma na limpeza — a faxina
+ * horária da demonstração travava por FK na primeira hora em que um
+ * visitante gravasse uma preferência de contato, e a exclusão de provedor em
+ * produção idem. Arquivo novo de schema entra no config e, com isso, entra
+ * aqui (falta importá-lo → vermelho, ver `MODULOS_DO_SCHEMA`).
+ *
+ * Os PAIS também cresceram na mesma data: além de `providers`, conta FK para
+ * `customers`, `invoices` e `cobranca_casos` — as três tabelas por cliente que
+ * a limpeza apaga por `provider_id`. Uma tabela nova que aponte para o
+ * cliente sem apontar para o provedor (ou que aponte para o caso e seja
+ * apagada DEPOIS do caso) trava a limpeza do mesmo jeito, e só a FK para
+ * `providers` não a revelaria.
+ *
+ * SEM EXCEÇÃO — zero exclusões (rodada de correção 2, 11/09/2026; recontado
+ * em 12/09/2026, quando a derivação passou a ler também
+ * `shared/schema-cobranca-faturas.ts` e `shared/chat-autonomia-seguranca.ts`
+ * — módulos que `@shared/schema` não reexporta, e por isso ficavam
+ * INVISÍVEIS a este teste: pré-avisos, quitações e a autorização da
+ * autonomia do chat sobravam depois da limpeza sem acender nada; o número
+ * exato de pares está na asserção do teste). A primeira versão deste teste excluía
  * `acessos_suporte` (a guarda de LGPD de `storage.deleteProvider` recusa
  * apagar um provedor real com trilha de acesso de suporte, e o raciocínio
  * era "então não é resíduo, é desenho"). Isso reabria o MESMO zumbi
@@ -2481,33 +2561,96 @@ describe("a semeadura liga os modulos da leva 2 (fase B do P2)", () => {
  * real — ver o comentário em `sandbox.service.ts`), então este teste não
  * tem mais nenhuma tabela para excluir.
  */
-describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado do schema, sem excecao)", () => {
+describe("limpeza do sandbox cobre toda tabela com FK para providers, customers, invoices e cobranca_casos (derivado do drizzle.config.ts, sem excecao)", () => {
+  /** Os pais cuja FK conta: o provedor e as três tabelas por cliente que a limpeza apaga por `provider_id`. */
+  const PAIS = ["providers", "customers", "invoices", "cobranca_casos"] as const;
+  type Pai = (typeof PAIS)[number];
+
   interface AlvoDeFk {
     tabela: PgTable;
     nomeTabela: string;
     chaveCamelCase: string;
+    pai: Pai;
   }
 
   /**
-   * Toda tabela exportada de `@shared/schema` — e dos dois módulos de schema
-   * que ele não reexporta — com uma FK (de qualquer coluna) apontando para
-   * `providers.id`.
+   * Caminho, como está na lista `schema` do `drizzle.config.ts` -> módulo
+   * importado no topo deste arquivo. A LISTA vem do config (lida do próprio
+   * arquivo, abaixo); este mapa só liga cada caminho ao seu `import *`, porque
+   * o teste precisa dos objetos de tabela em memória, e um `import()` com
+   * caminho variável não passa pelo alias `@shared` nem pelo `tsc`. Arquivo
+   * listado lá e ausente aqui é erro do TESTE, e acende vermelho — nunca uma
+   * exceção silenciosa.
+   *
+   * `shared/chat-autonomia-seguranca.ts` NÃO está no config (as duas tabelas
+   * dele nascem da migração 0034, e o `drizzle-kit push` nunca as criou), mas
+   * tem FK para `providers` — entra à parte, como já entrava desde 12/09/2026.
    */
-  function tabelasComFkParaProviders(): AlvoDeFk[] {
+  const MODULOS_DO_SCHEMA: Record<string, object> = {
+    "shared/schema.ts": schema,
+    "shared/crm-schema.ts": schemaCrm,
+    "shared/schema-comunicacao.ts": schemaComunicacao,
+    "shared/schema-cobranca-faturas.ts": schemaCobrancaFaturas,
+    "shared/schema-gestao-cobranca.ts": schemaGestaoCobranca,
+  };
+  const MODULOS_FORA_DO_CONFIG: Record<string, object> = {
+    "shared/chat-autonomia-seguranca.ts": schemaChatAutonomiaSeguranca,
+  };
+
+  /** A lista `schema` do `drizzle.config.ts`, lida do próprio arquivo — o mesmo leitor de `server/migracoes-cobrem-o-schema.test.ts`. */
+  function arquivosDoSchemaDoDrizzle(): string[] {
+    const config = readFileSync(path.resolve(__dirname, "../../drizzle.config.ts"), "utf-8");
+    const lista = config.match(/schema\s*:\s*\[([^\]]*)\]/);
+    const unico = config.match(/schema\s*:\s*["']([^"']+)["']/);
+    const brutos = lista
+      ? Array.from(lista[1].matchAll(/["']([^"']+)["']/g), (m) => m[1])
+      : unico
+        ? [unico[1]]
+        : [];
+    return brutos.map((p) => p.replace(/^\.\//, ""));
+  }
+
+  /** Os módulos de schema a varrer: todos os do config, na ordem dele, mais os de fora dele. */
+  function modulosDoSchema(): object[] {
+    const arquivos = arquivosDoSchemaDoDrizzle();
+    // Um leitor quebrado que não lê NADA faria o teste passar em silêncio.
+    expect(arquivos, "o leitor do drizzle.config.ts nao achou a lista `schema`").toContain("shared/schema.ts");
+    const semModulo = arquivos.filter((arquivo) => !(arquivo in MODULOS_DO_SCHEMA));
+    expect(
+      semModulo,
+      `arquivo(s) na lista \`schema\` do drizzle.config.ts sem \`import *\` neste teste — importe-os e acrescente a MODULOS_DO_SCHEMA: ${semModulo.join(", ")}`,
+    ).toEqual([]);
+    return [...arquivos.map((arquivo) => MODULOS_DO_SCHEMA[arquivo]), ...Object.values(MODULOS_FORA_DO_CONFIG)];
+  }
+
+  /**
+   * Toda tabela exportada pelos módulos de schema com uma FK (de qualquer
+   * coluna) apontando para um dos `PAIS`. Um par (tabela, coluna, pai) por FK;
+   * a mesma tabela aparece mais de uma vez quando tem mais de uma dessas FKs
+   * (`cobranca_comunicacoes` aponta para os quatro).
+   */
+  function tabelasComFkParaOsPais(): AlvoDeFk[] {
     const alvos: AlvoDeFk[] = [];
-    const exportados = [...Object.values(schema), ...Object.values(schemaCobrancaFaturas), ...Object.values(schemaChatAutonomiaSeguranca)];
-    for (const valor of exportados) {
-      if (!valor || typeof valor !== "object" || !is(valor as object, PgTable)) continue;
-      const tabela = valor as PgTable;
-      const cfg = getTableConfig(tabela);
-      const colunasDaTabela = getTableColumns(tabela);
-      for (const fk of cfg.foreignKeys ?? []) {
-        const ref = fk.reference();
-        if (getTableName(ref.foreignTable) !== "providers") continue;
-        for (const colunaRef of ref.columns) {
-          const entrada = Object.entries(colunasDaTabela).find(([, c]) => c === colunaRef);
-          if (!entrada) throw new Error(`Nao encontrei a chave JS da coluna FK em ${cfg.name}`);
-          alvos.push({ tabela, nomeTabela: cfg.name, chaveCamelCase: entrada[0] });
+    const vistos = new Set<string>();
+    for (const modulo of modulosDoSchema()) {
+      for (const valor of Object.values(modulo)) {
+        if (!valor || typeof valor !== "object" || !is(valor as object, PgTable)) continue;
+        const tabela = valor as PgTable;
+        const cfg = getTableConfig(tabela);
+        const colunasDaTabela = getTableColumns(tabela);
+        for (const fk of cfg.foreignKeys ?? []) {
+          const ref = fk.reference();
+          const pai = getTableName(ref.foreignTable) as Pai;
+          if (!PAIS.includes(pai)) continue;
+          for (const colunaRef of ref.columns) {
+            const entrada = Object.entries(colunasDaTabela).find(([, c]) => c === colunaRef);
+            if (!entrada) throw new Error(`Nao encontrei a chave JS da coluna FK em ${cfg.name}`);
+            // Um módulo que reexporte a tabela de outro não pode contá-la duas vezes.
+            const assinatura = `${cfg.name}.${entrada[0]}->${pai}`;
+            if (vistos.has(assinatura)) continue;
+            vistos.add(assinatura);
+            alvos.push({ tabela, nomeTabela: cfg.name, chaveCamelCase: entrada[0], pai });
+          }
         }
       }
     }
@@ -2544,42 +2687,65 @@ describe("limpeza do sandbox cobre toda tabela com FK para providers (derivado d
     return linha;
   }
 
-  it("apagarSandbox limpa toda tabela com FK para providers — lista derivada do schema, nunca digitada a mao, sem excecao", async () => {
-    const alvos = tabelasComFkParaProviders();
-    // Contagem EXATA, não só "> 30": 42 tabelas / 45 pares (3 tabelas —
+  it("apagarSandbox limpa toda tabela com FK para os pais — lista derivada do drizzle.config.ts, nunca digitada a mao, sem excecao", async () => {
+    const alvos = tabelasComFkParaOsPais();
+    const inventario = alvos.map((a) => `${a.nomeTabela}.${a.chaveCamelCase} -> ${a.pai}`).sort().join("\n  ");
+    // Contagem EXATA, não só "> 30": 51 tabelas / 79 pares. Até 16/09/2026
+    // eram 42 tabelas / 45 pares, só FK para providers (3 tabelas —
     // anti_fraud_alerts, proactive_alerts, provider_documents — têm duas
-    // colunas cada uma apontando para providers). Os 4 pares a mais de
-    // 12/09/2026 são cobranca_pre_avisos, cobranca_quitacoes,
-    // chat_autonomia_autorizacao e chat_autonomia_seguranca (a FK composta
-    // desta aponta para a conversa, não para providers — só `provider_id`
-    // conta). Se o schema mudar de forma e esse número desviar, é melhor um
-    // teste vermelho apontando o número exato do que um "> 30" que deixa
-    // passar uma tabela a menos.
-    expect(alvos.length, "universo de FKs para providers mudou — recontar antes de ajustar este numero").toBe(45);
-    expect(new Set(alvos.map((a) => a.nomeTabela)).size).toBe(42);
+    // colunas cada uma apontando para providers). Na mesma data entraram os
+    // outros três pais (16 pares para customers, 4 para invoices, 5 para
+    // cobranca_casos) e as 9 tabelas com FK para providers das migrações
+    // 0039–0042 (`chat_multicanal_mensagens` fica de fora: só aponta para a
+    // conversa). A mensagem de falha imprime o inventário inteiro para a
+    // recontagem ser conferida par a par. Se o schema mudar de forma e esse
+    // número desviar, é melhor um teste vermelho apontando o número exato do
+    // que um "> 30" que deixa passar uma tabela a menos.
+    expect(alvos.length, `universo de FKs para os pais mudou — recontar antes de ajustar este numero:\n  ${inventario}`).toBe(79);
+    expect(new Set(alvos.map((a) => a.nomeTabela)).size).toBe(51);
 
     const s = await criarSandbox();
 
+    // UM pai de cada tipo, do PRÓPRIO sandbox: é para ele que a linha semeada
+    // aponta, e é por ele que a sobra é procurada depois. Para o provedor, o
+    // id do sandbox; para os outros três, a primeira linha que a carteira
+    // gerou.
+    const primeiroId = async (linhas: Promise<Record<string, unknown>[]>, pai: Pai): Promise<number> => {
+      const [primeira] = await linhas;
+      if (!primeira) throw new Error(`o sandbox nasceu sem nenhuma linha em ${pai} — o teste nao tem para onde apontar`);
+      return primeira.id as number;
+    };
+    const idDoPai: Record<Pai, number> = {
+      providers: s.providerId,
+      customers: await primeiroId(clientesDe(s.providerId), "customers"),
+      invoices: await primeiroId(faturasDe(s.providerId), "invoices"),
+      cobranca_casos: await primeiroId(casosDeCobrancaDe(s.providerId), "cobranca_casos"),
+    };
+
     for (const alvo of alvos) {
-      const linha = linhaGenericaParaTeste(alvo.tabela, alvo.chaveCamelCase, s.providerId);
+      const linha = linhaGenericaParaTeste(alvo.tabela, alvo.chaveCamelCase, idDoPai[alvo.pai]);
+      // A linha de um cliente, fatura ou caso do sandbox é do MESMO provedor —
+      // é assim que ela existiria de verdade, e é por `provider_id` que a
+      // limpeza a alcança. Para a FK ao próprio provedor a coluna-alvo já é
+      // essa, e as demais ficam genéricas DE PROPÓSITO: uma FK para providers
+      // por outra coluna (`consulting_provider_id`, `uploaded_by_id`) só está
+      // provada se a limpeza a apagar por ELA, não por um `provider_id` que o
+      // teste tivesse preenchido junto.
+      if (alvo.pai !== "providers" && "providerId" in getTableColumns(alvo.tabela)) linha.providerId = s.providerId;
       await banco.db.insert(alvo.tabela).values(linha);
     }
 
+    const linhasDoAlvo = (alvo: AlvoDeFk) => (banco.linhas.get(alvo.nomeTabela) ?? []).filter((l) => l[alvo.chaveCamelCase] === idDoPai[alvo.pai]);
+
     // A semeadura funcionou? (Distingue "meu teste nao semeou" de "apagarSandbox nao limpou".)
-    const naoSemeadas: string[] = [];
-    for (const alvo of alvos) {
-      const linhas = (banco.linhas.get(alvo.nomeTabela) ?? []).filter((l) => l[alvo.chaveCamelCase] === s.providerId);
-      if (linhas.length === 0) naoSemeadas.push(`${alvo.nomeTabela}.${alvo.chaveCamelCase}`);
-    }
+    const naoSemeadas = alvos.filter((alvo) => linhasDoAlvo(alvo).length === 0).map((alvo) => `${alvo.nomeTabela}.${alvo.chaveCamelCase}`);
     expect(naoSemeadas, `semeadura do teste falhou em: ${naoSemeadas.join(", ")}`).toEqual([]);
 
     await apagarSandbox(s.providerId);
 
-    const residuos: string[] = [];
-    for (const alvo of alvos) {
-      const linhas = (banco.linhas.get(alvo.nomeTabela) ?? []).filter((l) => l[alvo.chaveCamelCase] === s.providerId);
-      if (linhas.length > 0) residuos.push(`${alvo.nomeTabela}.${alvo.chaveCamelCase} (${linhas.length} linha[s])`);
-    }
+    const residuos = alvos
+      .filter((alvo) => linhasDoAlvo(alvo).length > 0)
+      .map((alvo) => `${alvo.nomeTabela}.${alvo.chaveCamelCase} -> ${alvo.pai} (${linhasDoAlvo(alvo).length} linha[s])`);
     expect(residuos, `apagarSandbox nao limpou: ${residuos.join(", ")}`).toEqual([]);
   });
 });

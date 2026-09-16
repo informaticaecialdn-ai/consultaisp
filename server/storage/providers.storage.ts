@@ -9,6 +9,11 @@ import {
   erpIntegrations, erpSyncLogs, acessosSuporte,
   type Provider, type InsertProvider, type ErpIntegration,
 } from "@shared/schema";
+import {
+  chatMulticanalConfig, chatMulticanalMensagens, cobrancaAvisosConfig, cobrancaCanaisConfig,
+  cobrancaComunicacaoConfig, cobrancaComunicacoes, cobrancaPreferenciasContato,
+} from "@shared/schema-comunicacao";
+import { cobrancaContatosOrcamento, cobrancaContestacoes, cobrancaGestaoConfig } from "@shared/schema-gestao-cobranca";
 
 /**
  * Sem nenhum campo de ERP, de proposito.
@@ -179,7 +184,7 @@ export class ProvidersStorage {
   /**
    * A pergunta vem ANTES do primeiro DELETE, e isso e metade do conserto.
    *
-   * A sequencia abaixo nao esta em transacao: sao dezessete comandos soltos. Sem
+   * A sequencia abaixo nao esta em transacao: sao vinte e sete comandos soltos. Sem
    * esta guarda, um provedor com trilha percorria a lista inteira apagando
    * clientes, faturas, equipamentos e consultas, e so estourava a violacao de FK
    * no penultimo comando — `users`, por causa de `liberado_por`. O resultado nao
@@ -207,6 +212,27 @@ export class ProvidersStorage {
       await db.delete(supportMessages).where(inArray(supportMessages.threadId, threadIds));
     }
     await db.delete(supportThreads).where(eq(supportThreads.providerId, id));
+    // As tabelas das migracoes 0039-0042 (comunicacao, canais, chat
+    // multicanal e gestao operacional da cobranca) apontam para `customers`,
+    // `invoices` e `users` SEM ON DELETE CASCADE — por isso saem aqui, antes
+    // de qualquer uma dessas. Ate 16/09/2026 nenhuma estava nesta fila: um
+    // provedor com UMA preferencia de contato gravada parava em `customers`
+    // com violacao de FK, ja sem faturas, contratos nem equipamentos (medido
+    // no banco local, sandbox 60). As tres com cascade (canais e o chat
+    // multicanal) entram do mesmo jeito: esta fila e a lista completa do que
+    // o provedor deixou, nao um resumo do que o banco limparia sozinho — e a
+    // limpeza da demonstracao, que reusa esta funcao, e conferida por um
+    // teste que nao simula cascade.
+    await db.delete(cobrancaComunicacoes).where(eq(cobrancaComunicacoes.providerId, id));
+    await db.delete(cobrancaContestacoes).where(eq(cobrancaContestacoes.providerId, id));
+    await db.delete(cobrancaContatosOrcamento).where(eq(cobrancaContatosOrcamento.providerId, id));
+    await db.delete(cobrancaPreferenciasContato).where(eq(cobrancaPreferenciasContato.providerId, id));
+    await db.delete(cobrancaAvisosConfig).where(eq(cobrancaAvisosConfig.providerId, id));
+    await db.delete(cobrancaComunicacaoConfig).where(eq(cobrancaComunicacaoConfig.providerId, id));
+    await db.delete(cobrancaGestaoConfig).where(eq(cobrancaGestaoConfig.providerId, id));
+    await db.delete(cobrancaCanaisConfig).where(eq(cobrancaCanaisConfig.providerId, id));
+    await db.delete(chatMulticanalMensagens).where(eq(chatMulticanalMensagens.providerId, id));
+    await db.delete(chatMulticanalConfig).where(eq(chatMulticanalConfig.providerId, id));
     await db.delete(invoices).where(eq(invoices.providerId, id));
     await db.delete(contracts).where(eq(contracts.providerId, id));
     await db.delete(antiFraudAlerts).where(eq(antiFraudAlerts.providerId, id));
