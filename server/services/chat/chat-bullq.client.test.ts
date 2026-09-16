@@ -285,7 +285,8 @@ describe("buscarConversaPorTelefone", () => {
 
     expect(r.ok && r.valor?.id).toBe("recente-sem-55");
     const busca = s.de("/conversations")[0];
-    expect(busca.query.get("search")).toBe(TELEFONE_COM_55);
+    // A busca vai pelos oito dígitos finais: o "contém" do fork casa o contato gravado com ou sem o nono dígito.
+    expect(busca.query.get("search")).toBe("99990000");
     expect(busca.query.get("channelId")).toBe("canal-1");
     expect(busca.query.get("limit")).toBe("20");
   });

@@ -315,8 +315,13 @@ export class ChatBullqClient {
     const normalizado = normalizarTelefoneParaChat(telefone);
     if (!normalizado) return { ok: false, erro: "Telefone inválido para o chat" };
 
+    // O `search` do fork e um "contem" sobre o telefone do contato — e o contato
+    // pode estar gravado sem o nono digito (55 43 8821-9420) enquanto aqui chega
+    // com ele. Buscar pelos digitos locais depois do nono (os oito finais) casa
+    // as duas formas; o filtro por chave abaixo devolve so o mesmo DDD e numero.
+    const chaveDoAlvo = chaveDoTelefoneWhatsapp(normalizado);
     const r = await this.operacao<{ conversations?: Conversa[] } | Conversa[]>(orgId, "GET", "/conversations", {
-      query: { search: normalizado, channelId: canalId, page: 1, limit: 20 },
+      query: { search: chaveDoAlvo ? chaveDoAlvo.slice(2) : normalizado, channelId: canalId, page: 1, limit: 20 },
     });
     if (!r.ok) return r;
 
@@ -324,8 +329,7 @@ export class ChatBullqClient {
     if (!Array.isArray(lista)) return { ok: false, erro: "O Chat BullQ devolveu uma lista de conversas inválida" };
     // Com ou sem DDI e com ou sem o nono dígito: o WhatsApp devolve o contato
     // como o conhece (55 43 8821-9420), o cadastro traz o 9 (43 9 8821-9420).
-    const alvo = chaveDoTelefoneWhatsapp(normalizado);
-    const doTelefone = alvo ? lista.filter(c => chaveDoTelefoneWhatsapp(c?.contact?.phone) === alvo) : [];
+    const doTelefone = chaveDoAlvo ? lista.filter(c => chaveDoTelefoneWhatsapp(c?.contact?.phone) === chaveDoAlvo) : [];
     if (!doTelefone.length) return { ok: true, valor: null };
 
     const instante = (c: Conversa) => (c.lastMessageAt ? Date.parse(c.lastMessageAt) || 0 : 0);
