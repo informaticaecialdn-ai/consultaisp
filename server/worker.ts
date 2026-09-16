@@ -274,6 +274,8 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
   const { iniciarComunicacoes, pararComunicacoes } = await import("./services/cobranca/comunicacao.service");
   if (emModoDemo?.() !== true) {
     iniciarComunicacoes();
+    // A linha espelha a da demonstração: no deploy, o log do worker prova qual dos dois ramos ligou.
+    logger.info("[Worker] Comunicações de cobrança (SMS/e-mail): ligadas — nada sai até um provedor cadastrar canal e ligar o interruptor");
   } else {
     logger.info("[Worker] Comunicações de cobrança (SMS/e-mail): desligadas na demonstração");
   }
