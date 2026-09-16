@@ -58,14 +58,11 @@ describe('ChatBullQ: canais', () => {
     expect(calls.at(-1)?.init?.body).toBe(JSON.stringify({ phone: '5511999999999' }));
   });
 
-  it('cria os três providers no adapter e campos de credenciais certos', async () => {
+  it('cria o canal Datafy (o único com credencial do provedor) com os campos certos; Zappfy e Uazapi não existem mais no cliente', async () => {
     const { client, calls } = setup({ id: 'ch-a' });
-    await client.criarCanalWhatsapp('org-a', { provider: 'ZAPPFY', nome: 'Cobrança', token: 'fixture-zappfy' });
-    expect(JSON.parse(String(calls.at(-1)?.init?.body))).toMatchObject({ type: 'WHATSAPP_ZAPPFY', config: { provider: 'ZAPPFY', token: 'fixture-zappfy' } });
-    await client.criarCanalWhatsapp('org-a', { provider: 'UAZAPI', nome: 'Cobrança', token: 'fixture-uazapi', baseUrl: 'https://tenant.uazapi.com' });
-    expect(JSON.parse(String(calls.at(-1)?.init?.body))).toMatchObject({ type: 'WHATSAPP_ZAPPFY', config: { provider: 'UAZAPI', baseUrl: 'https://tenant.uazapi.com' } });
     await client.criarCanalWhatsapp('org-a', { provider: 'DATAFY', nome: 'Cobrança', token: 'fixture-datafy', phoneNumberId: '12345', webhookSecret: 'whsec_fixture' });
     expect(JSON.parse(String(calls.at(-1)?.init?.body))).toMatchObject({ type: 'WHATSAPP_OFFICIAL', webhookSecret: 'whsec_fixture', config: { provider: 'DATAFY', accessToken: 'fixture-datafy', phoneNumberId: '12345' } });
+    expect((client as unknown as Record<string, unknown>).criarCanalZappfy).toBeUndefined();
   });
 
   it('encaminha template ao início real e não troca o conteúdo por texto livre', async () => {

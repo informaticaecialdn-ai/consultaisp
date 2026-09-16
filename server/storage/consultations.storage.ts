@@ -217,6 +217,13 @@ export class ConsultationsStorage {
       .orderBy(desc(spcConsultations.createdAt));
   }
 
+  /** Uma consulta SPC do PRÓPRIO provedor — para o PDF. Id é chave primária: no máximo uma linha, sem `limit`. */
+  async getSpcConsultation(providerId: number, id: number): Promise<SpcConsultation | undefined> {
+    const [linha] = await db.select().from(spcConsultations)
+      .where(and(eq(spcConsultations.providerId, providerId), eq(spcConsultations.id, id)));
+    return linha;
+  }
+
   async createSpcConsultation(consultation: InsertSpcConsultation): Promise<SpcConsultation> {
     const [created] = await db.insert(spcConsultations).values(consultation).returning();
     return created;

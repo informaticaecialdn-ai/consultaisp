@@ -5,9 +5,9 @@ import { storage } from "../../storage";
 import { clienteDoChat, ErroDaPonteDoChat } from "./chat-ponte.service";
 import { comTravaDaConfiguracaoDoChat } from "./chat-agentes.service";
 
-export function provedorWhatsapp(config: unknown): "ZAPPFY" | "UAZAPI" | "DATAFY" {
+export function provedorWhatsapp(config: unknown): "ZAPPFY" | "UAZAPI" | "DATAFY" | "EVOLUTION" {
   const p = (config as { whatsapp?: { provider?: string } } | null)?.whatsapp?.provider;
-  return p === "DATAFY" || p === "UAZAPI" ? p : "ZAPPFY";
+  return p === "DATAFY" || p === "UAZAPI" || p === "EVOLUTION" ? p : "ZAPPFY";
 }
 async function lerCatalogoTemplatesWhatsapp(providerId: number) {
   const i = await storage.getIntegracaoDoChat(providerId);

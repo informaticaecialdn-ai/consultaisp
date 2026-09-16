@@ -388,13 +388,25 @@ describe("gestao da conversa e agentes", () => {
     s.quando("POST", "/ai-agents/ag-1/channels", () => ({ corpo: { data: {} } }));
     const c = cliente(s);
 
-    expect(await c.criarCanalZappfy(ORG, { nome: "Cobrança", token: "tok-zap", webhookSecret: "seg" })).toEqual({ ok: true, valor: canal });
-    expect(s.de("/channels")[0].corpo).toEqual({ type: "WHATSAPP_ZAPPFY", name: "Cobrança", config: { token: "tok-zap" }, webhookSecret: "seg" });
+    // A Datafy e o unico servico em que o provedor traz a credencial (Zappfy/Uazapi sairam em 16/09/2026).
+    expect(await c.criarCanalWhatsapp(ORG, { provider: "DATAFY", nome: "Cobrança", token: "tok-datafy", phoneNumberId: "123456789", webhookSecret: "whsec_seg" })).toEqual({ ok: true, valor: canal });
+    expect(s.de("/channels")[0].corpo).toEqual({ type: "WHATSAPP_OFFICIAL", name: "Cobrança", config: { provider: "DATAFY", accessToken: "tok-datafy", phoneNumberId: "123456789" }, webhookSecret: "whsec_seg" });
     expect(await c.testarCanal(ORG, "canal-2")).toEqual({ ok: true, valor: { ok: true } });
     expect(await c.listarAgentes(ORG)).toEqual({ ok: true, valor: [agente] });
     expect(await c.criarAgente(ORG, { name: "Cobrador", kind: "WORKER", systemPrompt: "...", modelId: "gpt-4o-mini" })).toEqual({ ok: true, valor: agente });
     expect(await c.ligarAgenteAoCanal(ORG, "ag-1", "canal-2", "AUTONOMOUS", "OFF_HOURS")).toEqual({ ok: true, valor: undefined });
     expect(s.de("/ai-agents/ag-1/channels")[0].corpo).toEqual({ channelId: "canal-2", mode: "AUTONOMOUS", trigger: "OFF_HOURS" });
+  });
+
+  it("canal Evolution (o WhatsApp da plataforma): so tipo e nome — instancia, token e segredo sao do fork; o config vai vazio porque o DTO o exige", async () => {
+    const s = servidorComSessao();
+    const canal = { id: "canal-evo", type: "WHATSAPP_EVOLUTION", name: "WhatsApp da plataforma", isActive: true };
+    s.quando("POST", "/channels", () => ({ corpo: { data: canal } }));
+    const c = cliente(s);
+
+    expect(await c.criarCanalEvolution(ORG, { nome: "WhatsApp da plataforma" })).toEqual({ ok: true, valor: canal });
+    expect(s.de("/channels")[0].corpo).toEqual({ type: "WHATSAPP_EVOLUTION", name: "WhatsApp da plataforma", config: {} });
+    expect(JSON.stringify(s.de("/channels")[0].corpo)).not.toMatch(/token|secret/i);
   });
 });
 

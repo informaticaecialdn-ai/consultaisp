@@ -251,26 +251,26 @@ export class ChatBullqClient {
     return this.operacao<void>(orgId, "DELETE", `/channels/${enc(canalId)}`, { query: { confirmName: nome } });
   }
 
-  criarCanalZappfy(
-    orgId: string,
-    dados: { nome: string; token: string; webhookSecret?: string },
-  ): Promise<Resultado<Canal>> {
+  /**
+   * O WhatsApp da plataforma: o fork cria a instancia na Evolution API, gera o
+   * nome dela, o token e o segredo do webhook — daqui vai so tipo e nome. O
+   * `config` vazio e exigido pelo DTO do fork (`@IsObject`), e ignorado por ele.
+   */
+  criarCanalEvolution(orgId: string, dados: { nome: string }): Promise<Resultado<Canal>> {
     return this.operacao<Canal>(orgId, "POST", "/channels", {
-      corpo: {
-        type: "WHATSAPP_ZAPPFY",
-        name: dados.nome,
-        config: { token: dados.token },
-        ...(dados.webhookSecret ? { webhookSecret: dados.webhookSecret } : {}),
-      },
+      corpo: { type: "WHATSAPP_EVOLUTION", name: dados.nome, config: {} },
     });
   }
 
-  criarCanalWhatsapp(orgId: string, dados: CanalWhatsapp): Promise<Resultado<Canal>> {
-    const config = dados.provider === "DATAFY"
-      ? { provider: "DATAFY", accessToken: dados.token, phoneNumberId: dados.phoneNumberId, ...(dados.businessAccountId ? { businessAccountId: dados.businessAccountId } : {}) }
-      : { provider: dados.provider, token: dados.token, ...(dados.provider === "UAZAPI" ? { baseUrl: dados.baseUrl } : {}) };
+  /**
+   * A Datafy (API oficial) e o unico servico em que o PROVEDOR traz a credencial.
+   * Zappfy e Uazapi sairam em 16/09/2026 (dono): canal antigo desses tipos so e
+   * lido e removido, nunca criado daqui.
+   */
+  criarCanalWhatsapp(orgId: string, dados: Extract<CanalWhatsapp, { provider: "DATAFY" }>): Promise<Resultado<Canal>> {
+    const config = { provider: "DATAFY", accessToken: dados.token, phoneNumberId: dados.phoneNumberId, ...(dados.businessAccountId ? { businessAccountId: dados.businessAccountId } : {}) };
     return this.operacao(orgId, "POST", "/channels", { corpo: {
-      type: dados.provider === "DATAFY" ? "WHATSAPP_OFFICIAL" : "WHATSAPP_ZAPPFY",
+      type: "WHATSAPP_OFFICIAL",
       name: dados.nome, config, ...(dados.webhookSecret ? { webhookSecret: dados.webhookSecret } : {}),
     } });
   }
@@ -283,7 +283,7 @@ export class ChatBullqClient {
     return { ok: true, valor: ok ? { ok: true } : { ok: false, message } };
   }
 
-  capacidadesDosCanais(orgId: string): Promise<Resultado<{ whatsappUnofficial: boolean; instanceConnect: boolean; instanceStatus: boolean; provider: string; uazapi: boolean; datafy: boolean; templateFirstContact: boolean }>> {
+  capacidadesDosCanais(orgId: string): Promise<Resultado<{ whatsappUnofficial: boolean; instanceConnect: boolean; instanceStatus: boolean; provider: string; uazapi: boolean; datafy: boolean; evolution?: boolean; templateFirstContact: boolean }>> {
     return this.operacao(orgId, "GET", "/channels/capabilities");
   }
 

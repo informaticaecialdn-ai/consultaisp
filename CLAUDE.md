@@ -551,7 +551,13 @@ esta em `server/sem-importacao-manual.test.ts`, que le o FONTE de `server/` e
 
 ### Consultas (requireAuth)
 GET/POST isp-consultations   // NAO existe rota de lote — nunca foi construida
-GET/POST spc-consultations
+GET/POST spc-consultations   // o POST devolve tambem o `id` da linha gravada
+GET  spc-consultations/:id/pdf   // o relatorio da consulta como anexo PDF (16/09/2026): montado da LINHA
+                                 // gravada (nunca consulta o SPC de novo), so para o provedor dono (outro
+                                 // tenant = 404), nome do arquivo pelo codigo da consulta (nunca o CPF), download
+                                 // no log sem o documento; na demo sai com marca d'agua SIMULADO. Gerador em
+                                 // server/assinatura/pdf.ts (o mesmo da confissao), documento em
+                                 // server/services/spc/spc-pdf.ts
 
 **Uma consulta positiva custa UM crédito** (decisão do dono, 10/09/2026). Até
 essa data `creditsCost` era `externalProviders.size` — um crédito por provedor
@@ -718,7 +724,10 @@ conversa no Cliente 360 e no card de retirada. O Chat BullQ é o transporte e o
 histórico; a decisão é sempre daqui.
 ```
 GET  /api/chat-bullq/integracao            # estado (sem credencial: só provider, canal, status)
-POST /api/chat-bullq/integracao/canal      # admin — liga o número (Zappfy · Uazapi · Datafy)
+POST /api/chat-bullq/integracao/canal      # admin — liga o número: EVOLUTION (WhatsApp da plataforma, sem token; o fork cria a
+                                           # instancia na Evolution API) ou DATAFY (API oficial, credencial do provedor). Zappfy e
+                                           # Uazapi NAO sao mais oferecidos (dono, 16/09/2026): canal antigo desses tipos so e lido
+                                           # e some ao salvar o novo (um numero por provedor)
 GET  /api/chat-bullq/atendimentos          # a fila humana; POST :id/acoes = assumir · enviar · encerrar
 GET  /api/chat-bullq/integracao/agentes    # os três perfis e a configuração de cada um
 POST /api/chat-bullq/integracao/agentes/:tipo          # admin — provisiona/atualiza no fork

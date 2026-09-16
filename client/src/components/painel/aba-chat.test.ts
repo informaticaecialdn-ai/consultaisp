@@ -23,6 +23,23 @@ describe("aba Chat", () => {
     expect(aba).toContain('setSenha({ senha: "", confirmacao: "" })');
     expect(aba).not.toMatch(/localStorage|console\.log/);
   });
+  it("so dois servicos (dono, 16/09/2026): o WhatsApp da plataforma (Evolution), padrao, e a Datafy — Zappfy e Uazapi sairam", () => {
+    expect(aba).toContain('<option value="EVOLUTION">');
+    expect(aba).toContain('<option value="DATAFY">');
+    expect(aba).not.toContain('value="ZAPPFY"');
+    expect(aba).not.toContain('value="UAZAPI"');
+    expect(aba).not.toMatch(/baseUrl|Uazapi|Zappfy/);
+    expect(aba).toContain('provider: "EVOLUTION" as ProvedorOferecido');
+  });
+  it("WhatsApp da plataforma (Evolution): sem token nem segredo — o fork cria a instancia; a Datafy e a unica com credencial", () => {
+    // O corpo enviado para a Evolution leva so o servico e o nome: nao ha token a digitar.
+    expect(aba).toContain('{ provider: "EVOLUTION", nome: canal.nome.trim() }');
+    // Os campos de token e segredo so existem para a Datafy, e o botao so exige credencial dela.
+    expect(aba).toContain('{canal.provider === "DATAFY" && <Campo rotulo="token de acesso Datafy">');
+    expect(aba).toContain('{canal.provider === "DATAFY" && <Campo rotulo="segredo de assinatura do webhook">');
+    expect(aba).toContain('(canal.provider === "DATAFY" && (canal.token.trim().length < 8 ||');
+    expect(aba).toContain("pareie o número pelo QR");
+  });
   it("so o administrador liga o numero e define a senha", () => {
     expect((aba.match(/disabled=\{!podeAdministrar/g) ?? []).length).toBeGreaterThanOrEqual(5);
     expect(aba).toContain("só o administrador liga o número");

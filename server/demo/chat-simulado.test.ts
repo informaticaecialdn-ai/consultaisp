@@ -232,8 +232,9 @@ describe("todo método público do ChatBullqClient responde sem rede", () => {
       ["definirSenhaDoOwner", () => c.definirSenhaDoOwner(ORG, "senha-da-demo"), false],
       ["listarCanais", () => c.listarCanais(ORG), true],
       ["capacidadesDosCanais", () => c.capacidadesDosCanais(ORG), true],
-      ["criarCanalZappfy", () => c.criarCanalZappfy(ORG, { nome: "Principal", token: "token-ficticio" }), true],
-      ["criarCanalWhatsapp", () => c.criarCanalWhatsapp(ORG, { provider: "ZAPPFY", nome: "Principal", token: "token-ficticio" } as never), true],
+      ["criarCanalWhatsapp", () => c.criarCanalWhatsapp(ORG, { provider: "DATAFY", nome: "Oficial", token: "token-ficticio", phoneNumberId: "123456789", webhookSecret: "whsec_ficticio" }), true],
+      // O WhatsApp da plataforma (Evolution): o canal único do simulado serve a ele também — sem token, como no fork.
+      ["criarCanalEvolution", () => c.criarCanalEvolution(ORG, { nome: "WhatsApp da plataforma" }), true],
       ["testarCanal", () => c.testarCanal(ORG, "demo-canal"), true],
       ["estadoDaConexaoWhatsapp", () => c.estadoDaConexaoWhatsapp(ORG, "demo-canal"), true],
       ["conectarWhatsapp", () => c.conectarWhatsapp(ORG, "demo-canal", "5543999990000"), true],

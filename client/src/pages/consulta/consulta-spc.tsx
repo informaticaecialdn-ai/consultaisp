@@ -36,6 +36,7 @@ import {
   Scale,
   Eye,
   Target,
+  Download,
 } from "lucide-react";
 
 interface SpcResult {
@@ -156,6 +157,9 @@ export default function ConsultaSPCPage() {
   /* O identificador é da REQUISIÇÃO, e a resposta o traz até no erro — por isso
      ele não mora dentro de `result`, que só existe quando a consulta deu certo. */
   const [identificacao, setIdentificacao] = useState<IdentificacaoDaConsulta | null>(null);
+  /* O id da LINHA gravada — a rota o devolve na consulta nova, e o histórico o
+     traz em `c.id`. É com ele que o link "Salvar PDF" existe: sem linha, sem PDF. */
+  const [consultaGravadaId, setConsultaGravadaId] = useState<number | null>(null);
   const [erro, setErro] = useState<ErroDeConsulta | null>(null);
   const [aba, setAba] = useState("nova");
 
@@ -170,6 +174,7 @@ export default function ConsultaSPCPage() {
     },
     onSuccess: (data) => {
       setResult(data.result);
+      setConsultaGravadaId(typeof data.id === "number" ? data.id : null);
       // "SPC Brasil" é a origem padrão: enquanto a rota não mandar o par pronto,
       // o `protocolo` cru que ela já devolvia continua identificado na tela.
       setIdentificacao(lerIdentificacao(data, "SPC Brasil"));
@@ -184,6 +189,7 @@ export default function ConsultaSPCPage() {
       // consulta que falhou, que é o que o provedor leva ao suporte.
       const falha = lerErroDeConsulta(err);
       setResult(null);
+      setConsultaGravadaId(null);
       setIdentificacao(null);
       setErro(falha);
       toast({
@@ -198,6 +204,7 @@ export default function ConsultaSPCPage() {
   const abrirDoHistorico = (c: any) => {
     if (!c?.result) return;
     setResult(c.result as SpcResult);
+    setConsultaGravadaId(typeof c.id === "number" ? c.id : null);
     // O código vem da LINHA, não do `result`: quem guarda `consulta_id` é a
     // tabela. Sem isto o relatório reaberto do histórico apareceria sem número.
     setIdentificacao(lerIdentificacao(c, "SPC Brasil"));
@@ -291,7 +298,7 @@ export default function ConsultaSPCPage() {
                   <ClipboardCopy className="w-4 h-4" />
                 </button>
               </div>
-              <Button variant="ghost" onClick={() => { setQuery(""); setResult(null); setErro(null); setIdentificacao(null); }} data-testid="button-clear-spc">
+              <Button variant="ghost" onClick={() => { setQuery(""); setResult(null); setConsultaGravadaId(null); setErro(null); setIdentificacao(null); }} data-testid="button-clear-spc">
                 Limpar
               </Button>
               <Button
@@ -346,6 +353,16 @@ export default function ConsultaSPCPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        {/* Link, não fetch: o navegador baixa da rota com o cookie da
+                            sessão, como o PDF da confissão. Só existe com linha gravada. */}
+                        {consultaGravadaId != null && (
+                          <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 bg-white/10 text-white border-white/40 hover:bg-white/20 hover:text-white">
+                            <a href={`/api/spc-consultations/${consultaGravadaId}/pdf`} data-testid="link-spc-pdf">
+                              <Download className="w-3.5 h-3.5" aria-hidden />
+                              Salvar PDF
+                            </a>
+                          </Button>
+                        )}
                         {result.simulado && <ProvTag kind="simulado" />}
                         <Badge className={`border-0 ${result.status === "clean" ? "bg-[var(--color-success)] text-white" : "bg-rose-500 text-white"}`}>
                           {result.status === "clean" ? "Sem restrições" : "Com restrições"}
@@ -610,6 +627,18 @@ export default function ConsultaSPCPage() {
                         <span className="text-xs text-muted-foreground">
                           {c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : ""}
                         </span>
+                        {/* A linha inteira abre o resultado; o clique (e o Enter) no
+                            link só baixa, sem abrir por tabela. */}
+                        <a
+                          href={`/api/spc-consultations/${c.id}/pdf`}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-[var(--brand)] hover:underline"
+                          title="Salvar esta consulta em PDF"
+                          data-testid={`spc-consultation-${c.id}-pdf`}
+                        >
+                          <Download className="w-3.5 h-3.5" aria-hidden /> PDF
+                        </a>
                       </div>
                     </div>
                   );
