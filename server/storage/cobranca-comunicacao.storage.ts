@@ -95,8 +95,10 @@ export async function pausarComunicacao(providerId:number,customerId:number,user
       pausa_ate=excluded.pausa_ate,motivo=excluded.motivo,updated_at=now()
       returning customer_id`,[providerId,customerId,userId,acao==='nao_contatar',acao==='respondeu'||acao==='pagamento_informado',acao]);
     if(!result.rowCount){await c.query("rollback");return false;}
+    // `$5::text` porque jsonb_build_object é VARIADIC "any" e o Postgres não infere o tipo de um parâmetro solto ali
+    // (42P18, medido no banco local): sem o cast a preferência inteira voltava como 503 e o opt-out pela tela não gravava.
     await c.query(`insert into cobranca_eventos(provider_id,caso_id,customer_id,user_id,tipo,canal,notas,metadata)
-      select provider_id,id,customer_id,$3,'nota','sistema',$4,jsonb_build_object('acaoContato',$5) from cobranca_casos
+      select provider_id,id,customer_id,$3,'nota','sistema',$4,jsonb_build_object('acaoContato',$5::text) from cobranca_casos
       where provider_id=$1 and customer_id=$2 and status not in('pago','baixado','encerrado','cancelamento')`,[providerId,customerId,userId,acao==='pagamento_informado'?'Cliente informou pagamento: contato pausado por 48 horas para conferência. Nenhuma baixa financeira realizada.':`Preferência de contato atualizada: ${acao}`,acao]);
     await c.query("commit");return true;
   }catch(e){await c.query("rollback");throw e;}finally{c.release();}

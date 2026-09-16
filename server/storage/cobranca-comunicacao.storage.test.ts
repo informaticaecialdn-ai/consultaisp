@@ -56,6 +56,15 @@ describe("persistência da comunicação",()=>{
     await pausarComunicacao(7,11,8,"respondeu");
     expect(m.query.mock.calls[1][0]).toContain("when excluded.motivo='retomar' then false else cobranca_preferencias_contato.nao_contatar or excluded.nao_contatar");
   });
+  it("o evento da preferência tipa o parâmetro dentro de jsonb_build_object",async()=>{
+    // jsonb_build_object é VARIADIC "any": o Postgres não infere o tipo de um parâmetro solto ali e recusa o
+    // statement inteiro (42P18 "could not determine data type of parameter $5", medido no banco local em 16/09/2026).
+    // A rota engolia como 503 e o opt-out pela tela morria — o cliente pedia para não ser contatado e nada gravava.
+    m.query.mockResolvedValue({rows:[{customer_id:11}],rowCount:1});
+    await pausarComunicacao(7,11,8,"nao_contatar");
+    const evento=m.query.mock.calls.map(([sql])=>String(sql)).find(sql=>sql.includes("insert into cobranca_eventos"));
+    expect(evento).toContain("jsonb_build_object('acaoContato',$5::text)");
+  });
   it("cliente alheio não produz evento nem alteração de preferência",async()=>{
     expect(await pausarComunicacao(7,999,8,"nao_contatar")).toBe(false);
     expect(m.query).toHaveBeenCalledWith("rollback");
