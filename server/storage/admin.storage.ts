@@ -1,7 +1,7 @@
 import { eq, desc, sql, count } from "drizzle-orm";
 import { db } from "../db";
 import {
-  providers, users, customers, ispConsultations, spcConsultations, bigdataConsultations,
+  providers, users, ispConsultations, spcConsultations, bigdataConsultations,
   planChanges, providerInvoices,
   PLAN_PRICES,
   type Provider,
@@ -73,10 +73,15 @@ export class AdminStorage {
     return updated;
   }
 
+  /* Sem contagem de CLIENTES dos provedores (decisao do dono, 17/09/2026): o painel
+     da plataforma mede o uso da plataforma — provedores, logins, consultas, credito —
+     e nao o tamanho da carteira de quem assina. O corte e de CAMINHO, nao de tela: a
+     linha `count(customers)` saiu junto com o campo, senao o numero continuaria saindo
+     por curl. Era tambem a unica leitura global de `customers` sem filtro de tenant no
+     sistema (na demo ela somava o mundo base com o sandbox de todo visitante). */
   async getSystemStats(): Promise<any> {
     const [providerCount] = await db.select({ count: count() }).from(providers);
     const [userCount] = await db.select({ count: count() }).from(users);
-    const [customerCount] = await db.select({ count: count() }).from(customers);
     const [ispCount] = await db.select({ count: count() }).from(ispConsultations);
     const [spcCount] = await db.select({ count: count() }).from(spcConsultations);
     const allProviders = await db.select().from(providers);
@@ -85,7 +90,6 @@ export class AdminStorage {
     return {
       providers: Number(providerCount.count),
       users: Number(userCount.count),
-      customers: Number(customerCount.count),
       ispConsultations: Number(ispCount.count),
       spcConsultations: Number(spcCount.count),
       totalIspCredits,

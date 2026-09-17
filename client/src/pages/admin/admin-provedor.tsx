@@ -1370,12 +1370,15 @@ export default function AdminProvedorPage() {
           o numero mono de 21px e um rotulo de duas palavras nao cabem juntos.
           Os sete tambem nao eram a mesma coisa: quatro contam o que ja
           aconteceu (acumulado), tres dizem quanto resta (saldo). Separados, cada
-          fila fecha cheia — 4 e 3 — e o operador para de comparar contador com
-          saldo lado a lado. */}
+          fila fecha cheia e o operador para de comparar contador com saldo lado
+          a lado.
+          Desde 17/09/2026 a fila de uso tem TRES cartoes: o "Clientes" saiu por
+          decisao do dono — nenhuma totalizacao de clientes de provedor no painel
+          administrativo — e com ele saiu a leitura da carteira inteira na rota
+          do detalhe. Por isso `sm:grid-cols-3`, que fecha cheia com tres. */}
       <section>
         <KickerSecao>Uso da plataforma</KickerSecao>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <CartaoMetrica Icone={Users} rotulo="Clientes" valor={stats.customers} sub="cadastrados" testId="card-clientes" testIdValor="value-card-clientes" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <CartaoMetrica Icone={Activity} rotulo="Equipamentos" valor={stats.equipment} sub="ativos" testId="card-equipamentos" testIdValor="value-card-equipamentos" />
           <CartaoMetrica Icone={ScanSearch} rotulo="Consultas ISP" valor={stats.ispConsultations} sub={<><Num>{stats.ispConsultationsMonth}</Num> neste mês</>} testId="card-consultas-isp" testIdValor="value-card-consultas-isp" />
           <CartaoMetrica Icone={BarChart3} rotulo="Consultas SPC" valor={stats.spcConsultations} sub={<><Num>{stats.spcConsultationsMonth}</Num> neste mês</>} testId="card-consultas-spc" testIdValor="value-card-consultas-spc" />

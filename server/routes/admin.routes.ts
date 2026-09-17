@@ -986,9 +986,13 @@ export function registerAdminRoutes(): Router {
       const provider = await storage.getProvider(id);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
 
-      const [users, customers, equipmentList, ispList, spcList, invoices, planHistory] = await Promise.all([
+      /* Sem a carteira do provedor (decisao do dono, 17/09/2026: nenhuma totalizacao de
+         clientes no painel administrativo). `getCustomersByProvider` trazia a carteira
+         INTEIRA — nome, CPF/CNPJ, telefone, endereco, divida — para o processo a cada
+         abertura da ficha, so para imprimir `.length`. Tirar o cartao tirou junto uma
+         leitura completa de dado pessoal de titular numa rota do superadmin. */
+      const [users, equipmentList, ispList, spcList, invoices, planHistory] = await Promise.all([
         storage.getUsersByProvider(id),
-        storage.getCustomersByProvider(id),
         storage.getEquipmentByProvider(id),
         storage.getIspConsultationsByProvider(id),
         storage.getSpcConsultationsByProvider(id),
@@ -1014,7 +1018,6 @@ export function registerAdminRoutes(): Router {
         provider,
         users: safeUsers,
         stats: {
-          customers: customers.length,
           equipment: equipmentList.length,
           ispConsultations: ispList.length,
           spcConsultations: spcList.length,
@@ -1669,11 +1672,12 @@ export function registerAdminRoutes(): Router {
    * corpo transformaria o codigo — que circula por e-mail, WhatsApp e ticket —
    * numa chave de leitura do dado pessoal de terceiro.
    *
-   * O documento sai MASCARADO (`123.***.***-**`, o mesmo `maskCpfCnpj` que ja
+   * O documento sai MASCARADO (`***.456.789-**`, o mesmo `maskCpfCnpj` que ja
    * governa o que cruza provedor). Ele sai porque o suporte precisa confirmar
-   * que esta olhando a consulta certa — o provedor diz "consultei o CPF que
-   * comeca com 123" — e os tres primeiros digitos bastam para isso sem
-   * identificar ninguem.
+   * que esta olhando a consulta certa — o provedor diz "consultei o CPF
+   * 123.456.789-09" e o suporte confere pelo MEIO. Os tres primeiros NAO saem:
+   * desde 17/09/2026 eles sao a confirmacao de identidade do cliente no chat, e
+   * os dois verificadores fechariam o CPF junto com eles.
    *
    * Os campos que nao sao obvios, um a um:
    * - `usuario` (id e nome): quem operou. E funcionario do provedor, nao

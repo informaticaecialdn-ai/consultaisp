@@ -1,12 +1,13 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { formatarCreditos } from "@shared/planos";
 import { Card } from "@/components/ui/card";
 import {
   CartaoMetrica, KickerSecao, TITULO_CARTAO, Selo, BotaoLink,
   EstadoVazio, LinhasSkeleton, type Icone, type TomSelo,
 } from "@/components/painel/ui";
 import {
-  Building2, Users, Contact, ScanSearch, BarChart3, MessageSquare,
+  Building2, Users, Zap, ScanSearch, BarChart3, MessageSquare,
   ArrowUpDown, Clock, RefreshCw, CheckCircle2, Repeat,
   Wifi, WifiOff, AlertCircle,
 } from "lucide-react";
@@ -85,6 +86,10 @@ export default function VisaoGeralTab() {
      leitura vira encaixe. Tres colunas dao ~380px — a mesma largura util dos
      quatro cards do provedor — e 6 divide exato por 3, entao a segunda fila
      fecha cheia, sem cartao orfao (com 4 colunas sobrariam dois).
+     O sexto cartao era "Clientes" (a soma das carteiras de todos os provedores).
+     Saiu em 17/09/2026 por decisao do dono: o painel da plataforma nao totaliza
+     cliente de provedor. No lugar entrou o SALDO DE CREDITO, que ja vinha no
+     mesmo payload sem leitor — dado da plataforma, e a grade continua em 6.
      O icone e sempre neutro, como na primitiva: quando toda metrica da linha e
      informativa, cor por card vira ruido. */
   const STAT_CARDS: Array<{
@@ -93,7 +98,7 @@ export default function VisaoGeralTab() {
   }> = [
     { testId: "stat-card-provedores", rotulo: "Provedores", Icone: Building2, valor: stats?.providers ?? "—", sub: <><span className="font-mono tabular-nums">{stats?.activeProviders ?? 0}</span> ativos</>, carregando: statsLoading },
     { testId: "stat-card-usuarios", rotulo: "Usuários", Icone: Users, valor: stats?.users ?? "—", sub: "cadastrados", carregando: statsLoading },
-    { testId: "stat-card-clientes", rotulo: "Clientes", Icone: Contact, valor: stats?.customers ?? "—", sub: "em todos os provedores", carregando: statsLoading },
+    { testId: "stat-card-creditos-isp", rotulo: "Créditos ISP", Icone: Zap, valor: stats?.totalIspCredits === undefined ? "—" : formatarCreditos(stats.totalIspCredits), sub: "saldo em todos os provedores", carregando: statsLoading },
     { testId: "stat-card-consultas-isp", rotulo: "Consultas ISP", Icone: ScanSearch, valor: stats?.ispConsultations ?? "—", sub: "total realizado", carregando: statsLoading },
     { testId: "stat-card-consultas-spc", rotulo: "Consultas SPC", Icone: BarChart3, valor: stats?.spcConsultations ?? "—", sub: "total realizado", carregando: statsLoading },
     { testId: "stat-card-mensagens-novas", rotulo: "Mensagens novas", Icone: MessageSquare, valor: totalUnread, sub: "aguardando resposta", carregando: threadsLoading },
