@@ -93,17 +93,22 @@ describe("painel administrativo nao totaliza clientes de provedor", () => {
     expect(corpo.stats).toBeDefined();
     expect(corpo.stats).not.toHaveProperty("customers");
     expect(JSON.stringify(corpo)).not.toContain("\"customers\"");
-    // Uso da plataforma continua inteiro: o corte e so a carteira do provedor.
+    // Equipamento e o mesmo porte da base por outro eixo (a tabela e por titular):
+    // saiu junto, a pedido do dono, no mesmo dia.
+    expect(corpo.stats).not.toHaveProperty("equipment");
+    // Uso da plataforma continua inteiro: o corte e so a base de assinantes.
     expect(corpo.stats).toHaveProperty("ispConsultations");
     expect(corpo.stats).toHaveProperty("spcConsultations");
   });
 
-  it("a rota do detalhe nem LE a carteira do provedor", async () => {
+  it("a rota do detalhe nem LE a carteira nem o inventario do provedor", async () => {
     const res = await fetch(`${base}/api/admin/providers/42/detail`);
     expect(res.status).toBe(200);
     // Sem esta asserção sobraria a variante "sumiu da tela, continua saindo do banco":
-    // a leitura trazia nome, documento, telefone, endereco e divida de cada titular.
+    // a leitura trazia nome, documento, telefone, endereco e divida de cada titular,
+    // e a do inventario trazia serial e MAC de cada aparelho.
     expect(storageMock.getCustomersByProvider).not.toHaveBeenCalled();
+    expect(storageMock.getEquipmentByProvider).not.toHaveBeenCalled();
   });
 
   it("GET /api/admin/stats nao devolve a soma de clientes da plataforma", async () => {
@@ -132,6 +137,7 @@ describe("o fonte do painel nao mostra contagem de clientes", () => {
     // A CHAMADA, nao a palavra: o comentario que explica o corte cita o metodo
     // pelo nome de proposito, para quem ler a rota saber por que ele nao esta la.
     expect(fonte).not.toMatch(/storage\s*\.\s*getCustomersByProvider\s*\(/);
+    expect(fonte).not.toMatch(/storage\s*\.\s*getEquipmentByProvider\s*\(/);
   });
 
   it("as telas do painel administrativo nao tem cartao de clientes", () => {
@@ -141,7 +147,9 @@ describe("o fonte do painel nao mostra contagem de clientes", () => {
     ]) {
       const fonte = ler(arquivo);
       expect(fonte, arquivo).not.toMatch(/stats\??\.customers/);
+      expect(fonte, arquivo).not.toMatch(/stats\??\.equipment\b/);
       expect(fonte, arquivo).not.toMatch(/"(stat-)?card-clientes"/);
+      expect(fonte, arquivo).not.toMatch(/"(stat-)?card-equipamentos"/);
     }
   });
 });

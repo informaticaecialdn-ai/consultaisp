@@ -1372,14 +1372,15 @@ export default function AdminProvedorPage() {
           aconteceu (acumulado), tres dizem quanto resta (saldo). Separados, cada
           fila fecha cheia e o operador para de comparar contador com saldo lado
           a lado.
-          Desde 17/09/2026 a fila de uso tem TRES cartoes: o "Clientes" saiu por
-          decisao do dono — nenhuma totalizacao de clientes de provedor no painel
-          administrativo — e com ele saiu a leitura da carteira inteira na rota
-          do detalhe. Por isso `sm:grid-cols-3`, que fecha cheia com tres. */}
+          Desde 17/09/2026 a fila de uso tem DOIS cartoes: sairam "Clientes" e
+          "Equipamentos" por decisao do dono — o painel da plataforma nao
+          totaliza a base de assinantes de provedor, nem pelo numero de clientes
+          nem pelo de aparelhos, que e o mesmo porte por outro eixo. Com os dois
+          sairam as duas leituras de lista inteira que a rota do detalhe fazia so
+          para contar. Fica o que a plataforma cobra: consulta. */}
       <section>
         <KickerSecao>Uso da plataforma</KickerSecao>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <CartaoMetrica Icone={Activity} rotulo="Equipamentos" valor={stats.equipment} sub="ativos" testId="card-equipamentos" testIdValor="value-card-equipamentos" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <CartaoMetrica Icone={ScanSearch} rotulo="Consultas ISP" valor={stats.ispConsultations} sub={<><Num>{stats.ispConsultationsMonth}</Num> neste mês</>} testId="card-consultas-isp" testIdValor="value-card-consultas-isp" />
           <CartaoMetrica Icone={BarChart3} rotulo="Consultas SPC" valor={stats.spcConsultations} sub={<><Num>{stats.spcConsultationsMonth}</Num> neste mês</>} testId="card-consultas-spc" testIdValor="value-card-consultas-spc" />
         </div>

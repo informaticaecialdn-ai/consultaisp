@@ -991,9 +991,8 @@ export function registerAdminRoutes(): Router {
          INTEIRA — nome, CPF/CNPJ, telefone, endereco, divida — para o processo a cada
          abertura da ficha, so para imprimir `.length`. Tirar o cartao tirou junto uma
          leitura completa de dado pessoal de titular numa rota do superadmin. */
-      const [users, equipmentList, ispList, spcList, invoices, planHistory] = await Promise.all([
+      const [users, ispList, spcList, invoices, planHistory] = await Promise.all([
         storage.getUsersByProvider(id),
-        storage.getEquipmentByProvider(id),
         storage.getIspConsultationsByProvider(id),
         storage.getSpcConsultationsByProvider(id),
         storage.getAllProviderInvoices(id),
@@ -1018,7 +1017,6 @@ export function registerAdminRoutes(): Router {
         provider,
         users: safeUsers,
         stats: {
-          equipment: equipmentList.length,
           ispConsultations: ispList.length,
           spcConsultations: spcList.length,
           ispConsultationsMonth: ispMonth,
