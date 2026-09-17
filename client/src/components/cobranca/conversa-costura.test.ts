@@ -83,7 +83,9 @@ describe("sem conversa, a tela diz o que falta — e não mostra um controle mor
 
   it("o botão de iniciar só liga com o chat pronto, e o motivo fica no title", () => {
     expect(tela).toContain("const pronto = chatProntoParaEnviar(integracao)");
-    expect(tela).toContain("disabled={!pronto || iniciar.isPending}");
+    expect(tela).toContain("disabled={!pronto || canalImpede || iniciar.isPending}");
+    // A integração segue `ativo` quando o WhatsApp cai depois de configurado: o diagnóstico do canal também trava.
+    expect(tela).toContain("canalImpede={canalImpedeOPrimeiroContato(transporte.data)}");
     expect(tela).toContain("title={impedimento ??");
   });
 

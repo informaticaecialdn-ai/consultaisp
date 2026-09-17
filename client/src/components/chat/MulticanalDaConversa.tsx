@@ -1,10 +1,13 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Mail, MessageSquareText, Repeat } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { mensagemDoErro } from "@/components/cobranca/ui";
 import { BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA } from "@/components/painel/ui";
-import { BOTAO_CHAT_MARCA, LINK_CHAT, NUM_CHAT } from "./PerfilDoCliente";
+import { BOTAO_CHAT_MARCA, NUM_CHAT } from "./PerfilDoCliente";
+import { ATALHO, ICONE_DO_ATALHO } from "./ConversaUi";
 import type { DadosMulticanal } from "./multicanal";
 
 export function useMulticanalDaConversa(url: string, escopo: string) {
@@ -16,7 +19,7 @@ export function useMulticanalDaConversa(url: string, escopo: string) {
   });
 }
 
-/** Ação complementar em diálogo próprio; o compositor principal continua no WhatsApp. */
+/** Ação complementar em diálogo próprio; o compositor principal continua no WhatsApp. O gatilho é um atalho do compositor. */
 export function MulticanalDaConversa({ url, escopo, canal, dados, bloqueado }: {
   url: string; escopo: string; canal: "sms" | "email";
   dados: DadosMulticanal | undefined; bloqueado: boolean;
@@ -69,7 +72,10 @@ export function MulticanalDaConversa({ url, escopo, canal, dados, bloqueado }: {
   const pronto = propostaId ? previa.isSuccess && confirmarProposta : texto.trim() && (canal !== "email" || assunto.trim());
   return (
     <>
-    <button type="button" className={`${LINK_CHAT} text-xs`} onClick={() => setAberto(true)} data-testid={`chat-abrir-${canal}`}>Enviar {canal === "sms" ? "SMS" : "e-mail"}</button>
+    <button type="button" className={ATALHO} onClick={() => setAberto(true)} data-testid={`chat-abrir-${canal}`}>
+      {canal === "sms" ? <MessageSquareText aria-hidden className={ICONE_DO_ATALHO} /> : <Mail aria-hidden className={ICONE_DO_ATALHO} />}
+      Enviar {canal === "sms" ? "SMS" : "e-mail"}
+    </button>
     <Dialog open={aberto} onOpenChange={setAberto}>
     <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[600px]" data-testid={`chat-dialogo-${canal}`}>
     <DialogHeader>
@@ -135,15 +141,24 @@ export function ReforcosDaConversa({ url, escopo, dados }: { url: string; escopo
     retry: false,
   });
   const invalido = !Number.isInteger(Number(intervalo)) || Number(intervalo) < 24 || Number(intervalo) > 720 || !canais.length;
-  return <details className="text-xs text-[var(--text-muted)]">
-    <summary>Reforços por SMS/e-mail · {dados.config.reforcoAtivo ? "ativos" : "desligados"}</summary>
-    <div className="mt-2 flex flex-wrap items-center gap-2">
+  // Configuração, não mensagem: mora num popover do atalho, como os popovers do compositor da referência.
+  return <Popover>
+    <PopoverTrigger asChild>
+      <button type="button" className={ATALHO} title="Reforços por SMS/e-mail" data-testid="chat-reforcos">
+        <Repeat aria-hidden className={ICONE_DO_ATALHO} />
+        Reforços · {dados.config.reforcoAtivo ? "ativos" : "desligados"}
+      </button>
+    </PopoverTrigger>
+    <PopoverContent align="start" side="top" className="w-[320px] p-3 text-xs text-[var(--text-muted)]">
+    <p className="mb-2 text-[11px] font-semibold text-[var(--text-2)]">Reforços por SMS/e-mail</p>
+    <div className="flex flex-wrap items-center gap-2">
       <label>Intervalo em horas <input aria-label="Intervalo dos reforços em horas" type="number" min={24} max={720} className={`${CONTROLE_CAMPO} ${NUM_CHAT} w-20`} value={intervalo} onChange={(e) => setIntervalo(e.target.value)} /></label>
       {(["sms", "email"] as const).map((c) => <label key={c} className="flex items-center gap-1"><input type="checkbox" checked={canais.includes(c)} disabled={config.isPending || !dados.canais[c]} onChange={(e) => setCanais((atual) => e.target.checked ? [...atual, c] : atual.filter((x) => x !== c))} />{c === "sms" ? "SMS" : "E-mail"}</label>)}
       <button type="button" className={BOTAO_SECUNDARIO} disabled={config.isPending || invalido} onClick={() => config.mutate(!dados.config.reforcoAtivo)}>{dados.config.reforcoAtivo ? "Desligar reforços" : "Ativar reforços"}</button>
       {dados.config.reforcoAtivo && <button type="button" className={BOTAO_SECUNDARIO} disabled={config.isPending || invalido} onClick={() => config.mutate(true)}>Salvar intervalo e canais</button>}
       <p>Respeita a política de contato. Respostas recebidas ficam neste histórico.</p>
     </div>
-    {config.isError && <p role="alert" className="text-[var(--danger)]">{mensagemDoErro(config.error)}</p>}
-  </details>;
+    {config.isError && <p role="alert" className="mt-2 text-[var(--danger)]">{mensagemDoErro(config.error)}</p>}
+    </PopoverContent>
+  </Popover>;
 }

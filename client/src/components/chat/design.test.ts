@@ -20,6 +20,9 @@ const executavel = (fonte: string) =>
 
 const ARQUIVOS = [
   "components/chat/PerfilDoCliente.tsx",
+  // O porte do layout do Provedor.ai (17/09/2026) pôs estes dois na tela: entram na mesma régua.
+  "components/chat/ConversaUi.tsx",
+  "components/chat/MulticanalDaConversa.tsx",
   "components/chat/PagamentosDoChat.tsx",
   "components/chat/AutomacaoPrimeiroContato.tsx",
   "components/chat/ChatDaRecuperacao.tsx",
@@ -80,14 +83,24 @@ describe("as primitivas do chat", () => {
     expect(perfil).toMatch(/BOTAO_CHAT_MARCA = `[^`]*\$\{ALVO_CONTROLE\}[^`]*\$\{FOCO\}/);
   });
 
-  it("os selos vêm de SeloCobranca/SeloQuadrante, e todo número sai em mono tabular", () => {
+  it("os selos vêm de SeloCobranca, e todo número sai em mono tabular", () => {
     expect(perfil).toContain("<SeloCobranca");
-    expect(perfil).toContain("<SeloQuadrante");
+    // O quadrante do topo virou a pílula escura da referência (correção 3), e continua sendo o selo
+    // retangular do sistema — só o fundo e a tinta trocam, por token, nunca por paleta ou pill.
+    const pilula = perfil.slice(perfil.indexOf("export function PilulaDoQuadrante"), perfil.indexOf("function Linha("));
+    expect(pilula.match(/<SeloCobranca/g)).toHaveLength(2);
+    expect(pilula).toContain('className="border-transparent bg-[var(--text)] text-[var(--surface)]"');
+    expect(pilula).not.toMatch(/rounded-(full|md|lg|xl)/);
+    expect(perfil).toContain("<PilulaDoQuadrante quadrante={c.quadrante}");
     expect(perfil).toContain('NUM_CHAT = "font-mono tabular-nums"');
     // A grade de métricas (em aberto, atraso, crédito, propensão) e a fatura.
     expect(perfil).toMatch(/<dd[\s\S]*?NUM_CHAT/);
     expect(perfil).toMatch(/\{dinheiroChat\(f\.valor\)\}/);
-    expect(perfil).toMatch(/className=\{cn\("flex justify-between gap-2", NUM_CHAT\)\}/);
+    // O valor da fatura, à direita da linha como na referência, em mono tabular.
+    expect(perfil).toMatch(/className=\{cn\("font-semibold", NUM_CHAT\)\}>\{dinheiroChat\(f\.valor\)\}/);
+    // O vencimento também — e o atraso por fatura é conta sobre ele, com o selo retangular.
+    expect(perfil).toMatch(/venc\.\{" "\}\s*<span className=\{NUM_CHAT\}>/);
+    expect(perfil).toContain("const situacao = situacaoDaFatura(f.vencimento)");
   });
 
   it("o dado que não veio é <Traco> com motivo próprio, nunca zero nem traço mudo", () => {
@@ -141,12 +154,17 @@ describe("a fila de conversas", () => {
 
   it("a aba ativa sobe por anel de 1px; a conversa aberta acende na marca, não na cor de dívida", () => {
     expect(fila).toContain("shadow-[0_0_0_1px_var(--border)]");
-    expect(fila).toContain("border-l-[var(--brand)] bg-[var(--brand-soft)]");
+    // Como na referência, sem barra lateral: a linha aberta ganha o fundo de marca.
+    expect(fila).toContain('ativa ? "bg-[var(--brand-soft)]"');
+    expect(fila).not.toMatch(/bg-\[var\(--past(-bg)?\)\]/);
   });
 
-  it("carregando é LinhasSkeleton, com os 300 ms; paginação e voltar têm alvo e foco", () => {
+  it("carregando é skeleton na forma da linha, com os 300 ms; paginação e voltar têm alvo e foco", () => {
+    expect(fila).toContain("<SkeletonDaFila");
     expect(fila).toContain("<LinhasSkeleton");
     expect(fila).toContain("useSkeletonAtrasado(fila.isPending)");
+    const ui = executavel(ler("components/chat/ConversaUi.tsx"));
+    expect(ui).toMatch(/export function SkeletonDaFila[\s\S]*?<Skeleton className=/);
     expect(fila).toMatch(/BOTAO_PAGINA = `\$\{ALVO_TEXTO\}[^`]*\$\{FOCO\}[^`]*\$\{DESABILITAVEL\}`/);
     expect(fila).toContain("FOCO_INTERNO,");
   });

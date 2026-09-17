@@ -49,6 +49,15 @@ export const STATUS_CHAT: Record<string, string> = {
   BOT: "Com agente",
   CLOSED: "Encerrada",
 };
+/**
+ * Os estados em que a conversa segue o curso normal — o "ativa" da referência
+ * (Provedor.ai: ativa · aguardando humano · encerrada). Escalada (PENDING) e
+ * encerrada (CLOSED) saem dele, e status desconhecido também: o que não se sabe
+ * não é "normal". A lista só desenha a linha de selos fora destes.
+ */
+export const STATUS_ATIVOS_DO_CHAT = ["OPEN", "BOT", "WAITING"] as const;
+export const conversaAtiva = (status: string): boolean =>
+  (STATUS_ATIVOS_DO_CHAT as readonly string[]).includes(status);
 export interface ResumoChat {
   conversationId: string;
   customerId: number;
@@ -135,6 +144,13 @@ export interface DetalheChat {
     tipo: string;
     status: string;
     quem: string | null;
+    /**
+     * Saída da funcionária digital: o fork gravou o agente na mensagem
+     * (`metadata.aiAgentId`). Ausente ou falso = saiu pela conta do provedor
+     * (atendente, primeiro contato, reserva da autonomia) — a tela não chuta
+     * que é gente nem que é IA pelo nome.
+     */
+    ia?: boolean;
     em: string;
   }>;
   pagina: number;

@@ -71,6 +71,13 @@ export interface Mensagem {
   content: { text?: string; name?: string; language?: { code?: string } };
   status: string;
   senderName?: string;
+  /**
+   * O fork devolve a linha inteira da mensagem. Daqui só se lê `aiAgentId`: o
+   * lote do agente (vps/010) grava o id do agente que falou, e é o ÚNICO sinal
+   * de que a mensagem saiu da funcionária digital — o envio comum (operador,
+   * primeiro contato, reserva da autonomia) sai todo pela conta do dono.
+   */
+  metadata?: { aiAgentId?: unknown } | null;
   createdAt: string;
 }
 

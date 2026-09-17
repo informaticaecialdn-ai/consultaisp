@@ -62,6 +62,17 @@ describe("atendimento dentro do módulo", () => {
       { id: "t3", tipo: "TEMPLATE", texto: "Template de abertura" },
     ]);
   });
+  it("marca como da funcionária digital só a saída com o agente gravado pelo fork, nunca pelo nome", async () => {
+    remoto.listarMensagens.mockResolvedValue({ ok: true, valor: [
+      { id: "a1", direction: "OUTBOUND", type: "TEXT", content: { text: "Oi, Maria!" }, senderName: "Clara", metadata: { aiAgentId: "ag_ativos", lote: { indice: 0 } } },
+      { id: "a2", direction: "OUTBOUND", type: "TEXT", content: { text: "Sou a Clara da equipe" }, senderName: "Clara", metadata: { providerResponse: {} } },
+      { id: "a3", direction: "OUTBOUND", type: "TEXT", content: { text: "Segue o boleto" }, senderName: "NsLink", metadata: null },
+      { id: "a4", direction: "INBOUND", type: "TEXT", content: { text: "ok" }, metadata: { aiAgentId: "ag_ativos" } },
+      { id: "a5", direction: "OUTBOUND", type: "TEXT", content: { text: "vazio" }, metadata: { aiAgentId: "  " } },
+    ] });
+    const detalhe = await detalheDoAtendimento(6, "c1");
+    expect(detalhe.mensagens.map((m) => [m.id, m.ia])).toEqual([["a1", true], ["a2", false], ["a3", false], ["a4", false], ["a5", false]]);
+  });
   it("o detalhe leva o follow-up do caso para a tela mostrar o que esta combinado", async () => {
     remoto.listarMensagens.mockResolvedValue({ ok: true, valor: [] });
     const quando = amanha();

@@ -17,8 +17,10 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
+  conversaAtiva,
   MOTIVO_SEM_HISTORICO,
   MOTIVO_SEM_PREVIA,
+  STATUS_ATIVOS_DO_CHAT,
   STATUS_CHAT,
   TOM_DO_STATUS_CHAT,
   tempoRelativo,
@@ -46,8 +48,9 @@ describe("três colunas de verdade", () => {
     expect(fonte).toContain("flex min-h-0 flex-1 overflow-hidden");
   });
 
-  it("fila ~320px, conversa fluida, e o painel do cliente é desenhado por <Atendimento>", () => {
-    expect(fonte).toMatch(/lg:w-\[320px\][^"]*2xl:w-\[352px\]/);
+  it("lista 310px (260px com duas colunas), conversa fluida, e o painel do cliente é desenhado por <Atendimento>", () => {
+    // A lista da referência: minmax(240px, 310px) com três colunas; minmax(200px, 260px) com duas.
+    expect(fonte).toMatch(/lg:w-\[260px\] xl:w-\[310px\]/);
     expect(fonte).toContain("flex min-h-0 min-w-0 flex-1 flex-col");
     expect(fonte).toContain("<Atendimento");
   });
@@ -65,6 +68,14 @@ describe("três colunas de verdade", () => {
     expect(fonte).toContain("Voltar às conversas");
     expect(fonte).toMatch(/text-xs lg:hidden/);
   });
+
+  it("com a conversa aberta, abaixo de sm a volta mora no cabeçalho do atendimento (correção 3)", () => {
+    // A faixa da página some só com conversa aberta e só no celular; com ?caso= ela fica.
+    expect(fonte).toMatch(/text-xs lg:hidden",\s*selecionada && "max-sm:hidden",/);
+    // O atendimento recebe o mesmo destino da faixa — nunca um caminho de volta diferente.
+    expect(fonte).toContain("aoVoltar={() => navegar(rotaChat(origem, undefined, carteira))}");
+    expect(fonte).toContain("onClick={() => navegar(rotaChat(origem, undefined, carteira))}");
+  });
 });
 
 describe("a lista", () => {
@@ -73,6 +84,51 @@ describe("a lista", () => {
     expect(fonte).toContain('placeholder="Buscar cliente, telefone…"');
     // Trocar o filtro volta à primeira página: senão a página 3 de outro recorte fica vazia.
     expect(fonte).toMatch(/setBusca\(e\.target\.value\);\s*setPagina\(1\)/);
+  });
+
+  it("a busca espera 250 ms, como na referência: uma leitura quando o operador para, não uma por tecla", () => {
+    expect(fonte).toContain("const ESPERA_DA_BUSCA_MS = 250");
+    expect(fonte).toContain("setTimeout(() => setBuscaAplicada(busca.trim()), ESPERA_DA_BUSCA_MS)");
+    expect(fonte).toContain("return () => clearTimeout(espera)");
+    // O que vai à rota é a busca aplicada, nunca o texto cru do campo.
+    expect(fonte).toContain('if (buscaAplicada) params.set("busca", buscaAplicada)');
+    expect(fonte).not.toMatch(/params\.set\("busca", busca\.trim\(\)\)/);
+  });
+
+  it("com as colunas lado a lado, a primeira conversa abre — nunca por cima de um link", () => {
+    expect(fonte).toContain('const TELA_COM_COLUNAS = "(min-width: 1024px)"');
+    expect(fonte).toContain("if (!primeiraDaLista || selecionada || casoDoLink) return;");
+    expect(fonte).toContain("window.matchMedia(TELA_COM_COLUNAS).matches");
+    expect(fonte).toContain("navegar(rotaChat(origem, primeiraDaLista, carteira), { replace: true })");
+  });
+
+  it("escalada é o 'não lido': a hora acende com o ponto âmbar — o âmbar não pinta texto de 10px", () => {
+    expect(fonte).toContain('const escalada = c.status === "PENDING"');
+    // --gated a 10px fica em ~4:1 sobre branco e ~3,4:1 sobre --brand-soft: a cor vai ao ponto.
+    // A hora não escalada é --text-muted (o --text-3 da referência): --text-faint dava ~3,2:1 no
+    // branco e ~2,7:1 na linha ativa.
+    expect(fonte).toContain('escalada ? "font-bold text-[var(--text-2)]" : "text-[var(--text-muted)]"');
+    expect(fonte).not.toMatch(/escalada \?[^:]*: "text-\[var\(--text-faint\)\]"/);
+    expect(fonte).toContain('<span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--gated)]" />');
+    expect(fonte).not.toContain('"font-bold text-[var(--gated)]"');
+    expect(fonte).toContain('<span className="sr-only"> · escalada</span>');
+  });
+
+  it("a conversa recebe o diagnóstico do canal: pronto só confirmado, problema é false, sem leitura é indefinido", () => {
+    expect(fonte).toContain('canalPronto={canalComProblema ? false : transporte.data?.codigo === "PRONTO" ? true : undefined}');
+  });
+
+  it("o aviso do canal vai ao compositor da conversa, a toda coluna sem conversa (vazio e caso) e à lista estreita", () => {
+    expect(fonte).toContain('avisoDoCanal={avisoDoCanal("chat-diagnostico-transporte")}');
+    expect(fonte).toContain('{canalComProblema && <div className="lg:hidden">{avisoDoCanal("chat-diagnostico-transporte-lista")}</div>}');
+    // Fora do ternário do caso: carregando, com erro ou sem conversa, a faixa fica. O render de
+    // verdade (em qualquer largura) está em chat-aviso-do-canal.test.ts.
+    const coluna = fonte.slice(fonte.indexOf('data-testid="chat-coluna-sem-conversa"'));
+    expect(coluna.indexOf('data-testid="chat-coluna-aviso-do-canal"')).toBeGreaterThan(0);
+    expect(coluna.indexOf('data-testid="chat-coluna-aviso-do-canal"')).toBeLessThan(coluna.indexOf("{casoDoLink ? ("));
+    expect(fonte).toContain('transporte.data.codigo !== "PRONTO"');
+    expect(fonte).toContain("Verificar novamente");
+    expect(fonte).toContain('href="/painel-provedor?tab=chat"');
   });
 
   it("as abas são Todas / Escaladas / Encerradas — e cada status existe na rota", () => {
@@ -101,6 +157,26 @@ describe("a lista", () => {
     expect(fonte).toContain("<SeloCarteira carteira={c.carteira} />");
     // O tom de cada estado existe para os cinco status do contrato.
     for (const status of Object.keys(STATUS_CHAT)) expect(TOM_DO_STATUS_CHAT[status]).toBeTruthy();
+  });
+
+  it("a linha de selos só existe com o estado fora do curso normal ou sem histórico, como na referência (correção 3)", () => {
+    expect(fonte).toContain("const estadoForaDoCurso = !conversaAtiva(c.status)");
+    expect(fonte).toMatch(/\{\(estadoForaDoCurso \|\| !c\.ultimoEventoEm\) && \(\s*<span className="mt-\[5px\] flex flex-wrap items-center gap-\[5px\]" data-testid="fila-chat-selos">/);
+    expect(fonte).toMatch(/\{estadoForaDoCurso && \(\s*<SeloCobranca tom=\{TOM_DO_STATUS_CHAT\[c\.status\] \?\? "neutro"\}>/);
+    // Sem o selo, o estado continua dito ao leitor de tela.
+    expect(fonte).toContain('{!estadoForaDoCurso && <span className="sr-only"> · {STATUS_CHAT[c.status] ?? c.status}</span>}');
+    // A carteira sai da linha de selos: na cobrança a lista já é de uma carteira só; em equipamentos
+    // ela mistura, e o selo vai à direita da segunda linha.
+    expect(fonte).toContain("{mostrarCarteira && c.carteira && <SeloCarteira carteira={c.carteira} />}");
+    expect(fonte).toContain('mostrarCarteira={origem === "equipamentos"}');
+  });
+
+  it("conversaAtiva: aberta, com agente e aguardando cliente seguem o curso; escalada, encerrada e o desconhecido não", () => {
+    expect([...STATUS_ATIVOS_DO_CHAT]).toEqual(["OPEN", "BOT", "WAITING"]);
+    for (const status of ["OPEN", "BOT", "WAITING"]) expect(conversaAtiva(status)).toBe(true);
+    for (const status of ["PENDING", "CLOSED", "EXPIRED", ""]) expect(conversaAtiva(status)).toBe(false);
+    // Os ativos são status do contrato — nenhum inventado.
+    for (const status of STATUS_ATIVOS_DO_CHAT) expect(STATUS_CHAT[status]).toBeTruthy();
   });
 
   it("sem histórico é um selo com motivo, e o tempo vira traço — nunca uma data inventada", () => {
@@ -194,6 +270,7 @@ describe("pele do DESIGN_SYSTEM v5", () => {
   it("carregando é skeleton com os 300 ms, nunca a palavra", () => {
     expect(fonte).not.toMatch(/Carregando/);
     expect(fonte).toContain("useSkeletonAtrasado(fila.isPending)");
+    expect(fonte).toContain("<SkeletonDaFila");
     expect(fonte).toContain("<LinhasSkeleton");
   });
 

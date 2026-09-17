@@ -282,6 +282,9 @@ export async function detalheDoAtendimento(
       tipo: m.type,
       status: m.status,
       quem: m.senderName ?? null,
+      // A tela separa a funcionária digital da equipe pelo agente que o fork
+      // gravou na mensagem — nunca pelo nome, que um operador pode repetir.
+      ia: m.direction === "OUTBOUND" && typeof m.metadata?.aiAgentId === "string" && m.metadata.aiAgentId.trim() !== "",
       em: m.createdAt,
     })),
     pagina,

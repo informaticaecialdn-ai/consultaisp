@@ -680,7 +680,9 @@ function cenaDaCobranca(l: LinhaDaConversa, v: VozDaCena, abertura: Passo): Cena
  * assunto, contrato, equipamento nem valor. A primeira resposta do cliente traz
  * os dígitos, e só DEPOIS dela a conversa fala do assunto (D10). Cada turno sai
  * numa mensagem só, com os balões separados por linha em branco — como pelo
- * envio comum; o lote do agente (vps/010) não existe no simulado.
+ * envio comum; o lote do agente (vps/010) não existe no simulado. A fala dela
+ * leva, porém, o `metadata.aiAgentId` do perfil, que é o que a tela de conversas
+ * lê para mostrar a funcionária digital separada da equipe.
  *
  * Encerrada: o atendente fecha pelo inbox. O fecho da cena troca a última fala
  * da equipe; se a última fala é da funcionária (a promessa que ela anotou), vem
@@ -874,6 +876,7 @@ export function falasDoRoteiro(linha: LinhaDaConversa, agora: number, antesDe = 
 
   const provedor = linha.provedorFantasia || linha.provedorNome;
   const funcionaria = funcionariaDaConversa(linha);
+  const agenteDaFuncionaria = AGENTES_DA_DEMO[perfilDaConversa(linha)].id;
   return passos.map(({ autor, texto, rodada }, i): FalaDoRoteiro => {
     const doCliente = autor === "cliente";
     const respondida = passos.slice(i + 1).some(p => p.autor === "cliente");
@@ -885,6 +888,8 @@ export function falasDoRoteiro(linha: LinhaDaConversa, agora: number, antesDe = 
         content: { text: texto },
         status: doCliente ? (ativa && i === n - 1 ? "DELIVERED" : "READ") : respondida ? "READ" : "DELIVERED",
         ...(doCliente ? {} : { senderName: autor === "funcionaria" ? funcionaria : linha.atendenteNome || `Equipe ${provedor}` }),
+        // A fala dela leva o agente que falou, como o fork grava: é o que a tela de conversas lê para separá-la da equipe.
+        ...(autor === "funcionaria" ? { metadata: { aiAgentId: agenteDaFuncionaria } } : {}),
         createdAt: new Date(Math.round(horarios[i])).toISOString(),
       },
       rodada: rodada ?? null,
