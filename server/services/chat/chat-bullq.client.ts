@@ -161,6 +161,8 @@ export function normalizarTelefoneParaChat(telefone: string | null | undefined):
 // ---------------------------------------------------------------------------
 
 const TIMEOUT_PADRAO_MS = 15_000;
+/** O planejador: 25 s de modelo no fork com `escrever`, mais a espera pela vez (vps/009: 3 planos por organização). */
+export const TIMEOUT_DO_PLANEJADOR_MS = 45_000;
 
 function normalizarBaseUrl(bruta: string): string {
   const semBarra = String(bruta ?? "").trim().replace(/\/+$/, "");
@@ -432,8 +434,52 @@ export class ChatBullqClient {
     return this.operacao(orgId, "GET", `/ai-agents/${enc(agenteId)}`);
   }
 
+  /**
+   * O planejador da autonomia (vps/003→009). 45 s: com `escrever` o modelo tem
+   * 25 s no fork, somados à leitura do agente e da credencial. O fork NÃO
+   * enfileira: acima dos planos simultâneos por organização (3 no 009, 1 antes
+   * dele) responde 503 "Planejador ocupado" na hora — por isso a fila limita as
+   * rodadas do mesmo provedor pela chave D9 (`RODADAS_SIMULTANEAS_POR_PROVEDOR`).
+   * `escrever` só vai no corpo quando é `true` — o 008 recusa qualquer chave
+   * fora do envelope com 400, até `escrever: false`.
+   */
   planejarAutonomia(orgId: string, agenteId: string, pedido: PedidoPlanoAutonomia): Promise<Resultado<PlanoResposta>> {
-    return this.operacao(orgId, "POST", `/ai-agents/${enc(agenteId)}/autonomous-plan`, { corpo: pedido, timeoutMs: 30_000 });
+    const { escrever, ...envelope } = pedido;
+    return this.operacao(orgId, "POST", `/ai-agents/${enc(agenteId)}/autonomous-plan`, {
+      corpo: escrever === true ? { ...envelope, escrever: true } : envelope,
+      timeoutMs: TIMEOUT_DO_PLANEJADOR_MS,
+    });
+  }
+
+  /**
+   * Os balões de UM turno da funcionária, enviados COMO o agente (vps/010):
+   * sem assinatura do dono, sem atribuir a conversa, em ordem e com
+   * "digitando…". O fork cria as mensagens e põe UM job na fila; a resposta
+   * 2xx confirma o lote na fila, não a entrega.
+   *
+   * Quem chama decide a degradação: 404 (fork sem o 010) ou 400 (pedido
+   * recusado) nada enfileiraram; timeout ou 5xx não dizem se enfileiraram.
+   * Resposta 2xx sem o formato esperado é tratada como não confirmada, SEM
+   * status — o lote pode estar na fila, e reenviar seria mandar duas vezes.
+   */
+  async enviarComoAgente(
+    orgId: string,
+    conversationId: string,
+    aiAgentId: string,
+    textos: string[],
+  ): Promise<Resultado<{ loteId: string; mensagens: { messageId: string; status: string }[] }>> {
+    const r = await this.operacao<{ loteId?: unknown; mensagens?: unknown }>(orgId, "POST", "/messages/agent-batch", {
+      corpo: { conversationId, aiAgentId, textos },
+    });
+    if (!r.ok) return r;
+    const mensagens = Array.isArray(r.valor?.mensagens) ? r.valor.mensagens : null;
+    const validas = mensagens?.filter((m): m is { id: string; status: string } =>
+      !!m && typeof m === "object" && typeof (m as { id?: unknown }).id === "string" && typeof (m as { status?: unknown }).status === "string");
+    if (typeof r.valor?.loteId !== "string" || !validas || validas.length !== textos.length) {
+      logger.warn({ caminho: "/messages/agent-batch" }, "chat-bullq: lote do agente aceito sem a confirmação esperada");
+      return { ok: false, erro: "O Chat BullQ não confirmou o lote de mensagens" };
+    }
+    return { ok: true, valor: { loteId: r.valor.loteId, mensagens: validas.map(m => ({ messageId: m.id, status: m.status })) } };
   }
 
   /** Patch 002: lista os modelos realmente disponíveis na credencial do serviço. */

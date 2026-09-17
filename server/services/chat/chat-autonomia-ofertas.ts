@@ -3,7 +3,8 @@ import { avaliarPedidoDeAcordo, ofertasDaPolitica, type OfertaDeAcordo } from "@
 import { brl, gerarParcelas, validarNegociacao, type Politica } from "@shared/cobranca/politica";
 import type { Carteira } from "@shared/cobranca/estados";
 import type { OfertasAutonomia } from "@shared/chat-autonomia-seguranca";
-import { dataLocal } from "./chat-autonomia-politica";
+import { normalizarMensagemDoCliente, resolverDatasDaMensagem } from "@shared/chat-funcionaria-triagem";
+import { dataLocal, VALIDADE_DA_PROPOSTA_MS } from "./chat-autonomia-politica";
 
 export interface EntradaOfertaAutonomia { customerId: number; carteira: Carteira; saldo: number; diasAtraso: number; mensalidade: number | null; vulneravel: boolean }
 const hashPolitica = (politica: Politica) => createHash("sha256").update(JSON.stringify({ acordo: politica.acordo, negociacao: politica.negociacao, pausada: politica.pausada })).digest("hex");
@@ -21,23 +22,48 @@ export function calcularOfertasAutonomia(entrada: EntradaOfertaAutonomia, politi
 }
 export function ofertaAindaValida(o: OfertasAutonomia, entrada: EntradaOfertaAutonomia, politica: Politica, agora = new Date()): boolean {
   const idade = agora.getTime() - Date.parse(o.criadaEm);
-  if (!Number.isFinite(idade) || idade < 0 || idade >= 30 * 60_000 || o.customerId !== entrada.customerId || o.carteira !== entrada.carteira || Math.round(o.saldo * 100) !== Math.round(entrada.saldo * 100) || o.politicaHash !== hashPolitica(politica) || politica.pausada) return false;
+  // As ofertas seguem o episódio (6 h, f4), como a proposta: o saldo, a política e a data são relidos aqui.
+  if (!Number.isFinite(idade) || idade < 0 || idade >= VALIDADE_DA_PROPOSTA_MS || o.customerId !== entrada.customerId || o.carteira !== entrada.carteira || Math.round(o.saldo * 100) !== Math.round(entrada.saldo * 100) || o.politicaHash !== hashPolitica(politica) || politica.pausada) return false;
   if (o.selecionada === null) return true;
   const selecionada = o.ofertas[o.selecionada];
   if (!selecionada || selecionada.vencimentos[0] < dataLocal(agora) || selecionada.vencimentos[0] > o.vencimentoMaximo) return false;
   const recalculadas = calcularOfertasAutonomia(entrada, politica, o.messageId, agora, selecionada.vencimentos[0]);
   return recalculadas.ofertas.some(nova => JSON.stringify(nova) === JSON.stringify(selecionada));
 }
+const ORDINAIS: Record<string, number> = { primeira: 1, segunda: 2, terceira: 3, quarta: 4, quinta: 5, um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5 };
+/**
+ * A opção e a data que o CLIENTE escreveu, do jeito que se escreve (spec §3.3): "quero a opção 1 dia 10/09",
+ * "a 2, dia 15", "opção 2 para sexta", "fico com a segunda opção dia 20". Exige UMA opção e UMA data; "opção
+ * 1 ou 2", pergunta, "não" e "mas" não escolhem nada — na dúvida, a escolha fica sem efeito e a conversa vai
+ * à equipe, nunca se escolhe pelo cliente. Exportada para teste.
+ */
+export function lerEscolhaDeOferta(texto: string, hoje: string): { opcao: number; data: string } | null {
+  let t = normalizarMensagemDoCliente(texto).replace(/\n/g, " ");
+  // "opção 1 e 2": duas opções ligadas por "e" não escolhem nenhuma
+  if (!t || t.length > 160 || /[?]/.test(t) || /[0-9] e (?:a |o |opcao )?[0-9]/.test(t) || /(?<![a-z])(?:nao|nem|mas|porem|ou|talvez|sera)(?![a-z])/.test(t)) return null;
+  const opcoes = new Set<number>();
+  const achar = (re: RegExp, valor: (m: RegExpExecArray) => number) => {
+    for (let m = re.exec(t); m; m = re.exec(t)) { opcoes.add(valor(m)); t = t.slice(0, m.index) + " ".repeat(m[0].length) + t.slice(m.index + m[0].length); re.lastIndex = m.index + m[0].length; }
+  };
+  achar(/(?<![a-z])op[cç]?(?:ao|oes)?(?: (?:numero|n[o.]?))? ?(\d{1,2})(?![0-9/.:-])/g, m => Number(m[1]));
+  achar(/(?<![a-z])op[cç]?ao (um|uma|dois|duas|tres|quatro|cinco)(?![a-z])/g, m => ORDINAIS[m[1]]);
+  achar(/(?<![a-z])(primeira|segunda|terceira|quarta|quinta) op[cç]?ao(?![a-z])/g, m => ORDINAIS[m[1]]);
+  achar(/(?<![a-z])(?:a|na|pela|com a|quero a|fico com a|escolho a|prefiro a) (\d{1,2})(?![0-9/.:-]|[a-z]| (?:de |do )?(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|dias|horas?|h)(?![a-z]))/g, m => Number(m[1]));
+  achar(/^ *(\d{1,2})(?![0-9/.:-])(?= *(?:[,;]|para|pra|dia|em|no|na|$))/g, m => Number(m[1]));
+  if (opcoes.size !== 1) return null;
+  const { datas } = resolverDatasDaMensagem(t, hoje);
+  if (datas.length !== 1) return null;
+  return { opcao: [...opcoes][0], data: datas[0] };
+}
 export function escolherOfertaAutonomia(o: OfertasAutonomia, texto: string, messageId: string, entrada: EntradaOfertaAutonomia, politica: Politica, agora = new Date()): OfertasAutonomia | null {
   if (messageId === o.messageId || !ofertaAindaValida(o, entrada, politica, agora)) return null;
-  const escolha = /^(?:op[cç][aã]o\s*)?(\d+)\s+(?:para|dia|em)\s+(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?[.!\s]*$/i.exec(texto.trim());
-  if (!escolha) return null;
-  const selecionada = Number(escolha[1]) - 1;
-  if (!o.ofertas[selecionada]) return null;
   const hoje = dataLocal(agora);
-  const dia = `${escolha[4] ?? hoje.slice(0, 4)}-${escolha[3].padStart(2, "0")}-${escolha[2].padStart(2, "0")}`;
-  const data = new Date(`${dia}T12:00:00Z`);
-  if (!Number.isFinite(data.getTime()) || data.toISOString().slice(0, 10) !== dia || dia < hoje || dia > o.vencimentoMaximo) return null;
+  const escolha = lerEscolhaDeOferta(texto, hoje);
+  if (!escolha) return null;
+  const selecionada = escolha.opcao - 1;
+  if (!o.ofertas[selecionada]) return null;
+  const dia = escolha.data;
+  if (dia < hoje || dia > o.vencimentoMaximo) return null;
   const novas = calcularOfertasAutonomia(entrada, politica, messageId, agora, dia);
   if (!novas.ofertas[selecionada]) return null;
   return { ...novas, selecionada };

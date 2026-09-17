@@ -59,6 +59,19 @@ describe("AutonomiaDoChat", () => {
     expect(tela).not.toMatch(/rounded-(?:full|xl|2xl)/);
     expect(tela).not.toMatch(/localStorage|console\.log/);
   });
+  it("D9: a chave da funcionária digital tem rota própria, salva no clique, só o admin mexe e nunca inventa 'desligada'", () => {
+    expect(tela).toContain("export const API_FUNCIONARIA_DIGITAL = `${API_AUTONOMIA}/funcionaria-digital`;");
+    expect(tela).toContain("useQuery<unknown>({ queryKey: [API_FUNCIONARIA_DIGITAL]");
+    expect(tela).toContain('apiRequest("PUT", API_FUNCIONARIA_DIGITAL, { ativa })');
+    expect(tela).toContain('import { Switch } from "@/components/ui/switch";');
+    expect(tela).toContain('data-testid="switch-funcionaria-digital"');
+    expect(tela).toContain("onCheckedChange={ativa => alternarFuncionaria.mutate(ativa)}");
+    expect(tela).toContain("const chaveBloqueada = !podeAdministrar || !chaveLida || alternarFuncionaria.isPending;");
+    // Resposta fora do formato é "não carregou", nunca o interruptor desligado como se tivesse lido.
+    expect(tela).toContain("FuncionariaDigitalSchema.safeParse(funcionaria.data)");
+    expect(tela).toContain(">não carregou</SeloCobranca>");
+    expect(tela).toContain("Só vale com a autonomia ligada.");
+  });
   it("esta montado em Agentes de IA do painel, com a permissao da aba", () => {
     expect(aba).toContain('import { AutonomiaDoChat } from "@/components/chat/AutonomiaDoChat";');
     expect(aba).toContain("<AutonomiaDoChat podeAdministrar={podeAdministrar} />");

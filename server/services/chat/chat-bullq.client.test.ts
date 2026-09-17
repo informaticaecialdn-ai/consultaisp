@@ -544,3 +544,76 @@ describe("remover canal", () => {
     expect(chamada.query.get("confirmName")).toBe("WhatsApp principal");
   });
 });
+
+describe("funcionária digital: planejador com escrita e lote do agente (vps/009 e vps/010)", () => {
+  const PEDIDO = { requestId: "r1", operation: "cobranca" as const, context: "{}", history: [], allowedActions: ["responder" as const, "transferir" as const] };
+
+  it("escrever só vai no corpo quando é true — o 008 recusa qualquer chave fora do envelope, até escrever:false", async () => {
+    const s = servidorComSessao();
+    s.quando("POST", "/ai-agents/ag-1/autonomous-plan", () => ({ corpo: { data: { acao: "responder", resposta: "acolher" } } }));
+    const c = cliente(s);
+    await c.planejarAutonomia(ORG, "ag-1", PEDIDO);
+    await c.planejarAutonomia(ORG, "ag-1", { ...PEDIDO, escrever: false });
+    await c.planejarAutonomia(ORG, "ag-1", { ...PEDIDO, escrever: true });
+    const corpos = s.de("/ai-agents/ag-1/autonomous-plan").map(ch => ch.corpo);
+    expect(corpos[0]).toEqual(PEDIDO);
+    expect(corpos[1]).toEqual(PEDIDO);
+    expect(corpos[1]).not.toHaveProperty("escrever");
+    expect(corpos[2]).toEqual({ ...PEDIDO, escrever: true });
+  });
+
+  it("o planejador espera 45 s — 25 s de modelo no fork com escrita, mais a vez entre os 3 planos da organização", async () => {
+    vi.useFakeTimers();
+    try {
+      let abortado = false;
+      const fetchImpl = (async (entrada: RequestInfo | URL, init?: RequestInit) => {
+        if (String(entrada).includes("/platform/organizations/")) return resposta(200, { data: TOKEN_1 });
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () => { abortado = true; reject(new DOMException("aborted", "AbortError")); });
+        });
+      }) as unknown as typeof fetch;
+      const c = new ChatBullqClient({ baseUrl: "https://chat.example.com", platformKey: CHAVE, fetchImpl });
+      const pendente = c.planejarAutonomia(ORG, "ag-1", { ...PEDIDO, escrever: true });
+      await vi.advanceTimersByTimeAsync(44_999);
+      expect(abortado).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await pendente).toEqual({ ok: false, erro: "O Chat BullQ não respondeu em 45s" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("enviarComoAgente: POST /messages/agent-batch com conversa, agente e os balões na ordem; devolve o lote aceito", async () => {
+    const s = servidorComSessao();
+    s.quando("POST", "/messages/agent-batch", ch => ({ status: 201, corpo: { data: { loteId: "lote-1", mensagens: ch.corpo.textos.map((_: string, i: number) => ({ id: `m${i + 1}`, status: "QUEUED" })) } } }));
+    const r = await cliente(s).enviarComoAgente(ORG, "conv-1", "ag-1", ["Oi, Maria!", "Vi aqui a sua conta de setembro."]);
+    expect(r).toEqual({ ok: true, valor: { loteId: "lote-1", mensagens: [{ messageId: "m1", status: "QUEUED" }, { messageId: "m2", status: "QUEUED" }] } });
+    const chamada = s.de("/messages/agent-batch")[0];
+    expect(chamada.corpo).toEqual({ conversationId: "conv-1", aiAgentId: "ag-1", textos: ["Oi, Maria!", "Vi aqui a sua conta de setembro."] });
+    expect(chamada.headers["x-organization-id"]).toBe(ORG);
+  });
+
+  it("recusa do fork chega com o status (404 sem o 010, 400, 409 com humano); resposta 2xx sem confirmação volta SEM status", async () => {
+    for (const status of [404, 400, 409, 503]) {
+      const s = servidorComSessao();
+      s.quando("POST", "/messages/agent-batch", () => ({ status, corpo: { message: `recusado ${status}` } }));
+      expect(await cliente(s).enviarComoAgente(ORG, "conv-1", "ag-1", ["Oi"])).toEqual({ ok: false, erro: `recusado ${status}`, status });
+    }
+    for (const corpo of [{ data: {} }, { data: { loteId: "l", mensagens: [] } }, { data: { loteId: 1, mensagens: [{ id: "m1", status: "QUEUED" }] } }, { data: { loteId: "l", mensagens: [{ id: "m1" }] } }]) {
+      const s = servidorComSessao();
+      s.quando("POST", "/messages/agent-batch", () => ({ status: 201, corpo }));
+      const r = await cliente(s).enviarComoAgente(ORG, "conv-1", "ag-1", ["Oi"]);
+      expect(r, JSON.stringify(corpo)).toEqual({ ok: false, erro: "O Chat BullQ não confirmou o lote de mensagens" });
+    }
+  });
+
+  it("o log do lote não carrega o texto dos balões", async () => {
+    const s = servidorComSessao();
+    const BALAO = "Maria, sua fatura de setembro venceu";
+    s.quando("POST", "/messages/agent-batch", () => ({ status: 201, corpo: { data: { loteId: "l", mensagens: [] } } }));
+    await cliente(s).enviarComoAgente(ORG, "conv-1", "ag-1", [BALAO]);
+    const linhas = [loggerMock.info, loggerMock.warn, loggerMock.error, loggerMock.debug].flatMap(fn => fn.mock.calls).map(a => JSON.stringify(a));
+    expect(linhas.length).toBeGreaterThan(0);
+    for (const linha of linhas) expect(linha).not.toContain("Maria");
+  });
+});

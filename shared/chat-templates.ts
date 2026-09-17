@@ -13,12 +13,6 @@ export function nomesSegurosDaAbertura(contexto: NomesDaAbertura): NomesDaAbertu
   };
 }
 
-/** Abertura não depende do modelo nem de orientações que possam conter valores. */
-export function textoDeAberturaControlada(contexto: NomesDaAbertura): string {
-  const nomes = nomesSegurosDaAbertura(contexto);
-  return `Olá, sou o assistente virtual de ${nomes.nomeProvedor}. Posso falar com ${nomes.nomeCliente}?`;
-}
-
 // Vocabulário fechado de saudação/identificação. Provedor e primeiro nome entram
 // apenas como parâmetros: aprovação da Meta não autoriza expor dívida ao contato.
 const PALAVRAS_DA_ABERTURA = new Set("ola oi bom boa dia tarde noite aqui e sou somos o a os as um uma assistente virtual de da do seu sua provedor atendimento atendente tudo bem posso podemos falar fala com voce confirmar se este contato pertence ao por favor obrigado obrigada sim nao continuar encerrar eu estou esta nome pessoa indicada ou deseja conversar conosco".split(" "));

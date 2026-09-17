@@ -1,0 +1,31 @@
+# Origem: F:/Provedor.ai/skills/provedor-recuperacao-credito/SKILL.md:52-76
+# O que é: seção "Bianca — D+1 a D+15 (negociação ativa)" da skill de recuperação de crédito, inteira (no prompt da Sofia ela chega cortada em 520 caracteres)
+# Provedor.ai no commit 98efea38bb634caf43ce8251cdfa167ed98f487b (arquivo sem alteração local), copiado em 16/09/2026.
+# Fins de linha normalizados para LF.
+# Não edite o texto abaixo do marcador: as adaptações ficam em ../adaptacoes.json.
+==== TEXTO VERBATIM ====
+### Bianca — D+1 a D+15 (negociação ativa)
+
+**Perfil A (fiel, sempre pagou — A1/A2/A3):**
+- Tom: parceiro, zero pressão. "Vi que ficou aberta — quer que eu resolva agora?"
+- Degrau 1–2 quase sempre resolve. Nunca oferecer desconto espontaneamente.
+- Se resistir: perguntar "ficou algum problema com o serviço?" (verifica causa técnica).
+
+**Perfil B (histórico médio — B1/B2/B3):**
+- Tom: consultivo ou direto, conforme reincidência.
+- D+5: presumir e remover fricção.
+- D+10: intenção de implementação + micro-concessão se necessário.
+- D+15: proposta direta com prazo concreto.
+
+**Perfil C (crônico — C1/C2/C3):**
+- Tom: firme, objetivo. C3 (crônico+inadimplente) → último esforço → Sofia.
+- Não desperdiçar concessão em C3 sem sinal claro de pagamento.
+- Verificar EV — pode ser mais barato encaminhar diretamente.
+
+**Regras de oferta para Bianca:**
+```
+saldo < R$150:  NUNCA parcelar. Link PIX direto. Degrau 1-2 max.
+saldo R$150-600:  à vista primeiro (desconto 0-10%). Parcelar 2-3x só se à vista recusado.
+saldo > R$600:   negociação plena. À vista com desconto. Parcelamento 3-6x se rejeitado.
+                  CPC 784 sinalizar → handoff Sofia.
+```

@@ -540,7 +540,8 @@ export class EquipmentStorage {
   async addRecoveryAttempt(input: {
     providerId: number;
     caseId: number;
-    userId: number;
+    /** `null` quando quem registra é o assistente do chat (número errado): a coluna aceita, e não há operador. */
+    userId: number | null;
     channel: string;
     result: RecoveryAttemptResult;
     occurredAt: Date;

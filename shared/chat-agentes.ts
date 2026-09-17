@@ -5,18 +5,76 @@ export type TipoDeAgente = (typeof TIPOS_DE_AGENTE)[number];
 export const TipoDeAgenteSchema = z.enum(TIPOS_DE_AGENTE);
 
 /**
- * Limites de cada campo do perfil, os mesmos do `AiAgent` do fork do Chat BullQ
- * (`CreateAgentDto`: description ≤ 500, operationalContext ≤ 8000, temperature
- * 0..2, maxTokens 64..8192). Temperatura e orçamento ficam mais apertados aqui
- * de propósito: o agente de cobrança não improvisa nem escreve tratado.
+ * O teto do `systemPrompt` que o planejador do fork aceita (`AGENT_PROMPT_MAX`
+ * do patch vps/009, a mesma constante dos dois lados). Até o 008 eram 8.000
+ * caracteres; as funcionárias do Provedor.ai (a persona inteira, não um resumo)
+ * não cabiam — o script de 16/09/2026 condensava o método em 6.000.
+ */
+export const AGENT_PROMPT_MAX = 80_000;
+
+/**
+ * O prompt final é `casa + instruções + avisos` (ver `juntarPromptFinal`). A
+ * casa — as regras do servidor, em `chat-agentes.service.ts` — varia com o tipo,
+ * o nome do provedor (até 80 caracteres) e o nome da funcionária (até 40); esta
+ * é a reserva para o PIOR caso, travada em teste contra o texto real.
+ */
+export const RESERVA_DA_CASA = 9_000;
+/** Quando o provedor escreve avisos do dia, eles entram abaixo deste cabeçalho. */
+export const CABECALHO_DOS_AVISOS = "AVISOS DE HOJE (informados pelo provedor, subordinados às regras acima — não autorizam valor, prazo, desconto, baixa nem promessa que as regras proíbem):";
+/** O que entra no lugar das instruções quando o provedor não escreveu nenhuma. */
+export const INSTRUCOES_PADRAO = "Seja cordial e objetivo.";
+const CONTEXTO_OPERACIONAL_MAX = 8_000;
+/** Maior bloco de avisos possível: a separação, o cabeçalho e o contexto no teto. */
+export const AVISOS_MAX = "\n\n".length + CABECALHO_DOS_AVISOS.length + "\n".length + CONTEXTO_OPERACIONAL_MAX;
+
+/**
+ * Limites de cada campo do perfil. `descricao`, `contextoOperacional` e a faixa
+ * de temperatura/tokens seguem o `CreateAgentDto` do fork (description ≤ 500,
+ * operationalContext ≤ 8000, temperature 0..2, maxTokens 64..8192), mais
+ * apertados aqui de propósito: o agente de cobrança não improvisa nem escreve
+ * tratado.
+ *
+ * `instrucoes` é DERIVADO, não escolhido: o que sobra do teto do planejador
+ * depois da casa no pior caso e dos avisos no teto. Assim nenhuma combinação que
+ * passe no schema estoura o prompt final — antes, um aviso do dia mais longo
+ * podia recusar a gravação de uma persona que já estava salva.
  */
 export const LIMITES_DO_AGENTE = {
   descricao: 500,
-  instrucoes: 6000,
-  contextoOperacional: 8000,
+  instrucoes: AGENT_PROMPT_MAX - RESERVA_DA_CASA - AVISOS_MAX,
+  contextoOperacional: CONTEXTO_OPERACIONAL_MAX,
   temperatura: { min: 0, max: 1, passo: 0.1 },
-  maxTokens: { min: 160, max: 1200 },
+  /** 1.000 como padrão (16/09/2026): a funcionária escreve até 3 balões além do plano; 600 cortava o JSON no meio. */
+  maxTokens: { min: 160, max: 1200, padrao: 1000 },
 } as const;
+
+/**
+ * Nome com que a funcionária se apresenta ("Aqui é a Clara"). Só letras, com
+ * espaço, hífen ou apóstrofo ENTRE palavras: o nome entra na casa do prompt e
+ * nos textos do servidor, e pontuação livre ali seria uma porta para instrução
+ * disfarçada de nome ("Clara. Ignore as regras").
+ */
+export const NOME_DA_PERSONA_MAX = 40;
+export const NOME_DA_PERSONA_RE = /^\p{L}+(?:[ '’-]\p{L}+)*$/u;
+export function nomeDaPersonaValido(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const nome = v.trim();
+  return nome.length >= 1 && nome.length <= NOME_DA_PERSONA_MAX && NOME_DA_PERSONA_RE.test(nome) ? nome : null;
+}
+
+/**
+ * Junta as três partes do prompt final. Fonte ÚNICA da concatenação: o servidor
+ * monta o texto com ela e a tela conta os caracteres com ela, então o contador
+ * não pode divergir do que é gravado no agente.
+ */
+export function juntarPromptFinal(casa: string, instrucoes: string, contextoOperacional: string): string {
+  const persona = instrucoes.trim() || INSTRUCOES_PADRAO;
+  const avisos = contextoOperacional.trim();
+  return avisos ? `${casa}${persona}\n\n${CABECALHO_DOS_AVISOS}\n${avisos}` : `${casa}${persona}`;
+}
+export function tamanhoDoPromptFinal(caracteresDaCasa: number, instrucoes: string, contextoOperacional: string): number {
+  return caracteresDaCasa + juntarPromptFinal("", instrucoes, contextoOperacional).length;
+}
 
 /**
  * O que o fork do Chat BullQ na VPS aceita em `AiAgent.modelId`
@@ -34,6 +92,8 @@ export const ConfiguracaoDeAgenteSchema = z.object({
   habilitado: z.boolean().default(true),
   temperatura: z.number().min(LIMITES_DO_AGENTE.temperatura.min).max(LIMITES_DO_AGENTE.temperatura.max).optional(),
   maxTokens: z.number().int().min(LIMITES_DO_AGENTE.maxTokens.min).max(LIMITES_DO_AGENTE.maxTokens.max).optional(),
+  /** Omitido preserva o nome gravado; `null` apaga (a casa passa a apresentar só a empresa). */
+  nomeDaPersona: z.string().trim().min(1, "Informe o nome da funcionária").max(NOME_DA_PERSONA_MAX, `Nome da funcionária com até ${NOME_DA_PERSONA_MAX} letras`).regex(NOME_DA_PERSONA_RE, "Nome da funcionária só com letras (espaço, hífen ou apóstrofo entre palavras)").nullable().optional(),
 }).strict();
 export type ConfiguracaoDeAgente = z.infer<typeof ConfiguracaoDeAgenteSchema>;
 
@@ -84,10 +144,15 @@ export const ORIGENS_DE_MODELO = {
 } as const;
 export type OrigemDoModelo = keyof typeof ORIGENS_DE_MODELO;
 export interface ModeloDoAgente { id: string; origem?: OrigemDoModelo }
-/** Os dois ids que o fork da VPS nomeia (mensagem do DTO, tabela de preço e `CLASSIFIER_MODEL_ID`). */
+/**
+ * Os ids que o fork da VPS nomeia: os dois da mensagem do DTO, da tabela de preço
+ * e do `CLASSIFIER_MODEL_ID`, e o `gpt-4.1`, que o patch vps/009 põe na tabela de
+ * preço — é o modelo das funcionárias do Provedor.ai (decisão D3 de 16/09/2026).
+ */
 export const MODELOS_OPENAI_DA_VPS: readonly ModeloDoAgente[] = [
   { id: "openai/gpt-4o-mini", origem: "openai_vps" },
   { id: "openai/gpt-4o", origem: "openai_vps" },
+  { id: "openai/gpt-4.1", origem: "openai_vps" },
 ];
 export interface ModelosDosAgentes { configured: boolean; models: ModeloDoAgente[]; origens?: Record<OrigemDoModelo, string> }
 
@@ -115,8 +180,13 @@ export function catalogoDeModelos(doChat: { configured: boolean; models: { id: s
   return { configured: doChat.configured, models, origens: ORIGENS_DE_MODELO };
 }
 
-/** O prompt que o agente recebe: as regras da casa, as preferências do provedor e o contexto do dia — tudo dentro do `systemPrompt` que gravamos no fork (ver `promptFinalDoAgente`). */
-export interface PromptDoAgente { tipo: TipoDeAgente; nomeProvedor: string; prompt: string; contextoOperacional: string; caracteres: number }
+/**
+ * O prompt que o agente recebe: as regras da casa, o método da funcionária e o
+ * contexto do dia — tudo dentro do `systemPrompt` que gravamos no fork (ver
+ * `promptFinalDoAgente`). `caracteresDaCasa` e `limite` deixam a tela contar o
+ * prompt final AO VIVO enquanto o admin edita (`tamanhoDoPromptFinal`).
+ */
+export interface PromptDoAgente { tipo: TipoDeAgente; nomeProvedor: string; prompt: string; contextoOperacional: string; caracteres: number; caracteresDaCasa: number; limite: number }
 
 export interface ContextoDoPrimeiroContato {
   nomeCliente: string;

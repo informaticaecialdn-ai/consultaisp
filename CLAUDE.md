@@ -86,6 +86,7 @@ CHAT_BULLQ_INBOX_URL=               # Opcional; padrao https://chat.consultaisp.
 CHAT_BULLQ_AGENTE_URL=              # Opcional; base que a tool do agente de IA chama (padrao https://consultaisp.com.br/api/chat-bullq/agente)
 CHAT_BULLQ_WEBHOOK_URL=             # Opcional; para onde o Chat BullQ manda o call_webhook de volta (padrao https://consultaisp.com.br/api/webhooks/chat-bullq)
 CHAT_BULLQ_AGENTE_MODELO=           # Opcional; modelo do agente de cobranca criado por provedor (padrao openai/gpt-4o-mini)
+CHAT_BULLQ_PERSONAS_MODELO=         # Opcional; so o script configurar-personas-provedor-ai.ts le: troca o modelo dos tres perfis (padrao openai/gpt-4.1). Bateria em agentes de TESTE, nunca nos vivos
 CHAT_BULLQ_TOOLS_HOSTS=             # Opcional; hosts que uma "conexao" do console de agentes pode chamar, separados por virgula.
                                     # A base de CHAT_BULLQ_AGENTE_URL entra sempre. Sem a variavel, so ela e permitida — e e o
                                     # que faz sentido: a skill util aqui chama a NOSSA API do agente. Quem escolhe o destino
@@ -774,14 +775,12 @@ combinada), **sem valor do aparelho**; e a skill propria do perfil de equipament
 que antes so tinha a leitura do caso de divida. **As skills nao entram no motor
 autonomo** (o planejador recebe prompt + contexto, sem tool calls): elas rodam so
 quando o runner do fork executa o agente (canal AUTONOMOUS/COPILOT), que a ponte
-deixa DISABLED. Em 16/09/2026 os tres perfis receberam o METODO dos agentes do
-Provedor.ai (Clara D+1..14, Sofia D+15..180 com confissao de divida, Mariana
-logistica reversa), condensado ao limite de 6.000 caracteres: o que entra e o
-julgamento (portas de transferencia, diagnostico da causa, escada de tres degraus,
-promessa so com data dita); o que nao entra e o que o servidor ja decide (texto ao
-cliente, valor, oferta, identidade) e o que o Consulta ISP nao tem (EV/LTV,
-negativacao, reposicao de aparelho). Os tres perfis continuam sendo administrados no Painel do
-Provedor -> aba Chat, onde politica e regua entram no prompt.
+deixa DISABLED. O TEXTO dos tres perfis sao as funcionarias do Provedor.ai (ver
+**A funcionária digital**, abaixo) — o metodo condensado a 6.000 caracteres de
+16/09/2026 (commit `c68c5211`) ficou so como versao anterior, para a volta. Os tres
+perfis sao administrados no Painel do Provedor -> aba **Agentes de IA** -> sub-aba
+**Operação de cobrança** (`/painel-provedor?tab=agentes&aba=cobranca`), onde politica
+e regua entram no prompt.
 
 O console nasceu como a pagina `/agentes`, item proprio no menu de Gestao, e no
 mesmo dia virou ABA do Painel do Provedor (pedido do dono: "agentes de IA tem que
@@ -811,14 +810,128 @@ vai datada, com ordem de transferir quem disser que já pagou.
 dono, quando), inclusive quando o assistente transfere. Encerrar sem follow-up é
 recusado, exceto em caso já pago/cancelado.
 
+**A funcionária digital** (spec `docs/superpowers/specs/2026-09-16-funcionario-digital-design.md`,
+pedido do dono de 16/09/2026: *"os agentes precisam atender como um humano, não como um bot… é um
+funcionário digital, veja no provedor.ai"*). O que vale, e onde está:
+- **Apresentação (D1).** Ela fala com o nome dela, na 1ª pessoa da empresa — **nunca "assistente
+  virtual"** (a frase saiu da casa, das aberturas e da demo; o verificador a recusa). Perguntada se é
+  robô, IA ou pessoa, antes ou depois da identidade, confirma em uma frase que é atendimento
+  automatizado com supervisão da equipe, oferece alguém da equipe e retoma. Nunca nega ser
+  automatizada nem afirma presença humana (escritório, almoço, "te ligo").
+- **Antes da identidade o texto é do SERVIDOR (D5).** Abertura, pedido dos dígitos, explicação, dúvida de
+  golpe, erro de dígitos, número errado, terceiro, parar, áudio e aviso de transferência saem de
+  `shared/chat-funcionaria-textos.ts`: 2–3 variações por situação, escolhidas pelo `conversationId`
+  sem repetir a última, primeiro nome capitalizado, datas dd/mm. Toda frase dessa fase passa por
+  `verificarTextoPreIdentidade` em teste e na montagem (lista fechada: nada de cobrança, contrato,
+  equipamento, sobrenome, endereço, dígito além do "4" do desafio, emoji além de 😊); frase que não
+  passa sai com `.aprovada = false` e NÃO é enviada. O modelo não escreve nada nessa fase.
+- **Identidade:** só os 4 últimos dígitos do CPF, por episódio — o parágrafo seguinte.
+- **Depois da identidade, ela escreve e o servidor confere (D6).** `verificarMensagens`
+  (`shared/chat-funcionaria-digital.ts`, puro) recebe os balões e o contexto da rodada (ação,
+  situação, carteira, fatos lidos, ofertas, proposta, gravado, última mensagem do cliente, o que já
+  saiu) e devolve os balões ou um **código** de recusa (nunca trecho, valor ou nome — vai a log). Regras
+  como DADO no mesmo arquivo: forma (1–3 balões, 600/1.200), link e contato, meta-talk, presença
+  humana, ameaça, pedido de dado sensível, concessão fora das ofertas, garantia, compromisso que a
+  rodada não executa, prazo ("já já"), quitação, gravação só com registro, e **todo número**
+  conferido contra os fatos (valor, data, hora, parcela; nada de R$ no turno da identidade se o
+  cliente não perguntou; equipamentos sem termo financeiro). Recusou → **reserva humanizada**
+  (`reservaPosIdentidade`, no arquivo de textos, que `respostaControlada` também usa). **A ação nunca
+  depende do texto:** promessa, agendamento, acordo e segunda via são do servidor, e o instrumento de pagamento
+  sai num balão próprio do servidor.
+- **A chave `funcionariaDigital.ativa` (D9)** mora em `chat_bullq_integracoes.agente_config`, FORA do
+  schema estrito da autonomia (uma chave nova ali faria o código anterior, numa volta de deploy, ler o
+  padrão e desligar a autonomia inteira). **Nasce desligada em todo provedor**, e a leitura só liga com
+  `ativa === true`. Desligada: autonomia com as reservas humanizadas, sem `escrever` no planejador e sem
+  `aiAgentId` no envio. **Como ligar** (admin, e só tem efeito com a autonomia ligada): Painel do
+  Provedor → Agentes de IA → Operação de cobrança → bloco da autonomia → switch **Funcionária
+  digital**, ou `PUT /api/chat-bullq/autonomia/funcionaria-digital` `{ "ativa": true }` (`GET` lê).
+  Grava sob a trava `config:`, com quem e quando ao lado; vale a partir da próxima rodada. Ligar na
+  NsLink só depois da bateria em agentes de TESTE e da leitura das conversas (spec §11.4–5).
+- **Ligada, o planejador escreve (`vps/009`)** — `escrever: true`, até 3 `mensagens` na voz da persona
+  — e **ela envia como agente (`vps/010`)**: `POST /messages/agent-batch` (`enviarComoAgente`,
+  `server/services/chat/chat-envio-funcionaria.ts`) cria os balões com o nome do agente, sem assinatura
+  do dono, sem atribuir nem pausar a IA, e um job os manda em ordem com "digitando…" antes de cada um
+  (800 ms + 35 ms/caractere, teto 4 s), parando se um atendente assumir. Degradações sem deploy: 400 do
+  planejador com `escrever` → repete sem; timeout ou 503 → repete UMA vez sem; lote recusado com 404 (fork
+  sem o 010) ou 400 de agente fora do contrato → envio comum, com os balões numa mensagem só. Envio
+  incerto (timeout, 5xx) nunca é reenviado.
+- **Patches do fork:** `integrations/chat-bullq/patches/vps/009-planejador-escreve.patch` e
+  `010-mensagens-como-agente.patch` (ordem `002 → 003 → 008 → 009 → 010`); o que cada um faz, como foi
+  validado e se já está aplicado na VPS: `integrations/chat-bullq/patches/vps/README.md`.
+  `server/services/chat/chat-bullq-vps-patches.test.ts` executa os arquivos dos patches.
+- **Personas (D2–D4):** `cobranca_ativos` ← **Clara** (até D+14) + negociação e tons por quadrante da
+  Bianca (D+15 em diante); `cobranca_ex_clientes` ← **Sofia**; `recuperacao_equipamentos` ← **Mariana**
+  + a doutrina de recuperação de ativos. Nomes do dono: **Clara, Leonora e Eduarda**. Os três em
+  `openai/gpt-4.1`, temperatura 0,3, `maxTokens` 1.000. O TEXTO é o do Provedor.ai, adaptado como
+  DADO em `integrations/provedor-ai/`: `origem/` (verbatim, com arquivo:linhas e commit — o build
+  nunca lê `F:/Provedor.ai`), `adaptacoes.json` (id, persona, trecho original, trecho novo ou
+  remoção, motivo; trecho não encontrado FALHA a montagem), `personas/<tipo>.md` (gerados, para
+  revisar; o teste falha se não forem o resultado do build) e `personas/anteriores/c68c5211.json` (a
+  versão anterior, para a volta). A montagem é `server/services/chat/personas-provedor-ai.ts` — o
+  servidor não importa esse módulo. A casa do prompt (`casaDoAgente`) traz D1 e as regras de redação
+  que espelham o verificador; teto do prompt final `AGENT_PROMPT_MAX` = 80.000 (instruções até
+  `LIMITES_DO_AGENTE.instrucoes`, derivado): acima dele, salvar e provisionar são recusados, dizendo
+  quantos caracteres reduzir.
+- **Script:** `npx tsx script/configurar-personas-provedor-ai.ts <providerId>` grava e provisiona os três
+  perfis e garante as skills da ponte (idempotente); `--nomes clara,sofia,mariana` troca os nomes;
+  `--conferir` e `--gerar` rodam sem banco (tamanhos no pior caso; regravar os `.md`);
+  `CHAT_BULLQ_PERSONAS_MODELO` troca o modelo (só em agentes de teste).
+- **Volta (spec §11.6), nesta ordem:** desligar a chave (imediato, por provedor) → `--versao-anterior`
+  das personas → imagem `antes-009` do fork → deploy anterior do Consulta ISP.
+- **Demonstração:** a autonomia não roda na demo, mas os roteiros das conversas semeadas
+  (`server/demo/chat-simulado.ts`) falam na voz nova: a funcionária do perfil abre com a frase do
+  servidor, o cliente responde com os dígitos, ela diz o assunto (valor só se perguntado), anota a
+  promessa ou passa à equipe com o aviso. `server/demo/chat-simulado.test.ts` roda
+  `verificarTextoPreIdentidade` antes dos dígitos e `verificarMensagens` com os fatos do roteiro depois,
+  em toda cena, status e relógio da grade.
+
 **Identidade antes de qualquer valor** (`chat-autonomia-identidade.ts`, desafio
-determinístico do SERVIDOR — o modelo nunca confirma nem vê o documento): o
-titular confere com o **primeiro nome + um sobrenome** do cadastro e os **4
-últimos dígitos do CPF**, exatos, dentro de 5 min do desafio; vale 15 min. Três
-palpites errados → atendente. **Mensagem sem dígito não é palpite** ("pode", "é
-sobre o quê?") — repete o desafio, explica o motivo quando é pergunta e não gasta
-tentativa (16/09/2026: o primeiro cliente real gastou 2 das 3 perguntando do que
-se tratava). Antes exigia o nome completo como o ERP guarda; ninguém digita assim.
+determinístico do SERVIDOR — o modelo nunca confirma nem vê o documento; spec
+`docs/superpowers/specs/2026-09-16-funcionario-digital-design.md`, D10): o titular
+confere só com os **4 últimos dígitos do CPF** — o nome saiu em 17/09/2026 (o
+primeiro nome já vai na abertura, o sobrenome é da família que segura o telefone,
+e Souza/Sousa reprovava o titular). A 1ª mensagem já confirma e a rodada segue com
+ela ("Maria 8909, pago dia 20" confirma, e o pedido segue como intenção). Contam os TOKENS de
+exatamente 4 dígitos, fora data, hora, valor e telefone. **Mensagem sem dígito não
+é palpite** ("pode", "é sobre o quê?"): explica e repete o pedido (16/09/2026: o
+primeiro cliente real gastou 2 das 3 perguntando do que se tratava). Tentativas
+contam **por cliente**, somadas entre conversas: **3 em 24 h e 5 em 30 dias**, e
+devolver a conversa não zera. A confirmação vale pelo **episódio** (expira com 6 h
+sem mensagem do cliente, teto de 24 h); **aceite de acordo exige confirmação de no
+máximo 2 h**. Antes dos dígitos, a triagem (`shared/chat-funcionaria-triagem.ts`)
+separa terceiro declarado ("sou o filho dela", "o cpf é da minha mãe" — nunca
+confirma, nem com os dígitos certos), número errado, pedido para parar,
+contestação, pedido de pessoa, jurídico e vulnerabilidade. Depois dos dígitos o
+terceiro declarado vai à equipe (revisão final, 17/09/2026): na mensagem atual e nos
+pedidos anteriores — "sou a filha dela" seguido de "8909" confirma, mas não chega ao
+ERP nem ao planejador. O aceite da oferta da D1 ("prefiro falar com alguém da
+equipe", "me passa pra equipe") é pedido de pessoa.
+
+**A conversa da funcionária** (`chat-autonomia.service.ts`, spec §3 e §9, 17/09/2026):
+- **Abertura em dois balões** (quem fala e de onde; depois o titular e os 4 dígitos), montada pelo
+  servidor. Com a chave D9 ligada o 2º vai pelo lote do agente; **desligada, os dois saem numa
+  mensagem só** (pelo envio comum a ordem não é garantida). A abertura pede os dígitos **também com a
+  autonomia desligada**: aí quem confere é o atendente, pelo documento no painel da conversa.
+- **Aviso de transferência** por frase fixa, sem prazo, DEPOIS de a conversa estar com a equipe e em
+  melhor esforço. **Não avisa** em `ErroGestao`, falha ou incerteza de envio, fork/LLM fora, vínculo
+  telefone↔conversa divergente, política ou autonomia pausada (relida na hora do envio), e em número
+  errado, pedido para parar e contestação de titularidade — que têm frase própria e silêncio, inclusive
+  quando a conversa sairia antes da triagem (caso encerrado, agente fora, limite). A tabela motivo →
+  avisa está nos testes do serviço.
+- **O que sai junto com a transferência sai DEPOIS dela** (`falarDepoisDeTransferir`, revisão final): o
+  aviso, a frase de encerramento e a confirmação do acordo registrado. O lote do agente (vps/010) para
+  quando a IA da conversa é desligada depois de ele ser aceito — e `transferir` desliga a IA —, então a
+  frase mandada antes morria no "digitando…". Não inverter.
+- **A primeira fala depois dos dígitos agradece e diz o assunto** (`confirmacaoDaIdentidade`): "Obrigada por
+  confirmar, Maria! É sobre a sua mensalidade, que ficou em aberto aqui com a gente." — com o saldo no lugar
+  do assunto só se o cliente perguntou o valor. A reserva desse turno e os roteiros da demo usam a mesma função.
+- **Parar grava `nao_contatar`** por `pausarComunicacao` (sem operador, `userId` nulo), mesmo se a frase
+  não sair. **Número errado** grava "Conferir telefone do cadastro" no caso (na retirada, a tentativa
+  `numero_invalido`), e nenhum caminho de borda troca isso por "Responder no chat".
+- **Rodadas contam por episódio** (6 h sem rodada zeram a contagem); o limite nunca corta proposta ou escolha
+  esperando o "sim". **Figurinha, reação e só emoji** não pedem nada e **não cancelam** o texto anterior
+  (o 👍 é o "sim" quando há proposta esperando). O que o cliente pediu antes dos dígitos ("já paguei")
+  passa pela triagem de depois da identidade.
 
 **O fork** vive em `integrations/chat-bullq/` (patches 000→003, com teste de
 aplicação). A linhagem da VPS é outra (prompt sem Bravy, `call_webhook`,
@@ -827,7 +940,9 @@ transferência completa, modelos por env) — ver a memória `chat-bullq-analise
 repassa o que o Consulta ISP lê** (`vps/008`, 16/09/2026): o modelo escreve a
 mensagem ao cliente em `texto` e ecoa valor/fatura na ação errada em 5 de 6
 planos, e isso é descartado, não recusado — recusar mandava toda conversa ao
-atendente. Quem redige o texto final é `respostaControlada`, com o saldo lido.
+atendente. Sem `escrever` (chave D9 desligada) quem redige o texto final é a
+reserva do servidor (`respostaControlada`), com o saldo lido; com `escrever`
+(`vps/009`) os balões vêm em `mensagens` e passam pelo verificador.
 
 ### Mapa de Calor (requireAuth)
 GET heatmap/provider, heatmap/regional, heatmap/city-ranking, heatmap/sync-info, heatmap/cache-status

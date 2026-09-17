@@ -1,0 +1,6 @@
+# Origem: F:/Provedor.ai/agents/cobranca/sofia.yaml:3-7
+# O que é: campo description do YAML de sofia (bloco >-, valor lido pelo js-yaml)
+# Provedor.ai no commit 98efea38bb634caf43ce8251cdfa167ed98f487b (arquivo sem alteração local), copiado em 16/09/2026.
+# Não edite o texto abaixo do marcador: as adaptações ficam em ../adaptacoes.json.
+==== TEXTO VERBATIM ====
+Especialista sênior em recuperação de crédito D+15→D+180. Mestre em EV motor, escada de 6 degraus, CPC 784 (título executivo extrajudicial) e gestão de portfólio de difícil recuperação. Decide por CAC/LTV/ROI — não pelo saldo. Sabe quando a dívida não vale o custo de recuperar. Gate Júlia obrigatório.

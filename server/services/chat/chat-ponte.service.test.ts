@@ -396,17 +396,46 @@ describe("enviarCasoParaCobranca", () => {
     const [org, dados] = c.iniciarConversa.mock.calls[0];
     expect(org).toBe("org_1");
     expect(dados).toMatchObject({ canalId: "ch_1", telefone: "5543999990000", nome: "Maria da Silva" });
-    expect(dados.texto).toContain("Maria");
-    expect(dados.texto).toContain("NsLink");
-    expect(dados.texto).not.toContain("R$");
-    expect(dados.texto).not.toContain("Lembrar do vencimento com cordialidade.");
-    expect(dados.texto).toContain("assistente virtual");
+    // §3.1: os dois balões — quem fala e de onde; depois, o titular e os dígitos. Com a chave D9 desligada saem numa
+    // mensagem só: pelo envio comum o 2º podia chegar antes do 1º (a fila de saída do fork envia em paralelo)
+    const [primeiro, segundo] = String(dados.texto).split("\n\n");
+    expect(primeiro).toMatch(/é da equipe da NsLink 😊$/);
+    expect(segundo).toMatch(/Maria/);
+    expect(segundo).toContain("4 últimos dígitos do seu CPF");
+    expect(c.enviarTexto).not.toHaveBeenCalled();
+    expect(comOrcamentoContato).toHaveBeenCalledTimes(1);
+    for (const t of [primeiro, segundo]) {
+      expect(t).not.toMatch(/R\$|Silva|assistente virtual/);
+      expect(t).not.toContain("Lembrar do vencimento com cordialidade.");
+    }
     expect(dados.aiEnabled).toBe(false);
     expect(r).toMatchObject({ conversationId: "conv_nova", reaproveitada: false, messageId: "msg_1", inboxUrl: "https://chat.consultaisp.com.br/inbox" });
     expect(fake.conversasRegistradas[0]).toMatchObject({ customerId: 42, origem: "cobranca", casoId: 10, conversationId: "conv_nova", canalId: "ch_1", abertaPorUserId: 3 });
     expect(fake.eventos[0]).toMatchObject({ casoId: 10, userId: 3, tipo: "contato", canal: "whatsapp" });
     expect(fake.eventos[0].metadata.chat.conversationId).toBe("conv_nova");
     expect(fake.patches).toEqual([{ id: 10, patch: { status: "em_contato" } }]);
+  });
+  it("chave D9 ligada: o 2º balão da abertura sai como a funcionária (lote do agente); 404 do fork cai no envio comum; falha ambígua não reenvia", async () => {
+    const lote = vi.fn(async (): Promise<any> => ({ ok: true, valor: { loteId: "l1", mensagens: [{ messageId: "msg_2", status: "QUEUED" }] } }));
+    const c = clienteFalso({ enviarComoAgente: lote }); comCanal();
+    fake.integracao.agenteConfig = { ...AGENTES_PRONTOS, funcionariaDigital: { ativa: true } };
+    await enviarCasoParaCobranca(6, 10, 3);
+    expect(lote).toHaveBeenCalledWith("org_1", "conv_nova", "ag-ativos", [expect.stringContaining("4 últimos dígitos do seu CPF")]);
+    // ligada, o 1º balão abre a conversa sozinho: o lote do agente põe o 2º depois dele
+    expect(c.iniciarConversa).toHaveBeenCalledWith("org_1", expect.objectContaining({ texto: expect.stringMatching(/é da equipe da NsLink 😊$/) }));
+    expect(c.enviarTexto).not.toHaveBeenCalled();
+
+    lote.mockResolvedValueOnce({ ok: false, erro: "Cannot POST /messages/agent-batch", status: 404 });
+    fake.conversasRegistradas.length = 0; fake.eventos.length = 0;
+    await enviarCasoParaCobranca(6, 10, 3);
+    expect(c.enviarTexto).toHaveBeenCalledWith("org_1", "conv_nova", expect.stringContaining("4 últimos dígitos do seu CPF"));
+
+    c.enviarTexto.mockClear();
+    lote.mockResolvedValueOnce({ ok: false, erro: "O Chat BullQ não respondeu em 30s" });
+    const r = await enviarCasoParaCobranca(6, 10, 3);
+    expect(c.enviarTexto).not.toHaveBeenCalled();
+    // a conversa foi aberta com o 1º balão: o contato aconteceu, e nada é repetido
+    expect(r).toMatchObject({ enviado: true, conversationId: "conv_nova" });
   });
   it("texto do operador vence o modelo; caso ja em contato nao muda de status", async () => {
     const c = clienteFalso(); comCanal();
@@ -544,7 +573,10 @@ describe("primeiro contato preventivo", () => {
     fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", canalId: "ch_1", status: "ativo", agenteConfig: AGENTES_PRONTOS };
     const r = await enviarPreAvisoParaChat(6, { customerId: 42, nome: "Maria da Silva", telefone: "(43) 99999-0000" }, 3);
     expect(r.enviado).toBe(true);
-    expect(c.iniciarConversa).toHaveBeenCalledWith("org_1", expect.objectContaining({ texto: "Olá, sou o assistente virtual de NsLink. Posso falar com Maria?", aiEnabled: false }));
+    // a mesma abertura humanizada (§3.1), numa mensagem só com a chave D9 desligada; nada de fatura nem vencimento
+    expect(c.iniciarConversa).toHaveBeenCalledWith("org_1", expect.objectContaining({ texto: expect.stringMatching(/é da equipe da NsLink 😊\n\n.*Maria.*4 últimos dígitos do seu CPF/), aiEnabled: false }));
+    expect(c.enviarTexto).not.toHaveBeenCalled();
+    expect(c.iniciarConversa.mock.calls[0][1].texto).not.toMatch(/assistente virtual|fatura|vencimento|R\$|Silva/);
     expect(c.prepararPrimeiroContato).not.toHaveBeenCalled();
     expect(fake.conversasRegistradas[0]).toMatchObject({ customerId: 42, origem: "cobranca", casoId: null, conversationId: "conv_nova" });
     // Só a agenda dispara pré-aviso: iniciativa automática no orçamento.
@@ -566,8 +598,12 @@ describe("enviarRecuperacaoParaChat", () => {
     fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: "ch_1", status: "ativo", agenteConfig: AGENTES_PRONTOS };
     fake.recuperacoes = [{ id: 77, customerId: 42, customerName: "Joao Pereira", customerPhone: "43988880000", equipmentType: "ONU", equipmentBrand: "Huawei", equipmentModel: "HG8145V5" }];
     const r = await enviarRecuperacaoParaChat(6, 77, 3);
-    expect(c.iniciarConversa.mock.calls[0][1].texto).toBe("Olá, sou o assistente virtual de NsLink. Posso falar com Joao?");
-    expect(c.iniciarConversa.mock.calls[0][1].texto).not.toMatch(/contrato|equipamento|financeiro|Huawei|ONU/i);
+    // os dois balões numa mensagem só (chave D9 desligada)
+    const [primeiro, segundo] = String(c.iniciarConversa.mock.calls[0][1].texto).split("\n\n");
+    expect(primeiro).toMatch(/é da equipe da NsLink 😊$/);
+    expect(segundo).toMatch(/Joao/);
+    expect(c.enviarTexto).not.toHaveBeenCalled();
+    for (const t of [primeiro, segundo]) expect(t).not.toMatch(/contrato|equipamento|financeiro|Huawei|ONU|Pereira|assistente virtual/i);
     expect(c.iniciarConversa.mock.calls[0][1].activeAgentId).toBeUndefined();
     expect(c.iniciarConversa.mock.calls[0][1].telefone).toBe("5543988880000");
     expect(fake.conversasRegistradas[0]).toMatchObject({ origem: "equipamentos", recuperacaoId: 77, customerId: 42 });

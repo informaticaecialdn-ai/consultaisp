@@ -18,11 +18,14 @@ import { cn } from "@/lib/utils";
 import { BOTAO_MARCA, CONTROLE_CAMPO, LinhasSkeleton } from "@/components/painel/ui";
 import { mensagemDoErro, SeloCobranca } from "@/components/cobranca/ui";
 import { Kicker } from "@/components/localizacao/ui";
+import { Switch } from "@/components/ui/switch";
 import { CATALOGO_DE_AGENTES, TIPOS_DE_AGENTE, type TipoDeAgente } from "@shared/chat-agentes";
-import { lerConfigAutonomia, lerFilaDaAutonomia, O_QUE_A_IA_NUNCA_FAZ, ROTULOS_DA_FILA, STATUS_DA_FILA, type ConfigAutonomia } from "@shared/chat-autonomia";
+import { FuncionariaDigitalSchema, lerConfigAutonomia, lerFilaDaAutonomia, O_QUE_A_IA_NUNCA_FAZ, ROTULOS_DA_FILA, STATUS_DA_FILA, type ConfigAutonomia } from "@shared/chat-autonomia";
 
 export const API_AUTONOMIA = "/api/chat-bullq/autonomia";
 export const API_AUTONOMIA_ESTADO = `${API_AUTONOMIA}/estado`;
+/** D9: a chave da funcionária digital, gravada à parte da configuração da autonomia. */
+export const API_FUNCIONARIA_DIGITAL = `${API_AUTONOMIA}/funcionaria-digital`;
 
 const PERMISSOES: { chave: "permitirSegundaVia" | "permitirPromessa" | "permitirAgendamento" | "permitirNegociacao"; rotulo: string; detalhe: string }[] = [
   { chave: "permitirSegundaVia", rotulo: "Enviar segunda via", detalhe: "o link e o valor vêm do ERP, nunca do modelo" },
@@ -57,6 +60,25 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
     retry: false,
   });
 
+  /*
+   * A chave da funcionária digital (D9) salva sozinha, no clique: desligar é a
+   * primeira linha da volta e não pode depender de "Salvar autonomia". Resposta
+   * fora do formato vira null, e a tela mostra que não leu — nunca "desligada" inventada.
+   */
+  const funcionaria = useQuery<unknown>({ queryKey: [API_FUNCIONARIA_DIGITAL], staleTime: 30_000, retry: false });
+  const funcionariaLida = funcionaria.data ? FuncionariaDigitalSchema.safeParse(funcionaria.data) : null;
+  const chaveLida = funcionariaLida?.success ? funcionariaLida.data : null;
+  const alternarFuncionaria = useMutation({
+    mutationFn: async (ativa: boolean) => (await apiRequest("PUT", API_FUNCIONARIA_DIGITAL, { ativa })).json(),
+    onSuccess: async (_dados, ativa) => {
+      await qc.invalidateQueries({ queryKey: [API_FUNCIONARIA_DIGITAL] });
+      toast({ title: ativa ? "Funcionária digital ligada" : "Funcionária digital desligada", description: ativa ? "Com a autonomia ligada, as próximas respostas saem escritas por ela e conferidas pelo servidor." : "As próximas respostas voltam ao texto padrão do servidor." });
+    },
+    onError: (e: Error) => toast({ title: "Não foi possível alterar a funcionária digital", description: mensagemDoErro(e), variant: "destructive" }),
+    retry: false,
+  });
+  const chaveBloqueada = !podeAdministrar || !chaveLida || alternarFuncionaria.isPending;
+
   const filaLida = fila.data ? lerFilaDaAutonomia(fila.data) : null;
   const configDaRota = estado.data ? lerConfigAutonomia((estado.data as { config?: unknown }).config) : null;
   const bloqueado = !podeAdministrar || estado.isPending || estado.isError || salvar.isPending;
@@ -72,7 +94,7 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
           : <SeloCobranca tom={configDaRota?.ativa ? "ok" : "neutro"} testId="selo-autonomia">{configDaRota?.ativa ? "ligada" : "desligada"}</SeloCobranca>}
       </div>
       <p className="mt-2 text-xs leading-5 text-[var(--text-2)]">
-        Com a autonomia ligada, o assistente continua a conversa depois da primeira resposta do cliente. Antes de divulgar saldo ou boletos, confirma nome e últimos quatro dígitos do CPF; a confirmação vale por 15 minutos. O servidor controla valores e ações, e o tom da carteira orienta a conversa. Tudo que sai da política vai ao atendente.
+        Com a autonomia ligada, o assistente continua a conversa depois da primeira resposta do cliente. Antes de divulgar saldo ou boletos, confirma os quatro últimos dígitos do CPF; a confirmação vale enquanto a conversa seguir (expira com 6 horas sem resposta do cliente e dura no máximo 24 horas), e aceitar um acordo exige confirmação das últimas 2 horas. Três tentativas erradas em 24 horas levam ao atendente. O servidor controla valores e ações, e o tom da carteira orienta a conversa. Tudo que sai da política vai ao atendente.
       </p>
 
       {estado.isPending ? <div className="mt-4"><LinhasSkeleton linhas={3} /></div> : (
@@ -122,6 +144,37 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
         </fieldset>
       )}
       {estado.isError && <p role="alert" className="mt-3 text-xs text-[var(--danger)]">{mensagemDoErro(estado.error)}</p>}
+
+      <div className="mt-5 border-t border-[var(--border)] pt-4" data-testid="autonomia-funcionaria-digital">
+        {funcionaria.isPending ? <LinhasSkeleton linhas={2} /> : (
+          <div className="flex items-start gap-3">
+            <Switch
+              id="funcionaria-digital"
+              className="mt-0.5"
+              checked={chaveLida?.ativa ?? false}
+              disabled={chaveBloqueada}
+              onCheckedChange={ativa => alternarFuncionaria.mutate(ativa)}
+              aria-label="Funcionária digital"
+              data-testid="switch-funcionaria-digital"
+            />
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="funcionaria-digital" className="text-sm font-medium text-[var(--text)]">Funcionária digital</label>
+                {!chaveLida
+                  ? <SeloCobranca tom="danger" titulo={funcionaria.isError ? mensagemDoErro(funcionaria.error) : undefined} testId="selo-funcionaria-digital">não carregou</SeloCobranca>
+                  : <SeloCobranca tom={chaveLida.ativa ? "ok" : "neutro"} testId="selo-funcionaria-digital">{chaveLida.ativa ? "ligada" : "desligada"}</SeloCobranca>}
+              </div>
+              <p className="text-xs leading-5 text-[var(--text-2)]">
+                Ligada, depois que o cliente confirma a identidade a funcionária escreve as respostas com as próprias palavras e o servidor confere cada mensagem antes do envio. Valor, data e ação continuam sendo do servidor, e mensagem recusada sai no texto padrão. As mensagens saem com o nome dela, em ordem e com “digitando…”. Desligada, vale o texto padrão do servidor.
+              </p>
+              <p className="text-[11px] leading-4 text-[var(--text-faint)]">
+                Só vale com a autonomia ligada. Mudar a chave vale a partir da próxima resposta ao cliente.{!podeAdministrar && " Só o administrador liga ou desliga a funcionária digital."}
+              </p>
+            </div>
+          </div>
+        )}
+        {funcionaria.isError && <p role="alert" className="mt-2 text-[11px] text-[var(--danger)]">{mensagemDoErro(funcionaria.error)}</p>}
+      </div>
 
       <div className="mt-5 border-t border-[var(--border)] pt-4" data-testid="autonomia-fila">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

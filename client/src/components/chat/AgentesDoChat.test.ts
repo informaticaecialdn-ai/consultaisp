@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { LIMITES_DO_AGENTE } from "@shared/chat-agentes";
+import { AGENT_PROMPT_MAX, AVISOS_MAX, LIMITES_DO_AGENTE, RESERVA_DA_CASA } from "@shared/chat-agentes";
 
 const fonte = readFileSync(join(__dirname, "AgentesDoChat.tsx"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
@@ -21,14 +21,16 @@ describe("AgentesDoChat — campos do perfil", () => {
     expect(fonte).not.toMatch(/maxLength=\{\d+\}/);
     expect(fonte).toContain("min={LIMITES_DO_AGENTE.temperatura.min}");
     expect(fonte).toContain("max={LIMITES_DO_AGENTE.maxTokens.max}");
-    expect(LIMITES_DO_AGENTE.instrucoes).toBe(6000);
+    // Derivado do teto do planejador (casa e avisos no máximo), não escolhido: as personas do Provedor.ai cabem.
+    expect(LIMITES_DO_AGENTE.instrucoes).toBe(AGENT_PROMPT_MAX - RESERVA_DA_CASA - AVISOS_MAX);
+    expect(fonte).toContain("maxLength={NOME_DA_PERSONA_MAX}");
   });
   it("valida no cliente com o mesmo schema do servidor e não deixa salvar inválido", () => {
     expect(fonte).toContain("ConfiguracaoDeAgenteSchema.safeParse(corpo)");
     expect(fonte).toMatch(/disabled=\{bloqueado \|\| !mudou \|\| !validacao\.success\}/);
   });
   it("envia ao PUT o perfil inteiro: descrição, instruções, contexto operacional, temperatura e tokens", () => {
-    expect(fonte).toMatch(/const corpo = \{ modelo: modelo \|\| null, descricao, instrucoes, contextoOperacional, habilitado, temperatura: numeroOuIndefinido\(temperatura\), maxTokens: numeroOuIndefinido\(maxTokens\) \}/);
+    expect(fonte).toContain("const corpo = { modelo: modelo || null, nomeDaPersona: nomeOuNulo(nomeDaPersona), descricao, instrucoes, contextoOperacional, habilitado, temperatura: numeroOuIndefinido(temperatura), maxTokens: numeroOuIndefinido(maxTokens) }");
   });
   it("campo numérico vazio é “não definido”, nunca zero", () => {
     expect(fonte).toMatch(/const numeroOuIndefinido = \(v: string\) => v\.trim\(\) === "" \? undefined : Number\(v\)/);
@@ -37,7 +39,7 @@ describe("AgentesDoChat — campos do perfil", () => {
     expect(fonte).toContain("corpo.temperatura !== undefined && corpo.temperatura !== (agente.temperatura ?? 0.3)");
   });
   it("rótulos em português e as primitivas do painel", () => {
-    for (const rotulo of [">modelo<", ">descrição do agente<", ">preferências de escrita<", ">contexto operacional do dia<", ">temperatura<", ">máximo de tokens<"]) expect(fonte).toContain(rotulo);
+    for (const rotulo of [">modelo<", ">nome da funcionária<", ">descrição do agente<", ">instruções da funcionária<", ">contexto operacional do dia<", ">temperatura<", ">máximo de tokens<"]) expect(fonte).toContain(rotulo);
     expect(fonte).toContain("ROTULO_CAMPO");
     expect(fonte).toContain("CONTROLE_CAMPO_MULTILINHA");
     expect(fonte).toContain("BOTAO_MARCA");
@@ -68,10 +70,26 @@ describe("AgentesDoChat — campos do perfil", () => {
     expect(fonte).toContain("só chega ao modelo depois de");
     expect(fonte).not.toContain("Entra no prompt a cada resposta");
   });
-  it("tem o bloco recolhível com o prompt final, carregado só quando aberto e só para admin", () => {
+  it("nome da funcionária: campo próprio, vazio vira null (apaga), com a regra de transparência à vista", () => {
+    expect(fonte).toContain("const nomeOuNulo = (v: string) => v.trim() || null");
+    expect(fonte).toContain("useState(agente.nomeDaPersona ?? \"\")");
+    expect(fonte).toContain("erroDe(\"nomeDaPersona\")");
+    expect(fonte).toContain("confirma que é atendimento automatizado com supervisão da equipe");
+    expect(fonte).toContain("corpo.nomeDaPersona !== (agente.nomeDaPersona ?? null)");
+    expect(fonte).not.toMatch(/assistente virtual/i);
+  });
+  it("contador do prompt final ao vivo: casa do servidor + instruções e avisos do formulário, contra o teto, com a mesma soma do servidor", () => {
+    expect(fonte).toContain("tamanhoDoPromptFinal(prompt.data.caracteresDaCasa, instrucoes, contextoOperacional)");
+    expect(fonte).toContain("prompt.data?.limite ?? AGENT_PROMPT_MAX");
+    expect(fonte).toContain("data-testid={`prompt-final-${agente.tipo}`}");
+    // Sem dado do servidor é traço, não zero; acima do teto fica em perigo.
+    expect(fonte).toContain("promptFinalAoVivo === null ? \"—\"");
+    expect(fonte).toContain("promptFinalAoVivo > tetoDoPrompt && \"text-[var(--danger)]\"");
+  });
+  it("tem o bloco recolhível com o prompt final, carregado só para admin (o contador precisa da casa mesmo com o bloco fechado)", () => {
     expect(fonte).toContain(">O que o agente recebe<");
     expect(fonte).toContain("/prompt`");
-    expect(fonte).toContain("enabled: promptAberto && podeAdministrar");
+    expect(fonte).toContain("enabled: podeAdministrar, retry: false");
     expect(fonte).toContain("<details");
     expect(fonte).toContain("prompt.data.prompt");
   });

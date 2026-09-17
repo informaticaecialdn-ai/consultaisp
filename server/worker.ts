@@ -356,18 +356,34 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
     // A tentativa pendente de ligar a fila (corrida de boot) morre junto.
     if (timerDaAutonomia) { clearTimeout(timerDaAutonomia); timerDaAutonomia = null; }
     tentativaDaAutonomia = TENTATIVAS_DA_AUTONOMIA;
-    await pararAutonomia();
-    try {
-      const { isSyncing } = await import("./services/erp-sync.service");
-      const limite = Date.now() + 30_000;
-      if (isSyncing()) logger.info("[Worker] Sync em andamento — aguardando ate 30s");
-      while (isSyncing() && Date.now() < limite) {
-        await new Promise(r => setTimeout(r, 500));
+    /**
+     * A fila da autonomia, o sync e a carga de enderecos drenam JUNTOS, nao um
+     * depois do outro. Em serie, a autonomia esperava a leva inteira — rodadas de
+     * 20–40 s cada com o modelo e os baloes — e so entao o sync tinha seus 30 s:
+     * o pm2 (kill_timeout 35 s) matava o processo antes, e o sync interrompido e
+     * a classe do incidente de 31/08. Agora a autonomia espera no maximo 15 s
+     * (`ESPERA_MAXIMA_NA_PARADA_MS`) e nenhum dreno passa de 30 s.
+     */
+    const pararFilaDaAutonomia = async () => {
+      try {
+        await pararAutonomia();
+      } catch (err) {
+        logger.warn({ err }, "[Worker] Nao consegui parar a fila da autonomia do chat");
       }
-      if (isSyncing()) logger.warn("[Worker] Sync ainda rodando apos 30s — encerrando mesmo assim");
-    } catch (err) {
-      logger.warn({ err }, "[Worker] Nao consegui verificar o sync em andamento");
-    }
+    };
+    const drenarSync = async () => {
+      try {
+        const { isSyncing } = await import("./services/erp-sync.service");
+        const limite = Date.now() + 30_000;
+        if (isSyncing()) logger.info("[Worker] Sync em andamento — aguardando ate 30s");
+        while (isSyncing() && Date.now() < limite) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+        if (isSyncing()) logger.warn("[Worker] Sync ainda rodando apos 30s — encerrando mesmo assim");
+      } catch (err) {
+        logger.warn({ err }, "[Worker] Nao consegui verificar o sync em andamento");
+      }
+    };
 
     /**
      * A carga da base de enderecos tambem e drenada — e por um motivo que nao
@@ -384,21 +400,25 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
      * `municipiosComBase` so considera coberto quem tem endereco em
      * `geo_endereco`, entao uma carga pela metade volta sozinha para a fila.
      */
-    try {
-      const { estadoDaCobertura } = await import("./services/cobertura-geo-agenda.service");
-      const limite = Date.now() + 30_000;
-      if (estadoDaCobertura().emAndamento) {
-        logger.info("[Worker] Carga de base de enderecos em andamento — aguardando ate 30s");
+    const drenarCargaDeBase = async () => {
+      try {
+        const { estadoDaCobertura } = await import("./services/cobertura-geo-agenda.service");
+        const limite = Date.now() + 30_000;
+        if (estadoDaCobertura().emAndamento) {
+          logger.info("[Worker] Carga de base de enderecos em andamento — aguardando ate 30s");
+        }
+        while (estadoDaCobertura().emAndamento && Date.now() < limite) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+        if (estadoDaCobertura().emAndamento) {
+          logger.warn("[Worker] Carga de base ainda rodando apos 30s — a cidade incompleta volta a fila na proxima passada");
+        }
+      } catch (err) {
+        logger.warn({ err }, "[Worker] Nao consegui verificar a carga de base em andamento");
       }
-      while (estadoDaCobertura().emAndamento && Date.now() < limite) {
-        await new Promise(r => setTimeout(r, 500));
-      }
-      if (estadoDaCobertura().emAndamento) {
-        logger.warn("[Worker] Carga de base ainda rodando apos 30s — a cidade incompleta volta a fila na proxima passada");
-      }
-    } catch (err) {
-      logger.warn({ err }, "[Worker] Nao consegui verificar a carga de base em andamento");
-    }
+    };
+    // Cada dreno trata o proprio erro; nenhum segura os outros.
+    await Promise.all([pararFilaDaAutonomia(), drenarSync(), drenarCargaDeBase()]);
     // `pool.end()` espera TODO cliente ser devolvido, e a varredura em voo
     // segura um: a trava do sync e um advisory lock preso a uma conexao, que
     // so e liberada no `finally`. Depois dos 30s de dreno, esperar por ela

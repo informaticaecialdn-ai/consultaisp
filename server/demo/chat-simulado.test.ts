@@ -44,13 +44,16 @@ import { drizzle } from "drizzle-orm/pg-proxy";
 import { janelaDoChat, lerAutomacaoChat } from "@shared/cobranca/automacao-chat";
 import { POLITICA_PADRAO } from "@shared/cobranca/politica";
 import { TIPOS_DE_AGENTE } from "@shared/chat-agentes";
-import { textoDeAberturaControlada } from "@shared/chat-templates";
+import { verificarMensagens, verificarTextoPreIdentidade, type ContextoDaVerificacao } from "@shared/chat-funcionaria-digital";
+import { confirmacaoDaIdentidade, primeiroNomeDoCliente } from "@shared/chat-funcionaria-textos";
+import { nomeDaPersonaDoTipo } from "../services/chat/personas-provedor-ai";
 import { ChatBullqClient, type Mensagem, type Resultado } from "../services/chat/chat-bullq.client";
 import { exigirAgentesProntos, listarAgentesDoChat, prepararPrimeiroContatoDoAgente } from "../services/chat/chat-agentes.service";
 import { listarAgentesDoConsole, listarExecucoesDoConsole, listarSkillsDoConsole, listarToolsDoConsole, resumoDoConsole } from "../services/chat/chat-console.service";
 import {
-  AGENTES_DA_DEMO, agenteConfigDaDemo, fetchDoChatSimulado, limparChatSimuladoDoProvedor, MAXIMO_DE_CONVERSAS_CRIADAS, MAXIMO_DE_REGISTROS_POR_COLECAO,
-  MODELO_DOS_AGENTES_DA_DEMO, roteiroDaConversa, URL_DO_CHAT_SIMULADO, varrerOrganizacoesSemProvedor, type LinhaDaConversa,
+  aberturaDaDemo, AGENTES_DA_DEMO, agenteConfigDaDemo, falasDoRoteiro, fetchDoChatSimulado, funcionariaDaConversa, limparChatSimuladoDoProvedor,
+  MAXIMO_DE_CONVERSAS_CRIADAS, MAXIMO_DE_REGISTROS_POR_COLECAO, MODELO_DOS_AGENTES_DA_DEMO, NOMES_DAS_FUNCIONARIAS_DA_DEMO, roteiroDaConversa,
+  URL_DO_CHAT_SIMULADO, varrerOrganizacoesSemProvedor, type FalaDoRoteiro, type LinhaDaConversa,
 } from "./chat-simulado";
 
 /** `select "t"."c", ... from "tabela"` -> as linhas do fixture como arrays, na ordem pedida. */
@@ -258,6 +261,8 @@ describe("todo método público do ChatBullqClient responde sem rede", () => {
       ["desligarAgenteDoCanal", () => c.desligarAgenteDoCanal(ORG, ctx.agente, "demo-canal"), true],
       ["prepararPrimeiroContato", () => c.prepararPrimeiroContato(ORG, ctx.agente, { nomeCliente: "Maria", nomeProvedor: "Rede Demo" }), true],
       ["planejarAutonomia", () => c.planejarAutonomia(ORG, ctx.agente, { requestId: "r1", operation: "cobranca", context: "{}", history: [], allowedActions: ["responder"] }), false],
+      // O lote da funcionária (vps/010) não existe no simulado: a demonstração não roda a autonomia.
+      ["enviarComoAgente", () => c.enviarComoAgente(ORG, conversa, ctx.agente, ["Oi"]), false],
       ["criarTool", async () => { const r = await c.criarTool(ORG, { nome: "consulta", descricao: "d", httpBaseUrl: "https://demo.invalid", httpHeaders: {} }); ctx.tool = idDe(r); return r; }, true],
       ["listarTools", () => c.listarTools(ORG), true],
       ["atualizarTool", () => c.atualizarTool(ORG, ctx.tool, { isActive: false }), true],
@@ -317,8 +322,8 @@ describe("histórico determinístico das conversas semeadas", () => {
 
       const ultimaDoCliente = instantes.filter((_, i) => msgs[i].direction === "INBOUND").at(-1);
       if (s.status === "BOT") {
-        // O robô só mandou a abertura: ninguém respondeu e nenhum atendente entrou.
-        expect(msgs.every((m) => m.direction === "OUTBOUND" && m.senderName === "Assistente virtual"), cena).toBe(true);
+        // O robô só mandou a abertura: ninguém respondeu e nenhum atendente entrou. Quem assina é a funcionária do perfil.
+        expect(msgs.every((m) => m.direction === "OUTBOUND" && m.senderName === NOMES_DAS_FUNCIONARIAS_DA_DEMO.cobranca_ativos), cena).toBe(true);
       } else if (["OPEN", "PENDING"].includes(s.status)) {
         expect(msgs.at(-1)!.direction, cena).toBe("INBOUND");
         expect(agora - ultimaDoCliente!, cena).toBeLessThan(24 * HORA);
@@ -334,16 +339,30 @@ describe("histórico determinístico das conversas semeadas", () => {
   it("o texto é da cena: nome, valor, equipamento, encerramento; e a abertura só cumprimenta e identifica o provedor", async () => {
     const c = novoCliente();
     const lembrete = await mensagensDe(c, semeadas.lembrete.conversationId);
-    expect(lembrete[0].content.text).toMatch(/^Olá, Maria! Sou o assistente virtual da Rede Demo\./);
-    expect(lembrete[0].content.text).not.toMatch(/R\$|\d/);
-    expect(lembrete.map((m) => m.content.text).join(" ")).toMatch(/189,90/);
-    expect(lembrete.find((m) => m.senderName === "Ana Atendente")).toBeTruthy();
+    // a abertura do servidor (spec 2026-09-16, §3.1): apresenta-se e pede os 4 últimos dígitos — sem assunto nem valor
+    expect(lembrete[0].content.text).toBe(aberturaDaDemo("cobranca_ativos", "Maria Fictícia 1", "Rede Demo", semeadas.lembrete.conversationId));
+    expect(lembrete[0].content.text).toContain("Maria");
+    expect(lembrete[0].content.text).toContain("4 últimos dígitos do seu CPF");
+    expect((lembrete[0].content.text ?? "").replace("4 últimos", "")).not.toMatch(/R\$|\d|assistente virtual/);
+    expect(lembrete[0]).toMatchObject({ senderName: "Clara" });
+    expect(lembrete[0].content.text).toMatch(/^Oi[!,] [Aa]qui é a Clara, da Rede Demo 😊\n\n/);
+    // o cliente perguntou quanto ficou: a funcionária cita o saldo, e só depois dos dígitos
+    expect(lembrete[1]).toMatchObject({ direction: "INBOUND", content: { text: expect.stringMatching(/final \d{4}\b.*Quanto ficou\?/) } });
+    expect(lembrete[2]).toMatchObject({ senderName: "Clara", content: { text: expect.stringMatching(/^Obrigada por confirmar, Maria! Tem R\$ 189,90 em aberto/) } });
 
-    const retirada = (await mensagensDe(c, semeadas.retirada.conversationId)).map((m) => m.content.text).join(" ");
-    expect(retirada).toMatch(/Huawei EG8145/);
-    expect(retirada).toMatch(/Agendado/);
+    const retirada = await mensagensDe(c, semeadas.retirada.conversationId);
+    const textoDaRetirada = retirada.map((m) => m.content.text).join(" ");
+    expect(retirada[0]).toMatchObject({ senderName: "Eduarda" });
+    expect(textoDaRetirada).toMatch(/Huawei EG8145/);
+    expect(textoDaRetirada).toMatch(/Agendado/);
+    // a equipe entra depois do aviso da funcionária, sem prazo prometido
+    const aviso = retirada.findIndex((m) => m.senderName === "Eduarda" && /nossa equipe/.test(m.content.text ?? ""));
+    expect(aviso).toBeGreaterThan(0);
+    expect(retirada[aviso].content.text).toMatch(/por aqui, tá\?$/);
+    expect(retirada.findIndex((m) => m.senderName === "Ana Atendente")).toBeGreaterThan(aviso);
 
-    expect((await mensagensDe(c, semeadas.exCliente.conversationId))[0].content.text).toMatch(/contrato que você teve/);
+    // a abertura do ex-cliente é a mesma abertura neutra: o contrato encerrado só aparece depois dos dígitos
+    expect((await mensagensDe(c, semeadas.exCliente.conversationId))[0].content.text).not.toMatch(/contrato|R\$/);
     expect((await mensagensDe(c, semeadas.encerrada.conversationId)).at(-1)!.content.text).toMatch(/encerrar/);
     expect(await mensagensDe(c, semeadas.semResposta.conversationId)).toHaveLength(1);
   });
@@ -402,7 +421,10 @@ describe("o que o visitante faz", () => {
     const r = await c.iniciarConversa(ORG, { canalId: "demo-canal", telefone: "(43) 98888-7777", nome: "Visitante", texto: "Olá, Visitante!" });
     const id = r.ok ? r.valor.conversationId : "";
     expect(id).toMatch(/^demo-conv-6-n[0-9a-z]+$/);
-    expect(await mensagensDe(c, id)).toMatchObject([{ direction: "OUTBOUND", content: { text: "Olá, Visitante!" } }]);
+    // texto sem apresentação (template): assina o atendimento automatizado, nunca "Assistente virtual"
+    expect(await mensagensDe(c, id)).toMatchObject([{ direction: "OUTBOUND", content: { text: "Olá, Visitante!" }, senderName: "Atendimento automatizado" }]);
+    const daEduarda = await c.iniciarConversa(ORG, { canalId: "demo-canal", telefone: "(43) 98888-6666", nome: "Visitante", texto: aberturaDaDemo("recuperacao_equipamentos", "Visitante", "Rede Demo", "x") });
+    expect(await mensagensDe(c, daEduarda.ok ? daEduarda.valor.conversationId : "")).toMatchObject([{ senderName: "Eduarda" }]);
     expect(await c.buscarConversaPorTelefone(ORG, "43988887777")).toMatchObject({ ok: true, valor: { id, status: "WAITING" } });
     expect(await c.encerrar(ORG, id)).toMatchObject({ ok: true });
     expect(await c.buscarConversaPorTelefone(ORG, "43988887777")).toMatchObject({ ok: true, valor: { status: "CLOSED" } });
@@ -416,7 +438,14 @@ describe("o que o visitante faz", () => {
     // Os três perfis semeados continuam na lista; o do visitante entra ao lado deles.
     expect(lista.ok && lista.valor.filter((a) => a.id === id)).toMatchObject([{ id, name: "Cobrança" }]);
     const r = await c.prepararPrimeiroContato(ORG, id, { nomeCliente: "Maria", nomeProvedor: "Rede Demo" });
-    expect(r).toMatchObject({ ok: true, valor: { agenteId: id, modelo: "openai/gpt-4.1-mini", texto: "Olá, Maria! Sou o assistente virtual da Rede Demo. Podemos conversar por aqui?" } });
+    // agente do visitante não tem perfil: fala a equipe do provedor
+    expect(r).toMatchObject({ ok: true, valor: { agenteId: id, modelo: "openai/gpt-4.1-mini", texto: aberturaDaDemo(null, "Maria", "Rede Demo", id) } });
+    expect(r.ok && r.valor.texto).toMatch(/é da equipe da Rede Demo 😊/);
+    expect(r.ok && r.valor.texto).not.toMatch(/assistente virtual/);
+    // perfil semeado: a funcionária do perfil se apresenta pelo nome
+    const doPerfil = await c.prepararPrimeiroContato(ORG, AGENTES_DA_DEMO.cobranca_ex_clientes.id, { nomeCliente: "Maria", nomeProvedor: "Rede Demo" });
+    expect(doPerfil).toMatchObject({ ok: true, valor: { texto: aberturaDaDemo("cobranca_ex_clientes", "Maria", "Rede Demo", AGENTES_DA_DEMO.cobranca_ex_clientes.id) } });
+    expect(doPerfil.ok && doPerfil.valor.texto).toMatch(/é a Leonora, da Rede Demo 😊/);
   });
 
   it("limparChatSimuladoDoProvedor esvazia só aquele provedor", async () => {
@@ -469,8 +498,8 @@ describe("a cena conta a mesma história que o caso e a recuperação", () => {
 
   it("ex-cliente negativado encerrado: abertura de ex-cliente, recusa registrada, nada de pagamento", async () => {
     const { msgs, texto } = await textoDe({ seq: 21, status: "CLOSED", abertaHaHoras: 240, ultimoHaHoras: 144, caso: { status: "negativado", carteira: "ex_cliente", valor: "629.95", dias: 90 } });
-    expect(msgs[0].content.text).toMatch(/contrato que você teve/);
-    expect(texto).toMatch(/fatura de saída/);
+    expect(msgs[0].content.text).not.toMatch(/contrato|R\$/);
+    expect(texto).toMatch(/É sobre o contrato que foi encerrado/);
     expect(texto).toMatch(/registrei a sua posição/);
     expect(texto).not.toMatch(/paguei|Pagamento localizado|PIX/);
   });
@@ -493,8 +522,9 @@ describe("a cena conta a mesma história que o caso e a recuperação", () => {
   it("conversa do robô: só a abertura automática, sem resposta do cliente e sem atendente humano", async () => {
     const { msgs } = await textoDe({ seq: 25, status: "BOT", abertaHaHoras: 10, ultimoHaHoras: 9, caso: { status: "em_contato", carteira: "ex_cliente", valor: "689.95", dias: 60 } });
     expect(msgs).toHaveLength(1);
-    expect(msgs[0]).toMatchObject({ direction: "OUTBOUND", senderName: "Assistente virtual" });
-    expect(msgs[0].content.text).not.toMatch(/R\$|\d/);
+    expect(msgs[0]).toMatchObject({ direction: "OUTBOUND", senderName: "Leonora" });
+    // só o "4" do pedido dos dígitos
+    expect((msgs[0].content.text ?? "").replace("4 últimos", "")).not.toMatch(/R\$|\d/);
   });
 
   it("equipamento contestado e encerrado: confere o registro da devolução, nunca 'recebemos o equipamento'", async () => {
@@ -526,6 +556,33 @@ describe("a cena conta a mesma história que o caso e a recuperação", () => {
   });
 });
 
+// Quarta 15h, sábado 22h, domingo 3h e 12h, segunda 0h21 e 7h30, o feriado de 07/09 e a madrugada seguinte (São Paulo).
+const AGORAS = ["2026-09-16T18:00:00Z", "2026-09-20T01:00:00Z", "2026-09-20T06:00:00Z", "2026-09-20T15:00:00Z", "2026-09-21T03:21:00Z", "2026-09-21T10:30:00Z", "2026-09-07T13:00:00Z", "2026-09-08T09:00:00Z"].map(Date.parse);
+// [aberta há, último evento há] em horas: as idades que a semeadura grava por status (com o desvio por posição), uma ativa envelhecida e uma parada recente.
+const IDADES: Record<string, Array<[number, number]>> = {
+  OPEN: [[72, 2], [72.8, 2.8], [80, 30]],
+  PENDING: [[48, 6], [49.5, 7.5], [120, 40]],
+  BOT: [[10, 9], [11.2, 10.2], [3, 3]],
+  WAITING: [[120, 48], [121.4, 49.4], [3, 3]],
+  CLOSED: [[240, 144], [241.6, 145.6], [30, 26]],
+};
+/** Uma linha por cena do roteiro: régua (lembrete e negociação), cada status de caso nas duas carteiras e cada status da retirada. */
+const CENAS: Array<Partial<LinhaDaConversa>> = [
+  { clienteDias: 10 },
+  { clienteDias: 150, clienteDivida: "99.90" },
+  { casoStatus: "em_contato", casoCarteira: "ativo", casoValor: "120.00", casoDias: 20 },
+  { casoStatus: "em_contato", casoCarteira: "ex_cliente", casoValor: "689.95", casoDias: 60 },
+  { casoStatus: "negociando", casoCarteira: "ativo", casoValor: "300.00", casoDias: 45 },
+  { casoStatus: "acordo_ativo", casoCarteira: "ativo", casoValor: "149.90", casoDias: 120 },
+  { casoStatus: "pago", casoCarteira: "ativo", casoValor: "99.90", casoDias: 20 },
+  { casoStatus: "negativado", casoCarteira: "ex_cliente", casoValor: "629.95", casoDias: 90 },
+  { casoStatus: "negativado", casoCarteira: "ativo", casoValor: "119.90", casoDias: 300 },
+  { casoStatus: "negociando", casoCarteira: "ex_cliente", casoValor: "1234.50", casoDias: 200 },
+  { casoCarteira: "ex_cliente", casoStatus: "aberto", casoValor: "240.00", casoDias: 40 },
+  ...["pre_recuperacao", "agendado", "nova_tentativa", "notificacao_formal", "contestado", "concluido"].map((recuperacaoStatus) => (
+    { origem: "equipamentos", recuperacaoStatus, equipamentoTipo: "onu", equipamentoMarca: "Huawei", equipamentoModelo: "EG8145" })),
+];
+
 /**
  * A janela de contato nas falas do provedor. A auditoria achou a equipe
  * escrevendo às 00:21 e às 04:21 e a abertura do assistente às 20:21: o
@@ -533,29 +590,7 @@ describe("a cena conta a mesma história que o caso e a recuperação", () => {
  * atendimento mostra a janela da política logo abaixo da conversa. O cliente
  * escreve quando quer; quem fala pelo provedor, não.
  */
-describe("a equipe e o assistente só falam dentro da janela de contato", () => {
-  // Quarta 15h, sábado 22h, domingo 3h e 12h, segunda 0h21 e 7h30, o feriado de 07/09 e a madrugada seguinte (São Paulo).
-  const AGORAS = ["2026-09-16T18:00:00Z", "2026-09-20T01:00:00Z", "2026-09-20T06:00:00Z", "2026-09-20T15:00:00Z", "2026-09-21T03:21:00Z", "2026-09-21T10:30:00Z", "2026-09-07T13:00:00Z", "2026-09-08T09:00:00Z"].map(Date.parse);
-  // [aberta há, último evento há] em horas: as idades que a semeadura grava por status (com o desvio por posição), uma ativa envelhecida e uma parada recente.
-  const IDADES: Record<string, Array<[number, number]>> = {
-    OPEN: [[72, 2], [72.8, 2.8], [80, 30]],
-    PENDING: [[48, 6], [49.5, 7.5], [120, 40]],
-    BOT: [[10, 9], [11.2, 10.2], [3, 3]],
-    WAITING: [[120, 48], [121.4, 49.4], [3, 3]],
-    CLOSED: [[240, 144], [241.6, 145.6], [30, 26]],
-  };
-  const CENAS: Array<Partial<LinhaDaConversa>> = [
-    { clienteDias: 10 },
-    { clienteDias: 150, clienteDivida: "99.90" },
-    { casoStatus: "em_contato", casoCarteira: "ativo", casoValor: "120.00", casoDias: 20 },
-    { casoStatus: "em_contato", casoCarteira: "ex_cliente", casoValor: "689.95", casoDias: 60 },
-    { casoStatus: "negociando", casoCarteira: "ativo", casoValor: "300.00", casoDias: 45 },
-    { casoStatus: "acordo_ativo", casoCarteira: "ativo", casoValor: "149.90", casoDias: 120 },
-    { casoStatus: "pago", casoCarteira: "ativo", casoValor: "99.90", casoDias: 20 },
-    { casoStatus: "negativado", casoCarteira: "ex_cliente", casoValor: "629.95", casoDias: 90 },
-    ...["pre_recuperacao", "agendado", "nova_tentativa", "notificacao_formal", "contestado", "concluido"].map((recuperacaoStatus) => (
-      { origem: "equipamentos", recuperacaoStatus, equipamentoTipo: "onu", equipamentoMarca: "Huawei", equipamentoModelo: "EG8145" })),
-  ];
+describe("a equipe e a funcionária só falam dentro da janela de contato", () => {
 
   it("toda OUTBOUND semeada cai entre 8h e 20h de São Paulo, fora do domingo, com as regras de 24 h e menos de 40 mensagens", () => {
     let roteiros = 0;
@@ -571,7 +606,8 @@ describe("a equipe e o assistente só falam dentro da janela de contato", () => 
       }
     }
     expect(roteiros).toBe(AGORAS.length * 15 * CENAS.length);
-  });
+    // A grade monta ~2 mil roteiros (cada um com o aviso do servidor): 3 s sozinha, mais que os 5 s padrão com a suíte em paralelo.
+  }, 60_000);
 
   it("linha que cabe na janela não sai da vida da conversa: nada antes da abertura nem depois do último evento", () => {
     // A ex-cliente da auditoria (demo-conv-19-13): aberta às 20h21 de quarta, com a equipe escrevendo à 0h21 e às 4h21; agora é sábado, 18h21.
@@ -584,10 +620,180 @@ describe("a equipe e o assistente só falam dentro da janela de contato", () => 
   });
 });
 
+const dataEmSp = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
+/** "AAAA-MM-DD" do instante em São Paulo: o `hoje` que o servidor passa ao verificador. */
+const hojeEmSaoPaulo = (iso: string) => dataEmSp.format(new Date(iso));
+/** A primeira data a partir de `hoje` com aquele dia do mês: o "dia 20" que o cliente disse, como o servidor resolve (§3.3). */
+function proximoDiaDoMes(hoje: string, dia: number): string {
+  for (let d = Date.parse(`${hoje}T12:00:00Z`), i = 0; i < 62; d += 24 * HORA, i++) {
+    if (new Date(d).getUTCDate() === dia) return new Date(d).toISOString().slice(0, 10);
+  }
+  throw new Error(`sem dia ${dia} em dois meses`);
+}
+
+interface ContagemDaVoz { conferidas: number; transferencias: number; promessas: number; confirmouAutomacao: boolean }
+
+/**
+ * Spec 2026-09-16, §10 e achado e17: o roteiro inteiro passa pelo verificador que
+ * a produção usa. ANTES da primeira resposta do cliente (a que traz os 4 dígitos)
+ * só existe a abertura do servidor, e cada balão dela passa em
+ * `verificarTextoPreIdentidade`. DEPOIS, cada fala da funcionária passa em
+ * `verificarMensagens` com a ação e a situação da rodada e com os FATOS do
+ * roteiro: o saldo do caso (ou da dívida do cliente), o `hoje` do instante da
+ * fala, o dia que o cliente disse, a última mensagem dele e o que já saiu.
+ *
+ * As falas da equipe não passam: são do atendente, que pode dizer "Pagamento
+ * localizado" e "Acordo registrado" — o verificador existe para o texto da IA.
+ * O que se confere nelas é o lugar: só depois do aviso de transferência, ou o
+ * fecho de uma conversa encerrada pelo inbox.
+ */
+function conferirVozDaFuncionaria(linha: LinhaDaConversa, falas: FalaDoRoteiro[], rotulo: string): ContagemDaVoz {
+  const contagem: ContagemDaVoz = { conferidas: 0, transferencias: 0, promessas: 0, confirmouAutomacao: false };
+  const funcionaria = funcionariaDaConversa(linha);
+  const carteira = linha.origem === "equipamentos" ? "equipamentos" : linha.casoCarteira === "ex_cliente" ? "ex_cliente" : "ativo";
+  const provedor = linha.provedorFantasia || linha.provedorNome;
+  const primeiro = primeiroNomeDoCliente(linha.clienteNome);
+  const centavos = Math.round(Number(linha.casoValor ?? linha.clienteDivida ?? 0) * 100);
+  const msgs = falas.map((x) => x.mensagem);
+  const texto = (m: Mensagem) => m.content.text ?? "";
+
+  expect(msgs.filter((m) => m.direction === "OUTBOUND").map(texto).join(" "), rotulo).not.toMatch(/assistente virtual/i);
+  const confirmacao = msgs.findIndex((m) => m.direction === "INBOUND");
+  const antes = confirmacao < 0 ? falas : falas.slice(0, confirmacao);
+  // antes dos dígitos: só a abertura do servidor, assinada pela funcionária, sem rodada de IA
+  expect(antes.map((x) => [x.mensagem.direction, x.mensagem.senderName, x.rodada]), rotulo).toEqual([["OUTBOUND", funcionaria, null]]);
+  const nomesPre = { persona: funcionaria, provedor, primeiroNomeCliente: primeiro, nomeCompletoCliente: linha.clienteNome };
+  for (const balao of texto(antes[0].mensagem).split(/\n\s*\n/)) {
+    expect(verificarTextoPreIdentidade(balao, { nomes: nomesPre, desafio: true }), `${rotulo}: ${balao}`).toEqual({ ok: true });
+  }
+  if (confirmacao < 0) return contagem;
+  expect(texto(msgs[confirmacao]), rotulo).toMatch(/final \d{4}\b/);
+
+  let transferiu = false;
+  falas.forEach(({ mensagem: m, rodada }, i) => {
+    if (i <= confirmacao || m.direction === "INBOUND") return;
+    const onde = `${rotulo} · ${m.senderName}: ${texto(m)}`;
+    if (m.senderName !== funcionaria) {
+      expect(rodada, onde).toBeNull();
+      expect(transferiu || (linha.status === "CLOSED" && i === falas.length - 1 && /encerrar/.test(texto(m))), `${onde} — a equipe falou antes do aviso`).toBe(true);
+      return;
+    }
+    expect(transferiu, `${onde} — a funcionária falou depois de passar a conversa`).toBe(false);
+    expect(rodada, onde).not.toBeNull();
+    const hoje = hojeEmSaoPaulo(m.createdAt);
+    const promessa = rodada!.promessa ? { data: proximoDiaDoMes(hoje, rodada!.promessa.diaDoMes), ...(centavos > 0 ? { valorCentavos: centavos } : {}) } : null;
+    const ctx: ContextoDaVerificacao = {
+      fase: "pos_identidade",
+      acao: rodada!.acao,
+      situacao: rodada!.situacao,
+      carteira,
+      // na retirada a funcionária não tem valor nenhum para citar
+      fatos: centavos > 0 && carteira !== "equipamentos" ? { valores: [{ id: "saldo", centavos }] } : {},
+      proposta: promessa && !rodada!.promessa!.gravada ? promessa : null,
+      gravado: promessa && rodada!.promessa!.gravada ? { tipo: "promessa", ...promessa } : null,
+      ultimaMensagemDoCliente: msgs.slice(0, i).filter((x) => x.direction === "INBOUND").map(texto).at(-1) ?? null,
+      baloesJaEnviados: msgs.slice(0, i).filter((x) => x.direction === "OUTBOUND").map(texto),
+      nomes: { persona: funcionaria, provedor, primeiroNomeCliente: primeiro },
+      hoje,
+    };
+    expect(verificarMensagens([texto(m)], ctx), onde).toMatchObject({ ok: true });
+    if (rodada!.situacao === "identidade_recem_confirmada") {
+      // revisão final: a primeira fala depois dos dígitos começa pela MESMA função da reserva do servidor — obrigada pelo
+      // nome e, sem valor na frase, o assunto da carteira (depois da confirmação da automação, quando o cliente perguntou)
+      const fala = texto(m).split(/\n\s*\n/).at(-1)!;
+      expect(fala.startsWith(confirmacaoDaIdentidade({ nomeDaPersona: funcionaria, nomeDoCliente: linha.clienteNome, carteira }, { comAssunto: !/R\$/.test(fala) })), onde).toBe(true);
+    }
+    contagem.conferidas++;
+    if (rodada!.promessa) contagem.promessas++;
+    if (/atendimento automatizado/.test(texto(m))) contagem.confirmouAutomacao = true;
+    if (rodada!.acao === "transferir") {
+      // o aviso é o de DENTRO do horário: sem prazo e sem "a partir de"
+      expect(texto(m), onde).toMatch(/por aqui, tá\?$/);
+      transferiu = true;
+      contagem.transferencias++;
+    }
+  });
+  return contagem;
+}
+
+describe("§10 — a voz da funcionária no roteiro, conferida pelo verificador", () => {
+  it("toda cena, em todo status e relógio da grade: a abertura passa na pré-identidade e cada fala dela depois dos dígitos passa em verificarMensagens com os fatos do roteiro", () => {
+    const total: ContagemDaVoz & { roteiros: number } = { roteiros: 0, conferidas: 0, transferencias: 0, promessas: 0, confirmouAutomacao: false };
+    const porCena = new Map<number, number>();
+    for (const agoraDoCaso of AGORAS) {
+      for (const [status, idades] of Object.entries(IDADES)) {
+        for (const [aberta, ultimo] of idades) {
+          for (const [i, cena] of CENAS.entries()) {
+            const linha = linhaDeConversa({ conversationId: `demo-conv-6-${i + 1}`, status, abertaEm: new Date(agoraDoCaso - aberta * HORA), ultimoEventoEm: new Date(agoraDoCaso - ultimo * HORA), ...cena });
+            const c = conferirVozDaFuncionaria(linha, falasDoRoteiro(linha, agoraDoCaso), `${new Date(agoraDoCaso).toISOString()} ${status} ${aberta}/${ultimo} cena ${i}`);
+            total.roteiros++;
+            total.conferidas += c.conferidas;
+            total.transferencias += c.transferencias;
+            total.promessas += c.promessas;
+            total.confirmouAutomacao ||= c.confirmouAutomacao;
+            porCena.set(i, (porCena.get(i) ?? 0) + c.conferidas);
+          }
+        }
+      }
+    }
+    expect(total.roteiros).toBe(AGORAS.length * 15 * CENAS.length);
+    // nenhuma cena escapa: toda uma tem fala da funcionária depois dos dígitos em algum status
+    expect([...porCena.entries()].filter(([, n]) => n === 0).map(([i]) => i)).toEqual([]);
+    expect(total.transferencias).toBeGreaterThan(0);
+    expect(total.promessas).toBeGreaterThan(0);
+    expect(total.confirmouAutomacao).toBe(true);
+    // A mesma grade, agora com o verificador em cada fala: ~4 s sozinha.
+  }, 60_000);
+
+  it("as conversas semeadas no banco passam pela mesma conferência", async () => {
+    const c = novoCliente();
+    let conferidas = 0;
+    for (const [cena, s] of Object.entries(semeadas)) {
+      if (s.providerId === 7) continue;
+      const linha = linhaDeConversa({
+        conversationId: s.conversationId, status: s.status, origem: s.origem ?? "cobranca", abertaEm: new Date(s.abertaEm), ultimoEventoEm: new Date(s.ultimoEventoEm),
+        clienteNome: `Maria Fictícia ${s.seq}`, clienteTelefone: `(43) 99999-000${s.seq}`, clienteDivida: s.cliente?.valor ?? s.caso?.valor ?? "0", clienteDias: s.cliente?.dias ?? s.caso?.dias ?? 0,
+        semeadaEm: new Date(agora), casoStatus: s.caso?.status ?? null, casoCarteira: s.caso?.carteira ?? null, casoValor: s.caso?.valor ?? null, casoDias: s.caso?.dias ?? null,
+        recuperacaoStatus: s.recuperacao?.status ?? null, recuperacaoAgendadaEm: s.recuperacao?.agendadaEmHoras !== undefined ? new Date(agora + s.recuperacao.agendadaEmHoras * HORA) : null,
+        equipamentoTipo: s.recuperacao ? "onu" : null, equipamentoMarca: s.recuperacao ? "Huawei" : null, equipamentoModelo: s.recuperacao ? "EG8145" : null,
+      });
+      const falas = falasDoRoteiro(linha, agora);
+      // é o mesmo roteiro que o histórico devolve pelo cliente real
+      expect(falas.map((x) => x.mensagem), cena).toEqual(await mensagensDe(c, s.conversationId));
+      conferidas += conferirVozDaFuncionaria(linha, falas, cena).conferidas;
+    }
+    expect(conferidas).toBeGreaterThan(0);
+  });
+
+  it("a conferência pega o que o verificador existe para barrar: valor que o roteiro não tem, data que o cliente não disse, prazo prometido, assunto antes dos dígitos", () => {
+    const adulterar = (falas: FalaDoRoteiro[], i: number, de: RegExp, para: string) =>
+      falas.map((x, j) => (j === i ? { ...x, mensagem: { ...x.mensagem, content: { text: (x.mensagem.content.text ?? "").replace(de, para) } } } : x));
+    const idade = { abertaEm: new Date(AGORA_FIXO - 120 * HORA), ultimoEventoEm: new Date(AGORA_FIXO - 48 * HORA) };
+
+    // a promessa: o saldo na fala logo depois dos dígitos e o dia 20 na anotação
+    const promessa = linhaDeConversa({ status: "WAITING", casoStatus: "em_contato", casoCarteira: "ativo", casoValor: "120.00", casoDias: 20, ...idade });
+    const falasDaPromessa = falasDoRoteiro(promessa, AGORA_FIXO);
+    expect(conferirVozDaFuncionaria(promessa, falasDaPromessa, "sem adulterar").promessas).toBe(2);
+    const comSaldo = falasDaPromessa.findIndex((x) => x.rodada?.situacao === "identidade_recem_confirmada");
+    expect(falasDaPromessa[comSaldo].mensagem.content.text).toMatch(/R\$ 120,00 em aberto/);
+    expect(() => conferirVozDaFuncionaria(promessa, adulterar(falasDaPromessa, comSaldo, /120,00/, "99,00"), "valor adulterado")).toThrow();
+    const anotada = falasDaPromessa.findIndex((x) => x.rodada?.promessa?.gravada);
+    expect(() => conferirVozDaFuncionaria(promessa, adulterar(falasDaPromessa, anotada, /dia 20/, "dia 21"), "data adulterada")).toThrow();
+    expect(() => conferirVozDaFuncionaria(promessa, adulterar(falasDaPromessa, 0, /Pra /, "Sobre a fatura: pra "), "assunto na abertura")).toThrow();
+
+    // o aviso: sem prazo prometido
+    const negativado = linhaDeConversa({ status: "WAITING", casoStatus: "negativado", casoCarteira: "ativo", casoValor: "119.90", casoDias: 300, ...idade });
+    const falasDoNegativado = falasDoRoteiro(negativado, AGORA_FIXO);
+    expect(conferirVozDaFuncionaria(negativado, falasDoNegativado, "sem adulterar").transferencias).toBe(1);
+    const aviso = falasDoNegativado.findIndex((x) => x.rodada?.acao === "transferir");
+    expect(() => conferirVozDaFuncionaria(negativado, adulterar(falasDoNegativado, aviso, /^/, "Já já! "), "prazo adulterado")).toThrow();
+  });
+});
+
 /**
  * O console de agentes nascia vazio: as abas Agentes, Skills, Conexões,
  * Execuções e Visão geral mostravam nada, enquanto a fila do chat tinha
- * conversas "com agente" e falas do "Assistente virtual".
+ * conversas "com agente" e falas do assistente automático.
  */
 describe("o catálogo da organização nasce pronto", () => {
   it("org nova: três agentes ligados ao canal, as skills, a conexão e a automação ligada, sem nenhuma escrita antes — e duas leituras iguais", async () => {
@@ -636,11 +842,15 @@ describe("o catálogo da organização nasce pronto", () => {
 });
 
 describe("o contrato de agentes que a semeadura grava na integração", () => {
-  it("lerAgente lê os três perfis de agenteConfigDaDemo() como prontos, com o id e o modelo semeados", async () => {
+  it("lerAgente lê os três perfis de agenteConfigDaDemo() como prontos, com o id, o modelo e o nome da funcionária semeados", async () => {
     const { agentes } = await listarAgentesDoChat(6);
-    expect(agentes.map((a) => [a.tipo, a.etapa, a.habilitado, a.id, a.modelo])).toEqual(
-      TIPOS_DE_AGENTE.map((t) => [t, "pronto", true, AGENTES_DA_DEMO[t].id, MODELO_DOS_AGENTES_DA_DEMO]));
+    expect(agentes.map((a) => [a.tipo, a.etapa, a.habilitado, a.id, a.modelo, a.nomeDaPersona])).toEqual(
+      TIPOS_DE_AGENTE.map((t) => [t, "pronto", true, AGENTES_DA_DEMO[t].id, MODELO_DOS_AGENTES_DA_DEMO, NOMES_DAS_FUNCIONARIAS_DA_DEMO[t]]));
     await expect(exigirAgentesProntos(6, [...TIPOS_DE_AGENTE])).resolves.toBeUndefined();
+  });
+
+  it("os nomes das funcionárias da demonstração são os do dono (Clara, Leonora e Eduarda), os mesmos que o script grava em produção", () => {
+    expect(NOMES_DAS_FUNCIONARIAS_DA_DEMO).toEqual(Object.fromEntries(TIPOS_DE_AGENTE.map((t) => [t, nomeDaPersonaDoTipo(t)])));
   });
 
   it("primeiro contato de equipamento em caso novo: abertura controlada com o id do agente semeado e SEM modelo — ele só entra depois da identificação", async () => {
@@ -650,12 +860,14 @@ describe("o contrato de agentes que a semeadura grava na integração", () => {
     // garante é o agente PRONTO — id igual nas duas pontas — e o texto neutro.
     const config = agenteConfigDaDemo();
     const r = await prepararPrimeiroContatoDoAgente(6, "recuperacao_equipamentos", { nomeCliente: "Maria", nomeProvedor: "Rede Demo" });
+    // A abertura é a da funcionária (spec 2026-09-16, §3.1): dois balões do servidor, o 2º pedindo os 4 dígitos.
     expect(r).toEqual({
-      texto: textoDeAberturaControlada({ nomeCliente: "Maria", nomeProvedor: "Rede Demo" }),
+      texto: r.baloes.join("\n\n"), baloes: [expect.stringMatching(/é a Eduarda, da Rede Demo 😊$/), expect.stringMatching(/Maria.*4 últimos dígitos do seu CPF/)],
       agenteId: config.agentes.recuperacao_equipamentos.id, modelo: null, runId: null, modo: "abertura_controlada",
     });
     expect(r.agenteId).toBe(AGENTES_DA_DEMO.recuperacao_equipamentos.id);
-    expect(r.texto).not.toMatch(/equipamento|devolu|contrato|R\$|\d/);
+    // o único dígito é o "4" do pedido dos últimos dígitos do CPF
+    expect(r.texto.replace("4 últimos", "")).not.toMatch(/equipamento|devolu|contrato|R\$|\d|assistente virtual/);
     expect(espiao).not.toHaveBeenCalled();
   });
 
@@ -667,7 +879,7 @@ describe("o contrato de agentes que a semeadura grava na integração", () => {
 });
 
 describe("execuções e resumo contam as conversas semeadas", () => {
-  it("uma execução por abertura do assistente e uma pela primeira resposta do cliente — transferida na janela, pulada fora dela", async () => {
+  it("uma execução pela abertura da funcionária e uma por mensagem do cliente que ela responde — passou para a equipe no aviso, respondeu nas outras, pulada fora da janela", async () => {
     const c = novoCliente();
     const { execucoes } = await listarExecucoesDoConsole(6, { periodo: "30d", limite: 200 });
     const doSeis = Object.values(semeadas).filter((s) => s.providerId !== 7);
@@ -675,20 +887,22 @@ describe("execuções e resumo contam as conversas semeadas", () => {
 
     for (const s of doSeis) {
       const msgs = await mensagensDe(c, s.conversationId);
+      const funcionaria = msgs[0].senderName;
       const daConversa = execucoes.filter((e) => e.conversaId === s.conversationId).sort((a, b) => a.iniciadaEm.localeCompare(b.iniciadaEm));
       expect(daConversa[0], s.conversationId).toMatchObject({ status: "COMPLETED", desfecho: "REPLIED", iniciadaEm: msgs[0].createdAt, modelo: MODELO_DOS_AGENTES_DA_DEMO });
-      const primeiraDoCliente = msgs.find((m) => m.direction === "INBOUND");
-      if (!primeiraDoCliente) {
-        expect(daConversa, s.conversationId).toHaveLength(1);
-        continue;
-      }
-      expect(daConversa, s.conversationId).toHaveLength(2);
-      expect(daConversa[1], s.conversationId).toMatchObject(podeFalar(primeiraDoCliente.createdAt)
-        ? { status: "COMPLETED", desfecho: "TRANSFERRED_TO_HUMAN", iniciadaEm: primeiraDoCliente.createdAt }
-        : { status: "SKIPPED", tokens: 0, custoUsd: 0, iniciadaEm: primeiraDoCliente.createdAt });
+      // as mensagens do cliente que a funcionária responde (a seguinte é dela); as que a equipe responde não rodam o agente
+      const respondidas = msgs.flatMap((m, i) => (m.direction === "INBOUND" && msgs[i + 1]?.senderName === funcionaria ? [[m, msgs[i + 1]] as const] : []));
+      expect(daConversa, s.conversationId).toHaveLength(1 + respondidas.length);
+      respondidas.forEach(([doCliente, dela], k) => {
+        const passou = /nossa equipe/.test(dela.content.text ?? "") && /por aqui, tá\?$/.test(dela.content.text ?? "");
+        expect(daConversa[k + 1], `${s.conversationId} #${k + 1}`).toMatchObject(podeFalar(doCliente.createdAt)
+          ? { status: "COMPLETED", desfecho: passou ? "TRANSFERRED_TO_HUMAN" : "REPLIED", iniciadaEm: doCliente.createdAt }
+          : { status: "SKIPPED", tokens: 0, custoUsd: 0, iniciadaEm: doCliente.createdAt });
+      });
     }
     expect(execucoes.some((e) => e.status === "SKIPPED")).toBe(true);
     expect(execucoes.some((e) => e.desfecho === "TRANSFERRED_TO_HUMAN")).toBe(true);
+    expect(execucoes.filter((e) => e.status === "COMPLETED" && e.desfecho === "REPLIED").length).toBeGreaterThan(doSeis.length);
     expect(execucoes.find((e) => e.conversaId === semeadas.retirada.conversationId)!.agenteId).toBe(AGENTES_DA_DEMO.recuperacao_equipamentos.id);
     expect(execucoes.find((e) => e.conversaId === semeadas.exCliente.conversationId)!.agenteId).toBe(AGENTES_DA_DEMO.cobranca_ex_clientes.id);
     expect(execucoes.find((e) => e.conversaId === semeadas.lembrete.conversationId)!.agenteId).toBe(AGENTES_DA_DEMO.cobranca_ativos.id);

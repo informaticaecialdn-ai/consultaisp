@@ -26,7 +26,7 @@ import { podeAdministrarOProvedor } from "./provider.routes";
 import { storage } from "../storage";
 import { exigirEscopoDoChat } from "./chat-escopo";
 import { acaoNaConversa, detalheDoAtendimento, diagnosticoDoAtendimento, ErroDeDadosDoAtendimento, midiaDoAtendimento, TAMANHO_MAXIMO_DA_ACAO } from "../services/chat/chat-atendimento.service";
-import { ConfiguracaoDeAgenteSchema, TipoDeAgenteSchema, type TipoDeAgente } from "@shared/chat-agentes";
+import { ConfiguracaoDeAgenteSchema, LIMITES_DO_AGENTE, TipoDeAgenteSchema, type TipoDeAgente } from "@shared/chat-agentes";
 import { comTravaDaConfiguracaoDoChat, configurarAgenteDoChat, exigirAgentesProntos, listarAgentesDoChat, modelosDosAgentesDoChat, prepararPrimeiroContatoDoAgente, promptDoAgenteDoChat, provisionarAgenteDoChat } from "../services/chat/chat-agentes.service";
 import { ErroGestao } from "../services/cobranca/gestao-operacional.service";
 
@@ -233,7 +233,7 @@ export function registerChatBullqRoutes(): Router {
   router.put("/api/chat-bullq/integracao/agentes/:tipo", requireAuth, requireProvider, exigirAdmin("configurar agentes"), async (req, res) => {
     const tipo = TipoDeAgenteSchema.safeParse(req.params.tipo);
     const dados = ConfiguracaoDeAgenteSchema.safeParse(req.body);
-    if (!tipo.success || !dados.success) return res.status(400).json({ message: "Informe o papel, o modelo, até 500 caracteres de descrição, 6.000 de instruções e 8.000 de contexto operacional; temperatura de 0 a 1 e de 160 a 1.200 tokens", erros: dados.success ? [] : dados.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) });
+    if (!tipo.success || !dados.success) return res.status(400).json({ message: `Informe o papel, o modelo, até ${LIMITES_DO_AGENTE.descricao} caracteres de descrição, ${LIMITES_DO_AGENTE.instrucoes.toLocaleString("pt-BR")} de instruções e ${LIMITES_DO_AGENTE.contextoOperacional.toLocaleString("pt-BR")} de contexto operacional; temperatura de 0 a 1 e de 160 a 1.200 tokens`, erros: dados.success ? [] : dados.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) });
     // O serviço mescla o perfil existente; defaults do parse apagariam campos omitidos.
     try { res.json(await configurarAgenteDoChat(providerDaSessao(req), tipo.data, req.body)); } catch (e) { falha(res, e); }
   });

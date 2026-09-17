@@ -2105,7 +2105,8 @@ function linhaDaConversaDeCobranca(
  * O instante da última fala da equipe no roteiro da conversa, quando ela veio
  * depois da abertura — `roteiroDaConversa` decide (janela de contato, regras de
  * 24 h); aqui só se lê. A equipe fala com o nome do atendente que abriu a
- * conversa (o assistente fala como "Assistente virtual").
+ * conversa (a funcionária digital fala com o nome dela: Clara, Leonora ou
+ * Eduarda) — então a fala dela nunca conta como contato do atendente.
  */
 function ultimaFalaDaEquipe(linha: LinhaDaConversa, agora: Date): Date | undefined {
   const falas = roteiroDaConversa(linha, agora.getTime()).filter((m) => m.direction === "OUTBOUND" && m.senderName === linha.atendenteNome);

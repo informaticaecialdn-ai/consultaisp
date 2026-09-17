@@ -64,17 +64,33 @@ describe("fila", () => {
     expect(c.sql).toMatch(/on conflict \("provider_id","message_id"\) do nothing/);
     expect(c.params).toEqual(expect.arrayContaining([PROVEDOR, "conv_1", "m1"]));
   });
-  it("proximos: pendentes ou presos ha 5 min, em ordem de id, 20 por vez; a varredura e do worker inteiro", async () => {
-    banco.responder = () => [[15, PROVEDOR, "conv_1", "m1", "pendente"], [16, 7, "conv_9", "m9", "processando"]];
+  it("proximos: pendentes ou presos ha 5 min, 20 por vez, em RODIZIO entre provedores (1o de cada um, depois o 2o...); a varredura e do worker inteiro", async () => {
+    banco.responder = () => [[15, PROVEDOR, "conv_1", "m1", "pendente", "2026-09-17T03:00:00.000Z"], [16, 7, "conv_9", "m9", "processando", "2026-09-17T02:00:00.000Z"]];
     const jobs = await autonomiaStorage.proximos();
     const c = banco.consultas[0];
+    // O filtro de sempre: pendente, ou preso em processando/enviando ha mais de 5 minutos (vai ao atendente, nunca reenviado).
     expect(c.sql).toContain('"status" = $1');
     expect(c.sql).toMatch(/"status" in \(\$2, \$3\) and "chat_autonomia_fila"\."updated_at" < now\(\) - interval '5 minutes'/);
     expect(c.params.slice(0, 3)).toEqual(["pendente", "processando", "enviando"]);
-    expect(c.sql).toMatch(/order by "chat_autonomia_fila"\."id" asc limit \$4/);
+    // O rodizio: posicao dentro do provedor, na ordem de chegada, e a leva ordenada por essa posicao antes do id.
+    expect(c.sql).toMatch(/row_number\(\) over \(partition by "provider_id" order by "id"\) as "posicao" from "chat_autonomia_fila"/);
+    expect(c.sql).toMatch(/\) "candidatos" order by "posicao" asc, "candidatos"\."id" asc limit \$4$/);
     expect(c.params[3]).toBe(20);
-    expect(jobs).toEqual([JOB, { id: 16, provider_id: 7, conversation_id: "conv_9", message_id: "m9", status: "processando" }]);
+    expect(jobs).toEqual([{ ...JOB, criado_em: new Date("2026-09-17T03:00:00.000Z") }, { id: 16, provider_id: 7, conversation_id: "conv_9", message_id: "m9", status: "processando", criado_em: new Date("2026-09-17T02:00:00.000Z") }]);
     expect(typeof jobs[0].id).toBe("number");
+  });
+  it("devolverParaPendente: CAS so de processando para pendente, do provedor do trabalho — enviando nunca volta", async () => {
+    banco.responder = () => [[15]];
+    expect(await autonomiaStorage.devolverParaPendente(JOB)).toBe(true);
+    const c = banco.consultas[0];
+    expect(c.sql).toMatch(/^update "chat_autonomia_fila" set "status" = \$1, "motivo" = \$2, "updated_at" = now\(\)/);
+    expect(c.params.slice(0, 2)).toEqual(["pendente", null]);
+    exigeProvedor(c);
+    expect(c.sql).toMatch(/"chat_autonomia_fila"\."status" = \$(\d+)\) returning "id"$/);
+    expect(c.params).toContain("processando");
+    expect(c.params).not.toContain("enviando");
+    banco.responder = () => [];
+    expect(await autonomiaStorage.devolverParaPendente(JOB)).toBe(false);
   });
   it("assumir e CAS: so vence se a linha ainda estava pendente, e do provedor do trabalho", async () => {
     banco.responder = () => [[15]];
@@ -107,17 +123,30 @@ describe("fila", () => {
 
 describe("estado por conversa", () => {
   it("sem linha e o estado inicial; com linha, a proposta vem do jsonb", async () => {
-    expect(await autonomiaStorage.estado(PROVEDOR, "conv_1")).toEqual({ turnos: 0, humano: false, proposta: null, motivo: null });
+    expect(await autonomiaStorage.estado(PROVEDOR, "conv_1")).toEqual({ turnos: 0, humano: false, proposta: null, motivo: null, episodioNovo: true });
     exigeProvedor(banco.consultas[0]);
     expect(banco.consultas[0].params).toContain("conv_1");
-    banco.responder = () => [[3, true, { acao: "promessa", data: "2026-09-10", valor: 100, criadaEm: "2026-09-06T15:00:00.000Z", messageId: "m1" }, "Operador assumiu"]];
-    expect(await autonomiaStorage.estado(PROVEDOR, "conv_1")).toMatchObject({ turnos: 3, humano: true, proposta: { acao: "promessa", valor: 100 }, motivo: "Operador assumiu" });
+    banco.responder = () => [[3, true, { acao: "promessa", data: "2026-09-10", valor: 100, criadaEm: "2026-09-06T15:00:00.000Z", messageId: "m1" }, "Operador assumiu", false]];
+    expect(await autonomiaStorage.estado(PROVEDOR, "conv_1")).toMatchObject({ turnos: 3, humano: true, proposta: { acao: "promessa", valor: 100 }, motivo: "Operador assumiu", episodioNovo: false });
   });
-  it("turno soma 1 por upsert na chave (provider_id, conversation_id)", async () => {
+  it("turnos contam por EPISÓDIO (f16): 6 h sem rodada, pelo relógio do banco, a leitura devolve zero e avisa que o episódio é novo", async () => {
+    await autonomiaStorage.estado(PROVEDOR, "conv_1");
+    const c = banco.consultas[0];
+    expect(c.sql).toMatch(/"updated_at" < now\(\) - make_interval\(hours => \$\d+::int\) from "chat_autonomia_estado"/);
+    expect(c.params).toContain(6);
+    banco.responder = () => [[11, false, null, null, true]];
+    expect(await autonomiaStorage.estado(PROVEDOR, "conv_1")).toEqual({ turnos: 0, humano: false, proposta: null, motivo: null, episodioNovo: true });
+  });
+  it("turno soma 1 por upsert na chave (provider_id, conversation_id); episódio novo recomeça em 1", async () => {
     await autonomiaStorage.turno(PROVEDOR, "conv_1");
     const c = banco.consultas[0];
     expect(c.sql).toMatch(/on conflict \("provider_id","conversation_id"\) do update set "turnos" = "chat_autonomia_estado"\."turnos" \+ 1/);
     expect(c.params).toEqual(expect.arrayContaining([PROVEDOR, "conv_1", 1]));
+    await autonomiaStorage.turno(PROVEDOR, "conv_1", true);
+    const novo = banco.consultas[1];
+    const set = novo.sql.match(/do update set "turnos" = \$(\d+), "updated_at" = now\(\)/);
+    expect(set, novo.sql).not.toBeNull();
+    expect(novo.params[Number(set![1]) - 1]).toBe(1);
   });
   it("proposta grava e apaga (null) o jsonb", async () => {
     await autonomiaStorage.proposta(PROVEDOR, "conv_1", { acao: "promessa", data: "2026-09-10", valor: 100, criadaEm: "2026-09-06T15:00:00.000Z", messageId: "m1" });

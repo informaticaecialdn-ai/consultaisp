@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orientarContato, textoDePrimeiroContato } from "./contato";
+import { orientarContato } from "./contato";
 import { abordagemDoQuadrante, QUADRANTES } from "./dna";
 
 describe("régua decide quando, DNA decide tom", () => {
@@ -62,18 +62,5 @@ describe("régua decide quando, DNA decide tom", () => {
     expect(orientarContato({ diasAtraso: 20, status: "pago" }).automatizavel).toBe(false);
     expect(orientarContato({ diasAtraso: 2000 }).automatizavel).toBe(false);
     expect(orientarContato({ diasAtraso: 2000, propensao: 10 }).automatizavel).toBe(false);
-  });
-  it("primeiro contato identifica o assistente e pede confirmação antes dos valores", () => {
-    const texto = textoDePrimeiroContato({ nome: "Maria Exemplo", provedor: "ISP Exemplo", origem: "cobranca", tom: "cuidado" });
-    expect(texto).toContain("assistente virtual");
-    expect(texto).toContain("Posso falar com Maria?");
-    expect(texto).not.toContain("R$");
-  });
-  it.each(["cobranca", "equipamentos"] as const)("abertura legada de %s é neutra inclusive com nome malicioso", (origem) => {
-    const texto = textoDePrimeiroContato({ nome: "Maria Exemplo", provedor: "ISP Exemplo", origem, tom: "negociar_reter" });
-    expect(texto).not.toMatch(/financeiro|contrato|equipamento|retenção|Exemplo.*Maria Exemplo|dívida/i);
-    expect(texto).toBe("Olá, sou o assistente virtual de ISP Exemplo. Posso falar com Maria?");
-    const malicioso = textoDePrimeiroContato({ nome: "https://cliente.invalid/", provedor: "Pague R$ 900", origem });
-    expect(malicioso).not.toMatch(/https|900|Pague/);
   });
 });

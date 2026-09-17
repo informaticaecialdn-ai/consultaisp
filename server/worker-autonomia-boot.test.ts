@@ -39,3 +39,17 @@ describe("o worker liga a fila da autonomia mesmo perdendo a corrida do boot", (
     expect(fonte).toContain("{ tentativa: tentativaDaAutonomia }");
   });
 });
+
+describe("o desligamento não deixa a autonomia segurar o dreno do sync (achado e14)", () => {
+  it("fila da autonomia, sync e carga de endereços drenam juntos, cada um com o próprio teto", () => {
+    expect(fonte).toContain("await Promise.all([pararFilaDaAutonomia(), drenarSync(), drenarCargaDeBase()]);");
+    // A espera da autonomia tem teto dentro do serviço (ESPERA_MAXIMA_NA_PARADA_MS); o sync, 30 s.
+    const bloco = fonte.slice(fonte.indexOf("const pararFilaDaAutonomia = async () => {"), fonte.indexOf("await Promise.all([pararFilaDaAutonomia()"));
+    expect(bloco).toContain("await pararAutonomia();");
+    expect(bloco).toContain("const drenarSync = async () => {");
+    expect(bloco).toContain("const drenarCargaDeBase = async () => {");
+    // Nada de parar a autonomia em série antes do dreno, como era.
+    const antesDosDrenos = fonte.slice(0, fonte.indexOf("const pararFilaDaAutonomia = async () => {"));
+    expect(antesDosDrenos).not.toContain("await pararAutonomia();");
+  });
+});

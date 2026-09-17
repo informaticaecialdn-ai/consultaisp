@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analisarTemplateDeAbertura, montarTemplateDeAbertura, textoDeAberturaControlada, textoNeutroAntesDaIdentificacao } from "./chat-templates";
+import { analisarTemplateDeAbertura, montarTemplateDeAbertura, nomesSegurosDaAbertura, textoNeutroAntesDaIdentificacao } from "./chat-templates";
 import type { TemplateDatafy, TemplateDeAbertura } from "./chat-whatsapp";
 
 const template = (text = "Olá, {{1}}! Aqui é {{2}}.", status = "APPROVED"): TemplateDatafy => ({ name: "abertura", language: "pt_BR", status, components: [{ type: "BODY", text }] });
@@ -18,11 +18,10 @@ describe("template aprovado para abertura", () => {
       expect(analisarTemplateDeAbertura(t).compativel).toBe(false);
     }
   });
-  it("gera apenas primeiro nome e provedor; parâmetros não carregam documento ou instrução", () => {
-    expect(textoDeAberturaControlada({ nomeCliente: "Maria Silva CPF 12345678901", nomeProvedor: "ISP Sul" }))
-      .toBe("Olá, sou o assistente virtual de ISP Sul. Posso falar com Maria?");
+  it("só primeiro nome e provedor seguros; parâmetros não carregam documento ou instrução", () => {
+    expect(nomesSegurosDaAbertura({ nomeCliente: "Maria Silva CPF 12345678901", nomeProvedor: "ISP Sul" })).toEqual({ nomeCliente: "Maria", nomeProvedor: "ISP Sul" });
     expect(textoNeutroAntesDaIdentificacao("Maria deve 200 reais", { nomeCliente: "Maria", nomeProvedor: "ISP" })).toBe(false);
-    expect(textoDeAberturaControlada({ nomeCliente: "https://segredo.invalid", nomeProvedor: "Saldo R$ 200" })).not.toMatch(/200|https|Saldo/);
+    expect(nomesSegurosDaAbertura({ nomeCliente: "https://segredo.invalid", nomeProvedor: "Saldo R$ 200" })).toEqual({ nomeCliente: "você", nomeProvedor: "seu provedor" });
   });
   it("monta somente parâmetros das variáveis permitidas e limpa quebras de linha", () => {
     expect(montarTemplateDeAbertura(template(), config, { nomeCliente: "Maria\r\nSilva", nomeProvedor: "ISP\tSul" })).toEqual({ name: "abertura", language: { code: "pt_BR" }, components: [{ type: "body", parameters: [{ type: "text", text: "Maria" }, { type: "text", text: "ISP Sul" }] }] });

@@ -92,6 +92,17 @@ pasta, e nada aqui afirma que o 003 está aplicado lá. Levar a série para a VP
 trabalho de deploy, decidido e feito à parte, depois de conferir o `git apply
 --check` de cada patch contra o estado real daquele checkout.
 
+A série própria da VPS está em [`patches/vps/`](patches/vps/README.md), na ordem
+`002 → 003 → 008 → 009 → 010` — cada patch com o porquê, a validação e se já
+está aplicado em produção. Os dois últimos são da funcionária digital (spec
+`docs/superpowers/specs/2026-09-16-funcionario-digital-design.md`, §4):
+`vps/009-planejador-escreve.patch` deixa o planejador escrever os balões ao
+cliente (`escrever: true` → `mensagens`) e `vps/010-mensagens-como-agente.patch`
+cria `POST /messages/agent-batch`, que manda esses balões em ordem, com o nome
+do agente e "digitando…". O Consulta ISP só usa os dois com a chave
+`funcionariaDigital.ativa` ligada no provedor, e sem eles cai sozinho no modo
+anterior (planejamento sem escrita e envio comum).
+
 Consulte [a configuração da ponte](PONTE-CONSULTAISP.md) e
 [a configuração dos agentes](AGENTES-PRIMEIRO-CONTATO.md), além dos
 [contratos e webhooks dos três serviços](WHATSAPP-PROVIDERS.md).

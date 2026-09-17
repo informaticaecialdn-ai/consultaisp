@@ -15,6 +15,11 @@ const servico = vi.hoisted(() => ({
   devolverAoAssistente: vi.fn(async (): Promise<any> => ({ conversationId: "conv_1", status: "BOT", humano: false })),
 }));
 vi.mock("../services/chat/chat-autonomia.service", () => servico);
+const agentesServico = vi.hoisted(() => ({
+  funcionariaDigitalDoProvedor: vi.fn(async (): Promise<any> => ({ ativa: false })),
+  configurarFuncionariaDigital: vi.fn(async (_p: number, dados: { ativa: boolean }): Promise<any> => ({ ativa: dados.ativa })),
+}));
+vi.mock("../services/chat/chat-agentes.service", () => agentesServico);
 vi.mock("../services/chat/chat-ponte.service", async () => {
   const real = await vi.importActual<typeof import("../services/chat/chat-ponte.service")>("../services/chat/chat-ponte.service");
   return { ErroDaPonteDoChat: real.ErroDaPonteDoChat };
@@ -160,4 +165,55 @@ it("não devolve ao assistente conversa de outra carteira", async () => {
   const resposta = await json("POST", "/api/chat-bullq/autonomia/conversas/conv_1/devolver?origem=cobranca&carteira=ativo", {});
   expect(resposta.status).toBe(404);
   expect(servico.devolverAoAssistente).not.toHaveBeenCalled();
+});
+
+describe("D9 — a chave da funcionária digital", () => {
+  const ROTA = "/api/chat-bullq/autonomia/funcionaria-digital";
+  it("sem sessao 401; sem provedor 403; nada chega ao servico", async () => {
+    expect((await json("GET", ROTA)).status).toBe(401);
+    expect((await json("PUT", ROTA, { ativa: true })).status).toBe(401);
+    sessao = SUPERADMIN_SEM_SUPORTE;
+    expect((await json("GET", ROTA)).status).toBe(403);
+    expect((await json("PUT", ROTA, { ativa: true })).status).toBe(403);
+    expect(agentesServico.funcionariaDigitalDoProvedor).not.toHaveBeenCalled();
+    expect(agentesServico.configurarFuncionariaDigital).not.toHaveBeenCalled();
+  });
+  it("qualquer operador le a chave do provedor DA SESSAO; o padrao e desligada", async () => {
+    sessao = OPERADOR;
+    const r = await json("GET", ROTA);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ativa: false });
+    expect(agentesServico.funcionariaDigitalDoProvedor).toHaveBeenCalledWith(42);
+  });
+  it("operador nao grava: 403 e o servico nao e chamado", async () => {
+    sessao = OPERADOR;
+    const r = await json("PUT", ROTA, { ativa: true });
+    expect(r.status).toBe(403);
+    expect((await r.json()).message).toMatch(/administradores/);
+    expect(agentesServico.configurarFuncionariaDigital).not.toHaveBeenCalled();
+  });
+  it("admin liga e desliga: provedor e usuario da sessao; corpo so com ativa booleana", async () => {
+    sessao = ADMIN;
+    const ligar = await json("PUT", ROTA, { ativa: true });
+    expect(ligar.status).toBe(200);
+    expect(await ligar.json()).toEqual({ ativa: true });
+    expect(agentesServico.configurarFuncionariaDigital).toHaveBeenCalledWith(42, { ativa: true }, 7);
+    expect((await json("PUT", ROTA, { ativa: false })).status).toBe(200);
+    expect(agentesServico.configurarFuncionariaDigital).toHaveBeenLastCalledWith(42, { ativa: false }, 7);
+    for (const corpo of [{}, { ativa: "sim" }, { ativa: true, providerId: 99 }]) expect((await json("PUT", ROTA, corpo)).status).toBe(400);
+    expect(agentesServico.configurarFuncionariaDigital).toHaveBeenCalledTimes(2);
+  });
+  it("sem integracao ou configuracao sendo salva: 409 com a frase; banco fora: 503 — a leitura nunca inventa 'desligada'", async () => {
+    sessao = ADMIN;
+    agentesServico.configurarFuncionariaDigital.mockRejectedValueOnce(new ErroDaPonteDoChat("CONFLITO", "A configuração do chat está sendo atualizada. Tente novamente em instantes."));
+    const r = await json("PUT", ROTA, { ativa: false });
+    expect(r.status).toBe(409);
+    expect((await r.json()).message).toMatch(/sendo atualizada/);
+    agentesServico.configurarFuncionariaDigital.mockRejectedValueOnce(new Error("banco fora"));
+    expect((await json("PUT", ROTA, { ativa: false })).status).toBe(503);
+    agentesServico.funcionariaDigitalDoProvedor.mockRejectedValueOnce(new Error("banco fora"));
+    const leitura = await json("GET", ROTA);
+    expect(leitura.status).toBe(503);
+    expect(JSON.stringify(await leitura.json())).not.toContain("ativa");
+  });
 });

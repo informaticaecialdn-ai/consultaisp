@@ -1,0 +1,286 @@
+# Origem: F:/Provedor.ai/skills/provedor-recuperacao-ativos/SKILL.md:1-280
+# O que é: a skill provedor-recuperacao-ativos inteira (doutrina da Mariana; o YAML dela não a declara, então ela não chega ao prompt do registry)
+# Provedor.ai no commit 98efea38bb634caf43ce8251cdfa167ed98f487b (arquivo sem alteração local), copiado em 16/09/2026.
+# Fins de linha normalizados para LF (o arquivo de origem é CRLF).
+# Não edite o texto abaixo do marcador: as adaptações ficam em ../adaptacoes.json.
+==== TEXTO VERBATIM ====
+---
+name: provedor-recuperacao-ativos
+description: |
+  Logística reversa de equipamentos em comodato (ONUs, roteadores, ONTs).
+  Protocolo D0→D3→D7→D14, EV de coleta vs write-off, MAC anti-revenda,
+  cobrança de reposição gated, base legal CC arts. 579-585. Use quando
+  gerenciar devolução de equipamento após rescisão ou inadimplência grave.
+version: 1.0.0
+status: active
+allowed_agents:
+  - mariana
+  - julia
+  - diana
+  - regina
+---
+
+# Recuperação de Ativos Comodatados — Doutrina da Mariana
+
+> **Princípio fundamental:** Equipamento em comodato não é punição — é
+> patrimônio emprestado. A devolução é uma operação, não uma acusação.
+> Clientes devolvem quando é fácil. Torne fácil.
+
+## Base legal — o comodato no direito brasileiro
+
+**Comodato (CC arts. 579–585):** empréstimo gratuito de coisa infungível.
+O comodatário (cliente) tem **obrigação de restituir** ao término, independente
+de dívida de mensalidade.
+
+**Distinção legal obrigatória:**
+- Dívida de mensalidade = relação consumerista (CDC arts. 42, 52)
+- Devolução de equipamento = obrigação de restituir coisa (CC art. 582)
+- São obrigações DISTINTAS com bases legais DISTINTAS
+- NUNCA mencionar dívida de mensalidade em contexto de equipamento comodatado
+
+**Cobrança de reposição:** não é multa moratória (sem teto de 2% do CDC art. 52 §1º).
+É indenização por perda patrimonial com base contratual. Valor = valor residual
+depreciado (não valor de tabela cheio — evitar enriquecimento sem causa, CC art. 884).
+
+---
+
+## Inventário de comodato — checklist pré-D0
+
+Antes do primeiro contato, levantar do sistema:
+
+```
+db:equipamentos.listar_comodato({ contrato_id })
+```
+
+Campos obrigatórios:
+- Tipo de equipamento (ONU / ONT / roteador / switch / extensor / cabo)
+- Modelo e número de série / MAC address
+- Data de instalação (para cálculo de depreciação)
+- Preço de tabela de reposição
+- Valor residual calculado (ver fórmula abaixo)
+- Estado de conservação esperado (baseado em inspeção anterior, se houver)
+
+---
+
+## Cálculo de EV — obrigatório antes de qualquer ordem de coleta
+
+### Valor residual depreciado
+
+```
+valor_residual = preco_tabela_reposicao × max(0, 1 − taxa_depreciacao_mensal × meses_uso)
+```
+
+**Taxas de depreciação (configuráveis R18):**
+| Tipo | Taxa/mês | Justificativa |
+|---|---|---|
+| ONU/ONT | 3% | Obsolescência rápida (padrão GPON evolui) |
+| Roteador doméstico | 2,5% | Ciclo de vida 2–3 anos |
+| Switch gerenciável | 1,5% | Vida útil maior, menor obsolescência |
+| Extensor Wi-Fi | 3% | Alta obsolescência (Wi-Fi 6/7) |
+| Cabo estruturado | 1% | Longa durabilidade |
+
+**Nota:** `max(0, ...)` garante que valor residual nunca seja negativo.
+Equipamento com > 33 meses (ONU) ou > 40 meses (roteador) = valor residual ~zero.
+
+### Custo de coleta
+
+```
+custo_coleta = mcp:logistica.calcular_custo({ cep_origem, distancia_km })
+             + custo_mao_de_obra_instalador
+             + overhead_administrativo_fixo
+```
+
+### EV de coleta
+
+```
+EV_coleta = valor_residual − custo_coleta − (prob_nao_recuperar × valor_residual)
+```
+
+**Decisão:**
+- `EV_coleta > 0`: gerar ordem de coleta
+- `EV_coleta ≤ 0`: write-off documental imediato
+
+### Limiares de decisão rápida (configuráveis R18)
+
+| Condição | Decisão provável |
+|---|---|
+| Equipamento > 36 meses + 1 tipo depreciação rápida | Write-off quase certo — calcular antes |
+| Distância > 50 km | EV provavelmente negativo — verificar com cuidado |
+| custo_coleta > valor_residual × 0,6 | Write-off muito provável |
+| valor_residual < R$ 80 | Write-off direto |
+| Soma de todos os equipamentos < R$ 150 | Write-off do conjunto |
+
+---
+
+## Protocolo D0 → D3 → D7 → D14
+
+### D0 — Primeiro contato (WhatsApp + email simultâneos)
+
+**Timing:** Mariana é acionada assim que Regina executa a rescisão.
+**Tom:** operacional, prestativo, nunca punitivo.
+
+Mensagem D0:
+```
+Olá {{nome}}, aqui é a Mariana da {{nome_provedor}} 😊
+
+Com o encerramento do seu contrato, precisamos organizar a devolução
+dos equipamentos em comodato que estão em sua residência:
+
+{{lista_equipamentos}}
+
+É um processo simples — o técnico passa no horário mais conveniente
+para você e leva tudo. Geralmente leva menos de 10 minutos.
+
+Quando seria melhor para você? Posso agendar para qualquer dia
+nos próximos 7 dias.
+
+Qualquer dúvida, é só responder aqui!
+```
+
+**Incluir:** prazo de 7 dias corridos para resposta.
+
+### D3 — Segundo contato + tentativa de agendamento
+
+Se sem resposta em 3 dias → tentar canal alternativo (ligação).
+
+```
+{{nome}}, ainda precisamos organizar a retirada dos equipamentos
+da {{nome_provedor}}.
+
+O técnico consegue ir amanhã de manhã ou à tarde — o que funciona
+melhor? É rápido, menos de 10 minutos.
+```
+
+**Diagnóstico de canal D3:**
+- WhatsApp entregou mas cliente não respondeu → ligar + SMS
+- WhatsApp não entregou (número inativo) → acionar Diana imediatamente
+- Email com bounce → acionar Diana imediatamente
+
+**Gate para acionar Diana (D3 canal inativo):**
+```json
+[[HANDOFF:AGENT=diana,
+  motivo="cliente_inacessivel_devolucao_equipamento",
+  ev_coleta=<float>,
+  equipamentos=[<lista_ids>],
+  valor_residual_total=<float>,
+  canal_falhou="whatsapp|email",
+  tentativas_d0_d3=<int>]]
+```
+
+### D7 — Aviso de cobrança de reposição (gated Júlia)
+
+Se sem resposta após D0 + D3 → avisar ANTES de acionar cobrança.
+
+```
+{{nome}}, informamos que, conforme cláusula [X] do contrato,
+após 7 dias corridos do encerramento, iniciaremos o processo de
+cobrança do valor de reposição dos equipamentos:
+
+{{lista_equipamentos_com_valor_residual}}
+Total: R$ {{soma_valor_residual}}
+
+Ainda conseguimos evitar isso — me avisa quando posso enviar o
+técnico. Qualquer horário que funcionar.
+```
+
+**Para acionar cobrança de reposição:**
+1. Gate Júlia: validar base contratual, valor calculado, ausência de vulnerável (Lei 14.181), separação da dívida
+2. Júlia aprova → `write:faturas` com `motivo='reposicao_equipamento_comodato'`
+3. Valor = soma dos `valor_residual` individuais (não valor de tabela cheio)
+
+### D14 — Avaliação jurídica
+
+Se sem solução após D7 e valor_residual total > limiar R18:
+- Registrar para avaliação jurídica pelo humano responsável
+- NÃO escalar automaticamente — requer decisão humana
+- `[[HANDOFF:AGENT=julia, motivo="equipamento_nao_devolvido_d14", ...]]`
+
+---
+
+## Anti-revenda — monitoramento de MAC
+
+**Quando executar:** A cada 15 dias para equipamentos D+7 não devolvidos.
+
+```
+db:equipamentos.verificar_mac_ativo({ equipamento_id })
+```
+
+**Cenários:**
+
+| Resultado | Ação |
+|---|---|
+| MAC inativo | Continuar protocolo |
+| MAC ativo no mesmo provedor (outro contrato) | Contato no novo endereço operacionalmente — "identificamos o equipamento" |
+| MAC ativo em rede de terceiro (via enriquecimento) | Escalar Júlia IMEDIATAMENTE — possível receptação (CP art. 180) |
+| MAC ativo em novo contrato do mesmo CPF | Cliente reativou via outro plano — coordenar retirada com novo técnico |
+
+**Escalação anti-revenda:**
+```json
+[[HANDOFF:AGENT=julia,
+  motivo="possivel_revenda_equipamento_comodato",
+  equipamento_id=<id>,
+  evidencia_mac=true,
+  valor_reposicao=<float>]]
+```
+
+---
+
+## Situações não-padrão
+
+**"Não tenho mais o equipamento" — roubo:**
+- Pedir B.O. (boletim de ocorrência). Com B.O. → Júlia avalia isenção.
+- Sem B.O. → cliente ainda é responsável pela reposição.
+- Nunca acusar de furto sem evidência documental.
+
+**"Não tenho mais o equipamento" — doação a terceiro:**
+- Cliente doou a terceiro → ainda é responsável pela restituição.
+- Acionar Diana para localizar o terceiro se necessário.
+
+**"Equipamento com defeito":**
+- "Pode devolver assim mesmo — a equipe avalia ao receber."
+- Não prometer crédito por defeito sem autorização (encaminhar Sílvia).
+- Defeito é questão separada da obrigação de restituir.
+
+**Novo morador no endereço:**
+- O equipamento pode estar com o novo morador sem saber que é comodato.
+- Contato educativo: "Identificamos um equipamento de nossa propriedade no endereço."
+- Nunca mencionar o cliente anterior por nome (LGPD).
+
+**Equipamento em endereço diferente (cliente mudou):**
+- Atualizar endereço de coleta antes de gerar ordem.
+- Recalcular custo de coleta → reavaliar EV.
+- Se distância > 50 km → verificar EV antes de gerar ordem.
+
+---
+
+## Write-off documental — protocolo
+
+Quando EV ≤ 0 ou Diana esgota cascata sem localizar o cliente:
+
+1. Registrar:
+```json
+{
+  "status": "write_off",
+  "motivo": "ev_coleta_negativo | localizacao_esgotada | custo_excede_valor",
+  "valor_residual": <float>,
+  "custo_coleta_estimado": <float>,
+  "equipamento_id": "<id>",
+  "data_write_off": "<ISO8601>",
+  "autorizado_por": "mariana_automatico | julia_gate"
+}
+```
+
+2. Cobrança de reposição via fatura (se cliente localizável e valor justifica)
+3. Patrimônio deduzido do balanço de equipamentos do tenant
+
+---
+
+## Hard limits
+
+- Nunca acusar cliente de furto sem evidência documental
+- Nunca mencionar valor da dívida de mensalidade em contexto de equipamento
+- Prazo mínimo de devolução: 7 dias corridos (boa-fé contratual)
+- Contato somente 8h–20h dias úteis, 8h–14h sábado (CDC art. 42)
+- Cobrança de reposição: sempre gated Júlia
+- Anti-revenda com MAC ativo em terceiro: sempre Júlia imediatamente
+- PII nunca em logs — apenas IDs de contrato e serial/MAC hasheado

@@ -21,6 +21,10 @@
  *   como um roteiro coerente com o STATUS do caso ou da recuperação (lembrete,
  *   atraso longo, promessa, negociação, acordo, negativado, retirada,
  *   contestação) e com o status da conversa (robô, ativa, parada, encerrada).
+ *   Quem fala primeiro é a funcionária digital do perfil (Clara, Leonora ou
+ *   Eduarda), na voz da spec 2026-09-16: a abertura do servidor pede os 4
+ *   últimos dígitos do CPF, e só depois deles ela diz o assunto e passa à
+ *   equipe o que é da equipe. O teste roda o verificador sobre cada fala dela.
  *   O roteiro é congelado na primeira leitura: assumir ou encerrar a conversa
  *   muda o status no banco, e o histórico não pode se reescrever por isso.
  * - O que o VISITANTE faz (mensagens, conversas novas, agentes, skills) vive
@@ -54,6 +58,10 @@ import { etapaParaAtraso } from "@shared/cobranca/regua";
 import { AutomacaoChatSchema, janelaDoChat, type AutomacaoChat } from "@shared/cobranca/automacao-chat";
 import { POLITICA_PADRAO } from "@shared/cobranca/politica";
 import { CATALOGO_DE_AGENTES, TIPOS_DE_AGENTE, type AgenteDoChat, type TipoDeAgente } from "@shared/chat-agentes";
+import type { AcaoDaRodada, SituacaoDaRodada } from "@shared/chat-funcionaria-digital";
+import {
+  avisoDeTransferencia, confirmacaoDaIdentidade, formatarReais, nomeDoProvedorSeguro, textoPreIdentidade, type CategoriaDeTransferencia,
+} from "@shared/chat-funcionaria-textos";
 import { normalizarTelefoneParaChat, type Canal, type Conversa, type Mensagem, type StatusConversa } from "../services/chat/chat-bullq.client";
 
 export const URL_DO_CHAT_SIMULADO = "http://chat-simulado.demo.invalid";
@@ -87,6 +95,24 @@ export const AGENTES_DA_DEMO: Readonly<Record<TipoDeAgente, AgenteDaDemo>> = Obj
 ) as Record<TipoDeAgente, AgenteDaDemo>;
 
 /**
+ * O nome com que cada funcionária digital se apresenta na demonstração: os que o dono escolheu em 16/09/2026
+ * (`NOMES_DO_DONO` em `server/services/chat/personas-provedor-ai.ts` — Clara, Leonora e Eduarda). Copiados, e não
+ * importados: aquele módulo é o montador das personas, que o servidor não carrega. O teste confere que continuam
+ * os mesmos. É o nome da abertura ("Aqui é a Clara, da Rede Demo"), do `senderName` das falas dela e do
+ * `nomeDaPersona` dos perfis semeados.
+ */
+export const NOMES_DAS_FUNCIONARIAS_DA_DEMO: Readonly<Record<TipoDeAgente, string>> = {
+  cobranca_ativos: "Clara",
+  cobranca_ex_clientes: "Leonora",
+  recuperacao_equipamentos: "Eduarda",
+};
+
+/** O perfil de um agente semeado pelo id; agente criado pelo visitante não tem perfil (fala a equipe). */
+function tipoDoAgenteDaDemo(id: unknown): TipoDeAgente | null {
+  return TIPOS_DE_AGENTE.find((tipo) => AGENTES_DA_DEMO[tipo].id === id) ?? null;
+}
+
+/**
  * A automação de retorno (resposta do cliente → fila da equipe). A ponte a
  * procura por ESTE nome e gatilho antes de criar outra (`chat-ponte.service.ts`,
  * automação de primeira resposta humana); semeada, e com o id já no
@@ -118,7 +144,7 @@ export interface AgenteConfigDaDemo {
 export function agenteConfigDaDemo(): AgenteConfigDaDemo {
   const agentes = Object.fromEntries(TIPOS_DE_AGENTE.map((tipo): [TipoDeAgente, AgenteDoChat] => [tipo, {
     ...CATALOGO_DE_AGENTES[tipo], tipo, id: AGENTES_DA_DEMO[tipo].id, modelo: AGENTES_DA_DEMO[tipo].modelo,
-    instrucoes: PREFERENCIAS_DOS_PERFIS_DA_DEMO, descricao: "", contextoOperacional: "", habilitado: true, temperatura: 0.3, maxTokens: 600,
+    nomeDaPersona: NOMES_DAS_FUNCIONARIAS_DA_DEMO[tipo], instrucoes: PREFERENCIAS_DOS_PERFIS_DA_DEMO, descricao: "", contextoOperacional: "", habilitado: true, temperatura: 0.3, maxTokens: 600,
     importadoDe: null, etapa: "pronto", erro: null, atualizadoEm: null, criacaoIniciada: false,
   }])) as Record<TipoDeAgente, AgenteDoChat>;
   return {
@@ -139,8 +165,8 @@ interface EstadoDaOrganizacao {
   sequencia: number;
   /** Conversas abertas pelo visitante (`demo-conv-<providerId>-n<sufixo>`) — o contato e a abertura só existem aqui. */
   criadas: Map<string, Conversa>;
-  /** Roteiro das conversas semeadas, congelado na primeira leitura. */
-  roteiros: Map<string, Mensagem[]>;
+  /** Roteiro das conversas semeadas (com a rodada de cada fala da funcionária), congelado na primeira leitura. */
+  roteiros: Map<string, FalaDoRoteiro[]>;
   /** Mensagens que o visitante mandou (e a abertura das conversas criadas), por conversa. */
   enviadas: Map<string, Mensagem[]>;
   /** Status que o visitante mudou (assumir, encerrar), por conversa. */
@@ -333,14 +359,31 @@ function conversaDaLinha(linha: LinhaDaConversa, estado: EstadoDaOrganizacao): C
 // Roteiros
 // ---------------------------------------------------------------------------
 
-type Autor = "assistente" | "equipe" | "cliente";
-type Passo = [Autor, string];
+/**
+ * Quem fala. `funcionaria` é a funcionária digital do perfil (Clara, Leonora ou Eduarda), com o nome dela — nunca
+ * "assistente virtual" (spec 2026-09-16, D1). `equipe` é o atendente que abriu a conversa: entra DEPOIS de ela passar a
+ * conversa com o aviso de transferência (§3.4), ou para encerrar pelo inbox.
+ */
+type Autor = "funcionaria" | "equipe" | "cliente";
 
 /**
- * Uma cena: a conversa como ela anda, sempre terminando na equipe, e a última
- * fala da equipe quando a conversa foi ENCERRADA. O fecho é da cena, e não um
- * texto único: encerrar uma negociação não é "pagamento localizado", e
- * encerrar uma contestação não é "recebemos o equipamento".
+ * O que o servidor sabia quando deixou a funcionária escrever uma fala depois da identidade: a ação e a situação que
+ * `verificarMensagens` recebe em produção (§6). Os FATOS (saldo, datas) não vão aqui — o teste os tira da própria linha
+ * e do instante da fala, como o servidor os lê. A promessa leva só o dia do mês que o cliente disse ("no dia 20"): a
+ * data inteira depende do instante da fala, que o roteiro só conhece depois de encaixar os horários.
+ */
+export interface RodadaDaFuncionaria {
+  acao: AcaoDaRodada;
+  situacao: SituacaoDaRodada;
+  promessa?: { diaDoMes: number; gravada: boolean };
+}
+
+interface Passo { autor: Autor; texto: string; rodada?: RodadaDaFuncionaria }
+
+/**
+ * Uma cena: a conversa como ela anda e a fala da equipe quando a conversa foi ENCERRADA. O fecho é da cena, e não um
+ * texto único: encerrar uma negociação não é "pagamento localizado", e encerrar uma contestação não é "recebemos o
+ * equipamento".
  */
 interface Cena { passos: Passo[]; fechoSeEncerrada: string }
 
@@ -351,25 +394,111 @@ const brl = (valor: number) => new Intl.NumberFormat("pt-BR", { style: "currency
 const diaEMes = (d: Date) => new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" }).format(d);
 const maiuscula = (texto: string) => texto.charAt(0).toUpperCase() + texto.slice(1);
 
-/** Retirada de equipamento: a fala segue o status da recuperação — contestação e recolhimento nunca se misturam. */
-function cenaDoEquipamento(l: LinhaDaConversa, abertura: Passo): Cena {
+const doCliente = (texto: string): Passo => ({ autor: "cliente", texto });
+const daEquipe = (texto: string): Passo => ({ autor: "equipe", texto });
+const daFuncionaria = (texto: string, rodada: RodadaDaFuncionaria): Passo => ({ autor: "funcionaria", texto, rodada });
+/** A primeira fala dela depois dos dígitos: o turno em que a identidade acabou de ser confirmada (§3.3). */
+const logoDepoisDosDigitos = (texto: string) => daFuncionaria(texto, { acao: "responder", situacao: "identidade_recem_confirmada" });
+
+/** Quem fala por cada conversa e o que a fala pode citar — lido uma vez da linha. */
+interface VozDaCena {
+  tipo: TipoDeAgente;
+  carteira: "ativo" | "ex_cliente" | "equipamentos";
+  persona: string;
+  provedor: string;
+  nomeDoCliente: string;
+  /** O saldo que a funcionária cita, em centavos; `null` sem valor — ela não fala número que não leu. */
+  saldoCentavos: number | null;
+  conversationId: string;
+  /** Os 4 últimos dígitos do CPF que o cliente manda: fictícios e fixos por conversa. */
+  final: string;
+}
+
+function vozDaCena(l: LinhaDaConversa): VozDaCena {
+  const tipo = perfilDaConversa(l);
+  const seq = Number(/-(\d+)$/.exec(l.conversationId)?.[1] ?? 0);
+  const centavos = Math.round(Number(l.casoValor ?? l.clienteDivida ?? 0) * 100);
+  return {
+    tipo,
+    carteira: tipo === "recuperacao_equipamentos" ? "equipamentos" : tipo === "cobranca_ex_clientes" ? "ex_cliente" : "ativo",
+    persona: NOMES_DAS_FUNCIONARIAS_DA_DEMO[tipo],
+    provedor: l.provedorFantasia || l.provedorNome,
+    nomeDoCliente: l.clienteNome,
+    saldoCentavos: Number.isInteger(centavos) && centavos > 0 ? centavos : null,
+    conversationId: l.conversationId,
+    final: String(1000 + ((seq * 7919) % 9000)),
+  };
+}
+
+/**
+ * O começo da primeira fala dela depois dos dígitos: `confirmacaoDaIdentidade`, a MESMA função da reserva do servidor
+ * nesse turno (§3.3) — obrigada pelo nome e, sem valor na frase, o assunto da carteira. Escrito à parte aqui, o roteiro
+ * contava uma conversa que a produção não tinha (revisão final).
+ */
+const confirmacaoDaCena = (v: VozDaCena, comAssunto: boolean) =>
+  confirmacaoDaIdentidade({ nomeDaPersona: v.persona, nomeDoCliente: v.nomeDoCliente, carteira: v.carteira }, { comAssunto });
+
+/**
+ * O relógio que escolhe a versão "dentro do horário" do aviso (quarta, 10h em São Paulo). O roteiro só põe fala do
+ * provedor dentro da janela de contato (`encaixarNaJanela`), então "a equipe te responde a partir de…" nunca é a
+ * verdade de uma fala semeada; nenhuma data deste instante entra na frase.
+ */
+const DENTRO_DA_JANELA = new Date("2026-09-16T13:00:00.000Z");
+
+/**
+ * O aviso de transferência é a frase do SERVIDOR (`avisoDeTransferencia`, §3.4), a mesma que sai em produção — sem
+ * prazo prometido. A conversa segue com a equipe.
+ */
+function avisoDaFuncionaria(v: VozDaCena, categoria: CategoriaDeTransferencia, mensagemDoCliente: string): Passo {
+  const baloes = avisoDeTransferencia(categoria, {
+    nomeDaPersona: v.persona, nomeDoProvedor: v.provedor, nomeDoCliente: v.nomeDoCliente, identidadeConfirmada: true,
+    agora: DENTRO_DA_JANELA, janela: POLITICA_PADRAO.janelaContato, ultimaMensagemDoCliente: mensagemDoCliente, carteira: v.carteira,
+  }, { conversationId: v.conversationId });
+  return daFuncionaria(baloes.join("\n\n"), { acao: "transferir", situacao: "conversa" });
+}
+
+/** D1: perguntada, ela confirma o atendimento automatizado, oferece alguém da equipe e segue — nunca nega. */
+function confirmaAutomacao(v: VozDaCena): string {
+  const nome = nomeDoProvedorSeguro(v.provedor);
+  return `É um atendimento automatizado ${nome ? `da ${nome}` : "do seu provedor"}, com supervisão da nossa equipe. Se preferir falar com alguém da equipe, é só me dizer.`;
+}
+
+/**
+ * Retirada de equipamento: a fala segue o status da recuperação — contestação e recolhimento nunca se misturam. A
+ * funcionária não fala de valor, multa nem dívida (§6.14), e o modelo do aparelho fica com a equipe: "EG8145" é
+ * número que ela não leu.
+ */
+function cenaDoEquipamento(l: LinhaDaConversa, v: VozDaCena, abertura: Passo): Cena {
+  const aparelho = [l.equipamentoMarca, l.equipamentoModelo].filter(Boolean).join(" ") || l.equipamentoTipo || "";
+  const oAparelho = aparelho ? `o ${aparelho}` : "o equipamento";
+  // O aparelho só aparece DEPOIS da identidade: na abertura, ele revelaria o contrato a quem recebeu o número reciclado.
+  const assunto = `${confirmacaoDaCena(v, true)} Fica melhor alguém buscar aí ou você prefere entregar na loja?`;
   if (l.recuperacaoStatus === "contestado") {
+    const devolvi = "Esse aparelho eu já devolvi na loja.";
     return {
       passos: [
         abertura,
-        ["cliente", "Sou eu, mas esse aparelho eu já devolvi na loja."],
-        ["equipe", "Obrigado por avisar. Você ainda tem o comprovante da devolução?"],
-        ["cliente", "Não achei o papel, mas entreguei na loja do centro."],
-        ["equipe", "Vou conferir o registro da devolução na loja e te retorno por aqui."],
+        doCliente(`Sou eu, final ${v.final}. Do que se trata?`),
+        logoDepoisDosDigitos(assunto),
+        doCliente(devolvi),
+        avisoDaFuncionaria(v, "devolucao_informada", devolvi),
+        daEquipe(`Você ainda tem o comprovante da devolução d${oAparelho}?`),
+        doCliente("Não achei o papel, mas entreguei na loja do centro."),
+        daEquipe("Vou conferir o registro da devolução na loja e te retorno por aqui."),
       ],
       fechoSeEncerrada: "Tudo bem. Vamos conferir o registro da devolução na loja; vou encerrar este atendimento e te avisamos por aqui quando concluir.",
     };
   }
+  // A equipe combina a retirada e registra a recuperação (o papel do perfil): a funcionária passa a conversa.
+  const podeBuscar = "Pode vir buscar, sim. Durante a semana, depois das 18h.";
   const inicio: Passo[] = [
     abertura,
-    ["cliente", "Sou eu. Pode vir buscar, sim."],
-    ["equipe", "Ótimo! Qual o melhor dia e horário para o técnico passar?"],
+    doCliente(`Sou eu, final ${v.final}.`),
+    logoDepoisDosDigitos(assunto),
+    doCliente(podeBuscar),
+    avisoDaFuncionaria(v, "generica", podeBuscar),
   ];
+  const combinado = `Combinado: o técnico passa depois das 18h para retirar ${oAparelho}. É só entregar o aparelho com a fonte.`;
   if (l.recuperacaoStatus === "nova_tentativa") {
     // A linha do tempo registra a visita frustrada (ninguém em casa no horário
     // combinado): a conversa conta essa visita e o novo horário, e não para no
@@ -377,27 +506,26 @@ function cenaDoEquipamento(l: LinhaDaConversa, abertura: Passo): Cena {
     return {
       passos: [
         ...inicio,
-        ["cliente", "Durante a semana, depois das 18h."],
-        ["equipe", "Combinado: o técnico passa depois das 18h. É só entregar o aparelho com a fonte."],
-        ["equipe", "O técnico passou no horário combinado e não encontrou ninguém em casa. Podemos marcar uma nova tentativa? Qual dia fica melhor para você?"],
-        ["cliente", "Desculpe, tive um imprevisto naquele dia. Pode ser outro dia, no fim da tarde?"],
-        ["equipe", "Pode, sim: vou pedir a nova tentativa para o fim da tarde e te confirmo o dia por aqui."],
+        daEquipe(combinado),
+        daEquipe("O técnico passou no horário combinado e não encontrou ninguém em casa. Podemos marcar uma nova tentativa? Qual dia fica melhor para você?"),
+        doCliente("Desculpe, tive um imprevisto naquele dia. Pode ser outro dia, no fim da tarde?"),
+        daEquipe("Pode, sim: vou pedir a nova tentativa para o fim da tarde e te confirmo o dia por aqui."),
       ],
       fechoSeEncerrada: "Vou encerrar este atendimento por aqui; para marcar a nova tentativa de retirada, é só chamar.",
     };
   }
   if (l.recuperacaoStatus === "concluido") {
     return {
-      passos: [...inicio, ["cliente", "O técnico passou hoje e levou o aparelho."], ["equipe", "Recebemos o equipamento, obrigado!"]],
+      passos: [...inicio, daEquipe(combinado), doCliente("O técnico passou hoje e levou o aparelho."), daEquipe("Recebemos o equipamento, obrigado!")],
       fechoSeEncerrada: "Recebemos o equipamento, obrigado! Vou encerrar este atendimento.",
     };
   }
   const fecho: Record<string, string> = {
-    agendado: `Agendado: o técnico passa${l.recuperacaoAgendadaEm ? ` no dia ${diaEMes(l.recuperacaoAgendadaEm)}` : ""} depois das 18h. É só entregar o aparelho com a fonte.`,
+    agendado: `Agendado: o técnico passa${l.recuperacaoAgendadaEm ? ` no dia ${diaEMes(l.recuperacaoAgendadaEm)}` : ""} depois das 18h para retirar ${oAparelho}. É só entregar o aparelho com a fonte.`,
     notificacao_formal: "Como não conseguimos combinar a retirada, enviamos a notificação formal de devolução. Ainda dá para agendar por aqui.",
   };
   return {
-    passos: [...inicio, ["cliente", "Durante a semana, depois das 18h."], ["equipe", fecho[l.recuperacaoStatus ?? ""] ?? "Perfeito, vou ver a agenda do técnico e te passo as opções."]],
+    passos: [...inicio, daEquipe(fecho[l.recuperacaoStatus ?? ""] ?? "Perfeito, vou ver a agenda do técnico e te passo as opções.")],
     fechoSeEncerrada: "Vou encerrar este atendimento por aqui; para agendar a retirada, é só chamar.",
   };
 }
@@ -405,46 +533,72 @@ function cenaDoEquipamento(l: LinhaDaConversa, abertura: Passo): Cena {
 /**
  * Cobrança: a fala segue o STATUS do caso (e, sem caso, a etapa da régua para
  * os dias de atraso) — é o que o kanban, a ficha e a linha do tempo mostram do
- * mesmo cliente. O ex-cliente muda a abertura e o jeito de falar do valor.
+ * mesmo cliente. O ex-cliente muda o assunto e o jeito de falar do valor.
+ *
+ * A funcionária confirma a identidade, diz o assunto — com valor só quando o
+ * cliente pergunta (§3.3) — e, no que é da equipe (negociação, contestação,
+ * pagamento informado, PIX que o simulado não tem), passa a conversa com o
+ * aviso. Ela anota sozinha a promessa de valor integral com o dia dito pelo
+ * cliente, como a autonomia faz.
  */
-function cenaDaCobranca(l: LinhaDaConversa, abertura: Passo, primeiro: string): Cena {
-  const ex = l.casoCarteira === "ex_cliente";
+function cenaDaCobranca(l: LinhaDaConversa, v: VozDaCena, abertura: Passo): Cena {
+  const ex = v.carteira === "ex_cliente";
   const valor = brl(Number(l.casoValor ?? l.clienteDivida ?? 0));
   const dias = l.clienteDias || l.casoDias || 0;
+  // Fala da EQUIPE: o atendente cita o que o caso mostra, dias de atraso inclusive.
   const oValor = ex
     ? `ficou um valor de ${valor} da fatura de saída, de antes do cancelamento`
     : `consta uma fatura de ${valor} em aberto${dias > 0 ? ` há ${dias} dias` : ""}`;
+  // Fala da FUNCIONÁRIA: obrigada e o assunto sem número — ou obrigada e o saldo, com a frase que o servidor usa para "informar a dívida".
+  const assunto = confirmacaoDaCena(v, true);
+  const saldo = v.saldoCentavos ? formatarReais(v.saldoCentavos) : null;
+  const comValor = !saldo ? assunto : `${confirmacaoDaCena(v, false)} ${ex ? `Do contrato que foi encerrado, ficou ${saldo} em aberto.` : `Tem ${saldo} em aberto aqui com a gente.`}`;
 
   switch (l.casoStatus) {
-    case "pago":
-      return {
-        passos: [abertura, ["cliente", "Sou eu."], ["equipe", `Obrigado por confirmar, ${primeiro}. ${maiuscula(oValor)}. Posso te mandar a segunda via?`],
-          ["cliente", "Já paguei hoje cedo, segue o comprovante."], ["equipe", "Pagamento localizado, obrigado!"]],
-        fechoSeEncerrada: "Pagamento localizado, obrigado! Vou encerrar este atendimento.",
-      };
-    case "negativado":
+    case "pago": {
+      const paguei = "Já paguei hoje cedo, segue o comprovante.";
       return {
         passos: [
           abertura,
-          ["cliente", "Sou eu. Do que se trata?"],
-          ["equipe", `Obrigado por confirmar, ${primeiro}. ${maiuscula(oValor)}, e o seu CPF está registrado nos órgãos de proteção ao crédito por essa pendência. Se quiser, vemos uma forma de quitar e pedir a baixa do registro.`],
-          ["cliente", "Não concordo com esse valor e não vou pagar agora."],
-          ["equipe", "Entendido, registrei a sua posição. Se quiser rever, é só chamar por aqui."],
+          doCliente(`Sou eu, final ${v.final}.`),
+          logoDepoisDosDigitos(`${assunto} Se quiser, posso te mandar a segunda via, ou a gente combina um dia pra você pagar. Como prefere?`),
+          doCliente(paguei),
+          avisoDaFuncionaria(v, "pagamento_informado", paguei),
+          daEquipe("Pagamento localizado, obrigado!"),
+        ],
+        fechoSeEncerrada: "Pagamento localizado, obrigado! Vou encerrar este atendimento.",
+      };
+    }
+    case "negativado": {
+      const naoVouPagar = "Não concordo com esse valor e não vou pagar agora.";
+      return {
+        passos: [
+          abertura,
+          doCliente(`Sou eu, final ${v.final}. Do que se trata?`),
+          logoDepoisDosDigitos(`${assunto} Podemos ver juntos uma forma de resolver?`),
+          doCliente(naoVouPagar),
+          avisoDaFuncionaria(v, "contestacao", naoVouPagar),
+          // O registro nos órgãos de proteção ao crédito é da equipe: a funcionária nunca fala nisso (§6.5).
+          daEquipe(`Entendido, registrei a sua posição. Para constar: por essa pendência de ${valor}, o seu CPF está registrado nos órgãos de proteção ao crédito. Se quiser rever, vemos uma forma de quitar e pedir a baixa do registro; é só chamar por aqui.`),
         ],
         fechoSeEncerrada: "Entendido, registrei a sua posição e vou encerrar este atendimento. Se quiser rever, é só chamar por aqui.",
       };
+    }
     case "negociando":
     case "acordo_ativo": {
       const fechado = l.casoStatus === "acordo_ativo";
+      const tresVezes = "Se fosse em três vezes eu conseguiria.";
       return {
         passos: [
           abertura,
-          ["cliente", "Sou eu. Sei que estou devendo, mas não consigo pagar tudo de uma vez."],
-          ["equipe", `Entendo, ${primeiro}. ${maiuscula(oValor)}. Vamos ver uma condição dentro da política que caiba no seu orçamento.`],
-          ["cliente", "Se fosse em três vezes eu conseguiria."],
-          ["equipe", fechado ? "Consultei a política e te mandei a proposta aqui. Confere e me diz se podemos registrar." : "Vou montar a proposta dentro da política e te envio aqui para você conferir antes de confirmar."],
-          ["cliente", fechado ? "Conferi. Pode registrar, obrigado." : "Tá bom, fico aguardando."],
-          ["equipe", fechado ? "Acordo registrado. Te mando o boleto por aqui; qualquer dúvida, é só chamar." : "Proposta enviada. Assim que você confirmar, registro o acordo."],
+          doCliente(`Sou eu, final ${v.final}. Sei que estou devendo, mas não consigo pagar tudo de uma vez.`),
+          logoDepoisDosDigitos(`${comValor} O que fica melhor pra você resolver?`),
+          doCliente(tresVezes),
+          // Parcelar é negociação: sem as ofertas do servidor, ela não fala em condição nenhuma (§6.7) e passa.
+          avisoDaFuncionaria(v, "generica", tresVezes),
+          daEquipe(fechado ? "Consultei a política e te mandei a proposta aqui. Confere e me diz se podemos registrar." : "Vou montar a proposta dentro da política e te envio aqui para você conferir antes de confirmar."),
+          doCliente(fechado ? "Conferi. Pode registrar, obrigado." : "Tá bom, fico aguardando."),
+          daEquipe(fechado ? "Acordo registrado. Te mando o boleto por aqui; qualquer dúvida, é só chamar." : "Proposta enviada. Assim que você confirmar, registro o acordo."),
         ],
         fechoSeEncerrada: fechado
           ? "Acordo registrado. Te mando o boleto por aqui e vou encerrar este atendimento; qualquer dúvida, é só chamar."
@@ -453,13 +607,15 @@ function cenaDaCobranca(l: LinhaDaConversa, abertura: Passo, primeiro: string): 
     }
     case "em_contato":
       if (ex) {
+        const detalhe = "Achei que estava tudo pago. Pode me mandar o detalhe dessa fatura?";
         return {
           passos: [
             abertura,
-            ["cliente", "Sou eu, mas cancelei a internet faz tempo."],
-            ["equipe", `Isso mesmo, ${primeiro}. ${maiuscula(oValor)}. Podemos ver uma forma de quitar que caiba para você?`],
-            ["cliente", "Achei que estava tudo pago. Pode me mandar o detalhe dessa fatura?"],
-            ["equipe", "Mando sim: a fatura, o período de uso e o vencimento."],
+            doCliente(`Sou eu, final ${v.final}. Isso é robô? Cancelei a internet faz tempo.`),
+            logoDepoisDosDigitos(`${confirmaAutomacao(v)}\n\n${assunto} Podemos ver uma forma de resolver que caiba pra você?`),
+            doCliente(detalhe),
+            avisoDaFuncionaria(v, "contestacao", detalhe),
+            daEquipe("Mando sim: a fatura, o período de uso e o vencimento."),
           ],
           fechoSeEncerrada: "Mando sim: a fatura, o período de uso e o vencimento. Vou encerrar este atendimento; depois de conferir, é só chamar por aqui.",
         };
@@ -467,14 +623,18 @@ function cenaDaCobranca(l: LinhaDaConversa, abertura: Passo, primeiro: string): 
       return {
         passos: [
           abertura,
-          ["cliente", "Sou eu. É sobre a fatura atrasada?"],
-          ["equipe", `Isso, ${primeiro}: são ${valor}${dias > 0 ? `, vencida há ${dias} dias` : ""}. Consegue regularizar esta semana?`],
-          ["cliente", "Recebo na sexta. Consigo pagar no sábado de manhã."],
-          ["equipe", "Combinado, anotei o pagamento para sábado. Se precisar da segunda via antes, é só pedir por aqui."],
-          ["cliente", "Pode deixar, obrigado."],
-          ["equipe", "Por nada! Fico no aguardo."],
+          doCliente(`Sou eu, final ${v.final}. É sobre a fatura atrasada? Quanto ficou?`),
+          logoDepoisDosDigitos(`${comValor} Se ficar melhor, a gente combina um dia pra você pagar. Qual dia seria bom?`),
+          doCliente("Consigo pagar no dia 20, quando recebo."),
+          // A promessa de valor integral com o dia dito pelo cliente: ela pergunta, o cliente confirma, o servidor grava.
+          daFuncionaria(saldo ? `Posso anotar o pagamento de ${saldo} pro dia 20?` : "Posso anotar o pagamento pro dia 20?", { acao: "promessa", situacao: "conversa", promessa: { diaDoMes: 20, gravada: false } }),
+          doCliente("Pode, obrigado."),
+          daFuncionaria(
+            saldo ? `Anotado! Pagamento de ${saldo} pro dia 20. Até o pagamento ser confirmado, o valor continua em aberto.` : "Anotado! Pagamento pro dia 20.",
+            { acao: "responder", situacao: "promessa_registrada", promessa: { diaDoMes: 20, gravada: true } },
+          ),
         ],
-        fechoSeEncerrada: "Por nada! Anotei o pagamento para sábado e vou encerrar este atendimento.",
+        fechoSeEncerrada: "Vou encerrar este atendimento por aqui. Se precisar da segunda via antes do dia 20, é só chamar.",
       };
   }
 
@@ -482,24 +642,29 @@ function cenaDaCobranca(l: LinhaDaConversa, abertura: Passo, primeiro: string): 
   // decide o tom — "esquecimento" só vale no lembrete (até 14 dias); depois
   // disso a conversa é de negociação.
   if (!ex && etapaParaAtraso(dias, "ativo").etapa?.id === "lembrete_atraso") {
+    const pix = "Nossa, passou batido. Manda o PIX, por favor.";
     return {
       passos: [
         abertura,
-        ["cliente", "Oi, sou eu sim. Aconteceu alguma coisa?"],
-        ["equipe", `Obrigado por confirmar, ${primeiro}. ${maiuscula(oValor)}. Pode ter sido só um esquecimento — quer que eu mande a segunda via ou o PIX?`],
-        ["cliente", "Nossa, passou batido. Manda o PIX, por favor."],
-        ["equipe", "Claro! Vou gerar o PIX e te mando aqui em seguida."],
+        doCliente(`Oi, sou eu sim, final ${v.final}. É sobre a mensalidade? Quanto ficou?`),
+        logoDepoisDosDigitos(`${comValor} Pode ter sido só um esquecimento. Se quiser, posso te mandar a segunda via, é só me dizer.`),
+        doCliente(pix),
+        // A segunda via só sai com o instrumento que o ERP devolve, e o simulado não tem ERP: sem ele, a equipe gera.
+        avisoDaFuncionaria(v, "generica", pix),
+        daEquipe("Claro! Vou gerar o PIX e te mando aqui em seguida."),
       ],
       fechoSeEncerrada: "Claro! Te mandei o PIX aqui e vou encerrar este atendimento.",
     };
   }
+  const parcelar = "Estou apertado este mês. Tem como parcelar?";
   return {
     passos: [
       abertura,
-      ["cliente", "Oi, sou eu sim. Aconteceu alguma coisa?"],
-      ["equipe", `Obrigado por confirmar, ${primeiro}. ${maiuscula(oValor)}. Podemos ver juntos uma forma de regularizar dentro da política?`],
-      ["cliente", "Estou apertado este mês. Tem como parcelar?"],
-      ["equipe", "Vou ver as condições que a política permite e te envio a proposta aqui para você conferir."],
+      doCliente(`Oi, sou eu sim, final ${v.final}. Aconteceu alguma coisa?`),
+      logoDepoisDosDigitos(`${assunto} Podemos ver juntos uma forma de resolver?`),
+      doCliente(parcelar),
+      avisoDaFuncionaria(v, "generica", parcelar),
+      daEquipe(`${maiuscula(oValor)}. Vou ver as condições que a política permite e te envio a proposta aqui para você conferir.`),
     ],
     fechoSeEncerrada: "Vou ver as condições que a política permite e te envio a proposta aqui. Vou encerrar este atendimento; quando quiser seguir, é só chamar.",
   };
@@ -508,28 +673,44 @@ function cenaDaCobranca(l: LinhaDaConversa, abertura: Passo, primeiro: string): 
 /**
  * Os passos da conversa. Conversa do ROBÔ (BOT) é só a abertura automática:
  * ninguém respondeu — é o que a linha do tempo grava dela (contato sem
- * resultado, tentativa sem resposta, sem usuário). Encerrada troca a última
- * fala da equipe pelo fecho da própria cena.
+ * resultado, tentativa sem resposta, sem usuário).
+ *
+ * A abertura é a do SERVIDOR, a mesma que a ponte manda (spec 2026-09-16,
+ * §3.1): a funcionária se apresenta e pede os 4 últimos dígitos do CPF, sem
+ * assunto, contrato, equipamento nem valor. A primeira resposta do cliente traz
+ * os dígitos, e só DEPOIS dela a conversa fala do assunto (D10). Cada turno sai
+ * numa mensagem só, com os balões separados por linha em branco — como pelo
+ * envio comum; o lote do agente (vps/010) não existe no simulado.
+ *
+ * Encerrada: o atendente fecha pelo inbox. O fecho da cena troca a última fala
+ * da equipe; se a última fala é da funcionária (a promessa que ela anotou), vem
+ * depois dela.
  */
 function passosDaCena(l: LinhaDaConversa): Passo[] {
-  const primeiro = l.clienteNome.trim().split(/\s+/)[0] || "cliente";
-  const provedor = l.provedorFantasia || l.provedorNome;
   const status = statusDaLinha(l.status);
-
-  let abertura: Passo;
-  if (l.origem === "equipamentos") {
-    const aparelho = [l.equipamentoMarca, l.equipamentoModelo].filter(Boolean).join(" ") || l.equipamentoTipo || "";
-    abertura = ["assistente", `Olá, ${primeiro}! Sou o assistente virtual da ${provedor}. Com o encerramento do contrato, precisamos combinar a devolução do equipamento${aparelho ? ` (${aparelho})` : ""} que ficou com você. Confirma que é você?`];
-  } else if (l.casoCarteira === "ex_cliente") {
-    abertura = ["assistente", `Olá, ${primeiro}! Sou o assistente virtual da ${provedor}. Podemos falar por aqui sobre o contrato que você teve conosco? Confirma que é você?`];
-  } else {
-    // Antes da identificação, só saudação e provedor — a mesma regra que a ponte impõe à abertura real.
-    abertura = ["assistente", `Olá, ${primeiro}! Sou o assistente virtual da ${provedor}. Podemos falar sobre o seu contrato por aqui? Confirma que é você?`];
-  }
+  const v = vozDaCena(l);
+  const abertura: Passo = { autor: "funcionaria", texto: aberturaDaDemo(v.tipo, l.clienteNome, v.provedor, l.conversationId) };
   if (status === "BOT") return [abertura];
 
-  const cena = l.origem === "equipamentos" ? cenaDoEquipamento(l, abertura) : cenaDaCobranca(l, abertura, primeiro);
-  return status === "CLOSED" ? [...cena.passos.slice(0, -1), ["equipe", cena.fechoSeEncerrada]] : cena.passos;
+  const cena = l.origem === "equipamentos" ? cenaDoEquipamento(l, v, abertura) : cenaDaCobranca(l, v, abertura);
+  if (status !== "CLOSED") return cena.passos;
+  const fecho = daEquipe(cena.fechoSeEncerrada);
+  return cena.passos.at(-1)?.autor === "equipe" ? [...cena.passos.slice(0, -1), fecho] : [...cena.passos, fecho];
+}
+
+/**
+ * A abertura da funcionária na demonstração: `textoPreIdentidade("abertura")` com o nome da funcionária do perfil
+ * (sem perfil, fala a equipe do provedor), os dois balões numa fala só, separados por linha em branco. Exportada para o
+ * teste passar cada balão pelo verificador de pré-identidade.
+ */
+export function aberturaDaDemo(tipo: TipoDeAgente | null, nomeDoCliente: string | null, nomeDoProvedor: string | null, conversationId: string): string {
+  const nomeDaPersona = tipo ? NOMES_DAS_FUNCIONARIAS_DA_DEMO[tipo] : null;
+  return textoPreIdentidade("abertura", { nomeDaPersona, nomeDoProvedor, nomeDoCliente, funcionariaJaFalou: false }, { conversationId }).join("\n\n");
+}
+
+/** O nome com que a funcionária da conversa assina as falas dela (`senderName`). */
+export function funcionariaDaConversa(l: LinhaDaConversa): string {
+  return NOMES_DAS_FUNCIONARIAS_DA_DEMO[perfilDaConversa(l)];
 }
 
 /**
@@ -625,7 +806,7 @@ function repartir(de: number, ate: number, n: number): number[] {
  * a regra (a conversa ativa envelheceu além de 24 h) o fim é trazido para
  * perto de agora — preferimos mover o relógio a mentir o status.
  *
- * Quem fala pelo provedor (assistente e equipe) só fala dentro da janela de
+ * Quem fala pelo provedor (funcionária e equipe) só fala dentro da janela de
  * contato da política; o cliente escreve quando quer. A auditoria achou a
  * equipe às 00:21 e às 04:21, com a tela anunciando a janela logo abaixo. Se a
  * vida da conversa não tem hora permitida bastante (aberta de madrugada, fim
@@ -638,6 +819,19 @@ function repartir(de: number, ate: number, n: number): number[] {
  * recuperação que o sandbox grava.
  */
 export function roteiroDaConversa(linha: LinhaDaConversa, agora: number, antesDe = Number.POSITIVE_INFINITY): Mensagem[] {
+  return falasDoRoteiro(linha, agora, antesDe).map(f => f.mensagem);
+}
+
+/** Uma mensagem do roteiro e, quando é da funcionária depois da identidade, a rodada em que ela a escreveu. */
+export interface FalaDoRoteiro { mensagem: Mensagem; rodada: RodadaDaFuncionaria | null }
+
+/**
+ * O roteiro com a rodada de cada fala da funcionária: as execuções do console
+ * leem dela quem passou a conversa, e o teste do §10 passa cada fala pelo
+ * verificador com a ação e a situação da rodada (`roteiroDaConversa` é esta
+ * lista sem as rodadas).
+ */
+export function falasDoRoteiro(linha: LinhaDaConversa, agora: number, antesDe = Number.POSITIVE_INFINITY): FalaDoRoteiro[] {
   const status = statusDaLinha(linha.status);
   const ativa = status === "OPEN" || status === "PENDING";
   const seq = Number(/-(\d+)$/.exec(linha.conversationId)?.[1] ?? 0);
@@ -651,7 +845,7 @@ export function roteiroDaConversa(linha: LinhaDaConversa, agora: number, antesDe
   const limite = agora - 25 * HORA;
   let passos = passosDaCena(linha);
   if (ativa) {
-    passos = passos.slice(0, passos.map(p => p[0]).lastIndexOf("cliente") + 1);
+    passos = passos.slice(0, passos.map(p => p.autor).lastIndexOf("cliente") + 1);
   } else if (Math.min(abertaEm, fim) > limite) {
     // Parada e aberta há menos de 25 h: não houve tempo de o cliente responder há mais de 24 h — só a abertura.
     passos = passos.slice(0, 1);
@@ -660,7 +854,7 @@ export function roteiroDaConversa(linha: LinhaDaConversa, agora: number, antesDe
   const n = passos.length;
   // Nunca antes de a conversa existir; `fim` só fica antes de `abertaEm` numa linha semeada incoerente.
   const inicio = Math.min(abertaEm, fim);
-  const ultimaDoCliente = passos.map(p => p[0]).lastIndexOf("cliente");
+  const ultimaDoCliente = passos.map(p => p.autor).lastIndexOf("cliente");
   let horarios = repartir(inicio, fim, n);
   if (!ativa && ultimaDoCliente >= 0 && horarios[ultimaDoCliente] > limite) {
     horarios = [...repartir(inicio, limite, ultimaDoCliente + 1), ...repartir(limite, fim, n - ultimaDoCliente).slice(1)];
@@ -668,7 +862,7 @@ export function roteiroDaConversa(linha: LinhaDaConversa, agora: number, antesDe
 
   // A regra de 24 h vira limite da fala: a ÚLTIMA do cliente de uma ativa fica
   // nas últimas 24 h; a última do cliente de uma parada, antes de 25 h atrás.
-  const doProvedor = passos.map(p => p[0] !== "cliente");
+  const doProvedor = passos.map(p => p.autor !== "cliente");
   const encaixar = (piso: number, teto: number) => encaixarNaJanela(
     horarios,
     doProvedor,
@@ -679,17 +873,21 @@ export function roteiroDaConversa(linha: LinhaDaConversa, agora: number, antesDe
   horarios = encaixar(inicio, fim) ?? encaixar(inicio, tetoDuro) ?? encaixar(inicio - BUSCA_MAXIMA_HORAS * HORA, tetoDuro) ?? horarios;
 
   const provedor = linha.provedorFantasia || linha.provedorNome;
-  return passos.map(([autor, texto], i): Mensagem => {
+  const funcionaria = funcionariaDaConversa(linha);
+  return passos.map(({ autor, texto, rodada }, i): FalaDoRoteiro => {
     const doCliente = autor === "cliente";
-    const respondida = passos.slice(i + 1).some(p => p[0] === "cliente");
+    const respondida = passos.slice(i + 1).some(p => p.autor === "cliente");
     return {
-      id: `demo-msg-${linha.conversationId}-${i + 1}`,
-      direction: doCliente ? "INBOUND" : "OUTBOUND",
-      type: "TEXT",
-      content: { text: texto },
-      status: doCliente ? (ativa && i === n - 1 ? "DELIVERED" : "READ") : respondida ? "READ" : "DELIVERED",
-      ...(doCliente ? {} : { senderName: autor === "assistente" ? "Assistente virtual" : linha.atendenteNome || `Equipe ${provedor}` }),
-      createdAt: new Date(Math.round(horarios[i])).toISOString(),
+      mensagem: {
+        id: `demo-msg-${linha.conversationId}-${i + 1}`,
+        direction: doCliente ? "INBOUND" : "OUTBOUND",
+        type: "TEXT",
+        content: { text: texto },
+        status: doCliente ? (ativa && i === n - 1 ? "DELIVERED" : "READ") : respondida ? "READ" : "DELIVERED",
+        ...(doCliente ? {} : { senderName: autor === "funcionaria" ? funcionaria : linha.atendenteNome || `Equipe ${provedor}` }),
+        createdAt: new Date(Math.round(horarios[i])).toISOString(),
+      },
+      rodada: rodada ?? null,
     };
   });
 }
@@ -708,10 +906,10 @@ export function roteiroDaConversa(linha: LinhaDaConversa, agora: number, antesDe
  * semeadura; depois dela, o relógio é o do visitante — a janela do WhatsApp se
  * fecha como fecharia de verdade. O `Map` fica só como memória de cálculo.
  */
-function roteiroCongelado(estado: EstadoDaOrganizacao, linha: LinhaDaConversa, antesDe?: number): Mensagem[] {
+function roteiroCongelado(estado: EstadoDaOrganizacao, linha: LinhaDaConversa, antesDe?: number): FalaDoRoteiro[] {
   let roteiro = estado.roteiros.get(linha.conversationId);
   if (!roteiro) {
-    roteiro = roteiroDaConversa(linha, linha.semeadaEm ? new Date(linha.semeadaEm).getTime() : Date.now(), antesDe);
+    roteiro = falasDoRoteiro(linha, linha.semeadaEm ? new Date(linha.semeadaEm).getTime() : Date.now(), antesDe);
     estado.roteiros.set(linha.conversationId, roteiro);
   }
   return roteiro;
@@ -769,9 +967,9 @@ const SKILLS_DO_PERFIL: Record<TipoDeAgente, NomeDaSkillDaDemo[]> = {
 /** O `systemPrompt` que o console mostra: papel do perfil e as regras que citam as skills. Sem nome de provedor — o catálogo não lê o banco. */
 function promptDoPerfilDaDemo(tipo: TipoDeAgente): string {
   return [
-    `Você é o assistente virtual do provedor. Papel: ${CATALOGO_DE_AGENTES[tipo].nome}.`,
+    `Você é a ${NOMES_DAS_FUNCIONARIAS_DA_DEMO[tipo]} e atende pelo provedor, na primeira pessoa da empresa. Papel: ${CATALOGO_DE_AGENTES[tipo].nome}. Perguntada, confirme que o atendimento é automatizado, com supervisão da equipe.`,
     CATALOGO_DE_AGENTES[tipo].papel,
-    "Seu escopo termina quando o cliente responde: chame registrarTransferencia com o motivo e um resumo factual, e deixe a conversa com a equipe.",
+    "O que é da equipe — negociação, contestação, pagamento ou devolução informados, pedido de falar com alguém — você passa: chame registrarTransferencia com o motivo e um resumo factual, e deixe a conversa com a equipe.",
     tipo === "recuperacao_equipamentos"
       ? "Antes de combinar qualquer coisa, consulte consultarEquipamento. Não fale em valor do aparelho, multa ou dívida; não prometa dia, horário ou técnico por conta própria."
       : "Antes de citar qualquer informação do contrato, consulte consultarCaso. Não invente valores, PIX, links, descontos, prazos nem promessas.",
@@ -842,16 +1040,19 @@ function perfilDaConversa(l: LinhaDaConversa): TipoDeAgente {
 const custoEmUsd = (entrada: number, saida: number) => Math.round(entrada * 0.15 + saida * 0.6) / 1e6;
 
 /**
- * As execuções de UMA conversa, lidas do roteiro dela. A abertura do
- * assistente é uma execução concluída ("respondeu"). A primeira resposta do
- * cliente é a segunda: dentro da janela de contato o perfil registra a
- * transferência e passa a conversa para a equipe; fora dela a execução é
- * pulada sem chamar o modelo, e a equipe responde quando a janela abre — que é
- * o que o roteiro mostra. Tokens, custo e tempo são fixos pela posição.
+ * As execuções de UMA conversa, lidas do roteiro dela. A abertura da
+ * funcionária é uma execução concluída ("respondeu"). Cada mensagem do cliente
+ * que ela responde é outra: dentro da janela de contato a execução é concluída
+ * — "passou para a equipe" quando a resposta é o aviso de transferência, com a
+ * chamada de `registrarTransferencia`, e "respondeu" nas outras —; fora da
+ * janela ela é pulada sem chamar o modelo, e a resposta sai quando a janela
+ * abre, que é o que o roteiro mostra. Mensagem do cliente que a equipe responde
+ * não é execução. Tokens, custo e tempo são fixos pela posição.
  */
-function execucoesDaConversa(l: LinhaDaConversa, roteiro: Mensagem[]): Execucao[] {
-  const abertura = roteiro.find(m => m.direction === "OUTBOUND" && m.senderName === "Assistente virtual");
-  if (!abertura) return [];
+function execucoesDaConversa(l: LinhaDaConversa, falas: FalaDoRoteiro[]): Execucao[] {
+  const funcionaria = funcionariaDaConversa(l);
+  const abertura = falas[0]?.mensagem;
+  if (!abertura || abertura.direction !== "OUTBOUND" || abertura.senderName !== funcionaria) return [];
   const seq = Number(/-(\d+)$/.exec(l.conversationId)?.[1] ?? 0);
   const perfil = AGENTES_DA_DEMO[perfilDaConversa(l)];
   const comum = { agentId: perfil.id, conversationId: l.conversationId, modelId: perfil.modelo, errorMessage: null, agent: { name: perfil.nome } };
@@ -861,20 +1062,23 @@ function execucoesDaConversa(l: LinhaDaConversa, roteiro: Mensagem[]): Execucao[
     ...comum, id: `demo-run-${l.conversationId}-abertura`, status: "COMPLETED", finalAction: "REPLIED",
     inputTokens: entrada, outputTokens: saida, costUsd: custoEmUsd(entrada, saida), durationMs: 900 + ((seq * 53) % 700), startedAt: abertura.createdAt, toolCalls: [],
   }];
-  const resposta = roteiro.find(m => m.direction === "INBOUND");
-  if (!resposta) return execucoes;
-  const id = `demo-run-${l.conversationId}-resposta`;
-  if (!podeFalar(Date.parse(resposta.createdAt))) {
-    execucoes.push({ ...comum, id, status: "SKIPPED", finalAction: "NO_ACTION", inputTokens: 0, outputTokens: 0, costUsd: 0, durationMs: 8 + (seq % 10), startedAt: resposta.createdAt, toolCalls: [] });
-    return execucoes;
-  }
-  const entradaDaResposta = 1600 + ((seq * 29) % 500);
-  const saidaDaResposta = 70 + ((seq * 17) % 60);
-  execucoes.push({
-    ...comum, id, status: "COMPLETED", finalAction: "TRANSFERRED_TO_HUMAN",
-    inputTokens: entradaDaResposta, outputTokens: saidaDaResposta, costUsd: custoEmUsd(entradaDaResposta, saidaDaResposta),
-    durationMs: 1400 + ((seq * 71) % 900), startedAt: resposta.createdAt,
-    toolCalls: [{ id: `${id}-registrarTransferencia`, toolName: "registrarTransferencia", error: null, durationMs: 180 + ((seq * 13) % 120), output: { ok: true } }],
+  falas.forEach(({ mensagem: doCliente }, i) => {
+    const dela = falas[i + 1];
+    if (doCliente.direction !== "INBOUND" || !dela?.rodada || dela.mensagem.senderName !== funcionaria) return;
+    const id = `demo-run-${l.conversationId}-resposta-${i + 1}`;
+    if (!podeFalar(Date.parse(doCliente.createdAt))) {
+      execucoes.push({ ...comum, id, status: "SKIPPED", finalAction: "NO_ACTION", inputTokens: 0, outputTokens: 0, costUsd: 0, durationMs: 8 + ((seq + i) % 10), startedAt: doCliente.createdAt, toolCalls: [] });
+      return;
+    }
+    const transferiu = dela.rodada.acao === "transferir";
+    const entradaDaResposta = 1600 + ((seq * 29 + i * 61) % 500);
+    const saidaDaResposta = 70 + ((seq * 17 + i * 13) % 60);
+    execucoes.push({
+      ...comum, id, status: "COMPLETED", finalAction: transferiu ? "TRANSFERRED_TO_HUMAN" : "REPLIED",
+      inputTokens: entradaDaResposta, outputTokens: saidaDaResposta, costUsd: custoEmUsd(entradaDaResposta, saidaDaResposta),
+      durationMs: 1400 + ((seq * 71 + i * 97) % 900), startedAt: doCliente.createdAt,
+      toolCalls: transferiu ? [{ id: `${id}-registrarTransferencia`, toolName: "registrarTransferencia", error: null, durationMs: 180 + ((seq * 13 + i) % 120), output: { ok: true } }] : [],
+    });
   });
   return execucoes;
 }
@@ -1033,13 +1237,23 @@ async function historico(p: Pedido, conversationId: string): Promise<Mensagem[] 
   const estado = estadoDe(p.org);
   const enviadas = estado.enviadas.get(conversationId) ?? [];
   let roteiro: Mensagem[] = [];
-  if (achada.linha) roteiro = roteiroCongelado(estado, achada.linha, enviadas.length ? Date.parse(enviadas[0].createdAt) : undefined);
+  if (achada.linha) roteiro = roteiroCongelado(estado, achada.linha, enviadas.length ? Date.parse(enviadas[0].createdAt) : undefined).map(f => f.mensagem);
   return [...roteiro, ...enviadas].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 function guardarEnviada(estado: EstadoDaOrganizacao, conversationId: string, mensagem: Mensagem): void {
   const lista = [...(estado.enviadas.get(conversationId) ?? []), mensagem];
   estado.enviadas.set(conversationId, lista.slice(-MAXIMO_DE_ENVIADAS_POR_CONVERSA));
+}
+
+/**
+ * Quem assina a abertura de uma conversa que o visitante abriu. A ponte não diz o perfil ao abrir a conversa, mas a
+ * abertura diz quem fala ("Aqui é a Clara, da Rede Demo"): a funcionária que se apresenta assina. Sem nome — o
+ * template, ou a abertura sem perfil —, assina o atendimento automatizado; "Assistente virtual" saiu (D1).
+ */
+function remetenteDaAbertura(texto: string | undefined): string {
+  const nome = Object.values(NOMES_DAS_FUNCIONARIAS_DA_DEMO).find(n => typeof texto === "string" && texto.includes(` é a ${n},`));
+  return nome ?? "Atendimento automatizado";
 }
 
 const ROTAS: Array<[string, RegExp, Tratador]> = [
@@ -1106,7 +1320,7 @@ const ROTAS: Array<[string, RegExp, Tratador]> = [
       lastMessageAt: agora,
     });
     const messageId = `demo-msg-${conversationId}-1`;
-    guardarEnviada(estado, conversationId, { id: messageId, direction: "OUTBOUND", type: mensagem.type ?? "TEXT", content: mensagem.content ?? {}, status: "SENT", senderName: "Assistente virtual", createdAt: agora });
+    guardarEnviada(estado, conversationId, { id: messageId, direction: "OUTBOUND", type: mensagem.type ?? "TEXT", content: mensagem.content ?? {}, status: "SENT", senderName: remetenteDaAbertura(mensagem.content?.text), createdAt: agora });
     return criado({ id: messageId, conversationId, status: "WAITING" });
   }],
   ["PATCH", /^\/conversations\/([^/]+)$/, async p => {
@@ -1197,9 +1411,9 @@ const ROTAS: Array<[string, RegExp, Tratador]> = [
     if (!agente) return naoEncontrado("Agente não encontrado");
     const contexto = (p.corpo.context ?? {}) as { nomeCliente?: string; nomeProvedor?: string };
     const estado = estadoDe(p.org);
-    // Texto fixo, sem modelo: só saudação e identificação, que é o que a abertura permite antes de o cliente se identificar.
+    // Texto fixo, sem modelo: a abertura do servidor (§3.1), o que se permite antes de o cliente se identificar.
     return ok({
-      texto: `Olá, ${contexto.nomeCliente || "cliente"}! Sou o assistente virtual da ${contexto.nomeProvedor || "sua operadora"}. Podemos conversar por aqui?`,
+      texto: aberturaDaDemo(tipoDoAgenteDaDemo(agente.id), contexto.nomeCliente || null, contexto.nomeProvedor || null, String(agente.id)),
       agenteId: agente.id, modelo: agente.modelId, runId: `demo-run-${++estado.sequencia}`,
     });
   }],

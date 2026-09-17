@@ -15,8 +15,9 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { requireAuth, requireProvider } from "../auth";
 import { podeAdministrarOProvedor } from "./provider.routes";
-import { ConfigAutonomiaSchema } from "@shared/chat-autonomia";
+import { ConfigAutonomiaSchema, FuncionariaDigitalSchema } from "@shared/chat-autonomia";
 import { configurarAutonomia, devolverAoAssistente, estadoDaAutonomia, filaDaAutonomia } from "../services/chat/chat-autonomia.service";
+import { configurarFuncionariaDigital, funcionariaDigitalDoProvedor } from "../services/chat/chat-agentes.service";
 import { ErroDaPonteDoChat } from "../services/chat/chat-ponte.service";
 import { logger } from "../logger";
 
@@ -52,6 +53,33 @@ export function registerChatAutonomiaRoutes() {
       if (e instanceof ErroDaPonteDoChat) return res.status(409).json({ message: e.message, codigo: e.codigo });
       logger.warn({ err: e, providerId: providerDaSessao(req) }, "Não foi possível configurar autonomia");
       res.status(503).json({ message: "Autonomia indisponível. A configuração não foi confirmada." });
+    }
+  });
+
+  /**
+   * D9 — a chave da funcionária digital. Leitura de qualquer operador; gravação
+   * só do admin. Desligar é a primeira linha da volta (spec §11.6), então a rota
+   * é própria: não depende de salvar a autonomia inteira nem da validação dela.
+   */
+  router.get("/api/chat-bullq/autonomia/funcionaria-digital", requireAuth, requireProvider, async (req, res) => {
+    try { res.json(await funcionariaDigitalDoProvedor(providerDaSessao(req))); }
+    catch (e) {
+      if (e instanceof ErroDaPonteDoChat) return falha(res, e, "chave da funcionária digital não lida");
+      logger.warn({ err: e, providerId: providerDaSessao(req) }, "Autonomia do chat: chave da funcionária digital não lida");
+      // 503, nunca `{ ativa: false }` inventado: a tela mostra que não leu.
+      res.status(503).json({ message: "Não foi possível ler a chave da funcionária digital." });
+    }
+  });
+
+  router.put("/api/chat-bullq/autonomia/funcionaria-digital", requireAuth, requireProvider, async (req, res) => {
+    if (!podeAdministrarOProvedor(req.session)) return res.status(403).json({ message: "Apenas administradores podem ligar ou desligar a funcionária digital" });
+    const r = FuncionariaDigitalSchema.safeParse(req.body);
+    if (!r.success) return res.status(400).json({ message: "Informe apenas se a funcionária digital fica ligada", erros: r.error.issues.map(i => `${i.path.join(".")}: ${i.message}`) });
+    try { res.json(await configurarFuncionariaDigital(providerDaSessao(req), r.data, userDaSessao(req))); }
+    catch (e) {
+      if (e instanceof ErroDaPonteDoChat) return res.status(409).json({ message: e.message, codigo: e.codigo });
+      logger.warn({ err: e, providerId: providerDaSessao(req) }, "Não foi possível gravar a chave da funcionária digital");
+      res.status(503).json({ message: "A chave da funcionária digital não foi gravada. Tente novamente." });
     }
   });
 

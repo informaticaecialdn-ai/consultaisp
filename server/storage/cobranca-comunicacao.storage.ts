@@ -110,7 +110,8 @@ export async function diarioComunicacao(providerId:number,carteira?:"ativo"|"ex_
       and (m.caso_id is null or k.carteira=$2))) order by m.id desc limit 100`,[providerId,carteira??null]);
   return r.rows;
 }
-export async function pausarComunicacao(providerId:number,customerId:number,userId:number,acao:"respondeu"|"pagamento_informado"|"nao_contatar"|"retomar") {
+// `userId` null: o pedido para parar veio do próprio cliente no chat autônomo, sem operador (spec §3.2 item 4).
+export async function pausarComunicacao(providerId:number,customerId:number,userId:number|null,acao:"respondeu"|"pagamento_informado"|"nao_contatar"|"retomar") {
   const c=await pool.connect();
   try {
     await c.query("begin");

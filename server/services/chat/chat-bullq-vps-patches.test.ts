@@ -15,6 +15,13 @@ const p003 = readFileSync("integrations/chat-bullq/patches/vps/003-autonomous-pl
 // criou. Aqui ele e APLICADO sobre o texto do 003 antes de executar — contexto
 // que nao casa derruba o teste, como o `git apply --check` faria.
 const p008 = readFileSync("integrations/chat-bullq/patches/vps/008-planejador-so-repassa.patch", "utf8");
+// O 009 (f849515, sobre o 827abce) muda os mesmos arquivos: aplicado DEPOIS do 008.
+// O 008 carregado sozinho continua aqui como a regua do "sem escrever nada muda".
+const p009 = readFileSync("integrations/chat-bullq/patches/vps/009-planejador-escreve.patch", "utf8");
+// O 010 (c15ad6f, sobre o f849515) nao toca ai-agents: envio como agente em messaging,
+// a porta de saida e a Evolution. Os arquivos dele nao vivem em patch aqui, entao o
+// teste confere a forma e EXECUTA so o arquivo novo sem dependencia (as regras puras).
+const p010 = readFileSync("integrations/chat-bullq/patches/vps/010-mensagens-como-agente.patch", "utf8");
 const original002 = readFileSync("integrations/chat-bullq/patches/002-agentes-primeiro-contato.patch", "utf8");
 
 const decorators: { name: string; args: unknown[] }[] = [];
@@ -74,12 +81,18 @@ function aplicarHunks(fonte: string, patch: string, caminho: string): string {
   return saida.join("\n");
 }
 
-function carregar(patch: string, nome: string, adicionais: Record<string, unknown> = {}, seguintes: string[] = []) {
+/** O texto de um arquivo que `patch` cria, com os `seguintes` aplicados por cima, em ordem. */
+function fonte(patch: string, nome: string, seguintes: string[] = []): string {
   const caminho = `src/modules/ai-agents/${nome}`;
   const bloco = patch.split(`diff --git a/${caminho} b/${caminho}\n`)[1]?.split("diff --git ")[0];
   if (!bloco || !bloco.includes("new file mode")) throw new Error(`Arquivo novo ausente do patch: ${caminho}`);
   let source = bloco.split(/\r?\n/).filter(l => l.startsWith("+") && !l.startsWith("+++")).map(l => l.slice(1)).join("\n");
   for (const p of seguintes) source = aplicarHunks(source, p, caminho);
+  return source;
+}
+
+function carregar(patch: string, nome: string, adicionais: Record<string, unknown> = {}, seguintes: string[] = []) {
+  const source = fonte(patch, nome, seguintes);
   const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, experimentalDecorators: true, emitDecoratorMetadata: false } });
   const exports: Record<string, unknown> = {};
   const modules: Record<string, unknown> = { "@nestjs/common": nest, "node:crypto": crypto, "./llm.constants": llmConstants, ...adicionais };
@@ -104,6 +117,15 @@ const parsePlanRequest = schema.parsePlanRequest as (raw: unknown) => unknown;
 const AutonomousPlanService = carregar(p003, "agents/autonomous-plan.service.ts", {
   "../llm/first-contact-models": modelsMod, "./autonomous-plan.schema": schema,
 }, [p008]).AutonomousPlanService as new (prisma: unknown, llm: unknown) => { plan(org: string, id: string, raw: unknown): Promise<unknown> };
+
+// ...e como rodam DEPOIS do 009: 003 + 008 + 009.
+const schema009 = carregar(p003, "agents/autonomous-plan.schema.ts", {}, [p008, p009]);
+const parsePlan009 = schema009.parsePlan as (raw: unknown, allowed: string[], escrever?: boolean) => Record<string, unknown>;
+const parsePlanRequest009 = schema009.parsePlanRequest as (raw: unknown) => unknown;
+const servico009 = carregar(p003, "agents/autonomous-plan.service.ts", {
+  "../llm/first-contact-models": modelsMod, "./autonomous-plan.schema": schema009,
+}, [p008, p009]);
+const AutonomousPlanService009 = servico009.AutonomousPlanService as typeof AutonomousPlanService;
 
 const contexto = { nomeCliente: "Maria", nomeProvedor: "NsLink" };
 
@@ -200,13 +222,15 @@ describe("patch VPS 002: preparacao com modelo OpenAI", () => {
   });
 });
 
-function fixturePlan() {
+function fixturePlan(Servico = AutonomousPlanService) {
   const agent = { id: "a7", modelId: "openai/gpt-4o-mini", systemPrompt: "Fale de maneira cordial", temperature: 0.2, maxTokens: 600, capabilities: ["autonomia_cobranca_controlada"], isActive: false, canRespondDirectly: false };
   const findFirst = vi.fn(async () => agent);
-  const complete = vi.fn(async () => ({ message: { content: JSON.stringify({ acao: "responder", resposta: "acolher" }) }, stopReason: "stop", rawModelId: "gpt-4o-mini", usage: { inputTokens: 10, outputTokens: 20, costUsd: 0 } }));
+  const complete = vi.fn(async (_pedido?: unknown) => ({ message: { content: JSON.stringify({ acao: "responder", resposta: "acolher" }) }, stopReason: "stop", rawModelId: "gpt-4o-mini", usage: { inputTokens: 10, outputTokens: 20, costUsd: 0 } }));
   const firstContactModels = vi.fn(async () => ({ configured: true, models: [{ id: "openai/gpt-4o-mini" }], indisponiveis: [] }));
-  return { agent, findFirst, complete, firstContactModels, service: new AutonomousPlanService({ aiAgent: { findFirst } }, { complete, firstContactModels }) };
+  return { agent, findFirst, complete, firstContactModels, service: new Servico({ aiAgent: { findFirst } }, { complete, firstContactModels }) };
 }
+/** Resposta do modelo com `plano` como conteudo. */
+const respostaDoModelo = (plano: unknown) => ({ message: { content: JSON.stringify(plano) }, stopReason: "stop", rawModelId: "gpt-4o-mini", usage: { inputTokens: 10, outputTokens: 20, costUsd: 0 } });
 const pedido = () => ({ requestId: "evento-1", operation: "cobranca", context: "Contexto restrito ao cliente atual", history: [{ role: "user", content: "Olá" }], allowedActions: ["responder", "transferir", "promessa", "segunda_via"] });
 
 describe("patch VPS 003 + 008: planejador da autonomia", () => {
@@ -308,6 +332,125 @@ describe("patch VPS 003 + 008: planejador da autonomia", () => {
   });
 });
 
+type Chamada = { messages: { role: string; content: string }[]; [k: string]: unknown };
+const primeiraChamada = (f: ReturnType<typeof fixturePlan>) => f.complete.mock.calls[0][0] as unknown as Chamada;
+
+describe("patch VPS 009: o planejador escreve as mensagens", () => {
+  it("sem escrever o 009 e o 008: a mesma requisicao ao modelo, byte a byte, e o mesmo plano", async () => {
+    // O que o modelo devolve inclui `mensagens` e `texto`: sem escrever, nada disso pode sair —
+    // o PlanoRespostaSchema de hoje e .strict() e transferiria toda conversa.
+    const saidas = [
+      { acao: "responder", resposta: "informar_divida", mensagens: ["Oi, Maria!"], texto: "Saldo de R$ 189,90" },
+      { acao: "promessa", data: "2026-10-20", valor: 100, mensagens: ["Posso anotar pra 20/10?"] },
+      { acao: "transferir", motivo: "pediu atendente", mensagens: ["Vou pedir pra alguém da equipe continuar com você."] },
+    ];
+    for (const saida of saidas) {
+      for (const pedidoSemEscrever of [pedido(), { ...pedido(), escrever: false }]) {
+        const antes = fixturePlan(); antes.complete.mockResolvedValue(respostaDoModelo(saida));
+        const depois = fixturePlan(AutonomousPlanService009); depois.complete.mockResolvedValue(respostaDoModelo(saida));
+        const planoAntes = await antes.service.plan("org-6", "a7", pedido());
+        const planoDepois = await depois.service.plan("org-6", "a7", pedidoSemEscrever);
+        expect(JSON.stringify(primeiraChamada(depois))).toBe(JSON.stringify(primeiraChamada(antes)));
+        expect(JSON.stringify(planoDepois)).toBe(JSON.stringify(planoAntes));
+        expect(planoDepois).not.toHaveProperty("mensagens");
+        expect(() => PlanoRespostaSchema.parse(planoDepois)).not.toThrow();
+      }
+    }
+    // E o que o 008 recusa, o 009 sem escrever recusa com a mesma mensagem.
+    const antes = fixturePlan(); antes.complete.mockResolvedValue(respostaDoModelo({ acao: "responder", mensagens: ["Oi"] }));
+    const depois = fixturePlan(AutonomousPlanService009); depois.complete.mockResolvedValue(respostaDoModelo({ acao: "responder", mensagens: ["Oi"] }));
+    await expect(antes.service.plan("org-6", "a7", pedido())).rejects.toThrow(/plano válido/);
+    await expect(depois.service.plan("org-6", "a7", pedido())).rejects.toThrow(/plano válido/);
+  });
+
+  it("aceita a chave escrever, so booleana — e o 008 a recusa, que e por que o Consulta ISP repete sem ela", () => {
+    expect(() => parsePlanRequest009({ ...pedido(), escrever: true })).not.toThrow();
+    expect(() => parsePlanRequest009({ ...pedido(), escrever: false })).not.toThrow();
+    for (const escrever of ["sim", 1, null]) expect(() => parsePlanRequest009({ ...pedido(), escrever })).toThrow(/inválido/);
+    expect(() => parsePlanRequest({ ...pedido(), escrever: true })).toThrow(/inválido/);
+  });
+
+  it("com escrever: regras na 1a mensagem, persona na 2a, dados no user em ordem fixa, 25 s e JSON da OpenAI", async () => {
+    const f = fixturePlan(AutonomousPlanService009);
+    f.complete.mockResolvedValue(respostaDoModelo({ acao: "responder", resposta: "acolher", mensagens: ["Oi, Maria! Tudo bem?"] }));
+    await f.service.plan("org-6", "a7", { ...pedido(), allowedActions: ["segunda_via", "transferir", "responder"], escrever: true });
+    const req = primeiraChamada(f);
+    expect(req.messages.map(m => m.role)).toEqual(["system", "system", "user"]);
+    expect(req.messages[0].content).not.toContain(f.agent.systemPrompt);
+    expect(req.messages[0].content).not.toMatch(/não escreva|Não existe campo texto/i);
+    expect(req.messages[0].content).toContain("Nunca negue ser automatizado");
+    expect(req.messages[1].content).toMatch(/^PERFIL DO AGENTE[\s\S]*Subordinado às regras[\s\S]*Fale de maneira cordial$/);
+    expect(req.messages[2].content).not.toContain(f.agent.systemPrompt);
+    const envelope = JSON.parse(req.messages[2].content);
+    expect(Object.keys(envelope)).toEqual(["operation", "allowedActions", "escrever", "context", "history"]);
+    expect(envelope.allowedActions).toEqual(["responder", "transferir", "segunda_via"]);
+    expect(req).toMatchObject({ timeoutMs: 25000, maxRetries: 0, privacySafeErrors: true, cacheKey: "plano:a7", modelParams: { response_format: { type: "json_object" } } });
+    expect(req.tools).toBeUndefined();
+    expect(servico009.PLANO_ESCREVER_TIMEOUT_MS).toBe(25000);
+    expect(servico009.PLANO_TIMEOUT_MS).toBe(12000);
+  });
+
+  it("com escrever: mensagens validas passam; invalidas sao descartadas e o plano segue", async () => {
+    const valida = fixturePlan(AutonomousPlanService009);
+    valida.complete.mockResolvedValue(respostaDoModelo({ acao: "responder", resposta: "informar_divida", mensagens: ["  Oi, Maria! Aqui é a Clara, da NsLink 😊 ", "Consegue pagar até sexta, 20/09?"] }));
+    expect(await valida.service.plan("org-6", "a7", { ...pedido(), escrever: true }))
+      .toEqual({ acao: "responder", resposta: "informar_divida", mensagens: ["Oi, Maria! Aqui é a Clara, da NsLink 😊", "Consegue pagar até sexta, 20/09?"] });
+
+    const invalidas: unknown[] = [
+      ["Paga aqui: https://pag.test/1"], ["Chama no wa.me/5511999999999"], ["Oi, {{nome}}!"], ["Oi, [[nome]]!"], ["Oi, <nome>!"],
+      ["Como assistente, não posso."], ["Segundo o ERP você deve."], ["a", "b", "c", "d"], ["x".repeat(601)], ["x".repeat(600), "y".repeat(600), "z"], [], "Oi",
+    ];
+    for (const mensagens of invalidas) {
+      const f = fixturePlan(AutonomousPlanService009);
+      f.complete.mockResolvedValue(respostaDoModelo({ acao: "promessa", data: "2026-10-20", valor: 100, mensagens }));
+      expect(await f.service.plan("org-6", "a7", { ...pedido(), escrever: true })).toEqual({ acao: "promessa", data: "2026-10-20", valor: 100 });
+    }
+    // A frase que a funcionaria TEM de dizer quando perguntada passa na sanidade do fork.
+    const disclosure = "Sou um sistema automatizado da NsLink, sim 😊 Se preferir falar com uma pessoa do nosso time, é só me pedir.";
+    expect(parsePlan009({ acao: "responder", resposta: "acolher", mensagens: [disclosure] }, pedido().allowedActions, true).mensagens).toEqual([disclosure]);
+    // mensagens em todas as acoes, inclusive a passagem ao atendente
+    expect(parsePlan009({ acao: "transferir", motivo: "pediu atendente", mensagens: ["Vou pedir pra alguém da nossa equipe continuar com você por aqui, tá?"] }, pedido().allowedActions, true))
+      .toMatchObject({ acao: "transferir", mensagens: [expect.any(String)] });
+  });
+
+  it("com escrever: resposta opcional (acolher) e so decisao malformada recusa o plano", async () => {
+    const f = fixturePlan(AutonomousPlanService009);
+    f.complete.mockResolvedValue(respostaDoModelo({ acao: "responder", mensagens: ["Oi, Maria!"] }));
+    expect(await f.service.plan("org-6", "a7", { ...pedido(), escrever: true })).toEqual({ acao: "responder", mensagens: ["Oi, Maria!"], resposta: "acolher" });
+    expect(parsePlan009({ acao: "responder", resposta: "cantar" }, pedido().allowedActions, true)).toEqual({ acao: "responder", resposta: "acolher" });
+    for (const plano of [{ acao: "delete", mensagens: ["Oi"] }, { acao: "promessa", data: "2026-02-30", mensagens: ["Oi"] }, { acao: "promessa", data: "2026-10-20", valor: -5 }, { acao: "segunda_via", faturaId: "../etc", mensagens: ["Oi"] }]) {
+      expect(() => parsePlan009(plano, pedido().allowedActions, true)).toThrow(/plano válido/);
+    }
+  });
+
+  it("instrucoes do agente ate 80 mil caracteres: o que o 008 recusava por passar de 8 mil", async () => {
+    expect(schema009.AGENT_PROMPT_MAX).toBe(80000);
+    const antes = fixturePlan(); antes.agent.systemPrompt = "x".repeat(8001);
+    await expect(antes.service.plan("org-6", "a7", pedido())).rejects.toThrow(/acima do limite/);
+    const depois = fixturePlan(AutonomousPlanService009); depois.agent.systemPrompt = "x".repeat(80000);
+    await expect(depois.service.plan("org-6", "a7", pedido())).resolves.toEqual({ acao: "responder", resposta: "acolher" });
+    const alem = fixturePlan(AutonomousPlanService009); alem.agent.systemPrompt = "x".repeat(80001);
+    await expect(alem.service.plan("org-6", "a7", pedido())).rejects.toThrow(/acima do limite/);
+    expect(alem.complete).not.toHaveBeenCalled();
+  });
+
+  it("ate 3 planos simultaneos por organizacao (o 008 aceitava 1) e 40 por minuto", async () => {
+    for (const [Servico, emParalelo] of [[AutonomousPlanService, 1], [AutonomousPlanService009, 3]] as const) {
+      const f = fixturePlan(Servico);
+      let soltar!: () => void;
+      const trava = new Promise<void>(r => { soltar = r; });
+      f.complete.mockImplementation(async () => { await trava; return respostaDoModelo({ acao: "responder", resposta: "acolher" }); });
+      const emVoo = Array.from({ length: emParalelo }, (_, i) => f.service.plan("org-6", "a7", { ...pedido(), requestId: `evento-${i}` }));
+      await expect(f.service.plan("org-6", "a7", { ...pedido(), requestId: "evento-extra" })).rejects.toThrow(/ocupado/);
+      soltar();
+      await Promise.all(emVoo);
+    }
+    const g = fixturePlan(AutonomousPlanService009);
+    for (let i = 0; i < 40; i++) await g.service.plan("org-6", "a7", { ...pedido(), requestId: `evento-${i}` });
+    await expect(g.service.plan("org-6", "a7", { ...pedido(), requestId: "evento-99" })).rejects.toMatchObject({ status: 429 });
+  });
+});
+
 describe("patch VPS: linhagem e guardas do controller", () => {
   it("os patches vps ancoram no LlmService multi-provider, e os originais na linhagem so-Sakana", () => {
     expect(p003).toContain("handleProviderError");
@@ -353,5 +496,134 @@ describe("patch VPS: linhagem e guardas do controller", () => {
     const caminho = "src/modules/ai-agents/agents/autonomous-plan.schema.ts";
     expect(() => aplicarHunks("outro conteudo\nqualquer", p008, caminho)).toThrow(/nao aplica/);
     expect(aplicarHunks("intocado", p008, "src/modules/ai-agents/agents/outro.ts")).toBe("intocado");
+  });
+
+  it("o 009 e o commit f849515 do clone sobre o 827abce, com LF, so no modulo ai-agents, e aplica sobre 003 + 008", () => {
+    expect(p009).not.toContain("\r");
+    expect(p009.startsWith("From f8495151dfa0ed0457da4d9d90c358cd5ff29df6 ")).toBe(true);
+    expect([...p009.matchAll(/^diff --git a\/(\S+) b\/\S+$/gm)].map(m => m[1]).sort()).toEqual([
+      "src/modules/ai-agents/agents/autonomous-plan.schema.ts",
+      "src/modules/ai-agents/agents/autonomous-plan.service.spec.ts",
+      "src/modules/ai-agents/agents/autonomous-plan.service.ts",
+      "src/modules/ai-agents/llm/llm-pricing.ts",
+      "src/modules/ai-agents/llm/llm.service.spec.ts",
+    ]);
+    // Nenhum arquivo novo e nada fora de ai-agents (DTO, messaging, channel-hub ficam para o 010).
+    expect(p009).not.toContain("new file mode");
+    // O spec do planejador tambem casa com o texto do 003 + 008 (schema e servico ja foram
+    // executados acima; llm-pricing e llm.service.spec sao do fork e nao vivem em patch aqui).
+    expect(() => fonte(p003, "agents/autonomous-plan.service.spec.ts", [p008, p009])).not.toThrow();
+    // O 009 nao aplica sobre o 003 cru: exige o 008 antes.
+    expect(() => fonte(p003, "agents/autonomous-plan.schema.ts", [p009])).toThrow(/nao aplica/);
+  });
+});
+
+describe("patch VPS 010: mensagens como agente, em ordem, com digitando", () => {
+  // Sem a assinatura do format-patch ("-- \n2.x"), que nao e linha removida.
+  const corpo = p010.split("\n-- \n")[0];
+  const blocos = new Map(corpo.split(/^diff --git a\/(\S+) b\/\S+\n/m).slice(1).reduce<[string, string][]>((acc, parte, i, arr) => {
+    if (i % 2 === 0) acc.push([parte, arr[i + 1]]);
+    return acc;
+  }, []));
+  const linhas = (caminho: string, sinal: "+" | "-") => {
+    const bloco = blocos.get(caminho);
+    if (bloco === undefined) throw new Error(`Arquivo ausente do 010: ${caminho}`);
+    return bloco.split("\n").filter(l => l.startsWith(sinal) && !l.startsWith(sinal.repeat(3))).map(l => l.slice(1));
+  };
+  const novo = (caminho: string) => {
+    if (!blocos.get(caminho)?.includes("new file mode")) throw new Error(`${caminho} nao e arquivo novo no 010`);
+    return linhas(caminho, "+").join("\n");
+  };
+  const LOTE = "src/modules/messaging/pipeline/lote-do-agente.ts";
+  const SERVICO = "src/modules/messaging/messages/lote-do-agente.service.ts";
+  const PROCESSOR = "src/modules/messaging/pipeline/outbound-message.processor.ts";
+
+  it("e o commit c15ad6f do clone sobre o f849515, com LF, e so toca messaging, a porta de saida e a Evolution", () => {
+    expect(p010).not.toContain("\r");
+    expect(p010.startsWith("From c15ad6fae0a2477f9ba30e63d3d4d73908de5f50 ")).toBe(true);
+    expect([...blocos.keys()].sort()).toEqual([
+      "src/modules/channel-hub/adapters/evolution/evolution.http-client.spec.ts",
+      "src/modules/channel-hub/adapters/evolution/evolution.http-client.ts",
+      "src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.spec.ts",
+      "src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.ts",
+      "src/modules/channel-hub/ports/outbound-channel.port.ts",
+      "src/modules/messaging/messages/dto/lote-do-agente.dto.ts",
+      "src/modules/messaging/messages/lote-do-agente.service.spec.ts",
+      SERVICO,
+      "src/modules/messaging/messages/messages.controller.ts",
+      "src/modules/messaging/messaging.module.ts",
+      "src/modules/messaging/pipeline/lote-do-agente.spec.ts",
+      LOTE,
+      "src/modules/messaging/pipeline/outbound-lote-do-agente.spec.ts",
+      PROCESSOR,
+    ]);
+    // ai-agents so e LIDO: o guard de meta-talk que a tool replyToConversation ja aplica.
+    expect([...blocos.keys()].some(c => c.startsWith("src/modules/ai-agents/"))).toBe(false);
+    expect(novo(SERVICO)).toContain("import { containsMetaTalk } from '../../ai-agents/runner/text-guards';");
+    // O que sai do codigo existente: o no-op da presenca da Evolution e dois imports/um fecho
+    // reescritos no processor. A formula do "digitando" da IA do proprio fork fica intocada.
+    expect(linhas("src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.ts", "-")).toEqual([
+      "  async sendTypingIndicator(): Promise<void> {",
+      "    // Sem \"digitando\" por enquanto: a Evolution mostraria o status para o cliente e não é pedido.",
+    ]);
+    expect(linhas(PROCESSOR, "-")).toEqual([
+      "import { ChannelType, MessageDirection, MessageStatus } from '@prisma/client';",
+      "import { NormalizedOutboundMessage } from '../../channel-hub/ports/types';",
+      "            },",
+    ]);
+    for (const c of ["src/modules/messaging/messages/messages.controller.ts", "src/modules/messaging/messaging.module.ts", "src/modules/channel-hub/ports/outbound-channel.port.ts", "src/modules/channel-hub/adapters/evolution/evolution.http-client.ts"]) {
+      expect(linhas(c, "-")).toEqual([]);
+    }
+  });
+
+  it("as regras puras, executadas do proprio patch: digitando por balao e quando o lote para", () => {
+    const output = ts.transpileModule(novo(LOTE), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } });
+    const mod: Record<string, any> = {};
+    runInNewContext(output.outputText, { exports: mod, require: (id: string) => { throw new Error(`Dependencia nao permitida: ${id}`); } });
+    expect(mod.LOTE_DO_AGENTE_JOB).toBe("send-agent-batch");
+    expect(mod.LOTE_MAX_MENSAGENS).toBe(4);
+    expect(mod.CAPABILITY_DO_LOTE).toBe("autonomia_cobranca_controlada");
+    // 800 ms + 35 ms por caractere, teto de 4 s.
+    expect([mod.digitandoMs("Oi, Maria!"), mod.digitandoMs("x".repeat(91)), mod.digitandoMs("x".repeat(500))]).toEqual([1150, 3985, 4000]);
+    const criadoEm = Date.parse("2026-09-16T12:00:00.000Z");
+    const lote = { enviadoPorUserId: "owner", criadoEm };
+    const conversa = (c: Record<string, unknown> = {}) => ({ assignedToId: "owner", aiDisabledAt: null, deletedAt: null, ...c });
+    expect(mod.motivoParaParar(conversa(), lote)).toBeNull();
+    expect(mod.motivoParaParar(conversa({ assignedToId: null }), lote)).toBeNull();
+    expect(mod.motivoParaParar(conversa({ assignedToId: "atendente" }), lote)).toBe("conversa_com_humano");
+    // O "assumir" e o "transferir" do Consulta ISP desligam a IA com o MESMO token: so a data os denuncia.
+    expect(mod.motivoParaParar(conversa({ aiDisabledAt: new Date(criadoEm + 1) }), lote)).toBe("conversa_com_humano");
+    // IA desligada ANTES do lote (o aviso de transferencia sai depois do desligar): segue.
+    expect(mod.motivoParaParar(conversa({ aiDisabledAt: new Date(criadoEm - 1) }), lote)).toBeNull();
+    expect(mod.motivoParaParar(null, lote)).toBe("conversa_indisponivel");
+  });
+
+  it("rota so OWNER/ADMIN; mensagem como o agente, sem assinatura, sem atribuir, sem pausar; UM job sem repeticao", () => {
+    expect(linhas("src/modules/messaging/messages/messages.controller.ts", "+").join("\n")).toContain("  @Post('agent-batch')\n  @Roles(OrgRole.OWNER, OrgRole.ADMIN)");
+    const servico = novo(SERVICO);
+    expect(servico).toContain("!agent.capabilities.includes(CAPABILITY_DO_LOTE) || agent.isActive || agent.canRespondDirectly");
+    expect(servico).toContain("conversation.assignedToId && conversation.assignedToId !== userId");
+    expect(servico).toContain("textos.some((t) => containsMetaTalk(t))");
+    expect(servico).toContain("senderName: agent.name,");
+    expect(servico).toContain("enviadoPorUserId: userId,");
+    expect(servico).toMatch(/await this\.outboundQueue\.add\(LOTE_DO_AGENTE_JOB, job, \{\s+attempts: 1,/);
+    // Nada do envio humano: nem senderId, nem atribuicao, nem pausa da IA, nem leitura, nem "*Nome*".
+    expect(servico).not.toMatch(/senderId|assignedToId:|aiEnabled|aiDisabled|conversationRead|`\*\$\{/);
+    // O contrato que o cliente do Consulta ISP le.
+    expect(servico).toContain("return { loteId, mensagens: mensagens.map((m) => ({ id: m.id, status: m.status })) };");
+  });
+
+  it("Evolution: presenca com os tres campos e timeout de delay + 2 s; o lote espera no maximo espera + 2 s por ela", () => {
+    const http = linhas("src/modules/channel-hub/adapters/evolution/evolution.http-client.ts", "+").join("\n");
+    expect(http).toContain("`/chat/sendPresence/${nome}`");
+    expect(http).toContain("{ number, presence: 'composing', delay: delayMs }");
+    expect(http).toContain("{ timeout: delayMs + 2_000 }");
+    const adapter = linhas("src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.ts", "+").join("\n");
+    expect(adapter).toContain("if (typeof delayMs !== 'number' || !Number.isFinite(delayMs) || delayMs <= 0) return;");
+    const processor = linhas(PROCESSOR, "+").join("\n");
+    expect(processor).toContain("adapter.sendTypingIndicator(channel, lote.contactExternalId, esperaMs)");
+    expect(processor).toContain("await Promise.all([dormir(esperaMs), comTeto(presenca, esperaMs + 2_000)]);");
+    // A metadata do lote (autoria) sobrevive ao SENT; sem `preservar`, o envio comum fica igual.
+    expect(processor).toContain("...(preservar?.metadata ?? {}),");
   });
 });

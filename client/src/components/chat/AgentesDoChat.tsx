@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { BOTAO_MARCA, BOTAO_SECUNDARIO, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA, ROTULO_CAMPO } from "@/components/painel/ui";
 import { mensagemDoErro, SeloCobranca } from "@/components/cobranca/ui";
 import { cn } from "@/lib/utils";
-import { ConfiguracaoDeAgenteSchema, LIMITES_DO_AGENTE, ORIGENS_DE_MODELO, type AgenteDoChat, type ModeloDoAgente, type ModelosDosAgentes, type PrimeiroContatoPreparado, type PromptDoAgente } from "@shared/chat-agentes";
+import { AGENT_PROMPT_MAX, ConfiguracaoDeAgenteSchema, LIMITES_DO_AGENTE, NOME_DA_PERSONA_MAX, ORIGENS_DE_MODELO, tamanhoDoPromptFinal, type AgenteDoChat, type ModeloDoAgente, type ModelosDosAgentes, type PrimeiroContatoPreparado, type PromptDoAgente } from "@shared/chat-agentes";
 
 const API = "/api/chat-bullq/integracao/agentes";
 const ESTADOS = { nao_configurado: "aguardando configuração", configurado: "aguardando provisionamento", criando: "criando no Chat BullQ", criado: "finalizando vínculos", pronto: "pronto para preparar", erro: "precisa de atenção" };
@@ -16,6 +16,9 @@ const CONTADOR = "font-mono text-[10px] tabular-nums text-[var(--text-faint)]";
 const SEM_CREDENCIAL = "O Chat BullQ respondeu que está sem credencial de IA configurada. Configure a credencial no serviço antes de aplicar ou testar.";
 /** Campo numérico vazio é “não definido”, nunca 0: `Number("")` daria 0 e gravaria temperatura zero em silêncio. */
 const numeroOuIndefinido = (v: string) => v.trim() === "" ? undefined : Number(v);
+/** Nome vazio é “sem nome” (null apaga no servidor), não “mantém o atual”: é um texto, e o campo mostra o gravado. */
+const nomeOuNulo = (v: string) => v.trim() || null;
+const milhar = (n: number) => n.toLocaleString("pt-BR");
 
 export function AgentesDoChat({ podeAdministrar }: { podeAdministrar: boolean }) {
   const agentes = useQuery<{ agentes: AgenteDoChat[] }>({ queryKey: [API], staleTime: 30_000 });
@@ -27,7 +30,7 @@ export function AgentesDoChat({ podeAdministrar }: { podeAdministrar: boolean })
     <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><Bot className="h-4 w-4 text-[var(--brand)]" aria-hidden /><h3 className="text-sm font-semibold text-[var(--text)]">Agentes do chat</h3></div>
       {podeAdministrar && <button className={cn(BOTAO_SECUNDARIO, "h-8 text-xs")} onClick={() => modelos.refetch()} disabled={modelos.isFetching}><RefreshCw className={cn("h-3 w-3", modelos.isFetching && "animate-spin")} aria-hidden /> Atualizar modelos</button>}
     </div>
-    <p className="mt-2 text-xs leading-5 text-[var(--text-2)]">Cada agente abre o contato da sua carteira e, no atendimento autônomo, só escolhe entre as ações que o Consulta ISP permite: texto, valor e data vêm do motor, nunca da IA. Testar gera uma prévia com um cliente fictício e não envia mensagens.</p>
+    <p className="mt-2 text-xs leading-5 text-[var(--text-2)]">Cada agente abre o contato da sua carteira e, no atendimento autônomo, só escolhe entre as ações que o Consulta ISP permite. Valor e data vêm do sistema, nunca da IA; com a funcionária digital ligada ela escreve as mensagens, e o sistema confere cada uma antes de enviar. Testar gera uma prévia com um cliente fictício e não envia mensagens.</p>
     {modelos.isError && <p role="alert" className="mt-3 text-xs text-[var(--danger)]">{mensagemDoErro(modelos.error)}</p>}
     {modelos.data && !modelos.data.configured && <p role="alert" className="mt-3 text-xs text-[var(--gated)]">A credencial de IA precisa ser configurada no Chat BullQ para preparar mensagens. Aplicar e testar ficam bloqueados até lá — os modelos abaixo são só o que o catálogo conhece, nenhum roda sem a credencial.</p>}
     {modelos.data?.configured && !modelos.data.models.length && <p className="mt-3 text-xs text-[var(--gated)]">Nenhum modelo compatível está disponível na credencial atual.</p>}
@@ -40,30 +43,37 @@ export function AgentesDoChat({ podeAdministrar }: { podeAdministrar: boolean })
 function ConfiguracaoDoAgente({ agente, modelos, credencialAusente, podeAdministrar }: { agente: AgenteDoChat; modelos: ModeloDoAgente[]; credencialAusente: boolean; podeAdministrar: boolean }) {
   const { toast } = useToast();
   const [modelo, setModelo] = useState(agente.modelo ?? "");
+  const [nomeDaPersona, setNomeDaPersona] = useState(agente.nomeDaPersona ?? "");
   const [descricao, setDescricao] = useState(agente.descricao ?? "");
   const [instrucoes, setInstrucoes] = useState(agente.instrucoes);
   const [contextoOperacional, setContextoOperacional] = useState(agente.contextoOperacional ?? "");
   const [temperatura, setTemperatura] = useState(String(agente.temperatura ?? 0.3));
-  const [maxTokens, setMaxTokens] = useState(String(agente.maxTokens ?? 600));
+  const [maxTokens, setMaxTokens] = useState(String(agente.maxTokens ?? LIMITES_DO_AGENTE.maxTokens.padrao));
   const [habilitado, setHabilitado] = useState(agente.habilitado);
   const [previa, setPrevia] = useState<PrimeiroContatoPreparado | null>(null);
-  const [promptAberto, setPromptAberto] = useState(false);
   // `atualizadoEm` fica na key só para recarregar o prompt depois de salvar/aplicar: o fetcher
   // padrão junta a key inteira na URL (".../prompt/2026-09-16T19:40:29.296Z" → 404 em produção,
   // 16/09/2026), por isso a busca é explícita e vai só ao caminho da rota.
+  // Carrega para o admin mesmo com o bloco fechado: o contador do prompt final precisa do tamanho
+  // da casa (as regras do servidor), que só o servidor conhece.
   const prompt = useQuery<PromptDoAgente>({
     queryKey: [`${API}/${agente.tipo}/prompt`, agente.atualizadoEm],
     queryFn: async () => (await apiRequest("GET", `${API}/${agente.tipo}/prompt`)).json(),
-    enabled: promptAberto && podeAdministrar, retry: false, staleTime: 30_000,
+    enabled: podeAdministrar, retry: false, staleTime: 30_000,
   });
 
-  const corpo = { modelo: modelo || null, descricao, instrucoes, contextoOperacional, habilitado, temperatura: numeroOuIndefinido(temperatura), maxTokens: numeroOuIndefinido(maxTokens) };
+  const corpo = { modelo: modelo || null, nomeDaPersona: nomeOuNulo(nomeDaPersona), descricao, instrucoes, contextoOperacional, habilitado, temperatura: numeroOuIndefinido(temperatura), maxTokens: numeroOuIndefinido(maxTokens) };
   // A mesma validação do servidor, antes de salvar: o operador vê o limite estourado no campo, não num 400.
-  const validacao = useMemo(() => ConfiguracaoDeAgenteSchema.safeParse(corpo), [modelo, descricao, instrucoes, contextoOperacional, habilitado, temperatura, maxTokens]);
+  const validacao = useMemo(() => ConfiguracaoDeAgenteSchema.safeParse(corpo), [modelo, nomeDaPersona, descricao, instrucoes, contextoOperacional, habilitado, temperatura, maxTokens]);
   const erroDe = (campo: string) => validacao.success ? null : validacao.error.issues.find(i => i.path[0] === campo)?.message ?? null;
-  // Campo vazio não conta como mudança: ele significa “não mexi nisso”, e o servidor mantém o valor que já estava gravado.
-  const mudou = modelo !== (agente.modelo ?? "") || descricao !== (agente.descricao ?? "") || instrucoes !== agente.instrucoes || contextoOperacional !== (agente.contextoOperacional ?? "")
-    || (corpo.temperatura !== undefined && corpo.temperatura !== (agente.temperatura ?? 0.3)) || (corpo.maxTokens !== undefined && corpo.maxTokens !== (agente.maxTokens ?? 600)) || habilitado !== agente.habilitado;
+  const nomeMudou = corpo.nomeDaPersona !== (agente.nomeDaPersona ?? null);
+  // Campo numérico vazio não conta como mudança: ele significa “não mexi nisso”, e o servidor mantém o valor que já estava gravado.
+  const mudou = modelo !== (agente.modelo ?? "") || nomeMudou || descricao !== (agente.descricao ?? "") || instrucoes !== agente.instrucoes || contextoOperacional !== (agente.contextoOperacional ?? "")
+    || (corpo.temperatura !== undefined && corpo.temperatura !== (agente.temperatura ?? 0.3)) || (corpo.maxTokens !== undefined && corpo.maxTokens !== (agente.maxTokens ?? LIMITES_DO_AGENTE.maxTokens.padrao)) || habilitado !== agente.habilitado;
+  // O prompt final AO VIVO: casa (do servidor, com o nome gravado) + instruções e avisos como estão no formulário.
+  // Nome trocado e não salvo muda a casa em poucos caracteres — por isso o "≈" até salvar.
+  const promptFinalAoVivo = prompt.data ? tamanhoDoPromptFinal(prompt.data.caracteresDaCasa, instrucoes, contextoOperacional) : null;
+  const tetoDoPrompt = prompt.data?.limite ?? AGENT_PROMPT_MAX;
   const acao = useMutation({
     mutationFn: async (tipo: "salvar" | "provisionar" | "testar") => {
       if (tipo === "salvar") return { tipo, valor: await (await apiRequest("PUT", `${API}/${agente.tipo}`, corpo)).json() };
@@ -92,21 +102,34 @@ function ConfiguracaoDoAgente({ agente, modelos, credencialAusente, podeAdminist
       {erroDe("modelo") && <span role="alert" className="mt-1 block text-[11px] text-[var(--danger)]">{erroDe("modelo")}</span>}
     </label>
 
+    <label className="block"><span className={ROTULO_CAMPO}>nome da funcionária</span>
+      <input aria-label={`Nome da funcionária de ${agente.nome}`} className={cn(CONTROLE_CAMPO, "w-full")} maxLength={NOME_DA_PERSONA_MAX} value={nomeDaPersona} onChange={e => setNomeDaPersona(e.target.value)} disabled={bloqueado} placeholder="Ex.: Clara" autoComplete="off" />
+      <span className="mt-1 block text-[11px] leading-4 text-[var(--text-muted)]">É como ela se apresenta ao cliente (“Aqui é a {nomeOuNulo(nomeDaPersona) ?? "…"}”). Perguntada se é robô ou pessoa, confirma que é atendimento automatizado com supervisão da equipe.</span>
+      <span className={cn(CONTADOR, "mt-1 block text-right")}>{nomeDaPersona.trim().length}/{NOME_DA_PERSONA_MAX}</span>
+      {erroDe("nomeDaPersona") && <span role="alert" className="mt-1 block text-[11px] text-[var(--danger)]">{erroDe("nomeDaPersona")}</span>}
+    </label>
+
     <label className="block"><span className={ROTULO_CAMPO}>descrição do agente</span>
       <input aria-label={`Descrição de ${agente.nome}`} className={cn(CONTROLE_CAMPO, "w-full")} maxLength={LIMITES_DO_AGENTE.descricao} value={descricao} onChange={e => setDescricao(e.target.value)} disabled={bloqueado} placeholder="Ex.: assistente de cobrança da NsLink, atende de segunda a sexta." />
       <span className={cn(CONTADOR, "mt-1 block text-right")}>{descricao.length}/{LIMITES_DO_AGENTE.descricao}</span>
     </label>
 
-    <label className="block"><span className={ROTULO_CAMPO}>preferências de escrita</span>
-      <textarea aria-label={`Preferências de ${agente.nome}`} className={cn(CONTROLE_CAMPO_MULTILINHA, "min-h-24")} rows={4} maxLength={LIMITES_DO_AGENTE.instrucoes} value={instrucoes} onChange={e => setInstrucoes(e.target.value)} disabled={bloqueado} placeholder="Ex.: linguagem simples, cordial e breve." />
-      <span className={cn(CONTADOR, "mt-1 block text-right")}>{instrucoes.length}/{LIMITES_DO_AGENTE.instrucoes}</span>
+    <label className="block"><span className={ROTULO_CAMPO}>instruções da funcionária</span>
+      <textarea aria-label={`Instruções de ${agente.nome}`} className={cn(CONTROLE_CAMPO_MULTILINHA, "min-h-24")} rows={4} maxLength={LIMITES_DO_AGENTE.instrucoes} value={instrucoes} onChange={e => setInstrucoes(e.target.value)} disabled={bloqueado} placeholder="Ex.: linguagem simples, cordial e breve." />
+      <span className={cn(CONTADOR, "mt-1 block text-right")}>{milhar(instrucoes.length)}/{milhar(LIMITES_DO_AGENTE.instrucoes)}</span>
+      {erroDe("instrucoes") && <span role="alert" className="mt-1 block text-[11px] text-[var(--danger)]">{erroDe("instrucoes")}</span>}
     </label>
 
     <label className="block"><span className={ROTULO_CAMPO}>contexto operacional do dia</span>
       <textarea aria-label={`Contexto operacional de ${agente.nome}`} className={CONTROLE_CAMPO_MULTILINHA} rows={3} maxLength={LIMITES_DO_AGENTE.contextoOperacional} value={contextoOperacional} onChange={e => setContextoOperacional(e.target.value)} disabled={bloqueado} placeholder="Avisos que valem hoje. Ex.: instabilidade no bairro Centro até as 18h; não prometer visita antes de quinta." />
       <span className="mt-1 block text-[11px] leading-4 text-[var(--text-muted)]">Vai gravado no prompt do agente ao aplicar, abaixo das regras da casa — só chega ao modelo depois de “{agente.id ? "Aplicar no agente" : "Provisionar"}”. Não substitui a política: desconto, baixa e negativação continuam fora da IA.</span>
-      <span className={cn(CONTADOR, "mt-1 block text-right")}>{contextoOperacional.length}/{LIMITES_DO_AGENTE.contextoOperacional}</span>
+      <span className={cn(CONTADOR, "mt-1 block text-right")}>{milhar(contextoOperacional.length)}/{milhar(LIMITES_DO_AGENTE.contextoOperacional)}</span>
     </label>
+
+    {podeAdministrar && <div className="flex items-baseline justify-between gap-2 rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2" data-testid={`prompt-final-${agente.tipo}`}>
+      <span className="text-[11px] leading-4 text-[var(--text-muted)]">prompt final — regras da casa, instruções e avisos do dia</span>
+      <span className={cn(CONTADOR, "shrink-0", promptFinalAoVivo !== null && promptFinalAoVivo > tetoDoPrompt && "text-[var(--danger)]")}>{promptFinalAoVivo === null ? "—" : `${nomeMudou ? "≈ " : ""}${milhar(promptFinalAoVivo)}/${milhar(tetoDoPrompt)}`}</span>
+    </div>}
 
     <div className="grid grid-cols-2 gap-3">
       <label className="block"><span className={ROTULO_CAMPO}>temperatura</span>
@@ -133,13 +156,13 @@ function ConfiguracaoDoAgente({ agente, modelos, credencialAusente, podeAdminist
     {agente.tipo !== "recuperacao_equipamentos" && <p className="text-xs leading-5 text-[var(--text-muted)]">A abertura é neutra e não usa geração de IA. Modelo, tom e preferências orientam a continuidade após a identificação.</p>}
     {previa && <div className="rounded border border-[var(--border)] bg-[var(--surface)] p-3"><p className="text-xs leading-5 text-[var(--text)]">{previa.texto}</p><p className="mt-2 break-all font-mono text-[10px] text-[var(--text-muted)] tabular-nums">{previa.modo === "abertura_controlada" ? "Abertura controlada · sem geração de IA" : <>IA · {previa.modelo} · {previa.runId}</>}</p></div>}
 
-    {podeAdministrar && <details className="rounded border border-[var(--border)] bg-[var(--surface)]" onToggle={e => setPromptAberto((e.currentTarget as HTMLDetailsElement).open)} data-testid={`prompt-${agente.tipo}`}>
+    {podeAdministrar && <details className="rounded border border-[var(--border)] bg-[var(--surface)]" data-testid={`prompt-${agente.tipo}`}>
       <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[var(--text-2)]">O que o agente recebe</summary>
       <div className="border-t border-[var(--border)] px-3 py-2">
         {prompt.isLoading ? <div className="h-24 rounded bg-[var(--surface-inset)] motion-safe:animate-pulse" aria-busy="true" /> : prompt.isError ? <p role="alert" className="text-xs text-[var(--danger)]">{mensagemDoErro(prompt.error)}</p> : prompt.data ? <>
-          <p className="text-[11px] leading-4 text-[var(--text-muted)]">É este texto que vai gravado no agente ao aplicar, e é ele que o modelo lê em toda geração. Gerado com a configuração salva{mudou ? " — as alterações ainda não salvas não aparecem" : ""}. As regras da casa vêm antes e mandam; as preferências e o contexto do dia ficam subordinados a elas.</p>
+          <p className="text-[11px] leading-4 text-[var(--text-muted)]">É este texto que vai gravado no agente ao aplicar, e é ele que o modelo lê em toda geração. Gerado com a configuração salva{mudou ? " — as alterações ainda não salvas não aparecem" : ""}. As regras da casa vêm antes e mandam; as instruções da funcionária e o contexto do dia ficam subordinados a elas.</p>
           <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-4 text-[var(--text)]">{prompt.data.prompt}</pre>
-          <p className={cn(CONTADOR, "mt-2")}>{prompt.data.caracteres} caracteres · {prompt.data.nomeProvedor}</p>
+          <p className={cn(CONTADOR, "mt-2")}>{milhar(prompt.data.caracteres)} caracteres de {milhar(prompt.data.limite)} · {prompt.data.nomeProvedor}</p>
         </> : null}
       </div>
     </details>}

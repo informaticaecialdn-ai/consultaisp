@@ -1,6 +1,5 @@
 import { DIRETIVA_POR_TOM, QUADRANTES, TONS, TOM_VULNERAVEL, type Quadrante, type Tom } from "./dna";
 import { etapaParaAtraso, type Etapa } from "./regua";
-import { textoDeAberturaControlada } from "../chat-templates";
 
 /** Sugestão operacional. O DNA nunca altera a janela temporal ou autoriza envio. */
 export function orientarContato(d: {
@@ -94,13 +93,4 @@ export function orientarContato(d: {
       regua.etapa !== null &&
       agente !== "Revisão humana",
   };
-}
-
-export function textoDePrimeiroContato(d: {
-  nome: string;
-  provedor: string;
-  origem: "cobranca" | "equipamentos";
-  tom?: string | null;
-}) {
-  return textoDeAberturaControlada({ nomeCliente: d.nome, nomeProvedor: d.provedor });
 }

@@ -1,0 +1,1479 @@
+From c15ad6fae0a2477f9ba30e63d3d4d73908de5f50 Mon Sep 17 00:00:00 2001
+From: Consulta ISP <dev@consultaisp.com.br>
+Date: Wed, 16 Sep 2026 23:13:35 -0300
+Subject: [PATCH] =?UTF-8?q?feat(messaging):=20POST=20/messages/agent-batch?=
+ =?UTF-8?q?=20=E2=80=94=20os=20baloes=20do=20agente=20de=20autonomia=20sae?=
+ =?UTF-8?q?m=20como=20o=20agente,=20em=20ordem=20e=20com=20"digitando?=
+ =?UTF-8?q?=E2=80=A6"?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Por que: o Consulta ISP envia pelo POST /messages, que fala como o usuario
+do token. O cliente recebia "*NsLink Provedor*" no topo de cada mensagem, a
+conversa era atribuida ao dono e a IA pausada, nao havia "digitando…", e
+dois baloes seguidos podiam chegar trocados (a fila outbound-messages roda
+com concorrencia 5). A funcionaria digital escreve de 1 a 3 baloes por
+turno; eles precisam chegar como uma pessoa escreve.
+
+- POST /messages/agent-batch { conversationId, aiAgentId, textos[1..4] },
+  so OWNER/ADMIN. O agente tem de ser da organizacao, nao apagado, com a
+  capability autonomia_cobranca_controlada, parado e sem resposta direta —
+  a mesma regra do planejador. Conversa atribuida a OUTRO usuario (nao a
+  quem chama) e recusada com 409. containsMetaTalk em cada balao.
+- As mensagens nascem como as da tool replyToConversation: senderName do
+  agente, metadata.aiAgentId, sem senderId, SEM assinatura, SEM pausar a
+  IA, SEM atribuir, SEM marcar lida. Novo: metadata.enviadoPorUserId (quem
+  tem o token fala como a persona, mas fica o rastro) e metadata.lote
+  {id, indice, total}; createdAt crescente para a ordem no inbox.
+- UM job (send-agent-batch, attempts 1) envia os baloes em sequencia.
+  Antes de cada um: a conversa foi atribuida a outro usuario, ou a IA foi
+  desligada DEPOIS do lote (o "assumir"/"transferir" do Consulta ISP usa o
+  mesmo token, so o aiDisabledAt o denuncia)? Para o resto e marca FAILED
+  com metadata.loteInterrompido. Depois o "digitando…" (800 ms + 35 ms por
+  caractere, teto 4 s), confere de novo e envia. Falha num balao: os
+  seguintes nao saem, nada e reenviado. Job reprocessado (worker reiniciado)
+  pula o que saiu e marca como envio_incerto o que estava saindo
+  (metadata.envioIniciadoEm), nunca reenvia.
+- A metadata do lote sobrevive ao SENT (o envio comum troca a metadata por
+  {providerResponse}, e continua trocando) e passa para a linha do eco do
+  webhook quando ele chega antes.
+- Evolution: sendPresence (POST /chat/sendPresence/{instance} com number,
+  presence composing e delay; timeout = delay + 2 s). O adapter so manda
+  presenca quando recebe a espera (novo 3o argumento opcional da porta), e
+  nada escapa dele. Sem espera — a IA do proprio fork — segue sem presenca:
+  o ritmo e o consumo das outras organizacoes nao mudam. O lote espera a
+  espera e a presenca, com teto de espera + 2 s, e presenca que falha nunca
+  impede o balao.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ .../evolution/evolution.http-client.spec.ts   |  21 ++
+ .../evolution/evolution.http-client.ts        |  19 ++
+ .../evolution.outbound-adapter.spec.ts        |  22 +-
+ .../evolution/evolution.outbound-adapter.ts   |  18 +-
+ .../ports/outbound-channel.port.ts            |   7 +
+ .../messages/dto/lote-do-agente.dto.ts        |  26 ++
+ .../messages/lote-do-agente.service.spec.ts   | 225 +++++++++++++
+ .../messages/lote-do-agente.service.ts        | 187 +++++++++++
+ .../messaging/messages/messages.controller.ts |  22 ++
+ src/modules/messaging/messaging.module.ts     |   2 +
+ .../messaging/pipeline/lote-do-agente.spec.ts |  42 +++
+ .../messaging/pipeline/lote-do-agente.ts      |  82 +++++
+ .../pipeline/outbound-lote-do-agente.spec.ts  | 303 ++++++++++++++++++
+ .../pipeline/outbound-message.processor.ts    | 222 ++++++++++++-
+ 14 files changed, 1192 insertions(+), 6 deletions(-)
+ create mode 100644 src/modules/messaging/messages/dto/lote-do-agente.dto.ts
+ create mode 100644 src/modules/messaging/messages/lote-do-agente.service.spec.ts
+ create mode 100644 src/modules/messaging/messages/lote-do-agente.service.ts
+ create mode 100644 src/modules/messaging/pipeline/lote-do-agente.spec.ts
+ create mode 100644 src/modules/messaging/pipeline/lote-do-agente.ts
+ create mode 100644 src/modules/messaging/pipeline/outbound-lote-do-agente.spec.ts
+
+diff --git a/src/modules/channel-hub/adapters/evolution/evolution.http-client.spec.ts b/src/modules/channel-hub/adapters/evolution/evolution.http-client.spec.ts
+index 49297dc..7ca4e49 100644
+--- a/src/modules/channel-hub/adapters/evolution/evolution.http-client.spec.ts
++++ b/src/modules/channel-hub/adapters/evolution/evolution.http-client.spec.ts
+@@ -114,6 +114,27 @@ describe('cliente HTTP da Evolution', () => {
+     await expect(cliente.sendMedia(canal, corpo)).rejects.toBeInstanceOf(BadRequestException);
+   });
+ 
++  it('"digitando…": sendPresence com os três campos, token da instância e timeout = delay + 2 s', async () => {
++    http.post.mockResolvedValueOnce({ data: {} });
++    await cliente.sendPresence(canal, '554391191100@s.whatsapp.net', 1150);
++    expect(configs[0].headers.apikey).toBe(TOKEN);
++    expect(http.post).toHaveBeenCalledWith(
++      '/chat/sendPresence/cbq-0123456789abcdef',
++      { number: '554391191100@s.whatsapp.net', presence: 'composing', delay: 1150 },
++      { timeout: 3150 },
++    );
++  });
++
++  it('presença que falha vira BadGateway sem o corpo do gateway nem o número no log', async () => {
++    const warn = jest.spyOn((cliente as any).logger, 'warn').mockImplementation(() => undefined);
++    http.post.mockRejectedValueOnce({ response: { status: 400, data: { apikey: 'vazou', number: '554391191100' } } });
++    const erro = await cliente.sendPresence(canal, '554391191100@s.whatsapp.net', 800).catch((e) => e);
++    expect(erro).toBeInstanceOf(BadGatewayException);
++    expect(JSON.stringify(erro.getResponse())).not.toContain('vazou');
++    expect(JSON.stringify(warn.mock.calls)).not.toContain('554391191100');
++    warn.mockRestore();
++  });
++
+   it('logout de instância já desconectada não é erro', async () => {
+     http.delete.mockRejectedValueOnce({ response: { status: 400 } });
+     await expect(cliente.logout(canal)).resolves.toBeUndefined();
+diff --git a/src/modules/channel-hub/adapters/evolution/evolution.http-client.ts b/src/modules/channel-hub/adapters/evolution/evolution.http-client.ts
+index f7f5bba..8153143 100644
+--- a/src/modules/channel-hub/adapters/evolution/evolution.http-client.ts
++++ b/src/modules/channel-hub/adapters/evolution/evolution.http-client.ts
+@@ -178,6 +178,25 @@ export class EvolutionHttpClient {
+     }
+   }
+ 
++  /**
++   * `POST /chat/sendPresence/{instance}` com `{ number, presence: 'composing', delay }`
++   * (os três obrigatórios na 2.3.7). A Evolution liga o "digitando…", espera o
++   * `delay` e manda "paused" antes de responder — a requisição fica aberta esse
++   * tempo, então o timeout é `delay + 2 s`, não os 30 s do envio.
++   */
++  async sendPresence(channel: Channel, number: string, delayMs: number): Promise<void> {
++    const { http, nome } = this.daInstancia(channel);
++    try {
++      await http.post(
++        `/chat/sendPresence/${nome}`,
++        { number, presence: 'composing', delay: delayMs },
++        { timeout: delayMs + 2_000 },
++      );
++    } catch (err) {
++      this.falha('sendPresence', err);
++    }
++  }
++
+   private falhaNoEnvio(err: unknown): never {
+     const resp = (err as ErroHttp)?.response;
+     if (resp?.status === 400 && JSON.stringify(resp.data ?? {}).includes('"exists":false')) {
+diff --git a/src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.spec.ts b/src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.spec.ts
+index f3471f9..d97b40b 100644
+--- a/src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.spec.ts
++++ b/src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.spec.ts
+@@ -3,7 +3,7 @@ import { ChannelType } from '@prisma/client';
+ import { MessageContentType } from '../../ports/types';
+ import { EvolutionOutboundAdapter } from './evolution.outbound-adapter';
+ 
+-const http = { sendText: jest.fn(), sendMedia: jest.fn(), whatsappNumber: jest.fn(), getBase64FromMediaMessage: jest.fn() };
++const http = { sendText: jest.fn(), sendMedia: jest.fn(), whatsappNumber: jest.fn(), getBase64FromMediaMessage: jest.fn(), sendPresence: jest.fn() };
+ const prisma = { message: { findFirst: jest.fn() } };
+ const uploads = { saveInboundMedia: jest.fn() };
+ const adapter = new EvolutionOutboundAdapter(http as never, prisma as never, uploads as never);
+@@ -46,6 +46,26 @@ describe('saída da Evolution', () => {
+     expect(http.getBase64FromMediaMessage).not.toHaveBeenCalled();
+   });
+ 
++  it('"digitando…" com a espera do lote: presença pelo cliente HTTP com o mesmo delay', async () => {
++    http.sendPresence.mockResolvedValue(undefined);
++    await adapter.sendTypingIndicator(canal, '554391191100@s.whatsapp.net', 1150);
++    expect(http.sendPresence).toHaveBeenCalledWith(canal, '554391191100@s.whatsapp.net', 1150);
++  });
++
++  it('sem espera informada continua sem presença (a IA do próprio fork não muda de ritmo)', async () => {
++    await adapter.sendTypingIndicator(canal, '554391191100@s.whatsapp.net');
++    await adapter.sendTypingIndicator(canal, '554391191100@s.whatsapp.net', 0);
++    await adapter.sendTypingIndicator(canal, '554391191100@s.whatsapp.net', Number.NaN);
++    expect(http.sendPresence).not.toHaveBeenCalled();
++  });
++
++  it('presença que falha ou estoura o tempo não escapa do adapter', async () => {
++    http.sendPresence.mockRejectedValueOnce(new Error('timeout of 3150ms exceeded'));
++    await expect(adapter.sendTypingIndicator(canal, '554391191100@s.whatsapp.net', 1150)).resolves.toBeUndefined();
++    http.sendPresence.mockImplementationOnce(() => { throw new Error('config'); });
++    await expect(adapter.sendTypingIndicator(canal, '554391191100@s.whatsapp.net', 1150)).resolves.toBeUndefined();
++  });
++
+   it('JID canônico: com e sem o nono dígito, vale o que o WhatsApp devolve', async () => {
+     http.whatsappNumber.mockResolvedValue({ jid: '554391191100@s.whatsapp.net', exists: true });
+     await expect(adapter.resolveContactExternalId(canal, '5543991191100')).resolves.toBe('554391191100@s.whatsapp.net');
+diff --git a/src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.ts b/src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.ts
+index e430cfd..63720d7 100644
+--- a/src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.ts
++++ b/src/modules/channel-hub/adapters/evolution/evolution.outbound-adapter.ts
+@@ -44,8 +44,22 @@ export class EvolutionOutboundAdapter implements OutboundChannelPort {
+     return { externalId: resposta?.key?.id ?? '', providerResponse: resposta };
+   }
+ 
+-  async sendTypingIndicator(): Promise<void> {
+-    // Sem "digitando" por enquanto: a Evolution mostraria o status para o cliente e não é pedido.
++  /**
++   * "Digitando…" só quando o chamador diz quanto vai esperar (o lote do agente,
++   * vps/010). Sem `delayMs` continua sem presença, como antes: a IA do próprio
++   * fork não passa a espera, e ligar para ela mudaria o ritmo e o consumo de
++   * chamadas das outras organizações.
++   *
++   * A Evolution segura a requisição pelo `delay`; quem chama não deve depender
++   * dela. Por isso nada escapa daqui: presença que falha só fica sem presença.
++   */
++  async sendTypingIndicator(channel: Channel, contactExternalId: string, delayMs?: number): Promise<void> {
++    if (typeof delayMs !== 'number' || !Number.isFinite(delayMs) || delayMs <= 0) return;
++    try {
++      await this.http.sendPresence(channel, contactExternalId, Math.floor(delayMs));
++    } catch {
++      // O cliente HTTP já registrou a falha (sem o número); o balão sai assim mesmo.
++    }
+   }
+ 
+   async getMediaUrl(_channel: Channel, mediaId: string): Promise<string> {
+diff --git a/src/modules/channel-hub/ports/outbound-channel.port.ts b/src/modules/channel-hub/ports/outbound-channel.port.ts
+index 41eae55..18d01bd 100644
+--- a/src/modules/channel-hub/ports/outbound-channel.port.ts
++++ b/src/modules/channel-hub/ports/outbound-channel.port.ts
+@@ -17,9 +17,16 @@ export interface OutboundChannelPort {
+     message: NormalizedOutboundMessage,
+   ): Promise<SendResult>;
+ 
++  /**
++   * "Digitando…" no chat do contato. `delayMs` é quanto o chamador vai esperar
++   * antes de enviar: o canal que precisa de duração (Evolution) nunca mostra
++   * mais que isso; os outros ignoram. Sem `delayMs`, cada canal faz o que
++   * sempre fez.
++   */
+   sendTypingIndicator(
+     channel: Channel,
+     contactExternalId: string,
++    delayMs?: number,
+   ): Promise<void>;
+ 
+   getMediaUrl(channel: Channel, mediaId: string): Promise<string>;
+diff --git a/src/modules/messaging/messages/dto/lote-do-agente.dto.ts b/src/modules/messaging/messages/dto/lote-do-agente.dto.ts
+new file mode 100644
+index 0000000..14baf6d
+--- /dev/null
++++ b/src/modules/messaging/messages/dto/lote-do-agente.dto.ts
+@@ -0,0 +1,26 @@
++import { ArrayMaxSize, ArrayMinSize, IsArray, IsNotEmpty, IsString, MaxLength } from 'class-validator';
++import { ApiProperty } from '@nestjs/swagger';
++import { LOTE_MAX_CARACTERES, LOTE_MAX_MENSAGENS } from '../../pipeline/lote-do-agente';
++
++/** `POST /messages/agent-batch`: os balões de UM turno do agente, na ordem em que o cliente deve lê-los. */
++export class LoteDoAgenteDto {
++  @ApiProperty({ example: 'conversation-id-here' })
++  @IsString()
++  @IsNotEmpty()
++  @MaxLength(64)
++  conversationId: string;
++
++  @ApiProperty({ example: 'ai-agent-id-here' })
++  @IsString()
++  @IsNotEmpty()
++  @MaxLength(64)
++  aiAgentId: string;
++
++  @ApiProperty({ example: ['Oi, Maria!', 'Vi aqui a sua fatura de setembro.'], minItems: 1, maxItems: LOTE_MAX_MENSAGENS })
++  @IsArray()
++  @ArrayMinSize(1)
++  @ArrayMaxSize(LOTE_MAX_MENSAGENS)
++  @IsString({ each: true })
++  @MaxLength(LOTE_MAX_CARACTERES, { each: true })
++  textos: string[];
++}
+diff --git a/src/modules/messaging/messages/lote-do-agente.service.spec.ts b/src/modules/messaging/messages/lote-do-agente.service.spec.ts
+new file mode 100644
+index 0000000..1afc457
+--- /dev/null
++++ b/src/modules/messaging/messages/lote-do-agente.service.spec.ts
+@@ -0,0 +1,225 @@
++import 'reflect-metadata';
++import {
++  BadRequestException,
++  ConflictException,
++  ForbiddenException,
++  Logger,
++  NotFoundException,
++  RequestMethod,
++  ServiceUnavailableException,
++} from '@nestjs/common';
++import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
++import { MessageStatus, OrgRole } from '@prisma/client';
++import { plainToInstance } from 'class-transformer';
++import { validate } from 'class-validator';
++import { JwtAuthGuard, OrgGuard, RolesGuard } from '../../../common/guards';
++import { ROLES_KEY } from '../../../common/decorators';
++import { LoteDoAgenteDto } from './dto/lote-do-agente.dto';
++import { LoteDoAgenteService } from './lote-do-agente.service';
++import { MessagesController } from './messages.controller';
++import { LOTE_DO_AGENTE_JOB } from '../pipeline/lote-do-agente';
++
++const AGENTE = {
++  id: 'ag1', name: 'Clara', capabilities: ['autonomia_cobranca_controlada'], isActive: false, canRespondDirectly: false,
++};
++const CONVERSA = {
++  id: 'cv1', organizationId: 'org-a', channelId: 'ch1', contactId: 'ct1', assignedToId: 'owner', deletedAt: null,
++  aiEnabled: false, status: 'BOT',
++  contact: { channels: [{ channelId: 'ch1', externalId: '554391191100@s.whatsapp.net' }] },
++};
++
++function fixture(o: { conversa?: unknown; agente?: unknown; filaFalha?: boolean } = {}) {
++  let n = 0;
++  const criadas: any[] = [];
++  const prisma = {
++    conversation: {
++      findUnique: jest.fn().mockResolvedValue('conversa' in o ? o.conversa : CONVERSA),
++      update: jest.fn().mockResolvedValue({}),
++    },
++    aiAgent: { findFirst: jest.fn().mockResolvedValue('agente' in o ? o.agente : AGENTE) },
++    message: {
++      create: jest.fn(async ({ data }: any) => {
++        const m = { id: `m${++n}`, ...data };
++        criadas.push(m);
++        return m;
++      }),
++      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
++    },
++    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
++  };
++  const realtime = { emitToChannel: jest.fn(), emitToConversation: jest.fn() };
++  const channelAccess = { assertChannelAccess: jest.fn() };
++  const queue = {
++    add: o.filaFalha ? jest.fn().mockRejectedValue(new Error('redis fora')) : jest.fn().mockResolvedValue({ id: 'j1' }),
++  };
++  const service = new LoteDoAgenteService(prisma as never, realtime as never, channelAccess as never, queue as never);
++  return { service, prisma, realtime, channelAccess, queue, criadas };
++}
++
++const dto = (textos: unknown = ['Oi, Maria!', 'Vi aqui a sua conta de setembro.']) =>
++  ({ conversationId: 'cv1', aiAgentId: 'ag1', textos }) as LoteDoAgenteDto;
++
++describe('POST /messages/agent-batch — guardas e formato', () => {
++  it('controller: JWT + organização + papel; a rota exige OWNER/ADMIN', () => {
++    expect(Reflect.getMetadata(GUARDS_METADATA, MessagesController)).toEqual([JwtAuthGuard, OrgGuard, RolesGuard]);
++    const handler = MessagesController.prototype.sendAgentBatch;
++    expect(Reflect.getMetadata(ROLES_KEY, handler)).toEqual([OrgRole.OWNER, OrgRole.ADMIN]);
++    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('agent-batch');
++    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.POST);
++    // O envio comum continua aberto a qualquer membro, como antes.
++    expect(Reflect.getMetadata(ROLES_KEY, MessagesController.prototype.send)).toBeUndefined();
++  });
++
++  it('controller repassa usuário, organização e acesso ao serviço', async () => {
++    const lote = { enviar: jest.fn().mockResolvedValue({ loteId: 'l1', mensagens: [] }) };
++    const controller = new MessagesController({} as never, {} as never, {} as never, {} as never, lote as never);
++    await controller.sendAgentBatch(dto(), 'owner', 'org-a', 'ALL');
++    expect(lote.enviar).toHaveBeenCalledWith(dto(), 'owner', 'org-a', 'ALL');
++  });
++
++  const erros = async (corpo: unknown) =>
++    validate(plainToInstance(LoteDoAgenteDto, corpo), { whitelist: true, forbidNonWhitelisted: true });
++
++  it('DTO: 1 a 4 textos, string, até 4000 caracteres, sem campo extra', async () => {
++    expect(await erros({ conversationId: 'cv1', aiAgentId: 'ag1', textos: ['a'] })).toHaveLength(0);
++    expect(await erros({ conversationId: 'cv1', aiAgentId: 'ag1', textos: ['a', 'b', 'c', 'd'] })).toHaveLength(0);
++    expect(await erros({ conversationId: 'cv1', aiAgentId: 'ag1', textos: [] })).not.toHaveLength(0);
++    expect(await erros({ conversationId: 'cv1', aiAgentId: 'ag1', textos: ['a', 'b', 'c', 'd', 'e'] })).not.toHaveLength(0);
++    expect(await erros({ conversationId: 'cv1', aiAgentId: 'ag1', textos: [1] })).not.toHaveLength(0);
++    expect(await erros({ conversationId: 'cv1', aiAgentId: 'ag1', textos: ['x'.repeat(4001)] })).not.toHaveLength(0);
++    expect(await erros({ conversationId: 'cv1', aiAgentId: 'ag1', textos: 'oi' })).not.toHaveLength(0);
++    expect(await erros({ conversationId: 'cv1', textos: ['a'] })).not.toHaveLength(0);
++    expect(await erros({ conversationId: 'cv1', aiAgentId: 'ag1', textos: ['a'], assinatura: true })).not.toHaveLength(0);
++  });
++});
++
++describe('lote do agente — aceitar e enfileirar', () => {
++  beforeEach(() => {
++    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
++    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
++    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
++  });
++  afterEach(() => jest.restoreAllMocks());
++
++  it('cria as mensagens como o agente: nome, aiAgentId, autor real, sem senderId, em ordem de createdAt', async () => {
++    const f = fixture();
++    const r = await f.service.enviar(dto(), 'owner', 'org-a');
++    expect(r.mensagens).toEqual([{ id: 'm1', status: MessageStatus.QUEUED }, { id: 'm2', status: MessageStatus.QUEUED }]);
++    expect(r.loteId).toMatch(/^[0-9a-f-]{36}$/);
++    expect(f.prisma.$transaction).toHaveBeenCalledTimes(1);
++    const [a, b] = f.criadas;
++    for (const [m, indice, texto] of [[a, 0, 'Oi, Maria!'], [b, 1, 'Vi aqui a sua conta de setembro.']] as const) {
++      expect(m).toEqual(expect.objectContaining({
++        conversationId: 'cv1', direction: 'OUTBOUND', type: 'TEXT', status: MessageStatus.QUEUED,
++        content: { text: texto }, senderName: 'Clara',
++        metadata: { aiAgentId: 'ag1', enviadoPorUserId: 'owner', lote: { id: r.loteId, indice, total: 2 } },
++      }));
++      expect(m.senderId).toBeUndefined();
++    }
++    expect(b.createdAt.getTime()).toBe(a.createdAt.getTime() + 1);
++    // Sem assinatura: o texto vai como veio.
++    expect(a.content.text.startsWith('*')).toBe(false);
++  });
++
++  it('não atribui, não pausa a IA, não marca lida: só lastMessageAt', async () => {
++    const f = fixture();
++    await f.service.enviar(dto(), 'owner', 'org-a');
++    expect(f.prisma.conversation.update).toHaveBeenCalledTimes(1);
++    const { data } = f.prisma.conversation.update.mock.calls[0][0];
++    expect(Object.keys(data)).toEqual(['lastMessageAt']);
++    expect((f.prisma as any).conversationRead).toBeUndefined();
++  });
++
++  it('UM job de lote, sem repetição automática, com os balões na ordem pedida', async () => {
++    const f = fixture();
++    const inicio = Date.now();
++    await f.service.enviar(dto(['um', 'dois', 'três']), 'owner', 'org-a');
++    expect(f.queue.add).toHaveBeenCalledTimes(1);
++    const [nome, job, opts] = f.queue.add.mock.calls[0];
++    expect(nome).toBe(LOTE_DO_AGENTE_JOB);
++    expect(opts).toEqual({ attempts: 1, removeOnComplete: true, removeOnFail: false });
++    expect(job).toEqual({
++      loteId: expect.any(String), conversationId: 'cv1', channelId: 'ch1', contactExternalId: '554391191100@s.whatsapp.net',
++      aiAgentId: 'ag1', enviadoPorUserId: 'owner', criadoEm: expect.any(Number),
++      mensagens: [{ messageId: 'm1', texto: 'um' }, { messageId: 'm2', texto: 'dois' }, { messageId: 'm3', texto: 'três' }],
++    });
++    expect(job.criadoEm).toBeGreaterThanOrEqual(inicio);
++    expect(f.realtime.emitToConversation).toHaveBeenCalledTimes(3);
++  });
++
++  it('apara os textos e recusa balão em branco', async () => {
++    const f = fixture();
++    await f.service.enviar(dto(['  oi  ']), 'owner', 'org-a');
++    expect(f.criadas[0].content).toEqual({ text: 'oi' });
++    await expect(fixture().service.enviar(dto(['oi', '   ']), 'owner', 'org-a')).rejects.toBeInstanceOf(BadRequestException);
++    await expect(fixture().service.enviar(dto([]), 'owner', 'org-a')).rejects.toBeInstanceOf(BadRequestException);
++    await expect(fixture().service.enviar(dto(['1', '2', '3', '4', '5']), 'owner', 'org-a')).rejects.toBeInstanceOf(BadRequestException);
++  });
++
++  it('conversa de outra organização, apagada ou inexistente: nada é criado', async () => {
++    for (const [conversa, erro] of [
++      [{ ...CONVERSA, organizationId: 'org-b' }, ForbiddenException],
++      [{ ...CONVERSA, deletedAt: new Date() }, NotFoundException],
++      [null, NotFoundException],
++    ] as const) {
++      const f = fixture({ conversa });
++      await expect(f.service.enviar(dto(), 'owner', 'org-a')).rejects.toBeInstanceOf(erro);
++      expect(f.prisma.message.create).not.toHaveBeenCalled();
++      expect(f.queue.add).not.toHaveBeenCalled();
++    }
++  });
++
++  it('respeita o acesso ao canal', async () => {
++    const f = fixture();
++    f.channelAccess.assertChannelAccess.mockImplementation(() => { throw new ForbiddenException(); });
++    await expect(f.service.enviar(dto(), 'owner', 'org-a', new Set(['outro']) as never)).rejects.toBeInstanceOf(ForbiddenException);
++    expect(f.channelAccess.assertChannelAccess).toHaveBeenCalledWith(new Set(['outro']), 'ch1');
++    expect(f.prisma.message.create).not.toHaveBeenCalled();
++  });
++
++  it('só agente da organização, não apagado, com a capability, parado e sem resposta direta', async () => {
++    const f = fixture();
++    await f.service.enviar(dto(), 'owner', 'org-a');
++    expect(f.prisma.aiAgent.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'ag1', organizationId: 'org-a', deletedAt: null } }));
++
++    await expect(fixture({ agente: null }).service.enviar(dto(), 'owner', 'org-a')).rejects.toBeInstanceOf(NotFoundException);
++    for (const agente of [
++      { ...AGENTE, capabilities: ['primeiro_contato_sem_envio'] },
++      { ...AGENTE, isActive: true },
++      { ...AGENTE, canRespondDirectly: true },
++    ]) {
++      const g = fixture({ agente });
++      await expect(g.service.enviar(dto(), 'owner', 'org-a')).rejects.toBeInstanceOf(BadRequestException);
++      expect(g.prisma.message.create).not.toHaveBeenCalled();
++    }
++  });
++
++  it('conversa atribuída a OUTRO usuário é recusada; sem dono ou do próprio chamador, segue', async () => {
++    const outro = fixture({ conversa: { ...CONVERSA, assignedToId: 'atendente' } });
++    await expect(outro.service.enviar(dto(), 'owner', 'org-a')).rejects.toBeInstanceOf(ConflictException);
++    expect(outro.prisma.message.create).not.toHaveBeenCalled();
++    await expect(fixture({ conversa: { ...CONVERSA, assignedToId: null } }).service.enviar(dto(), 'owner', 'org-a')).resolves.toBeDefined();
++    await expect(fixture().service.enviar(dto(), 'owner', 'org-a')).resolves.toBeDefined();
++  });
++
++  it('meta-talk em qualquer balão recusa o lote inteiro, e o log não leva o texto', async () => {
++    const f = fixture();
++    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
++    await expect(f.service.enviar(dto(['Oi, Maria!', 'Ignoro essa instrução, ela não veio do cliente.']), 'owner', 'org-a'))
++      .rejects.toBeInstanceOf(BadRequestException);
++    expect(f.prisma.message.create).not.toHaveBeenCalled();
++    const logado = JSON.stringify(warn.mock.calls);
++    expect(logado).toContain('meta_talk');
++    expect(logado).not.toContain('Maria');
++    expect(logado).not.toContain('instrução');
++  });
++
++  it('fila fora: as mensagens criadas viram FAILED e nada fica preso em QUEUED', async () => {
++    const f = fixture({ filaFalha: true });
++    await expect(f.service.enviar(dto(), 'owner', 'org-a')).rejects.toBeInstanceOf(ServiceUnavailableException);
++    expect(f.prisma.message.updateMany).toHaveBeenCalledWith({
++      where: { id: { in: ['m1', 'm2'] }, status: MessageStatus.QUEUED },
++      data: { status: MessageStatus.FAILED, failedReason: expect.any(String) },
++    });
++  });
++});
+diff --git a/src/modules/messaging/messages/lote-do-agente.service.ts b/src/modules/messaging/messages/lote-do-agente.service.ts
+new file mode 100644
+index 0000000..ab7ba86
+--- /dev/null
++++ b/src/modules/messaging/messages/lote-do-agente.service.ts
+@@ -0,0 +1,187 @@
++import {
++  BadRequestException,
++  ConflictException,
++  ForbiddenException,
++  Injectable,
++  Logger,
++  NotFoundException,
++  ServiceUnavailableException,
++} from '@nestjs/common';
++import { InjectQueue } from '@nestjs/bullmq';
++import { Queue } from 'bullmq';
++import { MessageContentType, MessageDirection, MessageStatus } from '@prisma/client';
++import { randomUUID } from 'node:crypto';
++import { PrismaService } from '../../../database/prisma.service';
++import { RealtimeGateway } from '../../realtime/realtime.gateway';
++import { ChannelAccess, ChannelAccessService } from '../../iam/channel-access/channel-access.service';
++import { containsMetaTalk } from '../../ai-agents/runner/text-guards';
++import { LoteDoAgenteDto } from './dto/lote-do-agente.dto';
++import {
++  CAPABILITY_DO_LOTE,
++  LOTE_DO_AGENTE_JOB,
++  LOTE_MAX_CARACTERES,
++  LOTE_MAX_MENSAGENS,
++  LoteDoAgenteJob,
++} from '../pipeline/lote-do-agente';
++
++export interface LoteAceito {
++  loteId: string;
++  mensagens: { id: string; status: MessageStatus }[];
++}
++
++/**
++ * Mensagens escritas por um agente de autonomia controlada e enviadas pelo
++ * Consulta ISP. Faz o que a tool `replyToConversation` faz com a mensagem da IA
++ * — `senderName` do agente, `metadata.aiAgentId`, SEM assinatura, SEM pausar a
++ * IA, SEM atribuir, SEM marcar lida, e o guard de meta-talk — e acrescenta o que
++ * a tool não precisa: o autor real em `metadata.enviadoPorUserId` (quem tem o
++ * token fala como a persona, mas fica o rastro) e a ORDEM entre balões.
++ *
++ * Só o agente que o planejador aceita (capability de autonomia, parado, sem
++ * resposta direta) pode ser o remetente: um agente ativo nos canais responderia
++ * por conta própria e disputaria a conversa com o lote.
++ */
++@Injectable()
++export class LoteDoAgenteService {
++  private readonly logger = new Logger(LoteDoAgenteService.name);
++
++  constructor(
++    private readonly prisma: PrismaService,
++    private readonly realtimeGateway: RealtimeGateway,
++    private readonly channelAccess: ChannelAccessService,
++    @InjectQueue('outbound-messages') private readonly outboundQueue: Queue,
++  ) {}
++
++  async enviar(
++    dto: LoteDoAgenteDto,
++    userId: string,
++    organizationId: string,
++    access: ChannelAccess = 'ALL',
++  ): Promise<LoteAceito> {
++    // O ValidationPipe já barra o formato; aqui é a regra, para quem chamar o
++    // serviço sem o pipe. Texto em branco não vira balão vazio.
++    const textos = Array.isArray(dto.textos) ? dto.textos.map((t) => (typeof t === 'string' ? t.trim() : '')) : [];
++    if (
++      textos.length < 1 ||
++      textos.length > LOTE_MAX_MENSAGENS ||
++      textos.some((t) => !t || t.length > LOTE_MAX_CARACTERES)
++    ) {
++      throw new BadRequestException(
++        `Envie de 1 a ${LOTE_MAX_MENSAGENS} mensagens de texto, cada uma com até ${LOTE_MAX_CARACTERES} caracteres.`,
++      );
++    }
++
++    const conversation = await this.prisma.conversation.findUnique({
++      where: { id: dto.conversationId },
++      include: { contact: { include: { channels: true } } },
++    });
++    if (!conversation || conversation.deletedAt) throw new NotFoundException('Conversa não encontrada');
++    if (conversation.organizationId !== organizationId) throw new ForbiddenException();
++    this.channelAccess.assertChannelAccess(access, conversation.channelId);
++
++    const agent = await this.prisma.aiAgent.findFirst({
++      where: { id: dto.aiAgentId, organizationId, deletedAt: null },
++      select: { id: true, name: true, capabilities: true, isActive: true, canRespondDirectly: true },
++    });
++    if (!agent) throw new NotFoundException('Agente não encontrado nesta organização');
++    if (!agent.capabilities.includes(CAPABILITY_DO_LOTE) || agent.isActive || agent.canRespondDirectly) {
++      this.recusa('agente_nao_controlado', dto);
++      throw new BadRequestException('Configure um agente de autonomia controlada sem resposta direta nos canais');
++    }
++
++    // Quem chama é o dono do token (o Consulta ISP usa o OWNER, a quem o envio
++    // antigo atribuía a conversa); qualquer OUTRO usuário é um atendente.
++    if (conversation.assignedToId && conversation.assignedToId !== userId) {
++      this.recusa('conversa_com_humano', dto);
++      throw new ConflictException('A conversa está com um atendente; o agente não envia por cima.');
++    }
++
++    if (textos.some((t) => containsMetaTalk(t))) {
++      this.recusa('meta_talk', dto);
++      throw new BadRequestException(
++        'Mensagem recusada: descreve raciocínio interno da IA em vez de responder ao cliente.',
++      );
++    }
++
++    const contactChannel = conversation.contact.channels.find((cc) => cc.channelId === conversation.channelId);
++    if (!contactChannel) throw new NotFoundException('Contact channel not found');
++
++    const loteId = randomUUID();
++    const criadoEm = Date.now();
++    const total = textos.length;
++    // `createdAt` explícito e crescente: a timeline ordena por ele, e creates do
++    // mesmo milissegundo deixariam a ordem dos balões no inbox ao acaso.
++    const mensagens = await this.prisma.$transaction(
++      textos.map((texto, indice) =>
++        this.prisma.message.create({
++          data: {
++            conversationId: conversation.id,
++            direction: MessageDirection.OUTBOUND,
++            type: MessageContentType.TEXT,
++            content: { text: texto },
++            status: MessageStatus.QUEUED,
++            senderName: agent.name,
++            createdAt: new Date(criadoEm + indice),
++            metadata: {
++              aiAgentId: agent.id,
++              enviadoPorUserId: userId,
++              lote: { id: loteId, indice, total },
++            },
++          },
++        }),
++      ),
++    );
++
++    await this.prisma.conversation.update({
++      where: { id: conversation.id },
++      data: { lastMessageAt: new Date() },
++    });
++
++    for (const message of mensagens) {
++      this.realtimeGateway.emitToChannel(conversation.channelId, 'message:new', {
++        message,
++        conversationId: conversation.id,
++        contactId: conversation.contactId,
++      });
++      this.realtimeGateway.emitToConversation(conversation.id, 'message:new', { message });
++    }
++
++    const job: LoteDoAgenteJob = {
++      loteId,
++      conversationId: conversation.id,
++      channelId: conversation.channelId,
++      contactExternalId: contactChannel.externalId,
++      aiAgentId: agent.id,
++      enviadoPorUserId: userId,
++      criadoEm,
++      mensagens: mensagens.map((m, i) => ({ messageId: m.id, texto: textos[i] })),
++    };
++    try {
++      // UM job para o lote inteiro: a fila roda 5 em paralelo, e só um job
++      // sequencial garante a ordem. `attempts: 1` porque repetir o lote
++      // reenviaria balão que já saiu — falha vira "não enviada", nunca reenvio.
++      await this.outboundQueue.add(LOTE_DO_AGENTE_JOB, job, {
++        attempts: 1,
++        removeOnComplete: true,
++        removeOnFail: false,
++      });
++    } catch (err: any) {
++      await this.prisma.message.updateMany({
++        where: { id: { in: mensagens.map((m) => m.id) }, status: MessageStatus.QUEUED },
++        data: { status: MessageStatus.FAILED, failedReason: 'Não enviada: a fila de envio não aceitou o lote.' },
++      });
++      this.logger.error(`Lote ${loteId} não entrou na fila: ${err?.message ?? err}`);
++      throw new ServiceUnavailableException('Fila de envio indisponível; nenhuma mensagem do lote saiu.');
++    }
++
++    this.logger.log(
++      `Lote ${loteId} do agente ${agent.id} na conversa ${conversation.id}: ${total} mensagem(ns) na fila`,
++    );
++    return { loteId, mensagens: mensagens.map((m) => ({ id: m.id, status: m.status })) };
++  }
++
++  /** Só ids e o código: nunca texto, telefone ou nome. */
++  private recusa(codigo: string, dto: LoteDoAgenteDto) {
++    this.logger.warn(`Lote recusado (${codigo}): agente=${dto.aiAgentId} conversa=${dto.conversationId}`);
++  }
++}
+diff --git a/src/modules/messaging/messages/messages.controller.ts b/src/modules/messaging/messages/messages.controller.ts
+index 8945bea..07de0d8 100644
+--- a/src/modules/messaging/messages/messages.controller.ts
++++ b/src/modules/messaging/messages/messages.controller.ts
+@@ -13,17 +13,21 @@ import {
+ } from '@nestjs/common';
+ import { FileInterceptor } from '@nestjs/platform-express';
+ import { ApiBearerAuth, ApiTags, ApiOperation, ApiQuery, ApiConsumes } from '@nestjs/swagger';
++import { OrgRole } from '@prisma/client';
+ import { MessagesService } from './messages.service';
++import { LoteDoAgenteService } from './lote-do-agente.service';
+ import { TranscriptionService } from './transcription.service';
+ import { UploadsService } from './uploads.service';
+ import { MediaResolverService } from './media-resolver.service';
+ import { SendMessageDto } from './dto/send-message.dto';
++import { LoteDoAgenteDto } from './dto/lote-do-agente.dto';
+ import { ForwardMessageDto } from './dto/forward-message.dto';
+ import { JwtAuthGuard, OrgGuard, RolesGuard } from '../../../common/guards';
+ import {
+   CurrentUser,
+   CurrentOrg,
+   CurrentChannelAccess,
++  Roles,
+ } from '../../../common/decorators';
+ import type { ChannelAccess } from '../../iam/channel-access/channel-access.service';
+ 
+@@ -37,6 +41,7 @@ export class MessagesController {
+     private readonly transcription: TranscriptionService,
+     private readonly uploads: UploadsService,
+     private readonly mediaResolver: MediaResolverService,
++    private readonly loteDoAgente: LoteDoAgenteService,
+   ) {}
+ 
+   @Post()
+@@ -50,6 +55,23 @@ export class MessagesController {
+     return this.service.send(dto, userId, orgId, access);
+   }
+ 
++  /**
++   * Balões de um agente de autonomia controlada, enviados em ordem e com
++   * "digitando…". Só OWNER/ADMIN: quem chama escolhe falar como a persona, e
++   * fica registrado em `metadata.enviadoPorUserId`.
++   */
++  @Post('agent-batch')
++  @Roles(OrgRole.OWNER, OrgRole.ADMIN)
++  @ApiOperation({ summary: 'Enviar de 1 a 4 mensagens como um agente de autonomia controlada, em ordem' })
++  sendAgentBatch(
++    @Body() dto: LoteDoAgenteDto,
++    @CurrentUser('id') userId: string,
++    @CurrentOrg('id') orgId: string,
++    @CurrentChannelAccess() access: ChannelAccess,
++  ) {
++    return this.loteDoAgente.enviar(dto, userId, orgId, access);
++  }
++
+   @Post(':id/forward')
+   @ApiOperation({
+     summary:
+diff --git a/src/modules/messaging/messaging.module.ts b/src/modules/messaging/messaging.module.ts
+index 8eaf14c..79a96c9 100644
+--- a/src/modules/messaging/messaging.module.ts
++++ b/src/modules/messaging/messaging.module.ts
+@@ -20,6 +20,7 @@ import { ConversationsService } from './conversations/conversations.service';
+ import { ConversationsRepository } from './conversations/conversations.repository';
+ import { MessagesController } from './messages/messages.controller';
+ import { MessagesService } from './messages/messages.service';
++import { LoteDoAgenteService } from './messages/lote-do-agente.service';
+ import { MessagesRepository } from './messages/messages.repository';
+ import { TranscriptionService } from './messages/transcription.service';
+ import { UploadsService } from './messages/uploads.service';
+@@ -58,6 +59,7 @@ import { ContactsRepository } from './contacts/contacts.repository';
+     ConversationsService,
+     ConversationsRepository,
+     MessagesService,
++    LoteDoAgenteService,
+     MessagesRepository,
+     TranscriptionService,
+     UploadsService,
+diff --git a/src/modules/messaging/pipeline/lote-do-agente.spec.ts b/src/modules/messaging/pipeline/lote-do-agente.spec.ts
+new file mode 100644
+index 0000000..bee6ae2
+--- /dev/null
++++ b/src/modules/messaging/pipeline/lote-do-agente.spec.ts
+@@ -0,0 +1,42 @@
++import { digitandoMs, motivoParaParar, RAZAO_DA_PARADA } from './lote-do-agente';
++
++describe('lote do agente: regras puras', () => {
++  it('"digitando…" = 800 ms + 35 ms por caractere, teto de 4 s', () => {
++    expect(digitandoMs('')).toBe(800);
++    expect(digitandoMs('Oi, Maria!')).toBe(800 + 35 * 10);
++    expect(digitandoMs('x'.repeat(91))).toBe(3985);
++    expect(digitandoMs('x'.repeat(92))).toBe(4000);
++    expect(digitandoMs('x'.repeat(4000))).toBe(4000);
++  });
++
++  const lote = { enviadoPorUserId: 'owner', criadoEm: Date.parse('2026-09-16T12:00:00.000Z') };
++  const conversa = (c: Partial<{ assignedToId: string | null; aiDisabledAt: Date | null; deletedAt: Date | null }> = {}) => ({
++    assignedToId: null, aiDisabledAt: null, deletedAt: null, ...c,
++  });
++
++  it('segue quando a conversa não tem dono ou é de quem pediu o lote', () => {
++    expect(motivoParaParar(conversa(), lote)).toBeNull();
++    // O envio antigo do Consulta ISP atribuía a conversa ao OWNER do token.
++    expect(motivoParaParar(conversa({ assignedToId: 'owner' }), lote)).toBeNull();
++  });
++
++  it('para quando um OUTRO usuário assumiu', () => {
++    expect(motivoParaParar(conversa({ assignedToId: 'atendente' }), lote)).toBe('conversa_com_humano');
++  });
++
++  it('para quando a IA foi desligada DEPOIS do lote (assumir/transferir pelo Consulta ISP usa o mesmo token)', () => {
++    expect(motivoParaParar(conversa({ assignedToId: 'owner', aiDisabledAt: new Date(lote.criadoEm + 1) }), lote)).toBe('conversa_com_humano');
++    // Desligada antes (o envio antigo pausava a IA; o aviso de transferência sai depois do desligar): não para.
++    expect(motivoParaParar(conversa({ aiDisabledAt: new Date(lote.criadoEm - 60_000) }), lote)).toBeNull();
++    expect(motivoParaParar(conversa({ aiDisabledAt: new Date(lote.criadoEm) }), lote)).toBeNull();
++  });
++
++  it('para quando a conversa sumiu', () => {
++    expect(motivoParaParar(null, lote)).toBe('conversa_indisponivel');
++    expect(motivoParaParar(conversa({ deletedAt: new Date() }), lote)).toBe('conversa_indisponivel');
++  });
++
++  it('todo motivo tem texto legível para o inbox', () => {
++    for (const texto of Object.values(RAZAO_DA_PARADA)) expect(texto.length).toBeGreaterThan(10);
++  });
++});
+diff --git a/src/modules/messaging/pipeline/lote-do-agente.ts b/src/modules/messaging/pipeline/lote-do-agente.ts
+new file mode 100644
+index 0000000..cfc6f2d
+--- /dev/null
++++ b/src/modules/messaging/pipeline/lote-do-agente.ts
+@@ -0,0 +1,82 @@
++/**
++ * Lote de mensagens de um agente de autonomia controlada (Consulta ISP).
++ *
++ * Existe porque `POST /messages` fala como o USUÁRIO do token: assina o texto
++ * com o nome dele ("*NsLink Provedor*"), atribui a conversa a ele, pausa a IA e
++ * não mostra "digitando…". E porque a fila `outbound-messages` roda com
++ * concorrência 5: dois balões enfileirados em sequência podem chegar trocados
++ * no WhatsApp. O lote vira UM job que envia os balões em ordem, cada um depois
++ * do "digitando…", e para quando a conversa muda de mãos.
++ */
++
++/** Nome do job na fila `outbound-messages` (o processor distingue pelo nome). */
++export const LOTE_DO_AGENTE_JOB = 'send-agent-batch';
++
++/** A capability que o planejador do Consulta ISP já exige (autonomous-plan.service). */
++export const CAPABILITY_DO_LOTE = 'autonomia_cobranca_controlada';
++
++export const LOTE_MAX_MENSAGENS = 4;
++/** O mesmo teto da tool `replyToConversation`: o balão do servidor (PIX, linha digitável) passa dos 600 do planejador. */
++export const LOTE_MAX_CARACTERES = 4000;
++
++export interface LoteDoAgenteJob {
++  loteId: string;
++  conversationId: string;
++  channelId: string;
++  contactExternalId: string;
++  aiAgentId: string;
++  /** Quem chamou o endpoint: é o dono do token, não um atendente assumindo. */
++  enviadoPorUserId: string;
++  /** Epoch ms de quando o lote foi aceito — o batente de "a IA foi desligada depois". */
++  criadoEm: number;
++  mensagens: { messageId: string; texto: string }[];
++}
++
++export type MotivoDaParada =
++  | 'conversa_com_humano'
++  | 'conversa_indisponivel'
++  | 'envio_incerto'
++  | 'balao_anterior_nao_saiu';
++
++/** Texto de `failedReason` (o inbox mostra); o código vai em `metadata.loteInterrompido`. */
++export const RAZAO_DA_PARADA: Record<MotivoDaParada, string> = {
++  conversa_com_humano: 'Não enviada: a conversa passou para um atendente.',
++  conversa_indisponivel: 'Não enviada: a conversa não está mais disponível.',
++  envio_incerto: 'Envio incerto: o envio foi interrompido e não é repetido.',
++  balao_anterior_nao_saiu: 'Não enviada: a mensagem anterior do lote não saiu.',
++};
++
++/**
++ * "Digitando…" de um balão: 800 ms + 35 ms por caractere, no máximo 4 s.
++ * Só o lote usa esta conta; as mensagens da IA do próprio fork seguem com a do
++ * `simulateTypingIfAiMessage` (900 ms + 28 ms, 1–6 s), para não mudar o ritmo
++ * das outras organizações.
++ */
++export function digitandoMs(texto: string): number {
++  return Math.min(4000, 800 + 35 * texto.length);
++}
++
++/**
++ * Por que o lote não deve mandar o próximo balão — `null` quando pode.
++ *
++ * A conversa "mudou de mãos" quando:
++ *  - foi atribuída a um usuário que não é quem pediu o lote (um atendente
++ *    respondeu pelo inbox: `send()` atribui a quem responde); ou
++ *  - a IA da conversa foi desligada DEPOIS de o lote ser aceito. É o gesto de
++ *    "assumir" e de "transferir" do Consulta ISP (`PATCH /conversations/:id/ai`
++ *    com `enabled:false`), do botão do inbox e da transferência pendente — todo
++ *    lugar que grava `aiDisabledAt`. O token do Consulta ISP é o mesmo usuário
++ *    nos dois casos, então só o `assignedToId` não enxergaria o operador de lá.
++ *
++ * O `status` NÃO entra: o próprio fork troca WAITING → OPEN quando o cliente
++ * responde (`touchOpen`), e o lote pararia por uma resposta do cliente.
++ */
++export function motivoParaParar(
++  conversa: { assignedToId: string | null; aiDisabledAt: Date | null; deletedAt: Date | null } | null,
++  lote: Pick<LoteDoAgenteJob, 'enviadoPorUserId' | 'criadoEm'>,
++): MotivoDaParada | null {
++  if (!conversa || conversa.deletedAt) return 'conversa_indisponivel';
++  if (conversa.assignedToId && conversa.assignedToId !== lote.enviadoPorUserId) return 'conversa_com_humano';
++  if (conversa.aiDisabledAt && conversa.aiDisabledAt.getTime() > lote.criadoEm) return 'conversa_com_humano';
++  return null;
++}
+diff --git a/src/modules/messaging/pipeline/outbound-lote-do-agente.spec.ts b/src/modules/messaging/pipeline/outbound-lote-do-agente.spec.ts
+new file mode 100644
+index 0000000..7b88b2f
+--- /dev/null
++++ b/src/modules/messaging/pipeline/outbound-lote-do-agente.spec.ts
+@@ -0,0 +1,303 @@
++import { Logger } from '@nestjs/common';
++import { ChannelType, MessageStatus } from '@prisma/client';
++import { OutboundMessageProcessor } from './outbound-message.processor';
++import { LOTE_DO_AGENTE_JOB, LoteDoAgenteJob } from './lote-do-agente';
++
++const JID = '554391191100@s.whatsapp.net';
++const CRIADO_EM = Date.parse('2026-09-16T12:00:00.000Z');
++
++type Linha = { id: string; conversationId: string; status: MessageStatus; metadata: any; senderName: string | null; failedReason?: string };
++
++function montar(textos: string[], o: { canal?: ChannelType } = {}) {
++  const eventos: string[] = [];
++  const canal = { id: 'ch1', type: o.canal ?? ChannelType.WHATSAPP_EVOLUTION, config: {} };
++  const conversa = { assignedToId: 'owner' as string | null, aiDisabledAt: null as Date | null, deletedAt: null as Date | null };
++  const linhas = new Map<string, Linha>();
++  textos.forEach((_, i) => linhas.set(`m${i + 1}`, {
++    id: `m${i + 1}`, conversationId: 'cv1', status: MessageStatus.QUEUED, senderName: 'Clara',
++    metadata: { aiAgentId: 'ag1', enviadoPorUserId: 'owner', lote: { id: 'l1', indice: i, total: textos.length } },
++  }));
++  const prisma = {
++    channel: { findUniqueOrThrow: jest.fn().mockResolvedValue(canal) },
++    conversation: { findUnique: jest.fn(async () => ({ ...conversa })) },
++    message: {
++      findUnique: jest.fn(async ({ where }: any) => (linhas.has(where.id) ? { ...linhas.get(where.id)! } : null)),
++      update: jest.fn(async ({ where, data }: any) => {
++        const l = linhas.get(where.id);
++        if (!l) return { id: where.id, conversationId: 'cv1', ...data };
++        Object.assign(l, data);
++        return { ...l };
++      }),
++      updateMany: jest.fn(async ({ where, data }: any) => {
++        const l = linhas.get(where.id);
++        if (!l || l.status !== where.status) return { count: 0 };
++        Object.assign(l, data);
++        return { count: 1 };
++      }),
++      findFirst: jest.fn(),
++      findUniqueOrThrow: jest.fn(),
++      delete: jest.fn().mockResolvedValue({}),
++    },
++  };
++  const adapter = {
++    sendTypingIndicator: jest.fn(async (...args: any[]) => { eventos.push(`digitando:${args[2]}`); }),
++    sendMessage: jest.fn(async (_c: unknown, _j: unknown, m: any): Promise<{ externalId: string; providerResponse: unknown }> => {
++      eventos.push(`envio:${m.content.text}`);
++      return { externalId: `ext-${m.content.text}`, providerResponse: { key: { id: 'x' } } };
++    }),
++  };
++  const registry = { getOutbound: jest.fn(() => adapter) };
++  const realtime = { emitToConversation: jest.fn(), emitToChannel: jest.fn() };
++  const idempotency = { markProcessed: jest.fn().mockResolvedValue(undefined) };
++  const processor = new OutboundMessageProcessor(prisma as never, registry as never, realtime as never, idempotency as never);
++  const lote: LoteDoAgenteJob = {
++    loteId: 'l1', conversationId: 'cv1', channelId: 'ch1', contactExternalId: JID, aiAgentId: 'ag1',
++    enviadoPorUserId: 'owner', criadoEm: CRIADO_EM,
++    mensagens: textos.map((texto, i) => ({ messageId: `m${i + 1}`, texto })),
++  };
++  const job = { name: LOTE_DO_AGENTE_JOB, data: lote } as never;
++  return { processor, prisma, adapter, realtime, idempotency, linhas, conversa, eventos, canal, job };
++}
++
++const espera = (texto: string) => Math.min(4000, 800 + 35 * texto.length);
++
++describe('lote do agente na fila de saída', () => {
++  beforeEach(() => {
++    jest.useFakeTimers({ now: CRIADO_EM + 50, doNotFake: ['nextTick', 'setImmediate'] });
++    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
++    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
++    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
++  });
++  afterEach(() => {
++    jest.useRealTimers();
++    jest.restoreAllMocks();
++  });
++
++  it('um balão de cada vez, na ordem, cada um depois do seu "digitando…"', async () => {
++    const textos = ['Oi, Maria!', 'Aqui é a Clara, da NsLink.', 'x'.repeat(200)];
++    const f = montar(textos);
++    const p = f.processor.process(f.job);
++    await jest.runAllTimersAsync();
++    await expect(p).resolves.toEqual({ success: true, loteId: 'l1', enviadas: 3 });
++    expect(f.eventos).toEqual([
++      `digitando:${espera(textos[0])}`, `envio:${textos[0]}`,
++      `digitando:${espera(textos[1])}`, `envio:${textos[1]}`,
++      'digitando:4000', `envio:${textos[2]}`,
++    ]);
++    expect(f.adapter.sendTypingIndicator).toHaveBeenCalledWith(f.canal, JID, espera(textos[0]));
++    expect(f.realtime.emitToConversation).toHaveBeenCalledWith('cv1', 'agent:typing', { conversationId: 'cv1', agentId: 'ag1' });
++    for (const l of f.linhas.values()) expect(l.status).toBe(MessageStatus.SENT);
++  });
++
++  it('o balão só sai depois da espera inteira', async () => {
++    const f = montar(['Oi, Maria!', 'Tudo bem?']);
++    const p = f.processor.process(f.job);
++    await jest.advanceTimersByTimeAsync(espera('Oi, Maria!') - 1);
++    expect(f.adapter.sendMessage).not.toHaveBeenCalled();
++    await jest.advanceTimersByTimeAsync(1);
++    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
++    await jest.advanceTimersByTimeAsync(espera('Tudo bem?') - 1);
++    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
++    await jest.runAllTimersAsync();
++    await p;
++    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(2);
++  });
++
++  it('a autoria do lote sobrevive ao SENT (o envio comum troca a metadata inteira)', async () => {
++    const f = montar(['Oi, Maria!']);
++    const p = f.processor.process(f.job);
++    await jest.runAllTimersAsync();
++    await p;
++    const l = f.linhas.get('m1')!;
++    expect(l.metadata).toEqual({
++      aiAgentId: 'ag1', enviadoPorUserId: 'owner', lote: { id: 'l1', indice: 0, total: 1 },
++      envioIniciadoEm: expect.any(String), providerResponse: { key: { id: 'x' } },
++    });
++    expect(f.idempotency.markProcessed).toHaveBeenCalledWith('ext-Oi, Maria!', 'ch1');
++  });
++
++  it('atendente assume durante o "digitando…" do 2º balão: o 2º e o 3º não saem', async () => {
++    const f = montar(['um', 'dois', 'três']);
++    f.adapter.sendTypingIndicator.mockImplementation(async (...args: any[]) => {
++      f.eventos.push(`digitando:${args[2]}`);
++      if (f.eventos.length === 3) f.conversa.assignedToId = 'atendente';
++    });
++    const p = f.processor.process(f.job);
++    await jest.runAllTimersAsync();
++    await expect(p).resolves.toEqual({ success: true, loteId: 'l1', enviadas: 1, interrompido: 'conversa_com_humano' });
++    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
++    expect(f.linhas.get('m1')!.status).toBe(MessageStatus.SENT);
++    for (const id of ['m2', 'm3']) {
++      const l = f.linhas.get(id)!;
++      expect(l.status).toBe(MessageStatus.FAILED);
++      expect(l.metadata.loteInterrompido).toBe('conversa_com_humano');
++      expect(l.metadata.aiAgentId).toBe('ag1');
++      expect(l.failedReason).toMatch(/atendente/);
++    }
++    // O 3º nem chega a "digitar".
++    expect(f.adapter.sendTypingIndicator).toHaveBeenCalledTimes(2);
++  });
++
++  it('Consulta ISP assume (IA desligada depois do lote, mesmo token): para antes do próximo balão', async () => {
++    const f = montar(['um', 'dois']);
++    f.adapter.sendMessage.mockImplementation(async (_c: unknown, _j: unknown, m: any) => {
++      f.eventos.push(`envio:${m.content.text}`);
++      f.conversa.aiDisabledAt = new Date(CRIADO_EM + 5_000);
++      return { externalId: `ext-${m.content.text}`, providerResponse: {} };
++    });
++    const p = f.processor.process(f.job);
++    await jest.runAllTimersAsync();
++    await expect(p).resolves.toMatchObject({ enviadas: 1, interrompido: 'conversa_com_humano' });
++    expect(f.eventos).toEqual([`digitando:${espera('um')}`, 'envio:um']);
++    expect(f.linhas.get('m2')!.status).toBe(MessageStatus.FAILED);
++  });
++
++  it('IA já desligada antes do lote (o aviso de transferência sai depois do desligar): envia', async () => {
++    const f = montar(['Vou pedir pra alguém da equipe continuar com você por aqui, tá?']);
++    f.conversa.aiDisabledAt = new Date(CRIADO_EM - 1_000);
++    const p = f.processor.process(f.job);
++    await jest.runAllTimersAsync();
++    await expect(p).resolves.toMatchObject({ enviadas: 1 });
++  });
++
++  it('falha no envio do 2º balão: ele fica FAILED, o 3º não sai, nada é reenviado', async () => {
++    const f = montar(['um', 'dois', 'três']);
++    f.adapter.sendMessage
++      .mockImplementationOnce(async () => ({ externalId: 'e1', providerResponse: {} }))
++      .mockImplementationOnce(async () => { throw new Error('O servidor de WhatsApp da plataforma não respondeu.'); });
++    const p = f.processor.process(f.job);
++    const resultado = p.catch((e: Error) => e);
++    await jest.runAllTimersAsync();
++    expect(await resultado).toBeInstanceOf(Error);
++    expect(f.adapter.sendMessage).toHaveBeenCalledTimes(2);
++    expect(f.linhas.get('m1')!.status).toBe(MessageStatus.SENT);
++    expect(f.linhas.get('m2')!.status).toBe(MessageStatus.FAILED);
++    expect(f.linhas.get('m3')!).toMatchObject({ status: MessageStatus.FAILED });
++    expect(f.linhas.get('m3')!.metadata.loteInterrompido).toBe('balao_anterior_nao_saiu');
++    expect(f.adapter.sendTypingIndicator).toHaveBeenCalledTimes(2);
++  });
++
++  it('job reprocessado (worker reiniciado): o que saiu é pulado, o que estava saindo vira incerto, nada reenviado', async () => {
++    const f = montar(['um', 'dois', 'três']);
++    Object.assign(f.linhas.get('m1')!, { status: MessageStatus.SENT });
++    f.linhas.get('m2')!.metadata.envioIniciadoEm = new Date(CRIADO_EM + 3_000).toISOString();
++    const p = f.processor.process(f.job);
++    await jest.runAllTimersAsync();
++    await expect(p).resolves.toEqual({ success: true, loteId: 'l1', enviadas: 1, interrompido: 'envio_incerto' });
++    expect(f.adapter.sendMessage).not.toHaveBeenCalled();
++    expect(f.adapter.sendTypingIndicator).not.toHaveBeenCalled();
++    expect(f.linhas.get('m1')!.status).toBe(MessageStatus.SENT);
++    expect(f.linhas.get('m2')!.metadata.loteInterrompido).toBe('envio_incerto');
++    expect(f.linhas.get('m3')!.metadata.loteInterrompido).toBe('balao_anterior_nao_saiu');
++  });
++
++  describe('presença que falha nunca impede o envio nem vira rejeição solta', () => {
++    const soltas: unknown[] = [];
++    const ouvir = (r: unknown) => soltas.push(r);
++    beforeEach(() => { soltas.length = 0; process.on('unhandledRejection', ouvir); });
++    afterEach(() => { process.off('unhandledRejection', ouvir); });
++
++    it.each([
++      ['rejeita', () => Promise.reject(new Error('timeout of 3000ms exceeded'))],
++      ['lança síncrono', () => { throw new Error('config inválida'); }],
++    ])('adapter que %s', async (_nome, impl) => {
++      const f = montar(['Oi, Maria!', 'Tudo bem?']);
++      f.adapter.sendTypingIndicator.mockImplementation(impl as never);
++      const p = f.processor.process(f.job);
++      await jest.advanceTimersByTimeAsync(espera('Oi, Maria!'));
++      expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
++      await jest.runAllTimersAsync();
++      await expect(p).resolves.toMatchObject({ enviadas: 2 });
++      await new Promise((r) => setImmediate(r));
++      expect(soltas).toEqual([]);
++    });
++
++    it('presença que nunca responde segura o balão no máximo espera + 2 s', async () => {
++      const f = montar(['Oi, Maria!']);
++      f.adapter.sendTypingIndicator.mockImplementation(() => new Promise(() => undefined));
++      const p = f.processor.process(f.job);
++      await jest.advanceTimersByTimeAsync(espera('Oi, Maria!') + 1_999);
++      expect(f.adapter.sendMessage).not.toHaveBeenCalled();
++      await jest.advanceTimersByTimeAsync(1);
++      expect(f.adapter.sendMessage).toHaveBeenCalledTimes(1);
++      await expect(p).resolves.toMatchObject({ enviadas: 1 });
++    });
++  });
++
++  it('eco do webhook antes do SENT: a linha que fica leva o nome do agente e a autoria', async () => {
++    const f = montar(['Oi, Maria!']);
++    f.prisma.message.update
++      .mockImplementationOnce(async ({ where, data }: any) => { Object.assign(f.linhas.get(where.id)!, data); return {}; })
++      .mockImplementationOnce(async () => { throw Object.assign(new Error('unique'), { code: 'P2002' }); });
++    f.prisma.message.findUnique.mockImplementation(async ({ where }: any) => ({ ...f.linhas.get(where.id)!, senderId: null, content: { text: 'Oi, Maria!' } }));
++    f.prisma.message.findFirst.mockResolvedValue({ id: 'eco1', senderId: null, senderName: 'NsLink Provedor', metadata: { rawPayload: { key: {} } } });
++    f.prisma.message.findUniqueOrThrow.mockResolvedValue({ id: 'eco1', conversationId: 'cv1' });
++    const p = f.processor.process(f.job);
++    await jest.runAllTimersAsync();
++    await p;
++    const patch = f.prisma.message.update.mock.calls.find((c: any[]) => c[0].where.id === 'eco1')![0].data;
++    expect(patch.senderName).toBe('Clara');
++    expect(patch.metadata).toEqual(expect.objectContaining({
++      rawPayload: { key: {} }, aiAgentId: 'ag1', enviadoPorUserId: 'owner', lote: { id: 'l1', indice: 0, total: 1 },
++    }));
++    expect(f.prisma.message.delete).toHaveBeenCalledWith({ where: { id: 'm1' } });
++  });
++
++  it('e-mail não tem "digitando…"', async () => {
++    const f = montar(['Olá'], { canal: ChannelType.GMAIL });
++    const p = f.processor.process(f.job);
++    await jest.runAllTimersAsync();
++    await expect(p).resolves.toMatchObject({ enviadas: 1 });
++    expect(f.adapter.sendTypingIndicator).not.toHaveBeenCalled();
++  });
++});
++
++describe('envio comum na fila de saída continua o mesmo', () => {
++  beforeEach(() => {
++    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
++    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
++    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
++  });
++  afterEach(() => jest.restoreAllMocks());
++
++  const jobComum = (text = 'Olá') => ({
++    name: 'send-outbound',
++    data: { messageId: 'm9', channelId: 'ch1', contactExternalId: JID, message: { type: 'TEXT', content: { text } } },
++  }) as never;
++
++  it('mensagem de operador: sem presença, SENT com a metadata trocada por {providerResponse}', async () => {
++    const f = montar([]);
++    f.linhas.set('m9', { id: 'm9', conversationId: 'cv1', status: MessageStatus.QUEUED, senderName: null, metadata: { replyTo: { messageId: 'x' } } });
++    await expect(f.processor.process(jobComum())).resolves.toEqual({ success: true, externalId: 'ext-Olá' });
++    expect(f.adapter.sendTypingIndicator).not.toHaveBeenCalled();
++    const sent = f.prisma.message.update.mock.calls[0][0];
++    expect(sent.where).toEqual({ id: 'm9' });
++    expect(sent.data.status).toBe(MessageStatus.SENT);
++    expect(sent.data.metadata).toEqual({ providerResponse: { key: { id: 'x' } } });
++  });
++
++  it('mensagem da IA do fork: presença SEM duração (a Evolution segue sem "digitando…")', async () => {
++    jest.useFakeTimers();
++    try {
++      const f = montar([]);
++      f.linhas.set('m9', { id: 'm9', conversationId: 'cv1', status: MessageStatus.QUEUED, senderName: 'Bot', metadata: { aiAgentId: 'ag9' } });
++      const p = f.processor.process(jobComum());
++      await jest.runAllTimersAsync();
++      await p;
++      expect(f.adapter.sendTypingIndicator).toHaveBeenCalledTimes(1);
++      expect(f.adapter.sendTypingIndicator.mock.calls[0]).toEqual([f.canal, JID]);
++    } finally {
++      jest.useRealTimers();
++    }
++  });
++
++  it('falha: FAILED e a exceção sobe para a repetição da fila', async () => {
++    const f = montar([]);
++    f.linhas.set('m9', { id: 'm9', conversationId: 'cv1', status: MessageStatus.QUEUED, senderName: null, metadata: {} });
++    f.adapter.sendMessage.mockRejectedValueOnce(new Error('fora do ar'));
++    await expect(f.processor.process(jobComum())).rejects.toThrow('fora do ar');
++    expect(f.prisma.message.update).toHaveBeenLastCalledWith({
++      where: { id: 'm9' }, data: { status: MessageStatus.FAILED, failedReason: 'fora do ar' },
++    });
++  });
++});
+diff --git a/src/modules/messaging/pipeline/outbound-message.processor.ts b/src/modules/messaging/pipeline/outbound-message.processor.ts
+index 98b8974..9631510 100644
+--- a/src/modules/messaging/pipeline/outbound-message.processor.ts
++++ b/src/modules/messaging/pipeline/outbound-message.processor.ts
+@@ -1,12 +1,21 @@
+ import { Processor, WorkerHost } from '@nestjs/bullmq';
+ import { Logger } from '@nestjs/common';
+ import { Job } from 'bullmq';
+-import { ChannelType, MessageDirection, MessageStatus } from '@prisma/client';
++import { Channel, ChannelType, MessageDirection, MessageStatus } from '@prisma/client';
+ import { PrismaService } from '../../../database/prisma.service';
+ import { ChannelAdapterRegistry } from '../../channel-hub/channel-adapter.registry';
+ import { RealtimeGateway } from '../../realtime/realtime.gateway';
+-import { NormalizedOutboundMessage } from '../../channel-hub/ports/types';
++import { MessageContentType, NormalizedOutboundMessage } from '../../channel-hub/ports/types';
++import { OutboundChannelPort } from '../../channel-hub/ports/outbound-channel.port';
+ import { IdempotencyService } from './idempotency.service';
++import {
++  LOTE_DO_AGENTE_JOB,
++  LoteDoAgenteJob,
++  MotivoDaParada,
++  RAZAO_DA_PARADA,
++  digitandoMs,
++  motivoParaParar,
++} from './lote-do-agente';
+ 
+ interface OutboundJobData {
+   messageId: string;
+@@ -29,6 +38,12 @@ export class OutboundMessageProcessor extends WorkerHost {
+   }
+ 
+   async process(job: Job<OutboundJobData>): Promise<any> {
++    // O lote do agente (POST /messages/agent-batch) é um job só para vários
++    // balões: roda sequencial dentro dele, e a ordem não depende da concorrência.
++    if (job.name === LOTE_DO_AGENTE_JOB) {
++      return this.processarLote(job as unknown as Job<LoteDoAgenteJob>);
++    }
++
+     const { messageId, channelId, contactExternalId, message } = job.data;
+ 
+     const channel = await this.prisma.channel.findUniqueOrThrow({
+@@ -59,6 +74,28 @@ export class OutboundMessageProcessor extends WorkerHost {
+       });
+     }
+ 
++    return this.enviarEPersistir({ messageId, channel, contactExternalId, message, adapter });
++  }
++
++  /**
++   * Envia UMA mensagem pelo adapter e persiste o resultado (SENT/FAILED, eco do
++   * webhook, idempotência, realtime). Sem `preservar` é exatamente o que o
++   * `process` sempre fez — inclusive trocar a metadata por `{providerResponse}`.
++   * O lote passa `preservar`: a metadata do balão (aiAgentId, enviadoPorUserId,
++   * lote) é a auditoria de quem falou como a persona e não pode sumir no SENT.
++   */
++  private async enviarEPersistir(
++    args: {
++      messageId: string;
++      channel: Channel;
++      contactExternalId: string;
++      message: NormalizedOutboundMessage;
++      adapter: OutboundChannelPort;
++    },
++    preservar?: { senderName: string | null; metadata: Record<string, unknown> },
++  ): Promise<{ success: true; externalId: string }> {
++    const { messageId, channel, contactExternalId, message, adapter } = args;
++    const channelId = channel.id;
+     try {
+       const result = await adapter.sendMessage(
+         channel,
+@@ -78,8 +115,9 @@ export class OutboundMessageProcessor extends WorkerHost {
+             externalId: result.externalId || null,
+             sentAt: new Date(),
+             metadata: {
++              ...(preservar?.metadata ?? {}),
+               providerResponse: safeJson(result.providerResponse),
+-            },
++            } as any,
+           },
+         });
+       } catch (err: any) {
+@@ -113,6 +151,15 @@ export class OutboundMessageProcessor extends WorkerHost {
+             if (placeholderContent?.mediaUrl) {
+               patch.content = placeholderContent;
+             }
++            if (preservar) {
++              // O eco chegou antes: a linha que fica é a dele, e é nela que a
++              // autoria do lote precisa ficar.
++              if (preservar.senderName) patch.senderName = preservar.senderName;
++              patch.metadata = {
++                ...((echoRow.metadata as Record<string, unknown> | null) ?? {}),
++                ...preservar.metadata,
++              };
++            }
+             if (Object.keys(patch).length > 0) {
+               await this.prisma.message.update({
+                 where: { id: echoRow.id },
+@@ -305,6 +352,175 @@ export class OutboundMessageProcessor extends WorkerHost {
+       this.logger.warn(`simulateTyping failed: ${err?.message ?? err}`);
+     }
+   }
++
++  /**
++   * O lote do agente: os balões saem UM de cada vez, na ordem do pedido.
++   *
++   * Antes de cada balão: a conversa ainda é do agente? (`motivoParaParar`) →
++   * "digitando…" pelo tempo do texto → confere de novo (a espera é quando um
++   * atendente assume) → envia. Qualquer parada marca o balão atual e os
++   * seguintes como não enviados (FAILED com `metadata.loteInterrompido`) — o
++   * cliente nunca recebe o fim de uma fala sem o começo, e nada é reenviado.
++   *
++   * O job tem `attempts: 1`, mas o BullMQ ainda reprocessa um job travado
++   * (worker reiniciado no meio). Por isso cada balão ganha
++   * `metadata.envioIniciadoEm` antes de ir ao adapter: na segunda passada, o
++   * que já saiu é pulado e o que estava saindo vira "envio incerto", não reenvio.
++   */
++  private async processarLote(job: Job<LoteDoAgenteJob>) {
++    const lote = job.data;
++    const channel = await this.prisma.channel.findUniqueOrThrow({
++      where: { id: lote.channelId },
++    });
++    const adapter = this.adapterRegistry.getOutbound(channel.type);
++    let enviadas = 0;
++
++    for (let i = 0; i < lote.mensagens.length; i++) {
++      const { messageId, texto } = lote.mensagens[i];
++      const row = await this.prisma.message.findUnique({
++        where: { id: messageId },
++        select: { status: true, metadata: true, senderName: true },
++      });
++      if (!row) return this.pararLote(lote, i, 'balao_anterior_nao_saiu', enviadas);
++      if (row.status !== MessageStatus.QUEUED) {
++        // Segunda passada do mesmo job: o que saiu fica, o que falhou encerra.
++        if (row.status === MessageStatus.FAILED) {
++          return this.pararLote(lote, i + 1, 'balao_anterior_nao_saiu', enviadas);
++        }
++        enviadas++;
++        continue;
++      }
++      const metadataAtual = (row.metadata as Record<string, unknown> | null) ?? {};
++      if (metadataAtual.envioIniciadoEm) {
++        return this.pararLote(lote, i, 'envio_incerto', enviadas, 'balao_anterior_nao_saiu');
++      }
++
++      let motivo = await this.conferirConversa(lote);
++      if (motivo) return this.pararLote(lote, i, motivo, enviadas);
++
++      if (channel.type !== ChannelType.GMAIL) {
++        await this.digitarBalao(adapter, channel, lote, texto);
++        motivo = await this.conferirConversa(lote);
++        if (motivo) return this.pararLote(lote, i, motivo, enviadas);
++      }
++
++      const metadata = { ...metadataAtual, envioIniciadoEm: new Date().toISOString() };
++      await this.prisma.message.update({
++        where: { id: messageId },
++        data: { metadata: metadata as any },
++      });
++
++      try {
++        await this.enviarEPersistir(
++          {
++            messageId,
++            channel,
++            contactExternalId: lote.contactExternalId,
++            message: { type: MessageContentType.TEXT, content: { text: texto } },
++            adapter,
++          },
++          { senderName: row.senderName, metadata },
++        );
++      } catch (err) {
++        // O balão já ficou FAILED em enviarEPersistir; os seguintes não saem.
++        await this.pararLote(lote, i + 1, 'balao_anterior_nao_saiu', enviadas);
++        throw err;
++      }
++      enviadas++;
++    }
++
++    this.logger.log(`Lote ${lote.loteId}: ${enviadas}/${lote.mensagens.length} enviada(s)`);
++    return { success: true, loteId: lote.loteId, enviadas };
++  }
++
++  private async conferirConversa(lote: LoteDoAgenteJob): Promise<MotivoDaParada | null> {
++    const conversa = await this.prisma.conversation.findUnique({
++      where: { id: lote.conversationId },
++      select: { assignedToId: true, aiDisabledAt: true, deletedAt: true },
++    });
++    return motivoParaParar(conversa, lote);
++  }
++
++  /**
++   * "Digitando…" do balão. A presença vai ao adapter com a MESMA espera que o
++   * lote faz (a Evolution segura a requisição por esse tempo e depois manda
++   * "paused"); o lote espera a espera E a presença, com teto de espera + 2 s,
++   * para o balão não chegar com o "digitando…" ainda ligado. Falha de presença
++   * nunca impede o envio e nunca vira rejeição solta.
++   */
++  private async digitarBalao(
++    adapter: OutboundChannelPort,
++    channel: Channel,
++    lote: LoteDoAgenteJob,
++    texto: string,
++  ): Promise<void> {
++    const esperaMs = digitandoMs(texto);
++    const presenca = Promise.resolve()
++      .then(() => adapter.sendTypingIndicator(channel, lote.contactExternalId, esperaMs))
++      .catch(() => this.logger.warn(`Lote ${lote.loteId}: "digitando" não enviado`));
++    try {
++      this.realtimeGateway.emitToConversation(lote.conversationId, 'agent:typing', {
++        conversationId: lote.conversationId,
++        agentId: lote.aiAgentId,
++      });
++    } catch {
++      // Aviso ao inbox é cosmético; o cliente é que precisa do balão.
++    }
++    await Promise.all([dormir(esperaMs), comTeto(presenca, esperaMs + 2_000)]);
++  }
++
++  /** Marca como não enviados o balão `desde` (com `motivo`) e os seguintes (com `motivoDoResto`). */
++  private async pararLote(
++    lote: LoteDoAgenteJob,
++    desde: number,
++    motivo: MotivoDaParada,
++    enviadas: number,
++    motivoDoResto: MotivoDaParada = motivo,
++  ) {
++    for (let j = desde; j < lote.mensagens.length; j++) {
++      const codigo = j === desde ? motivo : motivoDoResto;
++      const messageId = lote.mensagens[j].messageId;
++      const row = await this.prisma.message.findUnique({
++        where: { id: messageId },
++        select: { status: true, metadata: true },
++      });
++      if (!row || row.status !== MessageStatus.QUEUED) continue;
++      const { count } = await this.prisma.message.updateMany({
++        where: { id: messageId, status: MessageStatus.QUEUED },
++        data: {
++          status: MessageStatus.FAILED,
++          failedReason: RAZAO_DA_PARADA[codigo],
++          metadata: {
++            ...((row.metadata as Record<string, unknown> | null) ?? {}),
++            loteInterrompido: codigo,
++          } as any,
++        },
++      });
++      if (count > 0) this.emitStatusUpdate(lote.conversationId, messageId, MessageStatus.FAILED);
++    }
++    if (desde < lote.mensagens.length) {
++      this.logger.warn(
++        `Lote ${lote.loteId} parou na mensagem ${desde + 1}/${lote.mensagens.length} (${motivo})`,
++      );
++    }
++    return { success: true, loteId: lote.loteId, enviadas, interrompido: motivo };
++  }
++}
++
++function dormir(ms: number): Promise<void> {
++  return new Promise((resolve) => setTimeout(resolve, ms));
++}
++
++/** Espera `promessa` por no máximo `ms`; o timer é limpo quando ela chega antes. */
++async function comTeto(promessa: Promise<unknown>, ms: number): Promise<void> {
++  let timer: ReturnType<typeof setTimeout> | undefined;
++  await Promise.race([
++    promessa,
++    new Promise<void>((resolve) => {
++      timer = setTimeout(resolve, ms);
++    }),
++  ]);
++  if (timer) clearTimeout(timer);
+ }
+ 
+ function safeJson(value: unknown): any {
+-- 
+2.43.0
+

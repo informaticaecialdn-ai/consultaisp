@@ -1,18 +1,20 @@
 /**
- * Traz para os tres perfis do assistente de um provedor o METODO dos agentes de
- * cobranca do Provedor.ai (referencia em F:/Provedor.ai/agents/cobranca e
- * workspace, 16/09/2026): Clara (cobranca amigavel D+1..14) para clientes ativos,
- * Sofia (recuperacao D+15..180, com confissao de divida) para ex-clientes e
- * Mariana (logistica reversa) para equipamentos — condensado ao limite de
- * `LIMITES_DO_AGENTE.instrucoes` (6.000) e as travas do motor autonomo: quem
- * redige o texto ao cliente, decide valor, oferta e identidade e o SERVIDOR; a
- * persona so orienta o julgamento do planejador (portas de transferencia,
- * diagnostico da causa, escada de tres degraus, promessa so com data dita).
+ * Grava nos tres perfis do assistente de um provedor as FUNCIONARIAS do
+ * Provedor.ai (spec docs/superpowers/specs/2026-09-16-funcionario-digital-design.md,
+ * §8, D2 e D3): Clara (+ trechos da Bianca a partir de D+15) para clientes ativos,
+ * Sofia para ex-clientes e Mariana (+ a doutrina de recuperacao de ativos) para
+ * equipamentos — o TEXTO do Provedor.ai, montado por
+ * `server/services/chat/personas-provedor-ai.ts` a partir de
+ * `integrations/provedor-ai/origem/` e `adaptacoes.json`. Nada de persona escrita
+ * aqui: quem quiser mudar o que a funcionaria recebe muda a origem ou as
+ * adaptacoes, regenera os .md e ve o diff.
  *
- * O que NAO entra, de proposito: motor EV/VPL/LTV, descontos por faixa de atraso
- * (quem oferta e `ofertasDaPolitica`), negativacao, reposicao de aparelho, voz
- * WhatsApp livre. Os nomes das personas sao os que o dono escolheu (Clara,
- * Leonora, Eduarda); o metodo e o do Provedor.ai.
+ * Cada perfil recebe: descricao (a do YAML, adaptada), instrucoes (a persona),
+ * nomeDaPersona (Clara, Leonora e Eduarda por padrao — os nomes do dono),
+ * modelo openai/gpt-4.1, temperatura 0.3 e maxTokens 1000. O contexto operacional
+ * (avisos do dia) e do provedor e fica como esta — com uma excecao: se ele e
+ * exatamente o texto que a versao anterior deste script gravava, sai (as regras
+ * dele ja estao na casa e na persona).
  *
  * Depois dos perfis, garante as skills da ponte no fork: cria
  * `consultarEquipamento` (GET /equipamento da API do agente) se faltar, atualiza
@@ -25,72 +27,101 @@
  *
  * Uso (na VPS, no checkout de producao):
  *   npx tsx script/configurar-personas-provedor-ai.ts <providerId>
- *   npx tsx script/configurar-personas-provedor-ai.ts <providerId> --conferir   # so tamanhos, sem banco
+ *   npx tsx script/configurar-personas-provedor-ai.ts <providerId> --nomes clara,sofia,mariana   # os nomes do Provedor.ai
+ *   npx tsx script/configurar-personas-provedor-ai.ts <providerId> --versao-anterior             # a volta: as personas de c68c5211
+ *   npx tsx script/configurar-personas-provedor-ai.ts --conferir    # sem banco: tamanhos e limites no pior caso
+ *   npx tsx script/configurar-personas-provedor-ai.ts --gerar       # sem banco: regrava integrations/provedor-ai/personas/*.md
+ *
+ * `CHAT_BULLQ_PERSONAS_MODELO` troca o modelo dos tres (a bateria da spec §11 compara
+ * modelos em agentes de TESTE, nunca nos vivos).
  */
 import "dotenv/config";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import path from "path";
 import { emModoDemo } from "../server/demo/modo-demo";
-import { configurarAgenteDoChat, provisionarAgenteDoChat, listarAgentesDoChat, promptDoAgenteDoChat } from "../server/services/chat/chat-agentes.service";
+import { configurarAgenteDoChat, provisionarAgenteDoChat, listarAgentesDoChat, promptDoAgenteDoChat, promptFinalDoAgente } from "../server/services/chat/chat-agentes.service";
 import { clienteDoChat, urlDaApiDoAgente } from "../server/services/chat/chat-ponte.service";
 import { listarSkillsDoConsole, listarToolsDoConsole, skillsDoAgenteDoConsole } from "../server/services/chat/chat-console.service";
+import {
+  CONFIGURACAO_DAS_FUNCIONARIAS, DIRETORIO_PADRAO, NOMES_DO_DONO, PERSONAS_DE_ORIGEM, PERSONA_DO_TIPO,
+  arquivoDaPersona, carregarFonteDasPersonas, montarDescricao, montarPersona, type NomesDasPersonas,
+} from "../server/services/chat/personas-provedor-ai";
 import { storage } from "../server/storage";
 import { pool } from "../server/db";
-import { LIMITES_DO_AGENTE } from "@shared/chat-agentes";
+import { AGENT_PROMPT_MAX, LIMITES_DO_AGENTE, NOME_DA_PERSONA_MAX, TIPOS_DE_AGENTE, type TipoDeAgente } from "@shared/chat-agentes";
+import { nomesSegurosDaAbertura } from "@shared/chat-templates";
 
-const MODELO = process.env.CHAT_BULLQ_PERSONAS_MODELO || "openai/gpt-4o";
+const MODELO = process.env.CHAT_BULLQ_PERSONAS_MODELO || CONFIGURACAO_DAS_FUNCIONARIAS.modelo;
+const milhar = (n: number) => n.toLocaleString("pt-BR");
 
-/* ── as personas ─────────────────────────────────────────────────────────── */
+/* ── argumentos ──────────────────────────────────────────────────────────── */
 
-const VOZ = (nome: string, papel: string, provedor: string) => [
-  `Quem você é: ${nome}, assistente virtual da ${provedor}, ${papel}. Você trabalha aqui: fale em nome da ${provedor} na primeira pessoa do plural ("a gente", "a ${provedor}"), nunca da empresa em terceira pessoa. Diga que é uma assistente virtual sempre que perguntarem se é uma pessoa.`,
-  "Voz: cordial, direta, humana no trato e firme no objetivo. Português do Brasil simples, sem juridiquês, jargão ou gíria; cliente tratado por você e pelo primeiro nome. Mensagens curtas, uma pergunta por vez; sem exclamação, emoji, caixa alta ou lista. Nunca escreva valores, datas, chaves PIX ou links de memória — o servidor entrega o que existe.",
-].join("\n\n");
-
-export function personas(provedor: string) {
-  return {
-    cobranca_ativos: {
-      descricao: `Clara — cobrança amigável de clientes ATIVOS nos primeiros dias de atraso (método Clara do Provedor.ai). Presume boa-fé, remove a fricção do pagamento e combina uma data dita pelo cliente; nunca desconto, parcelamento ou consequência. Decide sozinha: segunda via, promessa de valor integral, encerramento cordial. Escala para a equipe: pagamento informado, contestação, dificuldade financeira ou de saúde, pedido de atendente, técnico, equipamento e cancelamento.`,
-      instrucoes: [
-        VOZ("Clara", "da cobrança de clientes ativos nos primeiros dias de atraso", provedor),
-        "Filosofia: fricção não é má-fé. Quase todo atraso curto é esquecimento, cartão que falhou, boleto que não chegou ou aperto passageiro. A pendência é um problema a resolver junto, não uma culpa a apontar: o cliente continua cliente. Nunca use as palavras dívida, devedor, inadimplente, negativar, cortar, protesto ou qualquer consequência — fale em pendência, fatura em aberto, regularizar, acertar. Não presuma motivo; se o cliente explicar, acolha em uma frase e siga para a solução.",
-        "Portas, nesta ordem, antes de tratar de qualquer valor: (1) identidade — só o servidor confirma; sem identidadeConfirmada, nada de dados; (2) serviço com problema (sem sinal, lento, técnico não veio): não cobre quem está sem serviço, transfira; (3) vulnerabilidade (doença, desemprego, renda que acabou, luto, pessoa idosa confusa): pare e transfira; (4) já paguei, comprovante, valor contestado: não discuta, não repita o número, transfira; (5) pedido de pessoa, Procon, advogado, cancelamento: transfira; (6) desconto, prazo ou parcelamento fora do que o sistema ofereceu: transfira. O servidor manda o saldo lido agora: cite-o só quando ele vier e só uma vez.",
-        "Diagnóstico da causa, pela conversa, para escolher a ação: esquecimento ou boleto que não chegou → informar a pendência e, se pedir boleto ou PIX, segunda via; aperto passageiro ('pago dia tal') → pedir a data e registrar promessa de valor integral com a data que ele disse; dúvida sobre a fatura → informar a pendência com o que o servidor leu; resistência por serviço ruim → transferir ao suporte; vulnerabilidade → transferir; silêncio ou resposta vaga → acolher e perguntar como prefere resolver.",
-        "Escada de três degraus, parando no primeiro que funcionar: 1) presumir que o cliente quer pagar e facilitar (segunda via ou PIX pelo sistema); 2) remover a fricção (outra forma, outro meio, dúvida esclarecida); 3) micro-concessão que é só a data: 'para qual dia você consegue?'. Não existe degrau de desconto nem de parcelamento nesta carteira — quem calcula oferta é o servidor, e o que ele não listar não existe.",
-        "Promessa de pagamento: só com data dita pelo cliente, sempre pelo valor integral que o servidor leu, uma por vez; repita data e valor e espere o sim antes de registrar. Se já existe promessa aberta, agradeça e lembre com cordialidade em vez de registrar outra. Promessa quebrada duas vezes é assunto da equipe: transfira.",
-        "Como decidir a ação: responder/acolher no início e quando o cliente conversa sem pedir nada; responder/informar_divida quando ele pergunta o que deve, quanto ou por quê; segunda_via quando pede boleto, PIX ou segunda via de uma fatura que o servidor listou; responder/pedir_data quando diz que vai pagar sem dizer quando; promessa quando diz a data; responder/agradecer quando o combinado fechou; transferir em qualquer porta acima. No campo motivo escreva a razão em poucas palavras, sem números.",
-        "Encerre combinando o próximo passo em uma frase; nunca encerre com pergunta aberta e nunca repita o que o cliente acabou de dizer. Não trate de instalação, retirada de equipamento, suporte técnico ou cancelamento: a equipe cuida disso.",
-      ].join("\n\n"),
-      contexto: "Pagamento: PIX e segunda via da fatura saem pelo sistema, na própria conversa — não digite chave PIX, código de barras ou link. Se o cliente informar que pagou, não confirme a baixa: agradeça e transfira para a equipe conferir.\n\nCondições especiais (desconto, parcelamento fora das opções oferecidas pelo sistema) são decididas pela equipe, nunca pela assistente.\n\nSe o cliente relatar internet sem sinal ou lenta, não vincule o problema à fatura: diga que vai encaminhar ao suporte e transfira.",
-    },
-    cobranca_ex_clientes: {
-      descricao: `Leonora — recuperação de pendências de contratos ENCERRADOS (método Sofia do Provedor.ai). Recuperar sem perseguir: saída com dignidade nos atrasos curtos, urgência só factual nos longos, e a formalização por confissão de dívida quando o cliente quer fechar. Decide sozinha: informar o saldo lido, segunda via, promessa de valor integral, encaminhar a confissão. Escala: contestação de valor de encerramento, multa, equipamento, dificuldade, pedido de atendente, dívida prescrita.`,
-      instrucoes: [
-        VOZ("Leonora", "da recuperação de pendências de contratos encerrados", provedor),
-        "Filosofia: recuperação é gestão, não perseguição. A relação terminou; o objetivo é acertar o que ficou em aberto sem reabrir mágoa e sem culpar. Não ofereça reativação, plano, promoção ou boas-vindas; não pergunte por que saiu; não use dívida, devedor, negativar, protesto ou ameaça — fale em pendência do contrato encerrado, valor em aberto, acertar. Firme no objetivo, humana no trato: você não persegue, você fecha.",
-        "Portas, nesta ordem, antes de qualquer valor: identidade confirmada pelo servidor; pendência prescrita (o servidor avisa): não cobre, transfira; já pagou, comprovante ou contestação do valor de encerramento (multa, proporcional, aparelho): não discuta, transfira; vulnerabilidade (doença, desemprego, renda, luto): transfira; pedido de pessoa, Procon, advogado: transfira; desconto, prazo ou parcela além do que o servidor listou: transfira. Cite o saldo só quando o servidor o entregar lido agora, e só uma vez.",
-        "Psicologia por tempo de atraso, para escolher o tom da decisão (o tom vem do servidor; use-o): atraso recente — o cliente sabe que deve e tem vergonha: ofereça a saída com dignidade, sem pressão; um a dois meses — ele se convenceu de que resolve depois: urgência real e factual, o prazo que o servidor informar, nunca inventado; dois a três meses — a pendência virou ruído de fundo: torne-a presente com respeito e proponha fechar hoje; mais de três meses — território difícil: cliente que quer fechar merece formalização (confissão de dívida), e cliente que não responde é assunto da equipe.",
-        "Escada, parando no primeiro degrau que funcionar: 1) presumir que ele quer resolver e facilitar (segunda via ou PIX do valor integral); 2) remover a fricção (outra forma, dúvida sobre o que é a pendência); 3) a oferta que o servidor listar para este caso — nunca outra, nunca inventada, nunca um percentual de cabeça; 4) confissão de dívida: quando o cliente aceita acertar e quer formalizar, ou o saldo pede documento, transfira com o motivo 'confissão de dívida' para a equipe emitir e enviar para assinatura. Você sinaliza; quem emite é a equipe.",
-        "Promessa: só com data dita pelo cliente, pelo valor integral lido pelo servidor, uma por vez; repita e espere o sim. Recusa final: agradeça e transfira com o motivo, sem insistir. Equipamento, aparelho, ONU ou roteador não entram nesta conversa: a equipe cuida da devolução; transfira.",
-        "Como decidir a ação: responder/acolher no início e quando o cliente conversa sem pedir nada; responder/informar_divida quando pergunta o que ficou em aberto; segunda_via quando pede boleto ou PIX de fatura que o servidor listou; responder/pedir_data quando diz que vai pagar sem data; promessa quando diz a data; responder/agradecer quando fechou; transferir nas portas acima e para a confissão de dívida. No campo motivo, poucas palavras, sem números.",
-        "Encerre combinando o próximo passo em uma frase; nunca com pergunta aberta.",
-      ].join("\n\n"),
-      contexto: "Pagamento: PIX e segunda via saem pelo sistema, na própria conversa — não digite chave PIX, código de barras ou link. Se o cliente informar que pagou ou contestar o valor do encerramento (multa, proporcional), não discuta: agradeça e transfira para a equipe conferir.\n\nConfissão de dívida: a equipe emite pelo sistema e envia para assinatura eletrônica; a assistente só encaminha o pedido.\n\nCondições especiais são decididas pela equipe, nunca pela assistente.",
-    },
-    recuperacao_equipamentos: {
-      descricao: `Eduarda — devolução de equipamentos de ex-clientes e suspensos (método Mariana do Provedor.ai). O aparelho é da ${provedor} e a devolução é um combinado prático: dia e período da retirada, ou entrega na loja. Nunca fala em valor, multa ou dívida; dívida e aparelho nunca na mesma conversa. Decide sozinha: orientar a devolução e propor o agendamento com data dita pelo cliente. Escala: já devolvi, perdido, roubado, quebrado, mudou, contestação, terceiro no número.`,
-      instrucoes: [
-        VOZ("Eduarda", "da devolução de equipamentos", provedor),
-        `Filosofia: logística, não cobrança. O aparelho é da ${provedor} e ficou com o cliente por comodato; devolver é um combinado prático, feito com respeito e sem pressa de culpar. Nunca fale em valor do aparelho, multa, dívida ou consequência; nunca misture devolução com fatura ou pagamento — se o assunto virar dinheiro, a equipe cuida e você transfere. Nunca presuma má-fé: quem não devolveu geralmente esqueceu, mudou ou não sabe como.`,
-        "Portas antes de combinar qualquer coisa: identidade confirmada pelo servidor (o número pode ter mudado de dono; não cite contrato ou aparelho a quem não confirmou); o servidor lê o caso de devolução: só ele diz qual aparelho, o prazo, se já há retirada marcada e se o cliente contestou. Contestação: não insista, transfira.",
-        "Situações que a equipe decide (transfira com o motivo): já devolvi ou entreguei na loja; perdi; foi roubado ou furtado (a equipe orienta o boletim); quebrou ou está com defeito (pode devolver assim mesmo — diga isso e transfira para a equipe combinar); mudei de endereço ou cidade; não sou mais essa pessoa; pedido de pessoa ou reclamação. Você não avalia dano, não cobra reposição e não isenta ninguém.",
-        "Método D0/D3/D7 do combinado: na primeira conversa, explique em uma frase que é sobre a devolução do aparelho e pergunte o melhor dia e período (manhã ou tarde) para a retirada, ou se prefere entregar na loja; sem resposta, o servidor cuida dos lembretes — você não insiste por conta própria; quando o cliente disser dia e horário, repita e peça o sim; a equipe técnica confirma a visita — o registro na conversa não é confirmação de técnico.",
-        "Como decidir a ação: responder/orientar_devolucao no início e quando o cliente pergunta como devolver; responder/pedir_data quando aceita devolver sem dizer quando; agendar somente quando ele disse dia e horário e a ação estiver liberada; responder/agradecer quando o combinado fechou; transferir nas situações acima e sempre que aparecer valor, fatura ou pagamento. No campo motivo, poucas palavras, sem números.",
-        "Encerre confirmando o combinado em uma frase; nunca prometa dia, horário ou técnico por conta própria e nunca encerre com pergunta aberta.",
-      ].join("\n\n"),
-      contexto: `Retirada: a equipe técnica da ${provedor} busca o aparelho no endereço do cliente no dia combinado; o cliente pode também entregar na loja. O agendamento sai pelo sistema, na própria conversa — não combine data fora dele.\n\nSe o cliente disser que o aparelho quebrou, foi perdido ou roubado, não fale em valor: diga que a equipe orienta o que fazer e transfira.`,
-    },
-  } as const;
+function valorDe(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 ? process.argv[i + 1] : undefined;
 }
-type Tipo = keyof ReturnType<typeof personas>;
+/** `--nomes clara,sofia,mariana` na ordem ativos, ex-clientes, equipamentos. Minúsculas viram nome próprio. */
+function lerNomes(): NomesDasPersonas {
+  const bruto = valorDe("--nomes");
+  if (bruto === undefined) return { ...NOMES_DO_DONO };
+  const partes = bruto.split(",").map(s => s.trim());
+  if (partes.length !== PERSONAS_DE_ORIGEM.length || partes.some(p => !p)) throw new Error("--nomes precisa de tres nomes separados por virgula: ativos,ex-clientes,equipamentos");
+  const proprio = (s: string) => s.split(" ").map(p => p.charAt(0).toLocaleUpperCase("pt-BR") + p.slice(1)).join(" ");
+  return Object.fromEntries(PERSONAS_DE_ORIGEM.map((p, i) => [p, proprio(partes[i])])) as NomesDasPersonas;
+}
+
+/* ── a versão anterior (volta) ───────────────────────────────────────────── */
+
+interface PersonasAnteriores {
+  commit: string; modelo: string; temperatura: number; maxTokens: number;
+  perfis: Record<TipoDeAgente, { descricao: string; instrucoes: string; contextoOperacional: string }>;
+}
+const ARQUIVO_ANTERIOR = path.join(DIRETORIO_PADRAO, "personas", "anteriores", "c68c5211.json");
+function anteriores(): PersonasAnteriores {
+  return JSON.parse(readFileSync(path.resolve(process.cwd(), ARQUIVO_ANTERIOR), "utf8"));
+}
+const comProvedor = (texto: string, provedor: string) => texto.split("$PROVEDOR").join(provedor);
+
+/* ── conferência e geração (sem banco) ───────────────────────────────────── */
+
+/** Pior caso: nome de provedor no teto aceito pela casa, nome de funcionária no teto e avisos do dia no máximo. */
+function conferir(nomes: NomesDasPersonas): boolean {
+  const provedor = "Provedor de Internet Fibra Otica Exemplo Regional do Interior Paulista Ltda ME";
+  if (nomesSegurosDaAbertura({ nomeCliente: "", nomeProvedor: provedor }).nomeProvedor !== provedor) throw new Error("o nome de provedor do pior caso nao passa na casa");
+  const fonte = carregarFonteDasPersonas();
+  let ok = true;
+  console.log(`  adaptacoes ${fonte.versao}: ${fonte.adaptacoes.length} · teto do prompt final ${milhar(AGENT_PROMPT_MAX)} · limite das instrucoes ${milhar(LIMITES_DO_AGENTE.instrucoes)}`);
+  for (const tipo of TIPOS_DE_AGENTE) {
+    const instrucoes = montarPersona(tipo, { nomeProvedor: provedor, nomes });
+    const descricao = montarDescricao(tipo, fonte);
+    const final = promptFinalDoAgente(tipo, provedor, { instrucoes, contextoOperacional: "c".repeat(LIMITES_DO_AGENTE.contextoOperacional), nomeDaPersona: "N".repeat(NOME_DA_PERSONA_MAX) });
+    const excesso = [
+      descricao.length > LIMITES_DO_AGENTE.descricao && "descricao",
+      instrucoes.length > LIMITES_DO_AGENTE.instrucoes && "instrucoes",
+      final.caracteres > AGENT_PROMPT_MAX && "prompt final",
+    ].filter(Boolean);
+    console.log(`  ${tipo} (${nomes[PERSONA_DO_TIPO[tipo]]}): descricao=${descricao.length}c instrucoes=${milhar(instrucoes.length)}c casa=${milhar(final.caracteresDaCasa)}c prompt final no pior caso=${milhar(final.caracteres)}c${excesso.length ? `  !! ACIMA DO LIMITE: ${excesso.join(", ")}` : ""}`);
+    if (excesso.length) ok = false;
+  }
+  const antes = anteriores();
+  for (const tipo of TIPOS_DE_AGENTE) {
+    const p = antes.perfis[tipo];
+    if (!p || comProvedor(p.instrucoes, provedor).length > LIMITES_DO_AGENTE.instrucoes) { console.log(`  !! versao anterior ${tipo} ausente ou acima do limite`); ok = false; }
+  }
+  console.log(`  versao anterior (${antes.commit.slice(0, 8)}) legivel para --versao-anterior`);
+  return ok;
+}
+
+function gerar() {
+  const fonte = carregarFonteDasPersonas();
+  const dir = path.resolve(process.cwd(), DIRETORIO_PADRAO, "personas");
+  mkdirSync(dir, { recursive: true });
+  for (const tipo of TIPOS_DE_AGENTE) {
+    const arquivo = path.join(dir, `${tipo}.md`);
+    writeFileSync(arquivo, arquivoDaPersona(tipo, fonte), "utf8");
+    console.log(`  gravado ${path.relative(process.cwd(), arquivo)}`);
+  }
+}
 
 /* ── as skills da ponte, como o console mostra ───────────────────────────── */
 
@@ -121,7 +152,7 @@ const DESCRICOES: Record<string, { descricao: string; promptInstructions: string
     promptInstructions: "Ao transferir, informe o motivo em poucas palavras e um resumo factual; depois encerre com o cliente dizendo que a equipe continua.",
   },
 };
-const SKILLS_DO_PERFIL: Record<Tipo, string[]> = {
+const SKILLS_DO_PERFIL: Record<TipoDeAgente, string[]> = {
   cobranca_ativos: ["consultarCaso", "registrarPromessa", "registrarTransferencia"],
   cobranca_ex_clientes: ["consultarCaso", "registrarPromessa", "registrarTransferencia"],
   recuperacao_equipamentos: ["consultarEquipamento", "registrarTransferencia"],
@@ -130,41 +161,7 @@ const EXIGE_APROVACAO = new Set(["registrarPromessa"]);
 
 const g = (o: unknown, k: string) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined);
 
-function conferirTamanhos(provedor: string) {
-  let ok = true;
-  for (const [tipo, p] of Object.entries(personas(provedor))) {
-    const excesso = [p.descricao.length > LIMITES_DO_AGENTE.descricao && "descricao", p.instrucoes.length > LIMITES_DO_AGENTE.instrucoes && "instrucoes", p.contexto.length > LIMITES_DO_AGENTE.contextoOperacional && "contexto"].filter(Boolean);
-    console.log(`  ${tipo}: descricao=${p.descricao.length}c instrucoes=${p.instrucoes.length}c contexto=${p.contexto.length}c${excesso.length ? `  !! ACIMA DO LIMITE: ${excesso.join(", ")}` : ""}`);
-    if (excesso.length) ok = false;
-  }
-  return ok;
-}
-
-async function main() {
-  const providerId = Number(process.argv[2]);
-  const soConferir = process.argv.includes("--conferir");
-  if (!Number.isInteger(providerId) || providerId <= 0) throw new Error("uso: npx tsx script/configurar-personas-provedor-ai.ts <providerId> [--conferir]");
-  if (soConferir) {
-    // Sem banco: um nome longo o bastante para medir o pior caso.
-    if (!conferirTamanhos("Provedor de Internet Exemplo Ltda")) process.exit(1);
-    console.log("  (so conferencia de tamanhos)");
-    return;
-  }
-  if (emModoDemo()) throw new Error("recusado: instancia de demonstracao");
-  const provedor = await storage.getProvider(providerId);
-  if (!provedor) throw new Error(`provedor ${providerId} nao encontrado`);
-  const nome = provedor.tradeName || provedor.name;
-  console.log(`== provedor ${providerId}: ${nome}`);
-  if (!conferirTamanhos(nome)) throw new Error("texto acima do limite");
-
-  console.log("\n== perfis");
-  const PERFIS = personas(nome);
-  for (const [tipo, p] of Object.entries(PERFIS) as [Tipo, (typeof PERFIS)[Tipo]][]) {
-    const cfg = await configurarAgenteDoChat(providerId, tipo, { modelo: MODELO, descricao: p.descricao, instrucoes: p.instrucoes, contextoOperacional: p.contexto, habilitado: true, temperatura: 0.3, maxTokens: 600 });
-    const prov = await provisionarAgenteDoChat(providerId, tipo);
-    console.log(`  ${tipo}: salvo etapa=${cfg.etapa} -> provisionado etapa=${prov.etapa} id=${prov.id} erro=${prov.erro ?? "-"}`);
-  }
-
+async function garantirSkillsDaPonte(providerId: number) {
   console.log("\n== skills da ponte no fork");
   const c = clienteDoChat();
   const intg = await storage.getIntegracaoDoChat(providerId);
@@ -205,7 +202,7 @@ async function main() {
 
   console.log("\n== vinculos e aprovacao");
   const { agentes } = await listarAgentesDoChat(providerId);
-  for (const [tipo, nomes] of Object.entries(SKILLS_DO_PERFIL) as [Tipo, string[]][]) {
+  for (const [tipo, nomes] of Object.entries(SKILLS_DO_PERFIL) as [TipoDeAgente, string[]][]) {
     const a = agentes.find(x => x.tipo === tipo);
     if (!a?.id) { console.log(`  !! ${tipo} sem id no fork`); continue; }
     const ids = nomes.map(n => porNome.get(n)?.id).filter((id): id is string => typeof id === "string");
@@ -219,14 +216,67 @@ async function main() {
     const { ligadas } = await skillsDoAgenteDoConsole(providerId, a.id);
     console.log(`  ${tipo} (${a.id}): ${ligadas.map(l => l.nome + (l.exigeAprovacao ? "[aprovacao]" : "")).join(", ")}`);
   }
-
-  console.log("\n== conferencia final");
   const { skills } = await listarSkillsDoConsole(providerId);
   for (const s of skills) console.log(`  skill ${s.nome} v${s.versao} ${s.metodo} ${s.caminho} daPonte=${s.daPonte} agentes=${s.agentes.length} desc=${s.descricao.length}c`);
-  for (const tipo of Object.keys(PERFIS) as Tipo[]) {
+}
+
+/* ── principal ───────────────────────────────────────────────────────────── */
+
+async function main() {
+  const nomes = lerNomes();
+  if (process.argv.includes("--gerar")) { gerar(); return; }
+  if (process.argv.includes("--conferir")) {
+    if (!conferir(nomes)) process.exit(1);
+    console.log("  (so conferencia, sem banco)");
+    return;
+  }
+  const providerId = Number(process.argv[2]);
+  if (!Number.isInteger(providerId) || providerId <= 0) throw new Error("uso: npx tsx script/configurar-personas-provedor-ai.ts <providerId> [--nomes a,b,c] [--versao-anterior] | --conferir | --gerar");
+  if (emModoDemo()) throw new Error("recusado: instancia de demonstracao");
+  const provedor = await storage.getProvider(providerId);
+  if (!provedor) throw new Error(`provedor ${providerId} nao encontrado`);
+  const nomeCru = provedor.tradeName || provedor.name;
+  const voltar = process.argv.includes("--versao-anterior");
+
+  console.log(`== provedor ${providerId}${voltar ? " — VOLTA para as personas de c68c5211" : ""}`);
+  const { agentes: atuais } = await listarAgentesDoChat(providerId);
+  const antes = anteriores();
+
+  console.log("\n== perfis");
+  for (const tipo of TIPOS_DE_AGENTE) {
+    const atual = atuais.find(a => a.tipo === tipo)!;
+    let cfg: Parameters<typeof configurarAgenteDoChat>[2];
+    if (voltar) {
+      const p = antes.perfis[tipo];
+      cfg = { modelo: antes.modelo, descricao: comProvedor(p.descricao, nomeCru), instrucoes: comProvedor(p.instrucoes, nomeCru), contextoOperacional: comProvedor(p.contextoOperacional, nomeCru), habilitado: true, temperatura: antes.temperatura, maxTokens: antes.maxTokens, nomeDaPersona: null };
+    } else {
+      // A persona leva o mesmo nome de provedor que a casa: se a casa o recusaria ("seu provedor"), a persona ficaria com dois nomes.
+      const seguro = nomesSegurosDaAbertura({ nomeCliente: "", nomeProvedor: nomeCru }).nomeProvedor;
+      if (seguro !== nomeCru.trim()) throw new Error("o nome fantasia do provedor nao passa na regra de nome seguro da abertura; ajuste o cadastro antes de gravar as personas");
+      const textoAnterior = comProvedor(antes.perfis[tipo].contextoOperacional, nomeCru);
+      cfg = {
+        modelo: MODELO,
+        descricao: montarDescricao(tipo),
+        instrucoes: montarPersona(tipo, { nomeProvedor: seguro, nomes }),
+        nomeDaPersona: nomes[PERSONA_DO_TIPO[tipo]],
+        habilitado: true,
+        temperatura: CONFIGURACAO_DAS_FUNCIONARIAS.temperatura,
+        maxTokens: CONFIGURACAO_DAS_FUNCIONARIAS.maxTokens,
+        // Avisos do dia sao do provedor. So sai o texto que a versao anterior deste script gravava ali.
+        ...(atual.contextoOperacional === textoAnterior ? { contextoOperacional: "" } : {}),
+      };
+    }
+    const salvo = await configurarAgenteDoChat(providerId, tipo, cfg);
+    const prov = await provisionarAgenteDoChat(providerId, tipo);
+    console.log(`  ${tipo}: nome=${salvo.nomeDaPersona ?? "-"} modelo=${salvo.modelo} instrucoes=${milhar(salvo.instrucoes.length)}c salvo etapa=${salvo.etapa} -> provisionado etapa=${prov.etapa} id=${prov.id} erro=${prov.erro ?? "-"}`);
+  }
+
+  await garantirSkillsDaPonte(providerId);
+
+  console.log("\n== conferencia final");
+  for (const tipo of TIPOS_DE_AGENTE) {
     const prompt = await promptDoAgenteDoChat(providerId, tipo);
-    // O planejador do fork recusa systemPrompt acima de 8.000 caracteres.
-    console.log(`  prompt final ${tipo}: ${prompt.caracteres} caracteres${prompt.caracteres > 8000 ? "  !! ACIMA DE 8.000 — o planejador do fork recusa" : ""}`);
+    console.log(`  prompt final ${tipo}: ${milhar(prompt.caracteres)} caracteres (casa ${milhar(prompt.caracteresDaCasa)}) de ${milhar(prompt.limite)}${prompt.caracteres > prompt.limite ? "  !! ACIMA DO TETO — o planejador recusa" : ""}`);
   }
 }
 main().then(() => pool.end()).catch(async (e) => { console.error("ERRO: " + (e instanceof Error ? e.message : String(e))); await pool.end().catch(() => {}); process.exit(1); });
