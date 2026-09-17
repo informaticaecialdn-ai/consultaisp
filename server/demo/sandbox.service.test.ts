@@ -170,7 +170,7 @@ import {
 import { PROVEDORES_DA_DEMO, INDICE_MIGRADOR_DE_EXEMPLO, CPFS_COMPARTILHADOS, complementarMundoBase, semearMundoBase } from "./mundo-base";
 import { regredirParaOFormatoAntigo } from "./formato-antigo.fixture";
 import { limparSandboxesExpirados } from "./limpeza.service";
-import { AGENTES_DA_DEMO, agenteConfigDaDemo, limparChatSimuladoDoProvedor, roteiroDaConversa, type LinhaDaConversa } from "./chat-simulado";
+import { AGENTES_DA_DEMO, agenteConfigDaDemo, funcionariaDaConversa, limparChatSimuladoDoProvedor, roteiroDaConversa, type LinhaDaConversa } from "./chat-simulado";
 import { economiaDoCliente } from "@shared/cobranca/ficha360";
 import { cpfFicticio } from "./pessoas-ficticias";
 import { FONTE_ERP_DEMO } from "../erp/fonte-demo";
@@ -1724,8 +1724,9 @@ describe("a semeadura cobre os recursos da demonstracao (Leva 1, Frente C)", () 
       const doChat = (e: Record<string, unknown>) => json(e.metadata)?.conversationId === linha.conversationId;
 
       if (linha.status === "BOT") {
-        // O robô só mandou a abertura, e a linha do tempo diz o mesmo: contato sem resultado e sem usuário.
-        expect(msgs.every((m) => m.direction === "OUTBOUND" && m.senderName === "Assistente virtual"), rotulo).toBe(true);
+        // O robô só mandou a abertura, e a linha do tempo diz o mesmo: contato sem resultado e sem usuário. Assina a
+        // funcionária do perfil (Clara, Leonora ou Eduarda), nunca "Assistente virtual".
+        expect(msgs.every((m) => m.direction === "OUTBOUND" && m.senderName === funcionariaDaConversa(linha)), rotulo).toBe(true);
         if (caso) expect(eventosCobranca.find((e) => doChat(e) && e.tipo === "contato"), rotulo).toMatchObject({ resultado: null, userId: null });
         if (recuperacao) expect(eventosRecuperacao.find((e) => doChat(e) && e.type === "tentativa"), rotulo).toMatchObject({ result: "sem_resposta", userId: null });
         continue;
@@ -2107,13 +2108,25 @@ describe("a semeadura conta a mesma historia em todas as telas (Leva 2, fase A d
  * a qualquer hora (inclusive de madrugada, quando a equipe não fala com
  * ninguém e "contatados hoje" é zero de verdade).
  */
+/** 15h (Sao Paulo, UTC-3) de hoje, ou do proximo dia util se hoje for sabado ou domingo. */
+function quinzeHorasDeUmDiaUtil(agoraMs: number): number {
+  const HORA = 3_600_000;
+  const local = new Date(agoraMs - 3 * HORA);
+  const diaDaSemana = local.getUTCDay();
+  const avancar = diaDaSemana === 6 ? 2 : diaDaSemana === 0 ? 1 : 0;
+  return Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + avancar, 18, 0, 0);
+}
+
 describe("a semeadura liga os modulos da leva 2 (fase B do P2)", () => {
   const DIA_MS = 86_400_000;
   // Congela no instante da rodada (arredondado ao minuto), nunca numa data cravada: o mundo
   // base foi semeado com o relogio REAL no inicio do processo, e um instante fixo anterior a
   // ele deixa consultas "no futuro" — o P9 contava 15 avisos em vez de 16 depois das 15h de
   // 16/09/2026, e a partir do dia seguinte a data cravada ficaria para tras de vez.
-  const AGORA = new Date(Math.floor(Date.now() / 60_000) * 60_000);
+  // E nunca antes das 15h de um dia util em Sao Paulo (UTC-3 fixo): o "ha contatados hoje" do P1 depende de a equipe
+  // ja ter falado no roteiro, e rodando as 8h43 de 17/09/2026 a suite falhava por relogio, nao por defeito. Nunca antes
+  // do relogio real, pelo mesmo motivo acima (o mundo base foi semeado com ele).
+  const AGORA = new Date(Math.max(Math.floor(Date.now() / 60_000) * 60_000, quinzeHorasDeUmDiaUtil(Date.now())));
   let s: Awaited<ReturnType<typeof criarSandbox>>;
 
   const ms = (valor: unknown): number => new Date(valor as string | Date).getTime();
