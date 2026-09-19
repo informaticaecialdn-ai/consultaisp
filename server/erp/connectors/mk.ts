@@ -24,6 +24,12 @@ import type {
   NormalizedErpCustomer,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
+// O MK declara `charset=iso-8859-1` e manda UTF-8 com o 2o byte das acentuadas
+// MAIUSCULAS escapado como `\u00XX`. `response.json()` decodifica UTF-8 as cegas
+// e troca o byte solto por U+FFFD ANTES do JSON.parse — 150 nomes de cliente da
+// NsLink estavam gravados assim em 17/09/2026. `lerJsonDoErp` le pelos BYTES.
+// Ver server/erp/codificacao.ts. NAO volte a `.json()` neste arquivo.
+import { lerJsonDoErp } from "../codificacao.js";
 import { agregarEquipamentosCobrados } from "../equipamento-na-fatura.js";
 import { chaveLogradouro } from "../../services/logradouro.js";
 import { normalizarLocalidade } from "../../services/localidade.js";
@@ -305,7 +311,7 @@ export class MkConnector implements ErpConnector {
     const qs = new URLSearchParams({ sys: "MK0", token, cd_fatura: referencia });
     const r = await fetch(`${base}/mk/WSMKSegundaViaCobranca.rule?${qs}`, { signal: AbortSignal.timeout(12000) });
     if (!r.ok) throw new Error("O MK não disponibilizou a segunda via desta fatura");
-    const d = await r.json() as { Fatura?: string | number; PathDownload?: string; Valor?: string; Vcto?: string; linha_digitavel_boleto?: string; pix_copia_cola?: string };
+    const d = await lerJsonDoErp(r) as { Fatura?: string | number; PathDownload?: string; Valor?: string; Vcto?: string; linha_digitavel_boleto?: string; pix_copia_cola?: string };
     if (d.Fatura && String(d.Fatura) !== referencia) throw new Error("O ERP devolveu outra fatura");
     return normalizarPagamento({ link: d.PathDownload, pix: d.pix_copia_cola, linhaDigitavel: d.linha_digitavel_boleto, valor: d.Valor, vencimento: vencimentoIso(d.Vcto) });
   }
@@ -347,7 +353,7 @@ export class MkConnector implements ErpConnector {
           { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
         );
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        json = await resp.json();
+        json = await lerJsonDoErp(resp);
         falhasSeguidas = 0;
       } catch (e) {
         falhasSeguidas++;
@@ -401,7 +407,7 @@ export class MkConnector implements ErpConnector {
       throw new Error(`Autenticacao MK falhou: status ${response.status}`);
     }
 
-    const json: any = await response.json();
+    const json: any = await lerJsonDoErp(response);
 
     // Try multiple token field names — MK API varies between versions
     const tokenAcesso =
@@ -487,7 +493,7 @@ export class MkConnector implements ErpConnector {
         const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(10000) });
         if (!resp.ok) continue;
 
-        const json: any = await resp.json();
+        const json: any = await lerJsonDoErp(resp);
         const lista: any[] = Array.isArray(json) ? json
           : json?.inventory ?? json?.Inventario ?? json?.itens ?? json?.data ?? [];
         if (!Array.isArray(lista) || lista.length === 0) continue;
@@ -526,7 +532,6 @@ export class MkConnector implements ErpConnector {
 
       // Step 1: Find customer by CPF/CNPJ using WSMKConsultaDoc
       const consultaUrl = `${base}/mk/WSMKConsultaDoc.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&doc=${encodeURIComponent(cleanDoc)}`;
-      console.log(`[MK] Buscando cliente por CPF via WSMKConsultaDoc: ${cleanDoc}`);
 
       const consultaResponse = await withResilience(
         () => fetch(consultaUrl, { method: "GET", signal: AbortSignal.timeout(15000) }),
@@ -537,10 +542,7 @@ export class MkConnector implements ErpConnector {
         return { ok: false, message: `MK WSMKConsultaDoc respondeu com status ${consultaResponse.status}`, customers: [] };
       }
 
-      const consultaJson: any = await consultaResponse.json();
-      // DEBUG completo — log resposta inteira para diagnosticar problemas de endereço
-      const fullResp = JSON.stringify(consultaJson);
-      console.log(`[MK] Resposta WSMKConsultaDoc (${fullResp.length} chars):`, fullResp.substring(0, 1500));
+      const consultaJson: any = await lerJsonDoErp(consultaResponse);
 
       // Extract customer data — response could be object or array
       let customerData = Array.isArray(consultaJson)
@@ -567,11 +569,9 @@ export class MkConnector implements ErpConnector {
       const nome = customerData?.Nome || customerData?.nome || customerData?.razao_social || customerData?.name || "";
 
       if (!cdCliente && !nome) {
-        console.log(`[MK] Cliente nao encontrado para CPF ${cleanDoc}`);
         return { ok: true, message: "Cliente nao encontrado no MK", customers: [], totalRecords: 0 };
       }
 
-      console.log(`[MK] Cliente encontrado: cd_cliente=${cdCliente}, nome=${nome}`);
 
       // Step 1.5: Enrich with structured address from WSMKConsultaClientes.
       // WSMKConsultaDoc returns Endereco as flat string ("Rua X, 123 - Bairro, Cidade") with no CEP/UF.
@@ -583,7 +583,7 @@ export class MkConnector implements ErpConnector {
           const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
           const clientesResp = await fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
           if (clientesResp.ok) {
-            const cj: any = await clientesResp.json();
+            const cj: any = await lerJsonDoErp(clientesResp);
             const row = Array.isArray(cj) ? cj[0]
               : cj?.Clientes?.[0] || cj?.clientes?.[0] || cj?.registros?.[0] || cj?.data?.[0]
               || (typeof cj === "object" ? cj : null);
@@ -638,7 +638,7 @@ export class MkConnector implements ErpConnector {
           );
 
           if (faturasResponse.ok) {
-            const faturasJson: any = await faturasResponse.json();
+            const faturasJson: any = await lerJsonDoErp(faturasResponse);
             // DEBUG: log raw response structure to diagnose field names
             const rawStr = JSON.stringify(faturasJson);
             console.log(`[MK] WSMKFaturasPendentes resposta bruta (${rawStr.length} chars): ${rawStr.substring(0, 500)}`);
@@ -716,7 +716,7 @@ export class MkConnector implements ErpConnector {
             );
 
             if (altResponse.ok) {
-              const altJson: any = await altResponse.json();
+              const altJson: any = await lerJsonDoErp(altResponse);
               const altRaw = JSON.stringify(altJson);
               console.log(`[MK] WSMKFaturas resposta bruta (${altRaw.length} chars): ${altRaw.substring(0, 500)}`);
 
@@ -959,7 +959,7 @@ export class MkConnector implements ErpConnector {
       const url = `${base}/mk/WSMKConexoesPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cd)}`;
       const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) });
       if (!resp.ok) return null;
-      const j: unknown = await resp.json().catch(() => null);
+      const j: unknown = await lerJsonDoErp(resp).catch(() => null);
       if (j === null || typeof j !== "object") return null;
       return conexoesDoMk(j);
     } catch {
@@ -1049,7 +1049,7 @@ export class MkConnector implements ErpConnector {
             const fpUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
             const fpResp = await fetch(fpUrl, { method: "GET", signal: AbortSignal.timeout(15000) });
             if (!fpResp.ok) return naoLi(cliente);
-            const fpJson: any = await fpResp.json().catch(() => null);
+            const fpJson: any = await lerJsonDoErp(fpResp).catch(() => null);
             // Envelope ausente e resposta ilegivel, nao "cliente sem fatura":
             // o MK devolve erro com HTTP 200.
             if (!fpJson || typeof fpJson !== "object") return naoLi(cliente);
@@ -1291,9 +1291,7 @@ export class MkConnector implements ErpConnector {
         return await this.fetchDelinquentsFallback(config, tokenAuth, base);
       }
 
-      const faturasJson: any = await faturasResponse.json();
-      const rawPreview = JSON.stringify(faturasJson).substring(0, 600);
-      console.log(`[MK] WSMKFaturasAbertas resposta (preview): ${rawPreview}`);
+      const faturasJson: any = await lerJsonDoErp(faturasResponse);
 
       // Extract invoice array — MK may wrap in various keys
       let faturas: any[] = Array.isArray(faturasJson)
@@ -1475,10 +1473,9 @@ export class MkConnector implements ErpConnector {
                 const altUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
                 const altResp = await fetch(altUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
                 if (altResp.ok) {
-                  const altJson: any = await altResp.json();
+                  const altJson: any = await lerJsonDoErp(altResp);
                   if (!fallbackSampleLogged) {
                     fallbackSampleLogged = true;
-                    console.log(`[MK] Sample fallback response (cd_cliente=${cdPessoa}): ${JSON.stringify(altJson)?.slice(0, 600)}`);
                   }
                   const row = Array.isArray(altJson) ? altJson[0]
                     : altJson?.Clientes?.[0] || altJson?.registros?.[0] || altJson?.data?.[0]
@@ -1513,7 +1510,7 @@ export class MkConnector implements ErpConnector {
 
             // Skip if still no CPF (cannot identify customer for cross-provider lookup)
             if (!customerData.cpfCnpj) {
-              console.log(`[MK] Skipping cd_pessoa=${cdPessoa} (sem CPF) - nome=${customerData.name || "?"}`);
+              console.log(`[MK] Skipping cd_pessoa=${cdPessoa} (sem CPF)`);
               return;
             }
 
@@ -1619,7 +1616,7 @@ export class MkConnector implements ErpConnector {
         if (resp.status === 404 || resp.status === 204) { vazios++; }
         else if (!resp.ok) { motivoDaFalha = `HTTP ${resp.status}`; }
         else {
-          const cj: any = await resp.json().catch(() => null);
+          const cj: any = await lerJsonDoErp(resp).catch(() => null);
           const lista: any[] = Array.isArray(cj)
             ? cj
             : (cj?.Clientes ?? cj?.clientes ?? cj?.registros ?? cj?.data ?? []);
@@ -1691,7 +1688,7 @@ export class MkConnector implements ErpConnector {
         const url = `${base}/mk/${rule}?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cd)}`;
         const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) });
         if (!resp.ok) return null;
-        return await resp.json().catch(() => null);
+        return await lerJsonDoErp(resp).catch(() => null);
       } catch {
         return null;
       }
@@ -1969,7 +1966,7 @@ export class MkConnector implements ErpConnector {
             const faturasUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
             const resp = await fetch(faturasUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
             if (!resp.ok) return [];
-            const fj: any = await resp.json();
+            const fj: any = await lerJsonDoErp(resp);
             const faturas: any[] = Array.isArray(fj)
               ? fj
               : fj?.FaturasPendentes || fj?.Faturas || fj?.faturas || fj?.registros || fj?.data || [];
@@ -2130,7 +2127,7 @@ export class MkConnector implements ErpConnector {
                 const faturasResp = await fetch(faturasUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
 
                 if (faturasResp.ok) {
-                  const faturasJson: any = await faturasResp.json();
+                  const faturasJson: any = await lerJsonDoErp(faturasResp);
                   const faturas: any[] = Array.isArray(faturasJson)
                     ? faturasJson
                     : faturasJson?.FaturasPendentes || faturasJson?.Faturas || faturasJson?.faturas || faturasJson?.registros || faturasJson?.data || faturasJson?.Itens || faturasJson?.itens || faturasJson?.resultado || faturasJson?.Resultado || [];

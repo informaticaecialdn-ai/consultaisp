@@ -33,6 +33,7 @@ import type {
   NormalizedErpCustomer,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
+import { lerTextoDoErp } from "../codificacao.js";
 import { cleanCpfCnpj, cleanPhone, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
 import type { FaturaAbertaDoErp, FaturaPagaDoErp, ErpFaturasPagasResult } from "../types.js";
 import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
@@ -484,7 +485,13 @@ export class SgpConnector implements ErpConnector {
    */
   private async lerJson(response: Response): Promise<unknown> {
     const tipo = (response.headers?.get("content-type") ?? "").toLowerCase();
-    const corpo = await response.text();
+    // `lerTextoDoErp` e nao `response.text()`: o `text()` decodifica UTF-8 as
+    // cegas. O SGP esta CERTO hoje (UTF-8 cru e valido, sem charset declarado —
+    // medido em 17/09/2026: 1.317 bytes altos, todos sequencias validas), e para
+    // esse formato os dois dao o mesmo resultado. A diferenca aparece se ele um
+    // dia declarar outro charset ou mandar latin-1: aqui isso e decidido pelos
+    // BYTES, na entrada. Ver server/erp/codificacao.ts.
+    const corpo = await lerTextoDoErp(response);
     if (!tipo.includes("json")) throw new RespostaNaoEhSgp(MSG_NAO_E_JSON);
     try {
       return JSON.parse(corpo);

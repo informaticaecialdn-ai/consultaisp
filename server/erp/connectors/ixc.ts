@@ -36,6 +36,7 @@ import type {
   ErpFaturasPagasResult,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
+import { lerJsonDoErp } from "../codificacao.js";
 import { normalizarPagamento } from "@shared/cobranca/pagamento-chat";
 import { cleanCpfCnpj, cleanCep, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, vencimentoIso, aggregateByCustomer } from "../normalize.js";
 
@@ -208,7 +209,13 @@ export class IxcConnector implements ErpConnector {
         throw new Error(`IXC ${tabela} HTTP ${response.status}: ${text}`);
       }
 
-      const json: any = await response.json();
+      // Pelos BYTES, nao por `response.json()`. O IXC esta CERTO hoje — manda
+      // `text/x-json; charset=utf-8` e escapa tudo como `\u00XX`, corpo ASCII
+      // puro (medido em 17/09/2026: zero byte alto em 431 kB, zero U+FFFD) —,
+      // e para esse formato `lerJsonDoErp` e no-op comprovado. Passa por aqui
+      // para que o dia em que o IXC mudar de formato seja tratado na entrada,
+      // como no MK, e nao vire nome quebrado no banco. Ver server/erp/codificacao.ts.
+      const json: any = await lerJsonDoErp(response);
 
       // IXC returns {"type":"error","message":"..."} on auth/IP errors with HTTP 200
       if (json?.type === "error") {
