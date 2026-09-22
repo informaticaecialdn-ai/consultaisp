@@ -384,16 +384,38 @@ describe("GET /demo em DEMO_MODE", () => {
       expect(loggerMock.logger.info).toHaveBeenCalledWith(expect.objectContaining({ providerAntigo: 42, providerNovo: 43, antigoApagado: false }), "demo: sandbox anterior ao mundo atual substituído");
     });
 
-    it("sandbox desatualizado tambem passa pelo teto de vivos — e, com o antigo ja apagado e o teto batido, a sessao e ESQUECIDA em vez de apontar para o nada", async () => {
+    /*
+     * O teto existe para conter CRIACAO nova. A substituicao nao cria ninguem:
+     * reocupa a vaga que o proprio visitante devolveu uma linha antes. Barra-lo
+     * aqui o deixava SEM demonstracao nenhuma — o antigo apagado, o novo nao
+     * criado e a sessao destruida — com a porta limitada a 2 por IP em 10 min.
+     */
+    it("sandbox desatualizado com o teto batido: o antigo ja foi apagado, entao o teto NAO barra a substituicao — o visitante sai com o sandbox novo", async () => {
       sessaoVivaNoSandboxAntigo();
+      sandboxMock.contarSandboxesVivos.mockResolvedValue(150);
+
+      const res = await pedirDemo();
+
+      expect(res.status).toBe(302);
+      expect(sandboxMock.apagarSandbox).toHaveBeenCalledWith(42);
+      expect(sandboxMock.criarSandbox).toHaveBeenCalledTimes(1);
+      expect(sessao).toMatchObject({ userId: 8, providerId: 43 });
+      expect(sessao.destroy).not.toHaveBeenCalled();
+      // A vaga ja era dele: o teto nem chega a ser consultado.
+      expect(sandboxMock.contarSandboxesVivos).not.toHaveBeenCalled();
+      sandboxMock.contarSandboxesVivos.mockResolvedValue(0);
+    });
+    it("falha ao apagar o antigo E teto batido: ai sim o teto barra — nada foi apagado, o visitante segue no sandbox que tem", async () => {
+      sessaoVivaNoSandboxAntigo();
+      sandboxMock.apagarSandbox.mockRejectedValueOnce(new Error("deadlock detected"));
       sandboxMock.contarSandboxesVivos.mockResolvedValueOnce(150);
 
       const res = await pedirDemo();
 
       expect(res.status).toBe(503);
-      expect(sandboxMock.apagarSandbox).toHaveBeenCalledWith(42);
       expect(sandboxMock.criarSandbox).not.toHaveBeenCalled();
-      expect(sessao.destroy).toHaveBeenCalledTimes(1);
+      expect(sessao.destroy).not.toHaveBeenCalled();
+      expect(sessao).toMatchObject({ userId: 7, providerId: 42 });
       // `criarSandbox` recebeu um `mockResolvedValueOnce` que nao foi consumido
       // (o teto barrou antes) — descarta, para o proximo teste nao herdar o 43.
       sandboxMock.criarSandbox.mockReset();

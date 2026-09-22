@@ -215,6 +215,23 @@ function descartar(r: Resultado<unknown>): Resultado<void> {
 }
 
 /**
+ * O segredo do webhook de retorno sai da listagem. O registro cru do fork traz
+ * de volta `actions[].params.secret` — o segredo que a PROPRIA ponte gerou e
+ * mandou na criacao — e nada aqui precisa dele. Como `Automacao` aceita campo
+ * desconhecido (`[campo: string]: unknown`), um `res.json(automacao)` ou um
+ * `logger.info({ automacao })` futuro publicaria o segredo sem o compilador
+ * dizer nada: o que nunca entra e o que nunca vaza.
+ */
+function acoesSemSegredo(acoes: unknown): unknown {
+  if (!Array.isArray(acoes)) return acoes;
+  return acoes.map(acao => {
+    const params = acao && typeof acao === "object" ? (acao as { params?: unknown }).params : undefined;
+    if (!params || typeof params !== "object" || !("secret" in params)) return acao;
+    return { ...(acao as Record<string, unknown>), params: Object.fromEntries(Object.entries(params as Record<string, unknown>).filter(([campo]) => campo !== "secret")) };
+  });
+}
+
+/**
  * O estado de pausa nas duas grafias — camelCase do Prisma (o que o codigo do
  * fork devolve) e snake_case (o que a sessao que opera a VPS viu). Registro
  * sem os campos vale como ligada: pausada e uma afirmacao, nao um padrao.
@@ -224,6 +241,7 @@ function normalizarAutomacao(bruta: Record<string, unknown>): Automacao {
   const falhas = bruta.consecutiveFailures ?? bruta.consecutive_failures;
   return {
     ...bruta,
+    ...(bruta.actions === undefined ? {} : { actions: acoesSemSegredo(bruta.actions) }),
     id: String(bruta.id ?? ""),
     name: typeof bruta.name === "string" ? bruta.name : "",
     trigger: typeof bruta.trigger === "string" ? bruta.trigger : "",

@@ -269,7 +269,8 @@ describe("uma rodada", () => {
     const pedido = cliente.planejarAutonomia.mock.calls[0]?.[2];
     expect(pedido.operation).toBe("recuperacao");
     expect(JSON.parse(pedido.context)).toMatchObject({ saldo: null, faturas: [], carteira: "equipamentos", financeiroAoVivo: false, diasAtraso: null, promessasAnteriores: null });
-    expect(JSON.stringify(pedido)).not.toContain("150");
+    // Sem o `requestId`: o UUID dele é sorteado e de vez em quando contém "150" — o que não pode vazar é o saldo.
+    expect(JSON.stringify({ ...pedido, requestId: "" })).not.toContain("150");
     expect(textoEnviado()).not.toMatch(/R\$|valor|fatura|dívida/i);
   });
   it("quitação comprovada ainda aberta no ERP vai à conciliação sem divulgar saldo ou boleto", async () => {
@@ -1547,9 +1548,21 @@ describe("configurar a autonomia", () => {
       codigo: "CONFLITO", message: "Os agentes “Cobrança · ex-clientes” e “Recuperação de equipamentos” ainda não estão provisionados. Provisione-os em Agentes do chat ou desmarque-os.",
     });
     expect(fila.salvarConfig).not.toHaveBeenCalled();
-    // Só agentes prontos marcados: grava.
+    // Só agentes prontos marcados: grava — e a marcação JÁ GRAVADA do agente bloqueado
+    // volta junto (ver o teste abaixo), em vez de ser apagada por um salvamento qualquer.
     await configurarAutonomia(42, cfg(["cobranca_ativos", "cobranca_ex_clientes"]), 8);
-    expect(fila.salvarConfig).toHaveBeenCalledWith(42, expect.objectContaining({ ativa: true, tipos: ["cobranca_ativos", "cobranca_ex_clientes"] }));
+    expect(fila.salvarConfig).toHaveBeenCalledWith(42, expect.objectContaining({ ativa: true, tipos: ["cobranca_ativos", "cobranca_ex_clientes", "recuperacao_equipamentos"] }));
+  });
+  it("a marcação gravada de um agente bloqueado sobrevive ao salvamento — quem só mudou o limite não perde a carteira", async () => {
+    // A tela manda `tipos` já SEM o agente bloqueado: a caixa dele fica desabilitada e o
+    // operador não consegue desmarcá-la. Gravar só o que chegou apagaria essa carteira em definitivo.
+    fila.config.mockResolvedValueOnce({ ativa: true, maxTurnos: 12, permitirPromessa: true, permitirSegundaVia: true, permitirAgendamento: true, tipos: ["cobranca_ativos", "recuperacao_equipamentos"] });
+    await configurarAutonomia(42, cfg(["cobranca_ativos"]), 8);
+    expect(fila.salvarConfig).toHaveBeenCalledWith(42, expect.objectContaining({ tipos: ["cobranca_ativos", "recuperacao_equipamentos"] }));
+    // Desmarcar um agente que OPERA continua sendo decisão do operador: só o bloqueado é preservado.
+    fila.config.mockResolvedValueOnce({ ativa: true, maxTurnos: 12, permitirPromessa: true, permitirSegundaVia: true, permitirAgendamento: true, tipos: ["cobranca_ativos", "cobranca_ex_clientes"] });
+    await configurarAutonomia(42, cfg(["cobranca_ativos"]), 8);
+    expect(fila.salvarConfig).toHaveBeenLastCalledWith(42, expect.objectContaining({ tipos: ["cobranca_ativos"] }));
   });
   it("agente provisionado mas pausado (habilitado=false): a recusa diz que está pausado e onde habilitar — não que falta provisionar", async () => {
     agentes.listarAgentesDoChat.mockResolvedValue({ agentes: [

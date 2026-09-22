@@ -73,6 +73,18 @@ function recusaPorAgente(agentes: AgenteDoChat[], tipos: TipoDeAgente[]): string
   else if (pausados.length) frases.push(`Os agentes ${nomesDe(pausados)} estão pausados. Marque “Habilitado para abrir contato” em Agentes do chat ou desmarque-os aqui.`);
   return frases.join(" ");
 }
+/**
+ * A marcação gravada de um agente BLOQUEADO não se perde ao salvar. Na tela a
+ * caixa dele fica desabilitada — o operador não consegue desmarcá-la, e por
+ * isso o envio vem sem ela; gravar só o que chegou apagaria de vez a cobertura
+ * de uma carteira inteira de quem só queria mudar o limite diário. Preservada
+ * aqui, ela reaparece sozinha quando o agente for provisionado ou habilitado,
+ * exatamente como a tela promete. Só o que está bloqueado: desmarcar um agente
+ * que OPERA continua sendo decisão do operador.
+ */
+function tiposBloqueadosAPreservar(gravada: ConfigAutonomia, enviada: ConfigAutonomia, agentes: AgenteDoChat[]): TipoDeAgente[] {
+  return gravada.tipos.filter(t => !enviada.tipos.includes(t) && !agentes.some(a => a.tipo === t && agentePodeOperar(a)));
+}
 const faturasDaAutonomia = new FaturasStorage();
 export const chaveDaAutonomia = (providerId: number, conversationId: string) => `autonomia:${providerId}:${conversationId}`;
 
@@ -128,7 +140,7 @@ export async function devolverAoAssistente(providerId: number, conversationId: s
   return r.valor;
 }
 export async function configurarAutonomia(providerId: number, dados: ConfigAutonomia, userId: number | null = null) {
-  const config = ConfigAutonomiaSchema.parse(dados);
+  let config = ConfigAutonomiaSchema.parse(dados);
   return comTravaDaConfiguracaoDoChat(providerId, async () => {
     if (config.ativa) {
       const [{ agentes }, modelos] = await Promise.all([listarAgentesDoChat(providerId), modelosDosAgentesDoChat(providerId)]);
@@ -137,6 +149,7 @@ export async function configurarAutonomia(providerId: number, dados: ConfigAuton
       // do catálogo: a frase genérica mandava "deixar os agentes prontos" sem dizer qual.
       const recusa = recusaPorAgente(agentes, config.tipos);
       if (recusa) throw new ErroDaPonteDoChat("CONFLITO", recusa);
+      config = { ...config, tipos: [...config.tipos, ...tiposBloqueadosAPreservar(await autonomiaStorage.config(providerId), config, agentes)] };
     }
     if (config.permitirNegociacao) {
       const autor = userId ? await storage.getUser(userId) : null;

@@ -63,8 +63,11 @@ export function AutonomiaDoChat({ podeAdministrar }: { podeAdministrar: boolean 
   const [config, setConfig] = useState<ConfigAutonomia>(() => lerConfigAutonomia(null));
   useEffect(() => { if (estado.data) setConfig(lerConfigAutonomia((estado.data as { config?: unknown }).config)); }, [estado.dataUpdatedAt]);
   const podeMarcar = (tipo: TipoDeAgente) => !config.ativa || !bloqueio(tipo);
-  // O estado guarda a marcação como veio do servidor; só o ENVIO filtra — assim a
-  // marcação gravada reaparece sozinha quando o agente é provisionado.
+  // O estado guarda a marcação como veio do servidor; só o ENVIO filtra — a caixa do
+  // agente bloqueado fica desabilitada e o operador não conseguiria desmarcá-la para
+  // salvar. Quem faz a marcação gravada reaparecer ao provisionar é o SERVIDOR, que
+  // preserva o tipo bloqueado que já estava gravado em vez de apagá-lo
+  // (`tiposBloqueadosAPreservar`, chat-autonomia.service.ts) — a tela sozinha não bastaria.
   const tiposEnviados = config.tipos.filter(podeMarcar);
   const semAgente = config.ativa && tiposEnviados.length === 0;
   const bloqueados = TIPOS_DE_AGENTE.filter(t => bloqueio(t));

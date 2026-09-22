@@ -203,6 +203,13 @@ export function registerDemoRoutes(): Router {
       // reaproveitamento acima: um visitante que VOLTA nunca é barrado por um
       // teto que existe para conter CRIAÇÃO nova.
       //
+      // E isso inclui a SUBSTITUIÇÃO: quando o sandbox anterior ao mundo atual
+      // já foi apagado duas linhas acima, esta criação não acrescenta ninguém
+      // — reocupa a vaga que o mesmo visitante acabou de devolver. Barrá-lo
+      // aqui o deixava SEM demonstração nenhuma (o antigo morto, o novo não
+      // nascido, a sessão destruída), e o limitador da porta é de 2 por IP a
+      // cada 10 min: a segunda tentativa podia ser a última antes da espera.
+      //
       // A checagem e a criação rodam DENTRO do mesmo `filaDeCriacaoDoSandbox`
       // — não cada uma no seu próprio `limit(...)` — porque é a DUPLA
       // (conferir E criar como uma coisa só) que precisa ser atômica dentro
@@ -211,14 +218,15 @@ export function registerDemoRoutes(): Router {
       let sandbox: Awaited<ReturnType<typeof criarSandbox>>;
       try {
         sandbox = await filaDeCriacaoDoSandbox(async () => {
-          if ((await contarSandboxesVivos()) >= TETO_DE_SANDBOXES_VIVOS) {
+          if (!sandboxAntigoApagado && (await contarSandboxesVivos()) >= TETO_DE_SANDBOXES_VIVOS) {
             throw new TetoDeSandboxesAtingidoError();
           }
           return criarSandbox();
         });
       } catch (error) {
+        // Só chega aqui quem NÃO apagou nada (a guarda acima): a sessão ainda
+        // aponta para o sandbox que o visitante tem, e nada fica órfão.
         if (error instanceof TetoDeSandboxesAtingidoError) {
-          if (sandboxAntigoApagado) await esquecerSessao(req);
           return res.status(503).json({ message: MENSAGEM_DEMO_CONCORRIDA });
         }
         throw error;

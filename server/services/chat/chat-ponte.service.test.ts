@@ -752,6 +752,28 @@ describe("religarRetornoSePausado — a automação de retorno que o fork pausa 
     _usarClienteDoChatParaTestes(null); comRetorno();
     await expect(religarRetornoSePausado(6)).rejects.toMatchObject({ codigo: "CHAT_DESLIGADO" });
   });
+  /*
+   * O trinco `respostaHumanaCriacaoIniciada` existe para nao criar duas
+   * automacoes quando a primeira resposta se perdeu. Ele so era solto no 4xx:
+   * um 5xx — ou um tempo esgotado, em que nem `status` vem — deixava o
+   * provedor travado PARA SEMPRE, porque a conferencia (c) passou a levar
+   * TODO envio ate aqui e o CONFLITO nao tem botao que o destrave.
+   */
+  it("criação recusada com 5xx ou sem resposta: o trinco é solto e a tentativa seguinte volta a criar, em vez de travar o provedor para sempre", async () => {
+    const c = clienteFalso({ criarAutomacao: vi.fn(async () => ({ ok: false, erro: "Bad gateway", status: 502 })) });
+    comRetorno({ respostaHumanaAutomacaoId: null });
+    await expect(religarRetornoSePausado(6)).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
+    expect(fake.integracao.agenteConfig.respostaHumanaCriacaoIniciada).toBe(false);
+    // Tempo esgotado: o cliente devolve `ok:false` SEM `status` — era este o caso sem saída.
+    c.criarAutomacao.mockResolvedValueOnce({ ok: false, erro: "O Chat BullQ não respondeu em 15s" } as never);
+    await expect(religarRetornoSePausado(6)).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
+    expect(fake.integracao.agenteConfig.respostaHumanaCriacaoIniciada).toBe(false);
+    // E a próxima tentativa chega de fato ao fork — nunca ao CONFLITO "a criação anterior não foi confirmada".
+    c.criarAutomacao.mockResolvedValueOnce({ ok: true, valor: { id: "a-nova" } } as never);
+    expect(await religarRetornoSePausado(6)).toEqual({ estado: "recriada" });
+    expect(c.criarAutomacao).toHaveBeenCalledTimes(3);
+    expect(fake.integracao.agenteConfig).toMatchObject({ respostaHumanaAutomacaoId: "a-nova", respostaHumanaCriacaoIniciada: false });
+  });
 
   it("(a) ao salvar o canal: confere DEPOIS de gravar o canal e o serviço de WhatsApp, e religa a automação pausada", async () => {
     const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_PAUSADO] })) }); comRetorno();
@@ -783,6 +805,18 @@ describe("religarRetornoSePausado — a automação de retorno que o fork pausa 
     c.listarAutomacoes.mockResolvedValueOnce({ ok: false, erro: "timeout" } as never);
     await expect(garantirTransferenciaNaResposta(6)).resolves.toBeUndefined();
     expect(log.warn).toHaveBeenCalled();
+  });
+  /*
+   * A conferencia fica fora da trava `config:`, mas nao fora da COALESCENCIA:
+   * antes ela vivia dentro da chave `config:` de `umaOperacao` e N contatos
+   * concorrentes do mesmo provedor viravam uma execucao so. Sem chave propria,
+   * cada contato de uma leva pagaria o seu `GET /automations` — e com o
+   * relogio de 15 s do cliente, nao com o curto que a tela ja usa.
+   */
+  it("(c) a conferência do envio usa o relógio curto (5 s) e contatos concorrentes do mesmo provedor pagam UMA ida ao fork", async () => {
+    const c = clienteFalso({ listarAutomacoes: vi.fn(async () => ({ ok: true, valor: [RETORNO_LIGADO] })) }); comRetorno();
+    await Promise.all([garantirTransferenciaNaResposta(6), garantirTransferenciaNaResposta(6), garantirTransferenciaNaResposta(6)]);
+    expect(c.listarAutomacoes).toHaveBeenCalledExactlyOnceWith("org_1", { timeoutMs: 5000 });
   });
   it("(c) a ida ao fork fica FORA da trava config: ligada, nenhuma trava é tomada; pausada, a listagem roda antes e só o toggle dentro", async () => {
     // A trava `config:` é compartilhada entre API e worker e não espera (quem

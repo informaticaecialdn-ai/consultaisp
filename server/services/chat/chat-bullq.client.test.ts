@@ -564,6 +564,14 @@ describe("automações de retorno", () => {
     expect(snake.ok && snake.valor[0]).toMatchObject({ id: "a3", enabled: false, autoPausedAt: "2026-09-16T17:10:00.000Z", consecutiveFailures: 5 });
   });
 
+  it("o segredo do webhook de retorno não volta na listagem — o resto da ação continua inteiro", async () => {
+    const s = servidorComSessao();
+    s.quando("GET", "/automations", () => ({ corpo: { data: [{ id: "a1", name: "Retorno", trigger: "MESSAGE_RECEIVED", actions: [{ type: "call_webhook", params: { url: "https://consultaisp.com.br/api/webhooks/chat-bullq", secret: "whs_do_provedor" } }] }] } }));
+    const r = await cliente(s).listarAutomacoes(ORG);
+    expect(r.ok && r.valor[0].actions).toEqual([{ type: "call_webhook", params: { url: "https://consultaisp.com.br/api/webhooks/chat-bullq" } }]);
+    expect(JSON.stringify(r)).not.toContain("whs_do_provedor");
+  });
+
   it("registro sem os campos de pausa vale como ligada e sem contagem — nunca como pausada por omissão", async () => {
     const s = servidorComSessao();
     s.quando("GET", "/automations", () => ({ corpo: { data: [{ id: "a9", name: "Antiga", trigger: "MESSAGE_RECEIVED" }] } }));

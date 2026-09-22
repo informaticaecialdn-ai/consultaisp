@@ -118,8 +118,7 @@ export interface EstadoDaIntegracaoDoChat {
  * ao fork. A automacao de retorno vista de la e `retornoDaIntegracao`.
  */
 export async function estadoDaIntegracao(providerId: number): Promise<EstadoDaIntegracaoDoChat> {
-  const cliente = clienteDoChat();
-  const ligado = cliente !== null;
+  const ligado = clienteDoChat() !== null;
   const intg = await storage.getIntegracaoDoChat(providerId);
   const whatsapp = (intg?.agenteConfig as { whatsapp?: { provider?: ProvedorWhatsapp } } | null)?.whatsapp;
   return {
@@ -379,16 +378,26 @@ function segredoAleatorio(): string {
  * religar ou recriar, quando a automacao de retorno de fato nao esta ligada.
  */
 export async function garantirTransferenciaNaResposta(providerId: number): Promise<void> {
-  if (!(await retornoPrecisaDeAcao(providerId))) return;
+  if (!(await umaOperacao(`retorno:${providerId}`, () => retornoPrecisaDeAcao(providerId)))) return;
   const { comTravaDaConfiguracaoDoChat } = await import("./chat-agentes.service");
   return umaOperacao(`config:${providerId}`, () => comTravaDaConfiguracaoDoChat(providerId, () => configurarTransferenciaNaResposta(providerId)));
 }
-/** (c) so leitura, fora da trava: false = ligada no fork (nada a fazer) ou fork sem resposta (aviso; o envio nao cai por isso). */
+/**
+ * (c) so leitura, fora da trava: false = ligada no fork (nada a fazer) ou fork
+ * sem resposta (aviso; o envio nao cai por isso).
+ *
+ * Com o relogio CURTO, o mesmo da tela: aqui quem espera e o envio — o
+ * operador na frente do botao e a leva automatica de cobranca —, e nao pode
+ * ficar 15 s por caso preso a um fork fora do ar. E com chave propria em
+ * `umaOperacao`: os contatos CONCORRENTES do mesmo provedor voltam a colapsar
+ * numa conferencia so, como colapsavam na chave `config:` antes de a leitura
+ * sair de dentro dela.
+ */
 async function retornoPrecisaDeAcao(providerId: number): Promise<boolean> {
   const cliente = clienteDoChat();
   const intg = cliente ? await storage.getIntegracaoDoChat(providerId) : null;
   if (!cliente || !intg || intg.providerId !== providerId) return true; // a trava responde com o erro certo (desligado / SEM_CANAL / CONFLITO)
-  const r = await automacaoDeRetornoNoFork(cliente, intg);
+  const r = await automacaoDeRetornoNoFork(cliente, intg, TIMEOUT_DA_CONFERENCIA_MS);
   if (r.situacao === "falhou") {
     logger.warn({ providerId, automacaoId: r.automacaoId, erro: r.erro }, "Chat: não foi possível conferir a automação de retorno no fork");
     return false;
@@ -408,7 +417,7 @@ async function configurarTransferenciaNaResposta(providerId: number): Promise<vo
 }
 
 const NOME_DA_AUTOMACAO_DE_RETORNO = "Consulta ISP · resposta para humano";
-/** Tempo maximo da conferencia feita para a TELA: a aba Chat nao espera os 15 s do cliente por um fork fora do ar. */
+/** Tempo maximo da conferencia: nem a aba Chat nem o envio esperam os 15 s do cliente por um fork fora do ar. */
 const TIMEOUT_DA_CONFERENCIA_MS = 5_000;
 
 function idDaAutomacaoDeRetorno(agenteConfig: unknown): string | null {
@@ -524,7 +533,13 @@ async function criarAutomacaoDeRetorno(providerId: number, cliente: ChatBullqCli
   if (config.respostaHumanaCriacaoIniciada) throw new ErroDaPonteDoChat("CONFLITO", "A criação da automação anterior não foi confirmada. Confira o Chat BullQ antes de repetir.");
   await storage.guardarAgenteDoChat(providerId, { agenteConfig: { ...config, respostaHumanaCriacaoIniciada: true } });
   const r = await cliente.criarAutomacao(intg.organizationId, { nome, trigger: "MESSAGE_RECEIVED", actions: [{ type: "call_webhook", params: { url: urlDoWebhookDeVolta(), secret } }] });
-  if (!r.ok && r.status && r.status >= 400 && r.status < 500) await storage.guardarAgenteDoChat(providerId, { agenteConfig: { ...config, respostaHumanaCriacaoIniciada: false } });
+  // O trinco e solto em TODA falha, nao so no 4xx. Um 5xx — ou um tempo
+  // esgotado, em que nem `status` vem — deixava o trinco ligado para sempre:
+  // a partir dai todo envio deste provedor morria no CONFLITO acima, e nem o
+  // botao "religar" da aba destravava (ele desemboca aqui). Nao ha nada a
+  // perder: se a criacao tiver acontecido mesmo assim, o reencontro pelo nome
+  // (`existentes`, acima) adota a automacao na proxima passada em vez de duplicar.
+  if (!r.ok) await storage.guardarAgenteDoChat(providerId, { agenteConfig: { ...config, respostaHumanaCriacaoIniciada: false } });
   if (!r.ok) throw new ErroDaPonteDoChat("CHAT_FALHOU", "Não foi possível configurar o recebimento das respostas. Confira o suporte a call_webhook no Chat BullQ.");
   await storage.guardarAgenteDoChat(providerId, { agenteConfig: { ...config, respostaHumanaAutomacaoId: r.valor.id, respostaHumanaCriacaoIniciada: false, modoAtendimento: "primeira_resposta_humana" } });
 }

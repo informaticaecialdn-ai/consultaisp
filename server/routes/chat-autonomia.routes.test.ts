@@ -140,6 +140,23 @@ describe("configuracao", () => {
     expect(await p.json()).toMatchObject({ codigo: "CHAT_FALHOU", message: expect.stringContaining("credencial do modelo") });
     expect(loggerMock.warn).toHaveBeenCalledWith(expect.objectContaining({ codigo: "CHAT_FALHOU", razao: expect.stringContaining("credencial do modelo") }), expect.stringContaining("configura"));
   });
+  /*
+   * A razao vem do fork e este codigo nao a inspeciona: um 400 de validacao de
+   * la ecoa o que foi ENVIADO, e o corpo enviado leva telefone do cliente. O
+   * toast e resposta ao operador e mostra a frase inteira; o LOG e registro e
+   * nao pode guardar dado pessoal (LGPD).
+   */
+  it("a razao do fork vai ao log sem dado pessoal: telefone e CPF ecoados por ele nao ficam registrados — e o toast segue inteiro", async () => {
+    sessao = ADMIN;
+    const frase = "phone must be a valid phone number: 5543999887766 (documento 12345678909)";
+    servico.devolverAoAssistente.mockRejectedValueOnce(new ErroDaPonteDoChat("CHAT_FALHOU", frase, 400));
+    const d = await json("POST", "/api/chat-bullq/autonomia/conversas/conv_1/devolver");
+    expect(d.status).toBe(502);
+    expect(await d.json()).toEqual({ message: frase, codigo: "CHAT_FALHOU" });
+    const registrada = loggerMock.warn.mock.calls.at(-1)?.[0].razao as string;
+    expect(registrada).toBe("phone must be a valid phone number: … (documento …)");
+    expect(registrada).not.toMatch(/\d{4}/);
+  });
   /**
    * A frase das migracoes (0028/0034) so para o caso REAL — tabela ausente,
    * `42P01` do Postgres. Banco fora, timeout ou trava: 503 com uma frase que o

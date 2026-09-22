@@ -28,13 +28,22 @@ const userDaSessao = (req: Request): number | null => (typeof req.session.userId
 const statusDaPonte = (e: ErroDaPonteDoChat) => e.codigo === "CASO_NAO_ENCONTRADO" ? 404 : e.codigo === "CHAT_DESLIGADO" ? 503 : e.codigo === "CHAT_FALHOU" ? 502 : 409;
 
 /**
+ * A razao do fork nao passa PELO LOG como veio. Ela e o `message` da API dele,
+ * que este codigo nao inspeciona: um 400 de validacao ecoa o que foi ENVIADO, e
+ * o corpo enviado leva telefone do cliente. Toda sequencia de 4 ou mais digitos
+ * vira "…" antes de ir ao log (telefone, CPF, id de documento), e a frase e
+ * cortada — o operador continua lendo a razao inteira no toast, que e resposta
+ * a ele e nao registro. LGPD: nada de dado pessoal em log sem anonimizacao.
+ */
+const razaoSemDadoPessoal = (mensagem: string) => mensagem.replace(/\d{4,}/g, "…").slice(0, 300);
+
+/**
  * O erro da ponte vira a resposta. A recusa do Chat BullQ (CHAT_FALHOU) fica
  * no log com a razao — o cliente da ponte loga so metodo/caminho/status, e
  * senao a recusa em producao so seria vista se o operador copiasse o toast.
- * A razao e o `message` da API ou a frase que o servico montou: sem PII.
  */
 function respostaDaPonte(res: Response, e: ErroDaPonteDoChat, contexto: string) {
-  if (e.codigo === "CHAT_FALHOU") logger.warn({ codigo: e.codigo, status: e.status, razao: e.message }, `Autonomia do chat: o Chat BullQ recusou — ${contexto}`);
+  if (e.codigo === "CHAT_FALHOU") logger.warn({ codigo: e.codigo, status: e.status, razao: razaoSemDadoPessoal(e.message) }, `Autonomia do chat: o Chat BullQ recusou — ${contexto}`);
   return res.status(statusDaPonte(e)).json({ message: e.message, codigo: e.codigo });
 }
 /** `undefined_table` do Postgres — a unica prova, aqui, de que a migracao nao rodou. */
